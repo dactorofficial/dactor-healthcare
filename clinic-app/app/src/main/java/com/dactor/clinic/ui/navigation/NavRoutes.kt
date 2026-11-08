@@ -1,0 +1,31 @@
+package com.dactor.clinic.ui.navigation
+
+object NavRoutes {
+    const val ClinicLogin = "clinic_login"
+    const val ClinicRegister = "clinic_register"
+    const val DoctorLogin = "doctor_login"
+    const val DoctorRegister = "doctor_register"
+    const val DoctorKYC = "doctor_kyc"
+    const val Dashboard = "dashboard"
+    const val DoctorDashboard = "doctor_dashboard"
+    const val SlotManager = "slot_manager"
+    const val QueueBoard = "queue_board"
+    const val PatientDirectory = "patient_directory"
+    const val PatientDetail = "patient_detail"
+    const val BillingScreen = "billing_screen"
+    const val PaymentLogs = "payment_logs"
+    const val CatalogManager = "catalog_manager"
+    const val FutureAppointments = "future_appointments"
+    const val WalkinBooking = "walkin_booking"
+    const val LabWorkflow = "lab_workflow"
+    const val InvitationManager = "invitation_manager"
+    const val ClinicSettings = "clinic_settings"
+    const val ServicesScreen = "services_screen"
+    const val ConsultationFeeManager = "consultation_fee_manager"
+    const val NoShowManager = "no_show_manager"
+    const val AverageTime = "average_time"
+    const val WorkingHoursBreak = "working_hours_break"
+    const val Notifications = "notifications"
+    const val PayAtDeskRequests = "pay_at_desk_requests"
+}
+
