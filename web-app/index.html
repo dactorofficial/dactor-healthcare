@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en" class="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    
+    <!-- Primary SEO Meta Tags -->
+    <title>Dactor - Nepal's Realtime Healthcare OPD Queue, Clinic Portal & Lab Ecosystem</title>
+    <meta name="title" content="Dactor - Nepal's Realtime Healthcare OPD Queue, Clinic Portal & Lab Ecosystem" />
+    <meta name="description" content="Book doctor appointments online in Nepal, track live OPD clinic token queues in real-time, find specialist doctors, order pathology lab tests (MRI, CT, Blood), and download verified medical reports on Dactor." />
+    <meta name="keywords" content="book doctor appointment Nepal, doctor appointment Kathmandu, online clinic booking Nepal, Patan clinic doctor booking, Dr kshitiz eye specialist Kathmandu, ophthalmologist Nepal, find clinic near me Nepal, live OPD queue tracker Nepal, live token queue, pathology lab reports Nepal, Kathmandu OPD doctor, health tech Nepal, Dactor" />
+    <meta name="author" content="Dactor Health Technologies" />
+    <meta name="theme-color" content="#0284c7" />
+    <link rel="canonical" href="https://dactorofficial.github.io/dactor/" />
+    <meta name="google-site-verification" content="MBuPJoy49gmL3v8DrUGKbEUjkqcVPc8hIP8rfbWBUyk" />
+
+    <!-- Local & Geographic Meta Tags for Google Maps / Local Doctor Search -->
+    <meta name="geo.region" content="NP-BA" />
+    <meta name="geo.placename" content="Kathmandu, Lalitpur, Patan, Nepal" />
+    <meta name="geo.position" content="27.6710;85.3216" />
+    <meta name="ICBM" content="27.6710, 85.3216" />
+
+    <!-- Search Engine & AI Crawler Directives -->
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large" />
+    <meta name="bingbot" content="index, follow" />
+    <meta name="ai-content-declaration" content="healthcare-directory" />
+
+    <!-- Open Graph / Facebook / LinkedIn / WhatsApp Sharing -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Dactor Health Ecosystem" />
+    <meta property="og:url" content="https://dactorofficial.github.io/dactor/" />
+    <meta property="og:title" content="Dactor - Realtime Healthcare OPD Queue & Diagnostic Ecosystem" />
+    <meta property="og:description" content="Track live OPD token queue status in real time, consult specialist doctors, book appointments, and access certified pathology lab reports across Nepal." />
+    <meta property="og:image" content="https://dactorofficial.github.io/dactor/app_logo.svg" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter Cards -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://dactorofficial.github.io/dactor/" />
+    <meta name="twitter:title" content="Dactor - Nepal Healthcare OPD Queue & Clinic Portal" />
+    <meta name="twitter:description" content="Live OPD queue tracking, smart doctor appointment booking, and diagnostic test results for patients and clinics." />
+    <meta name="twitter:image" content="https://dactorofficial.github.io/dactor/app_logo.svg" />
+
+    <!-- Favicons & Mobile Touch Icons -->
+    <link rel="icon" type="image/svg+xml" href="./app_logo.svg" />
+    <link rel="apple-touch-icon" href="./app_logo.svg" />
+
+    <!-- Preconnect & Typography Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Leaflet v1.9.4 (Open Source Interactive Maps) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <!-- Schema.org JSON-LD Structured Data for Google Knowledge Graph, Rich Snippets & AI Search -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "MedicalOrganization",
+          "@id": "https://dactorofficial.github.io/dactor/#organization",
+          "name": "Dactor Health",
+          "url": "https://dactorofficial.github.io/dactor/",
+          "logo": "https://dactorofficial.github.io/dactor/app_logo.svg",
+          "description": "Nepal's premier real-time healthcare queue management, clinic portal, and diagnostic pathology laboratory platform.",
+          "address": {
+            "@type": "PostalAddress",
+            "addressCountry": "Nepal",
+            "addressLocality": "Kathmandu"
+          },
+          "medicalSpecialty": [
+            "GeneralPractice",
+            "Cardiovascular",
+            "Pathology",
+            "Pediatric",
+            "Dermatologic",
+            "Orthopedic",
+            "Gynecologic",
+            "Radiology"
+          ]
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://dactorofficial.github.io/dactor/#website",
+          "url": "https://dactorofficial.github.io/dactor/",
+          "name": "Dactor Healthcare Ecosystem",
+          "description": "Realtime OPD Token Queue Tracker, Doctor Appointments & Diagnostic Lab Results",
+          "publisher": {
+            "@id": "https://dactorofficial.github.io/dactor/#organization"
+          },
+          "potentialAction": [
+            {
+              "@type": "SearchAction",
+              "target": "https://dactorofficial.github.io/dactor/?tab=clinics&q={search_term_string}",
+              "query-input": "required name=search_term_string"
+            },
+            {
+              "@type": "ReserveAction",
+              "target": {
+                "@type": "EntryPoint",
+                "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic={clinic_id}&action=book",
+                "inLanguage": "en",
+                "actionPlatform": [
+                  "http://schema.org/DesktopWebPlatform",
+                  "http://schema.org/MobileWebPlatform",
+                  "http://schema.org/AndroidPlatform"
+                ]
+              },
+              "result": {
+                "@type": "MedicalReservation",
+                "name": "Book OPD Doctor Appointment"
+              }
+            }
+          ]
+        },
+        {
+          "@type": "FAQPage",
+          "@id": "https://dactorofficial.github.io/dactor/#faq",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "How do I book a doctor appointment online in Nepal on Dactor?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Search for your preferred clinic, polyclinic, or specialist doctor on Dactor, choose an available date and time slot, enter patient details, and confirm your booking. You will instantly receive a live 10-digit OPD tracking code to monitor real-time queue position."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How does Dactor live OPD queue tracking work?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Every booked patient receives a 10-digit tracking code. Enter this code into the Dactor Live Queue tracker to view current consulting token numbers, estimated wait time in minutes, doctor availability, and real-time live delays."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Can I book diagnostic lab tests like MRI, CT Scan, and Blood Tests on Dactor?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes, Dactor supports verified diagnostic pathology laboratories across Nepal. Select your required scans or tests, book a time slot, and download certified medical reports directly from the portal."
+              }
+            }
+          ]
+        },
+        {
+          "@type": "SoftwareApplication",
+          "name": "Dactor OPD Queue & Clinic Portal",
+          "operatingSystem": "All Web Browsers, Android",
+          "applicationCategory": "HealthApplication",
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "NPR"
+          }
+        },
+        {
+          "@type": ["MedicalClinic", "MedicalBusiness", "LocalBusiness"],
+          "@id": "https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27#clinic",
+          "name": "Patan Clinic",
+          "description": "Multi-specialty OPD clinic and diagnostic laboratory in Nepal. Book doctor appointments online and track live queue token numbers in real time.",
+          "url": "https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27",
+          "telephone": "+9779885665578",
+          "currenciesAccepted": "NPR",
+          "paymentAccepted": "Cash, eSewa, Khalti, Mobile Banking, Credit Card",
+          "priceRange": "NPR 100 - 1500",
+          "isAcceptingNewPatients": true,
+          "address": {
+            "@type": "PostalAddress",
+            "streetAddress": "7X8P+422, Patan / Varanasi Division",
+            "addressLocality": "Kathmandu",
+            "addressCountry": "NP"
+          },
+          "potentialAction": {
+            "@type": "ReserveAction",
+            "name": "Book Appointment at Patan Clinic",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&action=book",
+              "inLanguage": "en",
+              "actionPlatform": [
+                "http://schema.org/DesktopWebPlatform",
+                "http://schema.org/MobileWebPlatform",
+                "http://schema.org/AndroidPlatform"
+              ]
+            },
+            "result": {
+              "@type": "MedicalReservation",
+              "name": "OPD Appointment at Patan Clinic"
+            }
+          }
+        },
+        {
+          "@type": ["Physician", "Person"],
+          "@id": "https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27#doctor-0cef6ace-aeb2-4c65-91dc-7d15dc3791ea",
+          "name": "Dr. kshitiz",
+          "honorificPrefix": "Dr.",
+          "jobTitle": "Ophthalmology (Eye Care Specialist)",
+          "medicalSpecialty": ["https://schema.org/Ophthalmologic"],
+          "worksFor": {
+            "@type": "MedicalClinic",
+            "name": "Patan Clinic",
+            "url": "https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27"
+          },
+          "currenciesAccepted": "NPR",
+          "priceRange": "NPR 500",
+          "isAcceptingNewPatients": true,
+          "knowsLanguage": ["ne", "en", "hi"],
+          "offers": {
+            "@type": "Offer",
+            "price": 500,
+            "priceCurrency": "NPR",
+            "availability": "https://schema.org/InStock"
+          },
+          "potentialAction": {
+            "@type": "ReserveAction",
+            "name": "Book Consultation with Dr. kshitiz",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&doctor=0cef6ace-aeb2-4c65-91dc-7d15dc3791ea&action=book",
+              "inLanguage": "en",
+              "actionPlatform": [
+                "http://schema.org/DesktopWebPlatform",
+                "http://schema.org/MobileWebPlatform",
+                "http://schema.org/AndroidPlatform"
+              ]
+            },
+            "result": {
+              "@type": "MedicalReservation",
+              "name": "Doctor Consultation with Dr. kshitiz"
+            }
+          }
+        }
+      ]
+    }
+    </script>
+
+    <!-- Single Page Apps for GitHub Pages redirect receiver -->
+    <script type="text/javascript">
+      (function(l) {
+        if (l.search[1] === '/') {
+          var decoded = l.search.slice(1).split('&').map(function(s) {
+            return s.replace(/~and~/g, '&');
+          }).join('?');
+          window.history.replaceState(null, null,
+            l.pathname.slice(0, -1) + decoded + l.hash
+          );
+        }
+      }(window.location));
+    </script>
+    <!-- Instant Pre-Mount Redirect for Logged-In Patients on Landing -->
+    <script type="text/javascript">
+      (function() {
+        try {
+          var l = window.location;
+          var isPatient = localStorage.getItem('dactor_patient_logged_in') === 'true' || 
+                          Boolean(localStorage.getItem('dactor_patient_session')) ||
+                          Boolean(localStorage.getItem('dactor_patient_email'));
+          var isHomeExplicit = l.search.indexOf('view=home') !== -1 || 
+                               l.hash.indexOf('view=home') !== -1 ||
+                               l.search.indexOf('stay=home') !== -1;
+          var hasOtherHash = l.hash && l.hash !== '#/' && l.hash !== '#home' && l.hash !== '';
+          var hasSpecificQuery = l.search.indexOf('clinic=') !== -1 || 
+                                 l.search.indexOf('doctor=') !== -1 || 
+                                 l.search.indexOf('code=') !== -1 || 
+                                 l.search.indexOf('tab=') !== -1 || 
+                                 l.search.indexOf('page=') !== -1;
+
+          if (isPatient && !isHomeExplicit && !hasOtherHash && !hasSpecificQuery) {
+            if (!l.hash || l.hash === '#/' || l.hash === '#home' || l.hash === '') {
+              l.hash = '#patient-portal';
+            }
+          }
+        } catch(e) {}
+      })();
+    </script>
+
+  </head>
+  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-sky-500 selection:text-white font-sans">
+    <noscript>
+      <div style="padding: 24px; font-family: sans-serif; max-width: 800px; margin: 0 auto; line-height: 1.6;">
+        <h1>Dactor - Nepal Healthcare OPD Queue Tracker & Clinic Booking Portal</h1>
+        <p>Dactor connects patients with verified clinics, specialist doctors, and diagnostic pathology laboratories across Nepal. Book online OPD consultations and track real-time queue numbers.</p>
+        
+        <h2>Verified Doctors & Clinics in Nepal</h2>
+        <ul>
+          <li>
+            <strong>Dr. kshitiz - Eye Specialist / Ophthalmologist</strong> (Consultation Fee: NPR 500)<br />
+            Clinic: Patan Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&doctor=0cef6ace-aeb2-4c65-91dc-7d15dc3791ea&action=book">Book Online Consultation with Dr. kshitiz</a>
+          </li>
+          <li>
+            <strong>Patan Clinic (Multi-Specialty OPD & Diagnostic Center)</strong><br />
+            Specialties: Ophthalmology, General OPD, Pathology Diagnostics<br />
+            Phone: +977-9885665578<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&action=book">Book Appointment at Patan Clinic</a>
+          </li>
+        </ul>
+
+        <h2>Diagnostic Pathology & Imaging Services</h2>
+        <p>Book medical tests and diagnostic scans across Nepal:</p>
+        <ul>
+          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&filter=lab&q=mri">Magnetic Resonance Imaging (MRI Scan)</a></li>
+          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&filter=lab&q=ct+scan">Computed Tomography (CT Scan)</a></li>
+          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&filter=lab&q=ultrasound">Ultrasonography (USG / Ultrasound)</a></li>
+          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&filter=lab&q=xray">Digital X-Ray</a></li>
+          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&filter=lab&q=blood+test">Pathology Blood Tests (CBC, LFT, KFT, Lipid Profile, Thyroid Panel)</a></li>
+        </ul>
+
+        <h2>Live OPD Queue Token Tracking</h2>
+        <p>Track your token position, doctor status, and estimated wait times in real time: <a href="https://dactorofficial.github.io/dactor/?tab=live-queue">Dactor Live Queue Tracker</a>.</p>
+      </div>
+    </noscript>
+    <div id="root"></div>
+
+    <!-- Firebase Web SDK (project: dactor-ea1e1) -->
+    <!-- Firebase Web SDK (compat mode - preserved intact by Vite build) -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script>
+      (function() {
+        var firebaseConfig = {
+          apiKey: "AIzaSyCc1ho812HhFLO3-XeNcDT_1Y68BdpzObU",
+          authDomain: "dactor-ea1e1.firebaseapp.com",
+          projectId: "dactor-ea1e1",
+          storageBucket: "dactor-ea1e1.firebasestorage.app",
+          messagingSenderId: "429529188002",
+          appId: "1:429529188002:web:cd7cf4e561779910ab79fb",
+          measurementId: "G-9SK7JVV6XM"
+        };
+
+        try {
+          if (!window.firebase.apps.length) {
+            window.firebase.initializeApp(firebaseConfig);
+          }
+          var auth = window.firebase.auth();
+          var googleProvider = new window.firebase.auth.GoogleAuthProvider();
+          googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+          window.dactorFirebase = {
+            app: window.firebase.app(),
+            auth: auth,
+            googleProvider: googleProvider,
+            initialized: true,
+            signInWithGoogle: function() {
+              return auth.signInWithPopup(googleProvider);
+            },
+            signInWithRedirect: function() {
+              return auth.signInWithRedirect(googleProvider);
+            },
+            getRedirectResult: function() {
+              return auth.getRedirectResult();
+            },
+            signOut: function() {
+              return auth.signOut();
+            },
+            onAuthStateChanged: function(cb) {
+              return auth.onAuthStateChanged(cb);
+            }
+          };
+        } catch (err) {
+          console.warn('Firebase initialization notice:', err);
+          window.dactorFirebase = { initialized: false, error: String(err) };
+        }
+      })();
+    </script>
+
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Patient & Guardian Privacy Policy | Dactor Nepal</title>
+  <meta name="description" content="Official Privacy Policy for patients, families, and guardians using the Dactor outpatient queue tracking, doctor discovery, and lab report portal in Nepal.">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#0d9488">
+  <link rel="canonical" href="https://dactorofficial.github.io/dactor/privacy-patient.html">
+  <link rel="icon" type="image/png" href="../../app_logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #070b14;
+      --card-bg: #0f172a;
+      --card-border: rgba(255, 255, 255, 0.08);
+      --teal-primary: #0d9488;
+      --teal-light: #14b8a6;
+      --cyan-accent: #06b6d4;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --emerald-badge: #10b981;
+      --rose-alert: #f43f5e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.7;
+      padding-bottom: 80px;
+    }
+    a { color: var(--teal-light); text-decoration: none; transition: color 0.2s; }
+    a:hover { color: var(--cyan-accent); text-decoration: underline; }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+    /* Top Header */
+    header {
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--card-border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      padding: 16px 0;
+    }
+    .header-content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+    }
+    .brand img {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      object-fit: contain;
+      background: #ffffff;
+      padding: 2px;
+    }
+    .brand-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #ffffff;
+      letter-spacing: -0.02em;
+    }
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.15);
+      text-decoration: none;
+    }
+    /* Switcher Banner */
+    .policy-switcher {
+      margin-top: 24px;
+      background: linear-gradient(135deg, rgba(13, 148, 136, 0.15), rgba(6, 182, 212, 0.08));
+      border: 1px solid rgba(20, 184, 166, 0.3);
+      border-radius: 12px;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .policy-switcher-text {
+      font-size: 0.9rem;
+      color: #e2e8f0;
+    }
+    .policy-switcher-link {
+      font-weight: 700;
+      font-size: 0.88rem;
+      color: var(--teal-light);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    /* Hero Title Card */
+    .hero {
+      margin-top: 28px;
+      padding: 32px;
+      background: radial-gradient(circle at top right, rgba(13, 148, 136, 0.12), transparent 70%), var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+    }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-radius: 6px;
+      background: rgba(13, 148, 136, 0.2);
+      color: var(--teal-light);
+      border: 1px solid rgba(13, 148, 136, 0.4);
+      margin-bottom: 12px;
+    }
+    h1 {
+      font-size: 2.1rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.25;
+      color: #ffffff;
+      margin-bottom: 12px;
+    }
+    .metadata {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      border-top: 1px solid var(--card-border);
+      padding-top: 16px;
+      margin-top: 16px;
+    }
+    .metadata-item strong {
+      color: #ffffff;
+    }
+    /* Badges Bar */
+    .badge-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border-radius: 9999px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+    }
+    .badge.verified {
+      background: rgba(16, 185, 129, 0.1);
+      border-color: rgba(16, 185, 129, 0.3);
+      color: #34d399;
+    }
+    /* Table of Contents */
+    .toc {
+      margin-top: 28px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 24px;
+    }
+    .toc-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .toc ol {
+      padding-left: 20px;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+    @media (min-width: 640px) {
+      .toc ol { grid-template-columns: 1fr 1fr; }
+    }
+    .toc li a {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+    }
+    .toc li a:hover {
+      color: var(--teal-light);
+    }
+    /* Content Sections */
+    article {
+      margin-top: 32px;
+    }
+    section {
+      margin-top: 40px;
+      padding-top: 12px;
+    }
+    h2 {
+      font-size: 1.45rem;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 8px;
+    }
+    h3 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #e2e8f0;
+      margin: 20px 0 10px 0;
+    }
+    p {
+      margin-bottom: 16px;
+      color: #cbd5e1;
+      font-size: 0.95rem;
+    }
+    ul, ol {
+      margin-left: 20px;
+      margin-bottom: 18px;
+      color: #cbd5e1;
+      font-size: 0.95rem;
+    }
+    li {
+      margin-bottom: 8px;
+    }
+    /* Callout Card */
+    .callout {
+      background: rgba(15, 23, 42, 0.9);
+      border-left: 4px solid var(--teal-light);
+      border-radius: 0 10px 10px 0;
+      padding: 16px 20px;
+      margin: 20px 0;
+      border-top: 1px solid var(--card-border);
+      border-right: 1px solid var(--card-border);
+      border-bottom: 1px solid var(--card-border);
+    }
+    .callout.emergency {
+      border-left-color: var(--rose-alert);
+      background: rgba(244, 63, 94, 0.08);
+      border-color: rgba(244, 63, 94, 0.3);
+    }
+    .callout-title {
+      font-weight: 700;
+      font-size: 0.92rem;
+      color: #ffffff;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    /* Table Styling */
+    .table-wrapper {
+      overflow-x: auto;
+      margin: 20px 0;
+      border-radius: 10px;
+      border: 1px solid var(--card-border);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.88rem;
+    }
+    th {
+      background: rgba(255, 255, 255, 0.05);
+      color: #ffffff;
+      padding: 12px 16px;
+      font-weight: 700;
+      border-bottom: 1px solid var(--card-border);
+    }
+    td {
+      padding: 12px 16px;
+      color: #cbd5e1;
+      border-bottom: 1px solid var(--card-border);
+      vertical-align: top;
+    }
+    tr:last-child td {
+      border-bottom: none;
+    }
+    code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+      background: rgba(255, 255, 255, 0.08);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #38bdf8;
+    }
+    /* Contact Box */
+    .contact-box {
+      background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(13, 148, 136, 0.1));
+      border: 1px solid rgba(13, 148, 136, 0.3);
+      border-radius: 14px;
+      padding: 24px;
+      margin-top: 24px;
+    }
+    .contact-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+      margin-top: 14px;
+    }
+    @media (min-width: 640px) {
+      .contact-grid { grid-template-columns: 1fr 1fr; }
+    }
+    .contact-item {
+      font-size: 0.9rem;
+    }
+    .contact-item strong {
+      color: #ffffff;
+      display: block;
+      margin-bottom: 2px;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--teal-light);
+    }
+    /* Footer */
+    footer {
+      margin-top: 60px;
+      border-top: 1px solid var(--card-border);
+      padding-top: 30px;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 0.85rem;
+    }
+    footer a { color: var(--text-muted); }
+    footer a:hover { color: #ffffff; }
+    @media print {
+      body { background: #ffffff; color: #000000; }
+      header, .nav-actions, .policy-switcher, .toc { display: none; }
+      .hero, .callout, .contact-box { border: 1px solid #ccc; background: none; }
+      h1, h2, h3, strong { color: #000000; }
+      p, li, td { color: #333333; }
+      a { color: #000000; text-decoration: underline; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Sticky Top Header -->
+  <header>
+    <div class="container header-content">
+      <a href="./" class="brand">
+        <img src="../../app_logo.png" alt="Dactor Logo">
+        <span class="brand-title">Dactor</span>
+      </a>
+      <div class="nav-actions">
+        <a href="./" class="btn-secondary">Main Platform</a>
+        <a href="javascript:window.print()" class="btn-secondary" title="Print or save as PDF">Print</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <!-- Switcher Banner -->
+    <div class="policy-switcher">
+      <div class="policy-switcher-text">
+        <strong>Are you a clinic, doctor, or diagnostic lab?</strong> Review our dedicated healthcare provider policy governing practice registration, doctor KYC, and institutional duties.
+      </div>
+      <a href="../../privacy-clinic.html" class="policy-switcher-link">View Clinic Privacy Policy &rarr;</a>
+    </div>
+
+    <!-- Hero Card -->
+    <div class="hero">
+      <div class="tag">Patients &amp; Guardians</div>
+      <h1>Patient &amp; Guardian Privacy Policy</h1>
+      <p style="color: #94a3b8; font-size: 1.05rem;">
+        Your medical privacy is sacred. Transparent disclosure of how Dactor schedules outpatient consultations, tracks real-time queue tokens, protects personal health data, and delivers certified lab reports in Nepal.
+      </p>
+
+      <div class="badge-bar">
+        <span class="badge verified">&#10003; Nepal Individual Privacy Act 2075 Compliant</span>
+        <span class="badge verified">&#10003; Google Play Health Apps Compliant</span>
+        <span class="badge verified">&#10003; Public Queue PII Masking</span>
+        <span class="badge">&#128274; TLS 1.3 &amp; AES-256 Storage</span>
+        <span class="badge">&#128683; Absolute Zero Data Selling</span>
+      </div>
+
+      <div class="metadata">
+        <div class="metadata-item"><strong>Effective Date:</strong> October 23, 2026</div>
+        <div class="metadata-item"><strong>Last Updated:</strong> October 23, 2026</div>
+        <div class="metadata-item"><strong>Application Scope:</strong> Patient App (<code>com.dactor.patient</code>), Web Portal, Live Queue Tracker</div>
+        <div class="metadata-item"><strong>Version:</strong> 1.0.26</div>
+      </div>
+    </div>
+
+    <!-- Table of Contents -->
+    <nav class="toc" aria-label="Table of Contents">
+      <div class="toc-title">&#128203; Table of Contents</div>
+      <ol>
+        <li><a href="#section-1">1. Our Sacred Medical Privacy Pledge</a></li>
+        <li><a href="#section-2">2. Personal Information We Collect</a></li>
+        <li><a href="#section-3">3. How We Use Your Information</a></li>
+        <li><a href="#section-4">4. Public Queue PII Masking by Design</a></li>
+        <li><a href="#section-5">5. Lab Reports &amp; Name Verification Gate</a></li>
+        <li><a href="#section-6">6. Patient Choices &amp; "Allow Early Call"</a></li>
+        <li><a href="#section-7">7. Critical Medical Disclaimer (Dial 102)</a></li>
+        <li><a href="#section-8">8. Zero Data Selling &amp; Third Parties</a></li>
+        <li><a href="#section-9">9. Data Security &amp; Encryption</a></li>
+        <li><a href="#section-10">10. Android App Permissions &amp; Google Play Compliance</a></li>
+        <li><a href="#section-11">11. Patient Rights &amp; Account Deletion</a></li>
+        <li><a href="#section-12">12. Children &amp; Minors' Health Data</a></li>
+        <li><a href="#section-13">13. Nepal Laws &amp; Data Protection Officer</a></li>
+      </ol>
+    </nav>
+
+    <article>
+
+      <!-- SECTION 1 -->
+      <section id="section-1">
+        <h2>1. Our Sacred Medical Privacy Pledge</h2>
+        <p>
+          Welcome to <strong>Dactor</strong> ("Dactor", "we", "us", or "our"), Nepal's dedicated outpatient (OPD) queue tracking, doctor appointment booking, and diagnostic laboratory tracking platform.
+        </p>
+        <p>
+          At Dactor, <strong>your medical and personal privacy is sacred</strong>. We believe you should have complete transparency and control over your health information. We designed Dactor with strict "Privacy-by-Design" principles: we collect only what is strictly necessary to schedule your doctor consultations, track your real-time waiting tokens, deliver your certified lab reports securely, and eliminate physical queues in hospital waiting rooms.
+        </p>
+        <div class="callout">
+          <div class="callout-title">&#128274; Absolute Zero Data Selling Guarantee</div>
+          <p style="margin-bottom: 0;">
+            Dactor <strong>does not sell, rent, monetize, or trade</strong> your personal or health data to third-party marketing companies, pharmaceutical sales teams, or data brokers under any circumstances.
+          </p>
+        </div>
+      </section>
+
+      <!-- SECTION 2 -->
+      <section id="section-2">
+        <h2>2. Personal Information We Collect from Patients</h2>
+        <p>
+          We collect personal data directly from you when you register an account, book an OPD appointment, search for healthcare facilities, track live queue positions, or retrieve diagnostic test results:
+        </p>
+
+        <h3>2.1 Identity &amp; Contact Information</h3>
+        <ul>
+          <li><strong>Basic Profile:</strong> Full legal name, mobile telephone number, email address (optional for login/receipts), age, and biological gender.</li>
+          <li><strong>Google Sign-In Account Data:</strong> If you choose to authenticate using Google Sign-In, we collect your name, email address, and profile avatar URL provided by Google LLC strictly for single sign-on authentication and profile pre-fill. We do not request or access your contacts, files, or any other Google account services.</li>
+          <li><strong>Purpose:</strong> Ensures your attending clinic correctly identifies you on their OPD roster and allows you to retrieve booking confirmations and certified lab reports.</li>
+        </ul>
+
+        <h3>2.2 Appointment &amp; OPD Queue Data</h3>
+        <ul>
+          <li><strong>Consultation Selection:</strong> Attending doctor chosen, clinic or polyclinic visited, medical specialty (e.g., Pediatrics, Cardiology, Ophthalmology, Orthopedics, General OPD), scheduled date and time slot, consultation type (First Visit or Follow-up).</li>
+          <li><strong>10-Digit Booking Code:</strong> A private 10-digit booking reference (e.g., <code>DAC-9821-47</code>) and consecutive token number issued for each appointment.</li>
+          <li><strong>Live Queue Interaction:</strong> Real-time queue position, token status, and estimated wait minutes.</li>
+        </ul>
+
+        <h3>2.3 Diagnostic Pathology &amp; Imaging Data</h3>
+        <ul>
+          <li><strong>Lab Test Orders:</strong> Pathology and radiology investigations booked (e.g., CBC, Blood Sugar, Thyroid Profile, Lipid Profile, Digital X-Ray, USG, MRI, CT Scan).</li>
+          <li><strong>3-Stage Progress:</strong> Status updates: (1) Sample Collected, (2) Processing in Lab, and (3) Prepared &amp; Uploaded.</li>
+          <li><strong>Confidential Diagnostic Documents:</strong> Certified lab report documents (PDFs or medical images) generated and uploaded by authorized clinical laboratories for your confidential download.</li>
+        </ul>
+
+        <h3>2.4 Device &amp; Foreground Location Data</h3>
+        <ul>
+          <li><strong>Push Notifications (FCM):</strong> Google Firebase Cloud Messaging token associated with your device to deliver instant queue turn alerts.</li>
+          <li><strong>Foreground Location (OpenStreetMap Discovery):</strong> With your explicit runtime permission, the app checks your current foreground coordinates to measure distance and show clinics nearest to you on an interactive OpenStreetMap. <em>Dactor NEVER tracks your location in the background. If you decline GPS, you can manually type your city (e.g., Kathmandu, Pokhara, Janakpur, Biratnagar, Chitwan) without any loss of functionality.</em></li>
+        </ul>
+      </section>
+
+      <!-- SECTION 3 -->
+      <section id="section-3">
+        <h2>3. How We Use Your Information</h2>
+        <p>
+          We process patient personal information strictly for genuine healthcare coordination:
+        </p>
+        <ul>
+          <li><strong>OPD Queue Token Issuance &amp; Smart Arrival Windows:</strong> Calculating real-time wait times and displaying accurate arrival windows (e.g., "Arrive around 3:20 PM" or "3:15 – 3:30 PM") so you do not waste hours in crowded waiting halls.</li>
+          <li><strong>High-Priority Queue Notifications:</strong> Dispatching instant push notifications:
+            <ul>
+              <li>When your appointment is confirmed;</li>
+              <li>When you are "2 patients away" from entering the doctor's cabin;</li>
+              <li>When the doctor calls your token number;</li>
+              <li>When a verified diagnostic test report has been uploaded and is ready for download.</li>
+            </ul>
+          </li>
+          <li><strong>Identity Verification for Confidential Lab Reports:</strong> Requiring verification of the registered patient's full name before unlocking private pathology report downloads.</li>
+          <li><strong>Electronic Payment &amp; Invoicing:</strong> Generating digital receipts compliant with Nepal Rastra Bank (NRB) digital payment bylaws and Nepal tax regulations.</li>
+          <li><strong>Support &amp; Inquiries:</strong> Resolving booking questions, schedule changes, or payment queries via our Helpdesk ticketing system.</li>
+        </ul>
+      </section>
+
+      <!-- SECTION 4 -->
+      <section id="section-4">
+        <h2>4. Public Queue PII Masking by Design</h2>
+        <p>
+          We recognize that waiting room display screens and public queue boards can inadvertently expose personal health details if not safeguarded. Dactor incorporates <strong>PII Masking by Design</strong>:
+        </p>
+        <ul>
+          <li><strong>Masked Public Displays:</strong> When viewing live queue boards publicly or on clinic lobby TV screens, patient names and telephone numbers are automatically obscured (e.g., <code>Ra*** Sh****</code> and <code>980****123</code>).</li>
+          <li><strong>No Diagnostic Exposure on Queues:</strong> Public queue displays never display the medical reason for consultation, symptoms, or diagnostic findings. Bystanders can only see anonymous token numbers and masked initials.</li>
+          <li><strong>10-Digit Code Security:</strong> Only the patient holding the specific 10-digit private booking code or logged into the verified patient account can see unmasked consultation specifics.</li>
+        </ul>
+      </section>
+
+      <!-- SECTION 5 -->
+      <section id="section-5">
+        <h2>5. Diagnostic Laboratory Confidentiality &amp; Name Verification Gate</h2>
+        <p>
+          Medical test results contain highly sensitive personal health data. To prevent unauthorized access:
+        </p>
+        <ol>
+          <li><strong>3-Stage Verified Pipeline:</strong> Pathology samples are tracked step-by-step from collection to processing to upload by certified technicians.</li>
+          <li><strong>Confidential Name Verification Gate:</strong> To view, open, or download a certified lab report, the user must input the exact registered patient's full name matching the laboratory requisition slip.</li>
+          <li><strong>Expiring Cryptographic Signed URLs:</strong> Lab PDF reports are stored in encrypted private cloud storage buckets. Access links expire within minutes and cannot be publicly scraped, indexed, or shared with third parties.</li>
+        </ol>
+      </section>
+
+      <!-- SECTION 6 -->
+      <section id="section-6">
+        <h2>6. Patient Controls &amp; "Allow Early Call" Opt-In Feature</h2>
+        <p>
+          You maintain complete autonomy over your appointment schedules:
+        </p>
+        <ul>
+          <li><strong>Standard Fixed Slots:</strong> By default, every patient retains their reserved appointment slot. We will never advance your consultation time without your explicit consent.</li>
+          <li><strong>"Allow Early Call" Opt-In Feature:</strong> When booking, you can optionally check <em>"Allow Early Call"</em>. If your doctor finishes consultations ahead of schedule, the clinic may dispatch a push alert offering you an earlier turn. If you cannot make it early, your original reserved slot remains fully protected without penalty.</li>
+        </ul>
+      </section>
+
+      <!-- SECTION 7 -->
+      <section id="section-7">
+        <h2>7. Critical Medical Disclaimer &amp; Emergency Notice (Dial 102)</h2>
+        <div class="callout emergency">
+          <div class="callout-title" style="color: #f43f5e;">&#9888; CRITICAL EMERGENCY NOTICE (CALL 102)</div>
+          <p style="margin-bottom: 0; color: #ffffff;">
+            <strong>Dactor is an outpatient (OPD) queue scheduling, doctor discovery, and lab report delivery platform. Dactor is NOT an emergency response service and does not provide automated clinical diagnosis or emergency triage.</strong>
+            <br><br>
+            If you or someone you are booking for is experiencing acute chest pain, severe shortness of breath, major trauma, profuse bleeding, or any life-threatening emergency, <strong>immediately dial 102 for Nepal Ambulance Service</strong> or proceed directly to the nearest hospital Emergency Room (ER) / Casualty Department.
+          </p>
+        </div>
+      </section>
+
+      <!-- SECTION 8 -->
+      <section id="section-8">
+        <h2>8. Zero Data Selling &amp; Third-Party Service Providers</h2>
+        <p>
+          Dactor will never sell, lease, monetize, or trade your personal or health data. We reject advertising-funded health data monetization. We partner only with essential technology providers to deliver our core services:
+        </p>
+        <ul>
+          <li><strong>Cloud Database (Supabase / PostgreSQL):</strong> Encrypted database storage with Row-Level Security (RLS) guaranteeing multi-tenant data isolation.</li>
+          <li><strong>Push Notifications (Firebase Cloud Messaging - Google LLC):</strong> Delivering encrypted mobile alerts for appointment status changes.</li>
+          <li><strong>Digital Payment Gateways (eSewa &amp; Nepal Digital Wallets):</strong> Processing online consultation fees in compliance with Nepal Rastra Bank guidelines. Dactor never captures or stores your bank credentials, ATM PIN, or wallet password.</li>
+          <li><strong>Mapping (OpenStreetMap &amp; MapLibre):</strong> Displaying open-source community maps without third-party behavioral profiling.</li>
+        </ul>
+      </section>
+
+      <!-- SECTION 9 -->
+      <section id="section-9">
+        <h2>9. Data Security &amp; Encryption Standards</h2>
+        <p>
+          We protect your personal health information using multi-layered security controls:
+        </p>
+        <ul>
+          <li><strong>TLS 1.3 Transport Encryption:</strong> All data transmitted between your device and our servers is protected by modern TLS 1.3 cryptographic protocols.</li>
+          <li><strong>Storage Encryption:</strong> Patient databases and diagnostic documents are encrypted at rest using industry-standard AES-256 encryption.</li>
+          <li><strong>Multi-Tenant Row-Level Security (RLS):</strong> Database access is enforced at the database engine level, ensuring only you and your attending clinic can access your health entries.</li>
+        </ul>
+      </section>
+
+      <!-- SECTION 10: ANDROID APP PERMISSIONS & GOOGLE PLAY COMPLIANCE -->
+      <section id="section-10">
+        <h2>10. Android App Permissions &amp; Google Play Health Apps Compliance</h2>
+        <p>
+          The Dactor Patient Android app (<code>com.dactor.patient</code>) requests only permissions strictly necessary for outpatient clinic discovery, live token tracking, and doctor call notifications, adhering strictly to the <strong>Google Play Health Apps Policy</strong>:
+        </p>
+
+        <div style="overflow-x: auto; margin: 20px 0;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13.5px; border: 1px solid var(--card-border);">
+            <thead>
+              <tr style="background: rgba(255,255,255,0.04); text-align: left; border-bottom: 1px solid var(--card-border);">
+                <th style="padding: 12px 14px; color: var(--teal-light); font-family: 'JetBrains Mono', monospace;">Android Permission</th>
+                <th style="padding: 12px 14px; color: var(--text-muted);">Runtime Type</th>
+                <th style="padding: 12px 14px; color: var(--text-muted);">Technical Justification &amp; Purpose</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="border-bottom: 1px solid var(--card-border);">
+                <td style="padding: 12px 14px; font-family: 'JetBrains Mono', monospace; color: #ffffff;">ACCESS_FINE_LOCATION<br><span style="font-size: 11px; color: var(--text-dim);">ACCESS_COARSE_LOCATION</span></td>
+                <td style="padding: 12px 14px;"><span class="badge" style="background: rgba(13,148,136,0.2); color: var(--teal-light); border: 1px solid var(--teal-primary);">Foreground Only</span></td>
+                <td style="padding: 12px 14px; color: var(--text-muted);">Enables the patient to discover nearby clinics, view clinic locations on the interactive map, and calculate accurate road distances. Location is <strong>never tracked in the background</strong> and never shared with third parties.</td>
+              </tr>
+              <tr style="border-bottom: 1px solid var(--card-border);">
+                <td style="padding: 12px 14px; font-family: 'JetBrains Mono', monospace; color: #ffffff;">POST_NOTIFICATIONS</td>
+                <td style="padding: 12px 14px;"><span class="badge" style="background: rgba(16,185,129,0.2); color: #34d399; border: 1px solid var(--emerald-badge);">User Consent</span></td>
+                <td style="padding: 12px 14px; color: var(--text-muted);">Delivers critical real-time OPD token alerts ("Your Token #12 is now called to Doctor's Cabin!"), appointment booking confirmations, and diagnostic lab report notifications so patients do not miss their turn.</td>
+              </tr>
+              <tr>
+                <td style="padding: 12px 14px; font-family: 'JetBrains Mono', monospace; color: #ffffff;">INTERNET<br><span style="font-size: 11px; color: var(--text-dim);">ACCESS_NETWORK_STATE</span></td>
+                <td style="padding: 12px 14px;"><span class="badge" style="background: rgba(255,255,255,0.08); color: var(--text-muted); border: 1px solid var(--card-border);">Normal</span></td>
+                <td style="padding: 12px 14px; color: var(--text-muted);">Connects securely via TLS 1.3 to encrypted Supabase database APIs and Firebase Cloud Messaging servers to sync queue state and verify appointments.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- SECTION 11 -->
+      <section id="section-11">
+        <h2>11. Patient Rights, Data Erasure &amp; Google Play Account Deletion</h2>
+        <p>
+          Under Nepal's Individual Privacy Act 2075 and Google Play Developer Policies, you possess full ownership and rights over your personal data:
+        </p>
+
+        <h3>11.1 Right to Access and Correction</h3>
+        <p>
+          You have the right to inspect your profile data, past consultation records, and downloaded laboratory reports at any time via the Patient Portal. You may update your contact information directly in your profile settings.
+        </p>
+
+        <h3>11.2 Right to Account Deletion (Self-Service &amp; Web Request)</h3>
+        <p>
+          You can permanently delete your Dactor account and associated personal data at any time:
+        </p>
+        <ul>
+          <li><strong>In-App Deletion:</strong> Navigate to <strong>Profile &rarr; Account Safety &rarr; Delete Account</strong>.</li>
+          <li><strong>Web-Based Deletion Portal:</strong> Visit our dedicated statutory deletion portal at <a href="../../data-deletion.html" style="font-weight: 700; color: var(--teal-light);">dactorofficial.github.io/dactor/data-deletion.html</a> to submit an erasure ticket without opening the app.</li>
+          <li><strong>Direct DPO Request:</strong> Email our privacy compliance desk directly at <a href="mailto:dactorofficial@gmail.com?subject=Account%20Deletion%20Request">dactorofficial@gmail.com</a>.</li>
+        </ul>
+
+        <h3>11.3 30-Day Deletion Grace Period</h3>
+        <p>
+          When you initiate account deletion:
+        </p>
+        <ol>
+          <li>Your account is immediately deactivated and disconnected from future booking or marketing interactions.</li>
+          <li>A 30-day security grace period ensures you can recover your health records if the request was made by mistake.</li>
+          <li>After 30 days, all personal identifying records, device tokens, and session credentials are permanently purged from our active systems.</li>
+        </ol>
+      </section>
+
+      <!-- SECTION 12 -->
+      <section id="section-12">
+        <h2>12. Children &amp; Minors' Health Data</h2>
+        <p>
+          Dactor takes children's privacy seriously. Minors under 18 years of age may utilize Dactor services only with the consent and supervision of a parent or legal guardian. Parents and guardians may book OPD pediatric consultations or diagnostic tests on behalf of their children through their guardian account.
+        </p>
+      </section>
+
+      <!-- SECTION 13 -->
+      <section id="section-13">
+        <h2>13. Nepal Laws &amp; Data Protection Officer Contact Details</h2>
+        <p>
+          Dactor operates under the legal framework of Nepal:
+        </p>
+        <ul>
+          <li><strong>Individual Privacy Act 2075 (2018):</strong> Full adherence to privacy principles, lawful consent, sensitive personal data confidentiality, and data subject rights.</li>
+          <li><strong>Privacy Rules 2077 (2020):</strong> Procedures for data protection, processing limitations, and security measures.</li>
+          <li><strong>Electronic Transactions Act 2063 (2008):</strong> Legal recognition of digital health tokens, electronic booking confirmations, and digital receipts.</li>
+          <li><strong>Consumer Protection Act 2075 (2018):</strong> Transparent consultation fees in NPR without hidden surcharges.</li>
+        </ul>
+
+        <div class="contact-box">
+          <h3 style="margin-top: 0; color: #ffffff;">Dactor Nepal Data Protection Officer</h3>
+          <div class="contact-grid">
+            <div class="contact-item">
+              <strong>Official Privacy Email</strong>
+              <a href="mailto:dactorofficial@gmail.com">dactorofficial@gmail.com</a>
+            </div>
+            <div class="contact-item">
+              <strong>Patient Helpdesk Portal</strong>
+              <a href="https://dactorofficial.github.io/support">dactorofficial.github.io/support</a>
+            </div>
+            <div class="contact-item">
+              <strong>Operational Office</strong>
+              Janakpur Dham, Dhanusha, Madhesh Province, Nepal
+            </div>
+            <div class="contact-item">
+              <strong>Response SLA</strong>
+              Acknowledgment within 24&ndash;48 hours
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </article>
+
+    <footer>
+      <p style="margin-bottom: 8px;">
+        &copy; 2026 Dactor Health Technologies Pvt. Ltd. All rights reserved. Nepal Digital Healthcare Platform.
+      </p>
+      <p>
+        <a href="./">Main Platform</a> &bull;
+        <a href="../../privacy.html">Privacy Hub</a> &bull;
+        <a href="../../privacy-patient.html">Patient Privacy Policy</a> &bull;
+        <a href="../../privacy-clinic.html">Clinic Privacy Policy</a> &bull;
+        <a href="../../data-deletion.html">Data Deletion Request</a>
+      </p>
+    </footer>
+
+  </main>
+
+</body>
+</html>

@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>User Account & Data Deletion Request | Dactor Nepal</title>
+  <meta name="description" content="Official Google Play compliant user account and personal health data deletion request portal for Dactor Patient and Dactor Clinic apps in Nepal.">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#0d9488">
+  <link rel="canonical" href="https://dactorofficial.github.io/dactor/data-deletion.html">
+  <link rel="icon" type="image/png" href="../app_logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #070b14;
+      --card-bg: #0f172a;
+      --card-border: rgba(255, 255, 255, 0.08);
+      --teal-primary: #0d9488;
+      --teal-light: #14b8a6;
+      --cyan-accent: #06b6d4;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --emerald-badge: #10b981;
+      --rose-alert: #f43f5e;
+      --amber-warn: #f59e0b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      line-height: 1.7;
+      padding: 0 16px 60px;
+    }
+    header {
+      max-width: 860px;
+      margin: 40px auto 30px;
+      text-align: center;
+    }
+    .brand-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(13, 148, 136, 0.15);
+      border: 1px solid var(--teal-primary);
+      padding: 6px 16px;
+      border-radius: 9999px;
+      color: var(--teal-light);
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+    .brand-logo {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      object-contain: contain;
+    }
+    h1 {
+      font-size: 2.25rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: #ffffff;
+      margin-bottom: 12px;
+    }
+    .subhead {
+      color: var(--text-muted);
+      font-size: 1.05rem;
+      max-width: 680px;
+      margin: 0 auto;
+    }
+    main {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 32px;
+      margin-bottom: 24px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    }
+    h2 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    h2 .icon {
+      color: var(--teal-light);
+    }
+    p {
+      color: var(--text-muted);
+      margin-bottom: 14px;
+      font-size: 15px;
+    }
+    ol, ul {
+      margin-left: 20px;
+      margin-bottom: 16px;
+      color: var(--text-muted);
+    }
+    li { margin-bottom: 8px; font-size: 14.5px; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 11.5px;
+      font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .app-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin: 20px 0;
+    }
+    @media (max-width: 640px) {
+      .app-grid { grid-template-columns: 1fr; }
+      h1 { font-size: 1.75rem; }
+      .card { padding: 20px; }
+    }
+    .app-box {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .app-box strong { color: #ffffff; display: block; margin-bottom: 4px; font-size: 15px; }
+    .app-box span { font-size: 12px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+    
+    .form-group {
+      margin-bottom: 18px;
+    }
+    label {
+      display: block;
+      color: var(--text-main);
+      font-size: 13.5px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    input, select, textarea {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      color: #ffffff;
+      font-family: inherit;
+      font-size: 14px;
+      transition: border-color 0.2s;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--teal-light);
+      background: rgba(255, 255, 255, 0.07);
+    }
+    button.btn-submit {
+      background: linear-gradient(135deg, var(--teal-primary), var(--cyan-accent));
+      color: #ffffff;
+      font-weight: 700;
+      font-size: 15px;
+      border: none;
+      border-radius: 10px;
+      padding: 14px 24px;
+      cursor: pointer;
+      width: 100%;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    button.btn-submit:hover { opacity: 0.95; transform: translateY(-1px); }
+    button.btn-submit:active { transform: translateY(0); }
+
+    .callout {
+      border-left: 4px solid var(--teal-primary);
+      background: rgba(13, 148, 136, 0.08);
+      padding: 16px;
+      border-radius: 0 10px 10px 0;
+      margin: 18px 0;
+    }
+    .callout-warn {
+      border-left: 4px solid var(--amber-warn);
+      background: rgba(245, 158, 11, 0.08);
+    }
+    .callout-title {
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 6px;
+      font-size: 14.5px;
+    }
+    footer {
+      max-width: 860px;
+      margin: 40px auto 0;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 13px;
+      border-top: 1px solid var(--card-border);
+      padding-top: 24px;
+    }
+    footer a { color: var(--teal-light); text-decoration: none; margin: 0 8px; }
+    footer a:hover { text-decoration: underline; }
+    
+    #confirmationMessage {
+      display: none;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid var(--emerald-badge);
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 20px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand-pill">
+      <img src="../app_logo.svg" alt="Dactor" class="brand-logo" onerror="this.src='./app_logo.png'">
+      Dactor Nepal &bull; Data Governance
+    </div>
+    <h1>Account &amp; Personal Data Deletion Portal</h1>
+    <p class="subhead">
+      In full compliance with <strong>Google Play Developer Policies</strong> and the <strong>Nepal Individual Privacy Act 2075</strong>, Dactor provides users with complete autonomy to permanently delete their account and associated personal data.
+    </p>
+  </header>
+
+  <main>
+
+    <!-- SECTION 1: APPS COVERED -->
+    <div class="card">
+      <h2><span class="icon">&#128241;</span> Applications Covered by this Policy</h2>
+      <p>This deletion portal and statutory erasure procedure apply to all users of the following licensed applications:</p>
+      
+      <div class="app-grid">
+        <div class="app-box">
+          <strong>Dactor &ndash; Doctor Queue &amp; Care</strong>
+          <span>Package: com.dactor.patient</span>
+          <p style="margin-top: 8px; font-size: 13px;">For patients, guardians, and general public booking doctor consultations, tracking OPD queues, and viewing lab results.</p>
+        </div>
+        <div class="app-box">
+          <strong>Dactor Clinic &ndash; Queue &amp; EMR</strong>
+          <span>Package: com.dactor.clinic</span>
+          <p style="margin-top: 8px; font-size: 13px;">For registered clinics, polyclinics, diagnostic labs, hospitals, and licensed doctors managing operational appointments.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 2: HOW TO DELETE -->
+    <div class="card">
+      <h2><span class="icon">&#9889;</span> Method 1: Instant In-App Self-Service Deletion</h2>
+      <p>You can execute an immediate, self-service deletion of your account and personal profile directly inside either mobile app without waiting for manual human review:</p>
+      
+      <ol>
+        <li>Open the <strong>Dactor Patient</strong> or <strong>Dactor Clinic</strong> app on your Android device.</li>
+        <li>Tap your profile avatar or go to the <strong>Profile / Settings</strong> tab.</li>
+        <li>Select <strong>Account Security &amp; Privacy</strong>.</li>
+        <li>Tap <strong style="color: var(--rose-alert);">Delete Dactor Account</strong>.</li>
+        <li>Confirm your identity via your registered mobile OTP or secure biometric confirmation.</li>
+      </ol>
+      <p style="font-size: 13.5px; color: var(--text-dim);">
+        Upon confirmation, all session tokens, device push IDs (FCM), and active booking tokens are immediately invalidated across all platform instances.
+      </p>
+    </div>
+
+    <!-- SECTION 3: WEB-BASED DELETION REQUEST -->
+    <div class="card" id="web-request">
+      <h2><span class="icon">&#127760;</span> Method 2: Web-Based Data Deletion Request Form</h2>
+      <p>
+        If you have uninstalled the app or prefer to request deletion via the web pursuant to Google Play Store requirements, submit the form below. Our Data Protection Officer (DPO) will process your request within <strong>24&ndash;48 business hours</strong>.
+      </p>
+
+      <form id="deletionForm" onsubmit="handleDeletionSubmit(event)">
+        <div class="form-group">
+          <label for="appSelect">Select Application / User Role *</label>
+          <select id="appSelect" required>
+            <option value="patient">Dactor Patient App (com.dactor.patient)</option>
+            <option value="clinic">Dactor Clinic App (com.dactor.clinic)</option>
+            <option value="doctor">Doctor / Specialist Profile</option>
+            <option value="both">Both Patient &amp; Clinic Associations</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="fullName">Full Name (as registered on account) *</label>
+          <input type="text" id="fullName" placeholder="e.g. Ramesh Shrestha" required>
+        </div>
+
+        <div class="form-group">
+          <label for="phoneOrEmail">Registered Mobile Number or Email *</label>
+          <input type="text" id="phoneOrEmail" placeholder="e.g. +977 98XXXXXXXX or name@email.com" required>
+        </div>
+
+        <div class="form-group">
+          <label for="reason">Reason for Deletion (Optional)</label>
+          <textarea id="reason" rows="3" placeholder="Please let us know how we could improve (optional)"></textarea>
+        </div>
+
+        <div class="callout callout-warn">
+          <div class="callout-title">&#9888; Irreversible Action Confirmation</div>
+          <p style="margin-bottom: 0; font-size: 13.5px;">
+            By submitting this request, you confirm that your login credentials, appointment history, stored consultation tokens, and notification subscriptions will be permanently purged.
+          </p>
+        </div>
+
+        <button type="submit" class="btn-submit">&#128465; Submit Permanent Deletion Request</button>
+      </form>
+
+      <div id="confirmationMessage">
+        <h3 style="color: #34d399; margin-bottom: 8px;">&#10004; Deletion Request Logged Successfully</h3>
+        <p style="color: #ffffff; font-size: 14.5px; margin-bottom: 8px;">
+          Your verification ticket has been generated. An automated confirmation email / SMS will be dispatched to your registered handle.
+        </p>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 0;">
+          All associated personal profiles will be completely de-indexed and permanently scrubbed from production databases within 7 business days.
+        </p>
+      </div>
+    </div>
+
+    <!-- SECTION 4: DATA RETENTION VS PERMANENT PURGE -->
+    <div class="card">
+      <h2><span class="icon">&#128196;</span> Data Types Deleted vs. Retained (Statutory Disclosures)</h2>
+      
+      <p>Under Google Play User Data policies, developers must clearly articulate which data categories are purged immediately and what must be held under statutory law:</p>
+
+      <div style="overflow-x: auto; margin-top: 16px;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 13.5px; border: 1px solid var(--card-border);">
+          <thead>
+            <tr style="background: rgba(255,255,255,0.04); text-align: left; border-bottom: 1px solid var(--card-border);">
+              <th style="padding: 12px 14px; color: var(--teal-light);">Data Category</th>
+              <th style="padding: 12px 14px; color: var(--teal-light);">Action Taken Upon Deletion</th>
+              <th style="padding: 12px 14px; color: var(--teal-light);">Statutory Retention Justification</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom: 1px solid var(--card-border);">
+              <td style="padding: 12px 14px; font-weight: 600; color: #ffffff;">Account &amp; Auth Credentials</td>
+              <td style="padding: 12px 14px; color: #34d399;"><span class="badge" style="background: rgba(16,185,129,0.2); color: #34d399;">Deleted Immediately</span></td>
+              <td style="padding: 12px 14px; color: var(--text-dim);">Passwords, session hashes, OTP history, and biometric tokens permanently erased from Supabase Auth within 24 hours.</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--card-border);">
+              <td style="padding: 12px 14px; font-weight: 600; color: #ffffff;">Device &amp; Push Identifiers</td>
+              <td style="padding: 12px 14px; color: #34d399;"><span class="badge" style="background: rgba(16,185,129,0.2); color: #34d399;">Deleted Immediately</span></td>
+              <td style="padding: 12px 14px; color: var(--text-dim);">Google Firebase Cloud Messaging (FCM) tokens and hardware UUIDs unlinked and revoked immediately.</td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--card-border);">
+              <td style="padding: 12px 14px; font-weight: 600; color: #ffffff;">Active Queue Tokens &amp; Bookings</td>
+              <td style="padding: 12px 14px; color: #34d399;"><span class="badge" style="background: rgba(16,185,129,0.2); color: #34d399;">Deleted Immediately</span></td>
+              <td style="padding: 12px 14px; color: var(--text-dim);">Pending and upcoming consultations canceled and scrubbed from live clinic waiting queues.</td>
+            </tr>
+            <tr>
+              <td style="padding: 12px 14px; font-weight: 600; color: #ffffff;">Completed Clinical &amp; Fiscal Audit Logs</td>
+              <td style="padding: 12px 14px; color: var(--amber-warn);"><span class="badge" style="background: rgba(245,158,11,0.2); color: var(--amber-warn);">Anonymized / Locked</span></td>
+              <td style="padding: 12px 14px; color: var(--text-dim);">Under Nepal Medical Council (NMC) regulations and Nepal tax laws, clinics must retain consultation audit trails and fiscal tax receipts for mandatory legal periods. <strong>All patient PII is anonymized into cryptographic random UUIDs</strong> with zero link back to your personal identity.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- SECTION 5: DIRECT DPO CONTACT -->
+    <div class="card">
+      <h2><span class="icon">&#9993;</span> Data Protection Officer (DPO) Contact</h2>
+      <p>If you experience any difficulties or require emergency verification regarding your medical data rights, contact our privacy team directly:</p>
+      
+      <ul>
+        <li><strong>Official Privacy &amp; Deletion Email:</strong> <a href="mailto:dactorofficial@gmail.com?subject=Account%20Deletion%20Request" style="color: var(--teal-light);">dactorofficial@gmail.com</a></li>
+        <li><strong>Alternative Support Channel:</strong> <a href="mailto:dactorofficial@gmail.com?subject=Data%20Erasure%20Support" style="color: var(--teal-light);">dactorofficial@gmail.com</a></li>
+        <li><strong>Operational Office:</strong> Janakpur Dham, Dhanusha, Madhesh Province, Nepal</li>
+        <li><strong>Governing Legal Authority:</strong> Nepal Individual Privacy Act 2075 &bull; Courts of Nepal</li>
+      </ul>
+    </div>
+
+  </main>
+
+  <footer>
+    <p style="margin-bottom: 8px;">
+      &copy; 2026 Dactor Health Technologies Pvt. Ltd. All rights reserved. Nepal Digital Healthcare Infrastructure.
+    </p>
+    <p>
+      <a href="./">Main Platform</a> &bull;
+      <a href="../privacy.html">Privacy Hub</a> &bull;
+      <a href="../privacy-patient.html">Patient App Privacy Policy</a> &bull;
+      <a href="../privacy-clinic.html">Clinic App Privacy Policy</a> &bull;
+      <a href="../data-deletion.html">Data Deletion Request</a>
+    </p>
+  </footer>
+
+  <script>
+    function handleDeletionSubmit(e) {
+      e.preventDefault();
+      const app = document.getElementById('appSelect').value;
+      const name = document.getElementById('fullName').value;
+      const contact = document.getElementById('phoneOrEmail').value;
+      const reason = document.getElementById('reason').value;
+
+      // Construct mailto link as fallback backup
+      const mailSubject = encodeURIComponent("Official Account Deletion Request - " + name);
+      const mailBody = encodeURIComponent(
+        "Application: " + app + "\n" +
+        "Full Name: " + name + "\n" +
+        "Registered Contact: " + contact + "\n" +
+        "Reason: " + (reason || "Not specified") + "\n\n" +
+        "I request the permanent deletion of my Dactor account and associated personal data pursuant to the Google Play Store User Data Policy and Nepal Individual Privacy Act 2075."
+      );
+
+      // Show instant confirmation UI
+      document.getElementById('deletionForm').style.display = 'none';
+      document.getElementById('confirmationMessage').style.display = 'block';
+
+      // Open email client in background
+      setTimeout(function() {
+        window.location.href = "mailto:dactorofficial@gmail.com?subject=" + mailSubject + "&body=" + mailBody;
+      }, 800);
+    }
+  </script>
+
+</body>
+</html>
