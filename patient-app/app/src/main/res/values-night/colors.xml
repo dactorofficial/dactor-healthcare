@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary">#10B981</color>
+    <color name="primary_variant">#059669</color>
+    <color name="secondary">#34D399</color>
+    <color name="background">#111827</color>
+    <color name="surface">#1F2937</color>
+    <color name="error">#F87171</color>
+    <!-- Adaptive notification theme colors for Dark Mode -->
+    <color name="notif_text_primary">#F8FAFC</color>
+    <color name="notif_text_secondary">#CBD5E1</color>
+    <color name="notif_metrics_box_bg">#2214B8A6</color>
+    <color name="notif_metrics_box_stroke">#3814B8A6</color>
+    <color name="notif_divider">#25FFFFFF</color>
+</resources>

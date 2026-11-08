@@ -1,0 +1,100 @@
+{
+  "project_info": {
+    "project_number": "429529188002",
+    "project_id": "dactor-ea1e1",
+    "storage_bucket": "dactor-ea1e1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:429529188002:android:472c89bd2e01eb6bab79fb",
+        "android_client_info": {
+          "package_name": "com.dactor.clinic"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "429529188002-hma4mg3uro2lelkjvnqhh8mjlfvjufeu.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.dactor.clinic",
+            "certificate_hash": "b65ff6c53826dfbf360ec3fd2d75af2e83ea2c79"
+          }
+        },
+        {
+          "client_id": "429529188002-i8pu4ka46b5c64vl9uof49qg853sr12g.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.dactor.clinic",
+            "certificate_hash": "d7874c2afdfd1063d04823c67d9beca3abee1a4e"
+          }
+        },
+        {
+          "client_id": "429529188002-58s8gufhr6fheu6dd7hfnqi7i5dh4163.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBymdhtyr58U3Ms7csIZ5DUBDJ9CLzZreE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "429529188002-58s8gufhr6fheu6dd7hfnqi7i5dh4163.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:429529188002:android:67a2942eb7a425c6ab79fb",
+        "android_client_info": {
+          "package_name": "com.dactor.patient"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "429529188002-5io2uvi3s08k6rfer4rq6rclsr5712ib.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.dactor.patient",
+            "certificate_hash": "b65ff6c53826dfbf360ec3fd2d75af2e83ea2c79"
+          }
+        },
+        {
+          "client_id": "429529188002-j5n74jr9317jf6d4o2f398on723h541c.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.dactor.patient",
+            "certificate_hash": "df90f87c0b49df2298719fb7c7e1a299b3628f54"
+          }
+        },
+        {
+          "client_id": "429529188002-58s8gufhr6fheu6dd7hfnqi7i5dh4163.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBymdhtyr58U3Ms7csIZ5DUBDJ9CLzZreE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "429529188002-58s8gufhr6fheu6dd7hfnqi7i5dh4163.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
