@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="512dp"
+    android:height="512dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+
+    <!-- Shield Left Half -->
+    <path
+        android:pathData="M 256 10 L 52 88 L 52 230 C 52 360 142 450 256 500 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="0"
+                android:endX="0"
+                android:endY="512"
+                android:startColor="#FF76C6E8"
+                android:endColor="#FF3A86C4" />
+        </aapt:attr>
+    </path>
+
+    <!-- Shield Right Half -->
+    <path
+        android:pathData="M 256 10 L 460 88 L 460 230 C 460 360 370 450 256 500 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="0"
+                android:endX="0"
+                android:endY="512"
+                android:startColor="#FF5ED0C4"
+                android:endColor="#FF3A9BC8" />
+        </aapt:attr>
+    </path>
+
+    <!-- Inner Border -->
+    <path
+        android:pathData="M256,36 L438,104 L438,230 C438,346 358,426 256,472 C154,426 74,346 74,230 L74,104 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeAlpha="0.85"
+        android:strokeWidth="7"
+        android:strokeLineJoin="round" />
+
+    <!-- Cross Outline (Vertical + Horizontal) -->
+    <path
+        android:pathData="M 229 112 h 54 a 24 24 0 0 1 24 24 v 217 a 24 24 0 0 1 -24 24 h -54 a 24 24 0 0 1 -24 -24 v -217 a 24 24 0 0 1 24 -24 Z M 139 190 h 234 a 24 24 0 0 1 24 24 v 52 a 24 24 0 0 1 -24 24 h -234 a 24 24 0 0 1 -24 -24 v -52 a 24 24 0 0 1 24 -24 Z"
+        android:fillColor="#2B6590"
+        android:strokeColor="#2B6590"
+        android:strokeWidth="6"
+        android:strokeLineJoin="round" />
+
+    <!-- Cross Fill (Vertical + Horizontal) -->
+    <path
+        android:pathData="M 231 122 h 50 a 16 16 0 0 1 16 16 v 213 a 16 16 0 0 1 -16 16 h -50 a 16 16 0 0 1 -16 -16 v -213 a 16 16 0 0 1 16 -16 Z M 141 200 h 230 a 16 16 0 0 1 16 16 v 48 a 16 16 0 0 1 -16 16 h -230 a 16 16 0 0 1 -16 -16 v -48 a 16 16 0 0 1 16 -16 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="122"
+                android:endX="0"
+                android:endY="367"
+                android:startColor="#FFFFFFFF"
+                android:centerColor="#FFF1F7FB"
+                android:endColor="#FFCFE3F1" />
+        </aapt:attr>
+    </path>
+
+    <!-- Stethoscope Tubes - Outer Dark Layer -->
+    <path
+        android:pathData="M212,110 C185,130 172,160 178,200 C182,225 215,240 240,262"
+        android:strokeColor="#2B6590"
+        android:strokeWidth="18"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M298,110 C325,130 340,160 334,200 C330,225 297,240 272,262"
+        android:strokeColor="#2B6590"
+        android:strokeWidth="18"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M256,285 L256,365 C256,420 300,440 335,425 C355,415 362,395 362,369"
+        android:strokeColor="#2B6590"
+        android:strokeWidth="18"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Stethoscope Tubes - Inner Light Core -->
+    <path
+        android:pathData="M212,110 C185,130 172,160 178,200 C182,225 215,240 240,262"
+        android:strokeColor="#A9D6EE"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M298,110 C325,130 340,160 334,200 C330,225 297,240 272,262"
+        android:strokeColor="#A9D6EE"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M256,285 L256,365 C256,420 300,440 335,425 C355,415 362,395 362,369"
+        android:strokeColor="#A9D6EE"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Earpieces -->
+    <path
+        android:pathData="M 212 86 a 12 12 0 1 1 0 24 a 12 12 0 1 1 0 -24 Z"
+        android:fillColor="#2B6590" />
+    <path
+        android:pathData="M 298 86 a 12 12 0 1 1 0 24 a 12 12 0 1 1 0 -24 Z"
+        android:fillColor="#2B6590" />
+
+    <!-- Chest piece -->
+    <path
+        android:pathData="M 362 323 a 24 24 0 1 1 0 48 a 24 24 0 1 1 0 -48 Z"
+        android:fillColor="#A9D6EE"
+        android:strokeColor="#2B6590"
+        android:strokeWidth="9" />
+
+    <!-- Heart -->
+    <path
+        android:pathData="M256,285 C225,262 212,245 212,228 C212,213 224,203 237,203 C246,203 253,208 256,214 C259,208 266,203 275,203 C288,203 300,213 300,228 C300,245 287,262 256,285 Z"
+        android:strokeColor="#2B6590"
+        android:strokeWidth="7"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="203"
+                android:endX="0"
+                android:endY="285"
+                android:startColor="#FF7FE0D4"
+                android:endColor="#FF2F9FB8" />
+        </aapt:attr>
+    </path>
+</vector>

@@ -1,0 +1,67 @@
+PROMPT 1:
+/plan okay what i want you to make a plan i will give you prompt , first , you read and , discuss with me , and , then i will give you more bunch of prompts  and ,some additional features to add ( that is also going to be directed by me ) 
+with out my approval you are not going to do anything by your own , when i am finally done , you need to show me your progress , in phase wise , do dissect the whole final plan in phase wise and , at every phase , ask me , my apporaval , 
+
+--------------------------------------------------------------------------------
+
+PROMPT 2:
+Our system " dactor " works as a clinic management software with lot of features like viewing doctors available for bookings , online booking for offline appointment, queue thing notifies user about their appointment based in Nepal 
+Create 3 project one for user , one for clinic and doctor and third for admin panel where in first app there is description of the app first and option to login as a patient and gives a brief description of our app and allows the user to check for appointments or check their queue status to be defined later
+
+--------------------------------------------------------------------------------
+
+PROMPT 3:
+Without even login when they click on book to available doctor it activates login protal and remembers position before and after the user loggins or create a new account creation of account doesn't require any data like name or anything of the user only the loggin thing , the user can simply loggin through loggin / sign in option. While booking an appointment the user need to input name age gender mobile number only after the successful appointment it creates a 10 digit code which can be used to check their appointment status this code will be saved automatically with the user profile and could be accessed by user . The 10 digit code is specific for that appointment and can be used to check their status even without logging into the account and can be checked from any account when user checks the status with different account it gives option to save details in the user profile
+
+--------------------------------------------------------------------------------
+
+PROMPT 4:
+Queue status shows information like clinic names their postions like how many people are above them in the queue, name and number and mail are starred for privacy reason
+
+--------------------------------------------------------------------------------
+
+PROMPT 5:
+Now clinic side clinic will first register or login with their basic information (defined later ) . There will be option for doctor registration/ login as well . So admin will verify the clinic when they apply for the first time registration. There will be different types of clinic with different management features
+
+--------------------------------------------------------------------------------
+
+PROMPT 6:
+: There will be different types of clinic with different management features
+To be categorised by admin 
+Every clinic will have features like first a clinic might have multiple doctor so it should have option to invite doctor / lab technician 
+with existing account. If the doctor accepts the invitation the doctor get  connected with the clinic , all clinic have feature to make timed slot  for doctors . The slot will be like clinic selects doctor and add time and date like from 9 - 9:15 or any time they want . And add number of patient that can book the slot . And publish it it will publish the time slot that will be available for the user to take appointment for . There will be feature to see the like  queue status . The clinic will update the queue status. The queue will show position and name of the patient if one clicks it will show all informations about the patient . It will have option to push  notification to the patient that will pop up to the patient.there will be option to define after how many patient the system will automatically notify the user to come to the clinic . It will have option to slide the patient up and down change ranking. It will have option that when a patient is inside update it and when done the clinic updates it manually and if the next patient goes inside it will update inside. There will be option to see information about all the patient that has came  yet and are yet to come and when they click on the patient will show their bill that will include items cost , paid, to be paid , paid date ,  . The clinic can edit their own catalog like direct item list when clicked will be added directly in the bill and can input manually as well , for their easiness. They can give remark to the patient as well .  There will be another option to check future appointments like this date has these patients in the queue and can alter everything about the queue and appointment and can even shift the appointment to other date .There will be option to create appointment the default will be  the same date and can make appointment for the future date . For appointment the clinic will input name , number age , gender , and email ( optional ) if the user has created account with this email it will automatically connect the appointment information on it even if it hasn't signed up it will save the information and connect with the account incase they create it in the future. The clinic can make appointment even if the slot is full . And finally there will be other option to edit clinic information ( to be defined later ) .
+
+--------------------------------------------------------------------------------
+
+PROMPT 7:
+There will be option to show that whether the doctor is inside the clinic or not to be specified by clinic side and should be shown to the queue status when checked .
+Now we will define what type of clinic will have what features
+For normal check up clinics there might be two type of clinic one having that the patient needs to come more than once and other where the patient comes only once .  For only once type of clinic the user takes appointment directly by doing the payment if the check in is not done then they can change appointment date and time  .
+For multiple type clinic it will have feature to take appointment with that 10 digit code directly even without payment. And has obviously changing date and slot Directly.
+
+--------------------------------------------------------------------------------
+
+PROMPT 8:
+For test clinics there will be a little different system first the sample will be collected , then the status of the patient goes to processing. If during processing time if the patient checks with that 10 digit code it will show processing. The clinic will then update the status to be  prepared if the clinic wants then it can upload pdf / picture  and notifies  the user (if this appointment is  connected with any user .) if the user checks the queue status it will show that it's prepared and to view the uploaded file they need to verify their name . Which can be viewed inapp or can download the file directly.
+
+--------------------------------------------------------------------------------
+
+PROMPT 9:
+The classification of the clinic type is done by the admin panel now let's define admin , admin loggins with their id and password, after logging in needs to  
+verify the profile of clinic and doctor and can edit every information about the clinics
+Put  locking slot booking system that while the user is doing payment the slot will be reserved till the payment is done or payment cancelled at most Wait for 5 min 
+
+--------------------------------------------------------------------------------
+
+PROMPT 10:
+use firebase app for notification system ,
+now listen my secuirty pov, 
+the loggin system i.e the intereface should include , login with email and password , and if not loginned then they can register via their email and link would be given for verificatoin , use firebase for this thing , and also for notification pushing system , use firebase , 
+
+for clinic side , clinic can register themselve as take basic clinic ifno , such as name , contact way , and the most importnat thing location , like there should be an option of choosing location , and fixing it , 
+whenever a patient would book an appointment , it will give the location of that clinic also , 
+where as doctor profile login system should be strict as it should take every basic data with email and pass registration setup and then , a next kyc type thing like yeah a doctor can make a profile but , later on he have to add his doctor certificates and license especially focus on liecense , it should be manually erifieid by the admins , once authorized , then the doctors profile are ready for listing , into clinics , 
+
+
+
+make sure one thing all the other database thing should be included in supabase , only supabase , every credentials , live tracking id , temp 10 digit number and all other basic bio and datas , also , all the pdf img , jpeg 

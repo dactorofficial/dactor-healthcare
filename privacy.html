@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy & Data Governance Hub | Dactor Nepal</title>
+  <meta name="description" content="Official Privacy & Legal Hub for Dactor Healthcare in Nepal. Access statutory privacy policies for Dactor Patient and Dactor Clinic applications.">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#0d9488">
+  <link rel="canonical" href="https://dactorofficial.github.io/dactor/privacy.html">
+  <link rel="icon" type="image/png" href="./app_logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #070b14;
+      --card-bg: #0f172a;
+      --card-border: rgba(255, 255, 255, 0.08);
+      --teal-primary: #0d9488;
+      --teal-light: #14b8a6;
+      --cyan-accent: #06b6d4;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --emerald-badge: #10b981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      line-height: 1.7;
+      padding: 0 16px 60px;
+    }
+    header {
+      max-width: 860px;
+      margin: 40px auto 30px;
+      text-align: center;
+    }
+    .brand-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(13, 148, 136, 0.15);
+      border: 1px solid var(--teal-primary);
+      padding: 6px 16px;
+      border-radius: 9999px;
+      color: var(--teal-light);
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+    .brand-logo {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      object-fit: contain;
+    }
+    h1 {
+      font-size: 2.25rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: #ffffff;
+      margin-bottom: 12px;
+    }
+    .subhead {
+      color: var(--text-muted);
+      font-size: 1.05rem;
+      max-width: 680px;
+      margin: 0 auto;
+    }
+    main {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+    .policy-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-top: 30px;
+    }
+    @media (max-width: 680px) {
+      .policy-grid { grid-template-columns: 1fr; }
+      h1 { font-size: 1.75rem; }
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    .card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(20, 184, 166, 0.3);
+    }
+    .card h2 {
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 8px;
+    }
+    .card .app-id {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px;
+      color: var(--teal-light);
+      margin-bottom: 14px;
+      display: inline-block;
+      background: rgba(13, 148, 136, 0.1);
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .card p {
+      color: var(--text-muted);
+      font-size: 14px;
+      margin-bottom: 20px;
+      flex-grow: 1;
+    }
+    .btn-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: linear-gradient(135deg, var(--teal-primary), var(--cyan-accent));
+      color: #ffffff;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 14px;
+      padding: 12px 20px;
+      border-radius: 10px;
+      transition: opacity 0.2s;
+    }
+    .btn-link:hover { opacity: 0.92; }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+    }
+    .btn-secondary:hover { background: rgba(255, 255, 255, 0.08); }
+    .hub-footer-box {
+      margin-top: 30px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 28px;
+      text-align: center;
+    }
+    footer {
+      max-width: 860px;
+      margin: 40px auto 0;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 13px;
+      border-top: 1px solid var(--card-border);
+      padding-top: 24px;
+    }
+    footer a { color: var(--teal-light); text-decoration: none; margin: 0 8px; }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand-pill">
+      <img src="./app_logo.svg" alt="Dactor" class="brand-logo" onerror="this.src='./app_logo.png'">
+      Dactor Health &bull; Legal Compliance Hub
+    </div>
+    <h1>Privacy &amp; Data Governance Hub</h1>
+    <p class="subhead">
+      Select your application to review our statutory privacy policies, data safety declarations, and Android permission disclosures in accordance with Nepal laws and Google Play Store policies.
+    </p>
+  </header>
+
+  <main>
+    <div class="policy-grid">
+      
+      <!-- PATIENT APP -->
+      <div class="card">
+        <div>
+          <h2>Patient &amp; Guardian Privacy</h2>
+          <span class="app-id">com.dactor.patient</span>
+          <p>
+            Governs patients, families, and guardians booking OPD consultations, tracking live queue tokens, receiving doctor turn notifications, and downloading certified diagnostic reports.
+          </p>
+        </div>
+        <a href="./privacy-patient.html" class="btn-link">Read Patient Privacy Policy &rarr;</a>
+      </div>
+
+      <!-- CLINIC APP -->
+      <div class="card">
+        <div>
+          <h2>Clinic &amp; Provider Privacy</h2>
+          <span class="app-id">com.dactor.clinic</span>
+          <p>
+            Governs healthcare facilities, clinic admins, diagnostic laboratory technicians, reception desks, and licensed medical practitioners managing appointments and patient records.
+          </p>
+        </div>
+        <a href="./privacy-clinic.html" class="btn-link">Read Clinic Privacy Policy &rarr;</a>
+      </div>
+
+    </div>
+
+    <!-- DATA DELETION CARD -->
+    <div class="hub-footer-box">
+      <h2 style="font-size: 1.3rem; margin-bottom: 8px;">User Rights &amp; Google Play Data Deletion</h2>
+      <p style="color: var(--text-muted); font-size: 14.5px; max-width: 640px; margin: 0 auto 20px;">
+        Pursuant to Google Play Store User Data rules and the Nepal Individual Privacy Act 2075, you can request immediate, permanent deletion of your account and personal health data at any time.
+      </p>
+      <a href="./data-deletion.html" class="btn-link btn-secondary">&#128465; Access Data Deletion Request Portal &rarr;</a>
+    </div>
+  </main>
+
+  <footer>
+    <p style="margin-bottom: 8px;">
+      &copy; 2026 Dactor Health Technologies Pvt. Ltd. All rights reserved. Nepal Digital Healthcare Infrastructure.
+    </p>
+    <p>
+      <a href="./">Main Platform</a> &bull;
+      <a href="./privacy.html">Privacy Hub</a> &bull;
+      <a href="./privacy-patient.html">Patient App Privacy</a> &bull;
+      <a href="./privacy-clinic.html">Clinic App Privacy</a> &bull;
+      <a href="./data-deletion.html">Data Deletion</a>
+    </p>
+  </footer>
+
+</body>
+</html>

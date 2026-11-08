@@ -1,0 +1,12 @@
+[functions.appointment-payment]
+verify_jwt = false
+
+[functions.document-access]
+verify_jwt = false
+
+[functions.send-fcm-alert]
+verify_jwt = false
+
+[auth.third_party.firebase]
+enabled = true
+project_id = "dactor-ea1e1"

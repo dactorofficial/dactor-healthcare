@@ -1,0 +1,19 @@
+{
+  "name": "dactor-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:patient": "npm --prefix apps/patient-web run dev",
+    "dev:clinic": "npm --prefix apps/clinic-portal run dev",
+    "dev:admin": "npm --prefix apps/admin-panel run dev",
+    "build": "npm --prefix packages/shared run build"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.4.5"
+  }
+}

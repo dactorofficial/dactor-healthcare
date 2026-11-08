@@ -1,0 +1,471 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+  <!-- Core Dactor Portal Routes -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+    <image:image>
+      <image:loc>https://dactorofficial.github.io/dactor/app_logo.png</image:loc>
+      <image:title>Dactor - Nepal Healthcare OPD Queue and Diagnostic Ecosystem</image:title>
+    </image:image>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=live-queue</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>always</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=lab-reports</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=average-time</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.75</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?page=support</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?page=patient</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?page=portal</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/privacy.html</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/privacy-patient.html</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/privacy-clinic.html</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/data-deletion.html</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Specialty Search: Ophthalmology -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;q=Ophthalmology</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Specialty Search: Cardiology -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;q=Cardiology</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Specialty Search: Dermatology -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;q=Dermatology</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Specialty Search: Orthopedics -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;q=Orthopedics</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Specialty Search: Gynecology -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;q=Gynecology</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Specialty Search: Pediatrics -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;q=Pediatrics</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Specialty Search: ENT -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;q=ENT</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Specialty Search: Neurology -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;q=Neurology</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Specialty Search: Dentistry -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;q=Dentistry</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Specialty Search: General OPD -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;q=General%2BOPD</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Specialty Search: Urology -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;q=Urology</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Specialty Search: Psychiatry -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;q=Psychiatry</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Specialty Search: Gastroenterology -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;q=Gastroenterology</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Specialty Search: Pulmonology -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;q=Pulmonology</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Diagnostic Lab Scan: MRI Scan -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;filter=lab&amp;q=MRI%2BScan</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Diagnostic Lab Scan: CT Scan -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;filter=lab&amp;q=CT%2BScan</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Diagnostic Lab Scan: Ultrasound USG -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;filter=lab&amp;q=Ultrasound%2BUSG</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Diagnostic Lab Scan: Digital X-Ray -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;filter=lab&amp;q=Digital%2BX-Ray</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Diagnostic Lab Scan: Blood Test CBC -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;filter=lab&amp;q=Blood%2BTest%2BCBC</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Diagnostic Lab Scan: Lipid Profile -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;filter=lab&amp;q=Lipid%2BProfile</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Diagnostic Lab Scan: Liver Function Test LFT -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;filter=lab&amp;q=Liver%2BFunction%2BTest%2BLFT</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Diagnostic Lab Scan: Kidney Function Test KFT -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;filter=lab&amp;q=Kidney%2BFunction%2BTest%2BKFT</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Diagnostic Lab Scan: Thyroid Profile TSH -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;filter=lab&amp;q=Thyroid%2BProfile%2BTSH</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Diagnostic Lab Scan: Urine Culture -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?tab=clinics&amp;filter=lab&amp;q=Urine%2BCulture</loc>
+    <lastmod>2026-11-08</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Clinic Booking: happy bday bro -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=7501b9a1-3e40-47e2-821f-2f2a229dd53c&amp;action=book</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=7501b9a1-3e40-47e2-821f-2f2a229dd53c</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Clinic Booking: Genome clinic center -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=a2b5f970-d3cb-4e71-a6c2-22b28c0fbdf2&amp;action=book</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=a2b5f970-d3cb-4e71-a6c2-22b28c0fbdf2</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Clinic Booking: Duplicate Test -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=521c3a61-7518-41ad-85f0-45140c1c7750&amp;action=book</loc>
+    <lastmod>2026-10-27</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=521c3a61-7518-41ad-85f0-45140c1c7750</loc>
+    <lastmod>2026-10-27</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Clinic Booking: Gunja Life Care Clinic -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=2c4604a6-ce88-4e23-875a-ba130d206fd5&amp;action=book</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=2c4604a6-ce88-4e23-875a-ba130d206fd5</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Clinic Booking: Dup Test -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=518ed5f2-0213-45a1-8933-b10dd2844e52&amp;action=book</loc>
+    <lastmod>2026-10-27</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=518ed5f2-0213-45a1-8933-b10dd2844e52</loc>
+    <lastmod>2026-10-27</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Clinic Booking: try -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=d5e5097f-4492-4bb9-8bc7-78b74c6fe540&amp;action=book</loc>
+    <lastmod>2026-10-24</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=d5e5097f-4492-4bb9-8bc7-78b74c6fe540</loc>
+    <lastmod>2026-10-24</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Clinic Booking: Sheru Bhaii -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=5cd6f90f-377b-4d2b-9bfc-4e1478f41772&amp;action=book</loc>
+    <lastmod>2026-10-26</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=5cd6f90f-377b-4d2b-9bfc-4e1478f41772</loc>
+    <lastmod>2026-10-26</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Clinic Booking: shhsh -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=338c86ce-38f0-4305-8638-eb8179794a48&amp;action=book</loc>
+    <lastmod>2026-10-27</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=338c86ce-38f0-4305-8638-eb8179794a48</loc>
+    <lastmod>2026-10-27</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Clinic Booking: shri ram -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=86762129-0f2f-4c49-928e-c00a70a2922a&amp;action=book</loc>
+    <lastmod>2026-10-26</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=86762129-0f2f-4c49-928e-c00a70a2922a</loc>
+    <lastmod>2026-10-26</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Clinic Booking: ram ko clinic -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=6cbc1c49-11b3-4aa9-a4f5-07599afddd70&amp;action=book</loc>
+    <lastmod>2026-10-24</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=6cbc1c49-11b3-4aa9-a4f5-07599afddd70</loc>
+    <lastmod>2026-10-24</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Clinic Booking: NOBEL HEALTHCARE -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=7ba2423a-740e-477c-9ffc-2a9316abbb04&amp;action=book</loc>
+    <lastmod>2026-10-23</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=7ba2423a-740e-477c-9ffc-2a9316abbb04</loc>
+    <lastmod>2026-10-23</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Clinic Booking: hehe clinic -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=b5ea381f-b55e-46c8-b555-ade3e2818d07&amp;action=book</loc>
+    <lastmod>2026-10-24</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=b5ea381f-b55e-46c8-b555-ade3e2818d07</loc>
+    <lastmod>2026-10-24</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Doctor Appointment Booking: Dr ankit jha -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=7ba2423a-740e-477c-9ffc-2a9316abbb04&amp;doctor=e44eb431-ec13-4287-8a57-8ab47c4b87d8&amp;action=book</loc>
+    <lastmod>2026-10-23</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?doctor=e44eb431-ec13-4287-8a57-8ab47c4b87d8&amp;action=book</loc>
+    <lastmod>2026-10-23</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <!-- Doctor Appointment Booking: Ram Kumar Yadav -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=b5ea381f-b55e-46c8-b555-ade3e2818d07&amp;doctor=ca9b5997-ce5b-4dd9-ae90-33d773e479da&amp;action=book</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?doctor=ca9b5997-ce5b-4dd9-ae90-33d773e479da&amp;action=book</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <!-- Doctor Appointment Booking: Dr. Beta Verma -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=6cbc1c49-11b3-4aa9-a4f5-07599afddd70&amp;doctor=26fea128-2826-476a-9563-cfdbd55bdd1e&amp;action=book</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?doctor=26fea128-2826-476a-9563-cfdbd55bdd1e&amp;action=book</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <!-- Doctor Appointment Booking: Dr. Alpha Sharma -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=6cbc1c49-11b3-4aa9-a4f5-07599afddd70&amp;doctor=5e8ca833-06fb-4c20-aaa6-cd7ccc4c4cd9&amp;action=book</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?doctor=5e8ca833-06fb-4c20-aaa6-cd7ccc4c4cd9&amp;action=book</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <!-- Doctor Appointment Booking: Rajan Nepali -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=5cd6f90f-377b-4d2b-9bfc-4e1478f41772&amp;doctor=24f522f3-01d6-4e50-8a3b-983da7b7eeea&amp;action=book</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?doctor=24f522f3-01d6-4e50-8a3b-983da7b7eeea&amp;action=book</loc>
+    <lastmod>2026-10-25</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+</urlset>

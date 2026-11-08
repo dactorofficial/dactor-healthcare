@@ -1,0 +1,49 @@
+name: DACTOR Cloud-to-Cloud Daily Backup
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      clinic_id:
+        description: 'Specific Clinic UUID to backup (leave blank to backup all clinics)'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Simulate without writing files to Google Drive'
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  backup:
+    name: Sync Supabase Cloud to Google Drive
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Execute Cloud-to-Cloud Backup
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://ojfoofojcpabqegxmsab.supabase.co' }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_KEY }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_PARENT_FOLDER_ID: ${{ secrets.GDRIVE_PARENT_FOLDER_ID || '1eXKtRRgCubw7rDLKQjIEP3zezEZDZUXi' }}
+        run: |
+          ARGS="--all"
+          if [ -n "${{ github.event.inputs.clinic_id }}" ]; then
+            ARGS="--clinic-id ${{ github.event.inputs.clinic_id }}"
+          fi
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          
+          node scripts/sync_cloud_to_drive.mjs $ARGS
