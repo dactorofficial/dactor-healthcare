@@ -1873,13 +1873,15 @@ Deno.serve(async (req) => {
 
       const deskPatch: Record<string, unknown> = {
         payment_mode: "PAY_AT_DESK",
-        status: "WAITING_FOR_APPROVAL",
+        status: "APPROVED",
         payment_status: "pending",
-        checkin_status: "not_checked_in",
+        checkin_status: "checked_in",
         attempt_number: 1,
         fee_amount: authoritativeFee,
         service_charge_amount: serviceCharge,
         total_amount: totalAmount,
+        approved_at: new Date().toISOString(),
+        expires_at: null,
         updated_at: new Date().toISOString(),
       };
       if (isDiagnosticLabDesk) {
@@ -1896,8 +1898,30 @@ Deno.serve(async (req) => {
         return json({ error: updateErr?.message || error?.message || "Failed to confirm Pay at Desk booking" }, 500, corsHeaders);
       }
 
-      // Remove from queue_entries if present
-      await service.from("queue_entries").delete().eq("appointment_id", appointmentId);
+      // Atomic Live Queue Placement: compute next position and upsert into queue_entries
+      let nextPos = 1;
+      try {
+        const { data: qEntries } = await service.from("queue_entries")
+          .select("queue_position")
+          .eq("clinic_id", updatedAppt.clinic_id)
+          .in("status", ["waiting", "inside"]);
+        if (qEntries && qEntries.length > 0) {
+          nextPos = Math.max(...qEntries.map((e) => e.queue_position || 0)) + 1;
+        }
+      } catch (_e) {
+        nextPos = 1;
+      }
+
+      await service.from("queue_entries").upsert({
+        appointment_id: updatedAppt.id,
+        clinic_id: updatedAppt.clinic_id,
+        doctor_id: updatedAppt.doctor_id,
+        queue_position: nextPos,
+        status: "waiting",
+        estimated_wait_minutes: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "appointment_id" });
 
       // Recalculate slot booked_count (only approved appointments count)
       if (updatedAppt.slot_id) {
@@ -1912,27 +1936,13 @@ Deno.serve(async (req) => {
           .eq("id", updatedAppt.slot_id);
       }
 
-      // Emit notification to clinic staff
+      // Emit notification to clinic staff safely
       if (updatedAppt.clinic_id) {
         const tracking = updatedAppt.tracking_code_10_digit || updatedAppt.tracking_code || updatedAppt.id;
         const patientName = updatedAppt.patient_name || "Patient";
         const total = updatedAppt.total_amount || updatedAppt.fee_amount || 0;
 
-        // 1. Direct clinic-scoped notification (retrieved by ClinicPortal & Clinic App)
-        try {
-          await service.from("notifications").insert({
-            user_id: updatedAppt.clinic_id,
-            appointment_id: updatedAppt.id,
-            title: "New Pay at Desk Request",
-            message: `New appointment request #${tracking} from ${patientName} (NPR ${total} due at desk).`,
-            type: "pay_at_desk_request",
-            target_audience: "specific",
-          });
-        } catch (e) {
-          console.warn("Clinic notification direct error:", e?.message);
-        }
-
-        // 2. Personal profile notification if clinic contact_email matches a staff profile
+        // Personal profile notification if clinic contact_email matches a staff profile
         const { data: clinic } = await service.from("clinics")
           .select("contact_email")
           .eq("id", updatedAppt.clinic_id)
@@ -1944,14 +1954,14 @@ Deno.serve(async (req) => {
             .ilike("email", clinic.contact_email)
             .maybeSingle();
 
-          if (clinicOwner?.id && clinicOwner.id !== updatedAppt.clinic_id) {
+          if (clinicOwner?.id) {
             try {
               await service.from("notifications").insert({
                 user_id: clinicOwner.id,
                 appointment_id: updatedAppt.id,
-                title: "New Pay at Desk Request",
-                message: `New appointment request #${tracking} from ${patientName} (NPR ${total} due at desk).`,
-                type: "pay_at_desk_request",
+                title: "New Pay at Desk Booking",
+                message: `Appointment #${tracking} for ${patientName} confirmed (Token #${nextPos}). NPR ${total} due at desk.`,
+                type: "queue_alert",
                 target_audience: "specific",
               });
             } catch (e) {
