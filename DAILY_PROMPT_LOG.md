@@ -122,6 +122,33 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ### Prompt:
+> "no broo they were supposed to be tranferred to the live queue of the selected slot only after they are confirmed check the lofic i have mentioned it before /plan"
+> "appoinment date and slot are a.lready chosen by ppatient check i have talked about the whole logic properly"
+
+#### Changes Applied:
+1. **Supabase Database & RPC Migration ([migration_fix_pay_at_desk_queue_transfer.sql](file:///g:/My%20Drive/New%20folder/supabase/migration_fix_pay_at_desk_queue_transfer.sql))**:
+   - In `confirm_pay_at_desk_booking`: updated to strictly set `status = 'WAITING_FOR_APPROVAL'`, `payment_mode = 'PAY_AT_DESK'`, `payment_status = 'pending'`, and `checkin_status = 'not_checked_in'`.
+   - Preserved patient's pre-selected appointment date and published slot.
+   - Live queue isolation: `DELETE FROM public.queue_entries WHERE appointment_id = v_appt.id;` guarantees pending Pay at Desk requests remain quarantined from the live queue until clinic approval.
+   - Safe clinic notification: Wrapped notification in `EXCEPTION WHEN OTHERS THEN NULL;` resolving profile UUIDs from contact email so FK constraint issues never abort transactions.
+   - In `approve_pay_at_desk_appointment`: Confirms appointment (`status = 'APPROVED'`, `checkin_status = 'checked_in'`), reconciles slot capacity with overload support (12/12 -> 13), and atomically transfers patient into `public.queue_entries` with status `'waiting'`.
+2. **Supabase Edge Function ([appointment-payment/index.ts](file:///g:/My%20Drive/New%20folder/supabase/functions/appointment-payment/index.ts))**:
+   - In `confirm_pay_at_desk` action fallback, aligned status to `"WAITING_FOR_APPROVAL"` and quarantined from `queue_entries`.
+   - Reconciled slot booked count for approved appointments.
+3. **Patient Android App ([AppointmentRepository.kt](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt), [QueueStatusScreen.kt](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt))**:
+   - In `AppointmentRepository.kt` fallback, set `status = "WAITING_FOR_APPROVAL"` and isolated from `queue_entries`.
+   - In `QueueStatusScreen.kt`, unapproved Pay at Desk appointments display `"WAITING FOR CLINIC APPROVAL"` with attempt badge; transitions directly to active live queue card for that selected slot once clinic approves.
+4. **Clinic Android App ([QueueBoardScreen.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/QueueBoardScreen.kt), [PayAtDeskRequestsScreen.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/appointments/PayAtDeskRequestsScreen.kt))**:
+   - In `QueueBoardScreen.kt`, strictly filtered active live queue items by `appt.status.equals("APPROVED", ignoreCase = true)`, excluding unapproved requests.
+   - Pending requests remain visible under `PayAtDeskRequestsScreen.kt` with patient's chosen slot, time, and fee.
+   - Tapping "Confirm Approve" triggers `approve_pay_at_desk_appointment`, moving the patient into the live queue for that slot.
+5. **Static & Dual-Track Verification ([test_pay_at_desk_transfer.cjs](file:///g:/My%20Drive/New%20folder/supabase/test_pay_at_desk_transfer.cjs), [test_confirm_pay_at_desk.cjs](file:///g:/My%20Drive/New%20folder/supabase/test_confirm_pay_at_desk.cjs))**:
+   - 12 static audit assertions verifying RPC creation, `WAITING_FOR_APPROVAL` transition, queue isolation on request, live queue insertion on approval, slot overload, safe notifications, Edge Function alignment, and QueueBoard filtering.
+   - All 30 tests in Milestone 1 verification suite passed (100%).
+
+---
+
+### Prompt:
 > "for reschedule from appoinments section , patient app it did showed me to select slot but when i tapped on to book it showed some error and rescheule didnt work and as for reschudle button in clinic app no show up patiwnt it didnt showed the slots the old logic still exist there /plan /boost"
 
 #### Changes Applied:
