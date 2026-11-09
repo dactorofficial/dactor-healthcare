@@ -149,6 +149,19 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ### Prompt:
+> "do i have to run any sql code"
+
+#### Changes Applied:
+1. **Supabase Database RPC Migration ([supabase/migration_fix_pay_at_desk_queue_transfer.sql](file:///g:/My%20Drive/New%20folder/supabase/migration_fix_pay_at_desk_queue_transfer.sql))**:
+   - Cleaned up redundant `v_next_position` variable declaration in `confirm_pay_at_desk_booking` RPC.
+   - Verified PostgreSQL RPC logic: `confirm_pay_at_desk_booking` quarantines pending Pay at Desk requests (`WAITING_FOR_APPROVAL`) away from live queue, while `approve_pay_at_desk_appointment` atomically transitions status to `APPROVED`, reconciles slot capacity, and injects patient into `queue_entries` with token assignment.
+   - Wrapped notification operations in `BEGIN ... EXCEPTION WHEN OTHERS THEN NULL; END;` with profile email lookup to prevent foreign key errors on `notifications.user_id`.
+2. **Guidance & Deployment Instructions**:
+   - Provided complete SQL migration script and instructed user to execute `supabase/migration_fix_pay_at_desk_queue_transfer.sql` in the Supabase Dashboard SQL Editor to update the live cloud PostgreSQL server.
+
+---
+
+### Prompt:
 > "for reschedule from appoinments section , patient app it did showed me to select slot but when i tapped on to book it showed some error and rescheule didnt work and as for reschudle button in clinic app no show up patiwnt it didnt showed the slots the old logic still exist there /plan /boost"
 
 #### Changes Applied:

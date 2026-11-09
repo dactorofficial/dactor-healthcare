@@ -44,7 +44,6 @@ DECLARE
     v_service_charge NUMERIC(10, 2);
     v_total NUMERIC(10, 2);
     v_clinic_owner_id UUID;
-    v_next_position INT;
     v_clinic_name TEXT;
 BEGIN
     -- Scoped transaction-local bypass for anti-tampering triggers
@@ -161,7 +160,6 @@ BEGIN
         'payment_status', v_appt.payment_status,
         'checkin_status', v_appt.checkin_status,
         'attempt_number', v_appt.attempt_number,
-        'queue_position', v_next_position,
         'fee_amount', v_appt.fee_amount,
         'service_charge_amount', v_appt.service_charge_amount,
         'total_amount', v_appt.total_amount
