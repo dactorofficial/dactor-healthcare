@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.0",
+  "count": 1,
+  "exported_at": "2026-10-23T04:50:38.413Z",
+  "records": [
+    {
+      "id": "c1111111-1111-1111-1111-111111111111",
+      "name": "Kathmandu Health Hub & Polyclinic",
+      "type": "polyclinic",
+      "verification_status": "approved",
+      "contact_phone": "+977-1-4412345",
+      "contact_email": "contact@ktmhealthhub.com.np",
+      "address_text": "Thamel Marg, Kathmandu 44600, Nepal",
+      "latitude": 27.7172,
+      "longitude": 85.324,
+      "geohash": "tuve0k6z",
+      "auto_notify_threshold": 2,
+      "description": "{\"notes\":\"Leading polyclinic in Kathmandu\",\"payment_gateways_json\":{\"esewa\":{\"merchant_id\":\"EPAYTEST\",\"secret_key\":\"[REDACTED]\",\"environment\":\"test\"}}}",
+      "logo_url": "clinic_photos/c1111111-1111-1111-1111-111111111111/logo.png",
+      "registration_doc_url": "clinic-docs-private/c1111111-1111-1111-1111-111111111111/reg_doc.pdf",
+      "pan_number": "601234567",
+      "manager_phone": "+977-9851000000",
+      "pictures": [
+        "clinic_photos/c1111111-1111-1111-1111-111111111111/facade.jpg",
+        "clinic_photos/c1111111-1111-1111-1111-111111111111/reception.jpg"
+      ],
+      "specialties": [
+        "General Medicine",
+        "Cardiology",
+        "Pediatrics",
+        "Pathology"
+      ],
+      "is_archived": false,
+      "archived_at": null,
+      "deletion_scheduled_at": null,
+      "payment_gateway_provider": "esewa",
+      "payment_api_key": "[REDACTED]",
+      "payment_secret_key": "[REDACTED]",
+      "merchant_id": "EPAYTEST",
+      "is_direct_payment_enabled": true,
+      "is_activated": true,
+      "activation_expires_at": "2026-11-22T08:00:00.000Z",
+      "activation_plan": "1_year",
+      "activation_paid_amount": 12000,
+      "activation_notes": "Annual license active",
+      "activation_payment_proof_url": "clinic-docs-private/c1111111-1111-1111-1111-111111111111/payment_proof.pdf",
+      "avg_consultation_time_minutes": 15,
+      "manual_avg_consultation_time_minutes": 15,
+      "calculated_avg_consultation_time_minutes": 14,
+      "avg_time_mode": "manual",
+      "is_deleted": false,
+      "deleted_at": null,
+      "created_at": "2026-10-22T08:00:00.000Z",
+      "updated_at": "2026-10-22T08:00:00.000Z"
+    }
+  ]
+}

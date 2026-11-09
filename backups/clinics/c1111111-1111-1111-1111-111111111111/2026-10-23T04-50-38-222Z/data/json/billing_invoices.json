@@ -1,0 +1,59 @@
+{
+  "schema_version": "1.0",
+  "count": 2,
+  "exported_at": "2026-10-23T04:50:38.428Z",
+  "records": [
+    {
+      "id": "i1111111-1111-1111-1111-111111111111",
+      "appointment_id": "a1111111-1111-1111-1111-111111111111",
+      "clinic_id": "c1111111-1111-1111-1111-111111111111",
+      "items": [
+        {
+          "item_name": "Doctor Consultation Fee",
+          "quantity": 1,
+          "unit_price": 700,
+          "total": 700
+        },
+        {
+          "item_name": "Lipid Profile Blood Test",
+          "quantity": 1,
+          "unit_price": 1200,
+          "total": 1200
+        }
+      ],
+      "total_amount": 1900,
+      "paid_amount": 1900,
+      "balance_due": 0,
+      "payment_status": "paid",
+      "paid_at": "2026-10-22T09:15:00.000Z",
+      "remarks": "Paid via eSewa digital wallet",
+      "is_deleted": false,
+      "deleted_at": null,
+      "created_at": "2026-10-22T08:00:00.000Z",
+      "updated_at": "2026-10-22T08:00:00.000Z"
+    },
+    {
+      "id": "i2222222-2222-2222-2222-222222222222",
+      "appointment_id": "a2222222-2222-2222-2222-222222222222",
+      "clinic_id": "c1111111-1111-1111-1111-111111111111",
+      "items": [
+        {
+          "item_name": "Walk-in Consultation Fee",
+          "quantity": 1,
+          "unit_price": 700,
+          "total": 700
+        }
+      ],
+      "total_amount": 700,
+      "paid_amount": 700,
+      "balance_due": 0,
+      "payment_status": "paid",
+      "paid_at": "2026-10-22T08:35:00.000Z",
+      "remarks": "Paid at desk counter (Cash)",
+      "is_deleted": false,
+      "deleted_at": null,
+      "created_at": "2026-10-22T08:00:00.000Z",
+      "updated_at": "2026-10-22T08:00:00.000Z"
+    }
+  ]
+}

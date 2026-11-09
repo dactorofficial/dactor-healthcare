@@ -1,0 +1,2 @@
+id,appointment_id,clinic_id,test_name,stage,file_url,file_name,file_type,patient_name_verification,sample_collected_at,prepared_at,is_deleted,deleted_at,created_at,updated_at
+lr111111-1111-1111-1111-111111111111,a1111111-1111-1111-1111-111111111111,c1111111-1111-1111-1111-111111111111,Lipid Profile,completed,lab-reports-private/c1111111-1111-1111-1111-111111111111/lipid_profile_report.pdf,lipid_profile_report.pdf,application/pdf,Bikash Adhikari,2026-10-22T09:00:00.000Z,2026-10-22T11:30:00.000Z,false,,2026-10-22T08:00:00.000Z,2026-10-22T08:00:00.000Z

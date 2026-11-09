@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "count": 2,
+  "exported_at": "2026-10-23T04:50:38.416Z",
+  "records": [
+    {
+      "id": "cs111111-1111-1111-1111-111111111111",
+      "clinic_id": "c1111111-1111-1111-1111-111111111111",
+      "service_name": "General Consultation",
+      "description": "Standard outpatient general health checkup",
+      "price": 500,
+      "is_deleted": false,
+      "deleted_at": null,
+      "created_at": "2026-10-22T08:00:00.000Z"
+    },
+    {
+      "id": "cs222222-2222-2222-2222-222222222222",
+      "clinic_id": "c1111111-1111-1111-1111-111111111111",
+      "service_name": "Comprehensive Lipid Profile",
+      "description": "Diagnostic cholesterol and triglyceride panel",
+      "price": 1200,
+      "is_deleted": false,
+      "deleted_at": null,
+      "created_at": "2026-10-22T08:00:00.000Z"
+    }
+  ]
+}

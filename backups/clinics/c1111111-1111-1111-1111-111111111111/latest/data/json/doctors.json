@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0",
+  "count": 1,
+  "exported_at": "2026-10-23T04:50:38.421Z",
+  "records": [
+    {
+      "id": "d1111111-1111-1111-1111-111111111111",
+      "clinic_id": "c1111111-1111-1111-1111-111111111111",
+      "primary_clinic_id": "c1111111-1111-1111-1111-111111111111",
+      "user_id": "u1111111-1111-1111-1111-111111111111",
+      "full_name": "Dr. Aarav Sharma",
+      "email": "aarav.sharma@ktmhealthhub.com.np",
+      "gender": "Male",
+      "age": 42,
+      "starting_practicing_year": 2010,
+      "profile_picture_url": "doctor_photos/d1111111-1111-1111-1111-111111111111/avatar.jpg",
+      "specialty": "Internal Medicine",
+      "specialties": [
+        "Internal Medicine",
+        "Cardiology"
+      ],
+      "education": "MBBS, MD - Tribhuvan University (IOM)",
+      "nmc_license_number": "NMC-8842",
+      "personal_mobile_number": "+977-9841112233",
+      "public_mobile_number": "+977-9841112233",
+      "description": "Senior Consultant Physician with 16 years clinical experience.",
+      "license_doc_url": "doctor-kyc-private/d1111111-1111-1111-1111-111111111111/nmc_license.pdf",
+      "certificates_doc_url": "doctor-kyc-private/d1111111-1111-1111-1111-111111111111/degree_md.pdf",
+      "kyc_status": "approved",
+      "is_in_clinic": true,
+      "consultation_fee": 700,
+      "is_deleted": false,
+      "deleted_at": null,
+      "created_at": "2026-10-22T08:00:00.000Z",
+      "updated_at": "2026-10-22T08:00:00.000Z"
+    }
+  ]
+}
