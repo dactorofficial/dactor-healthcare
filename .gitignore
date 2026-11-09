@@ -15,8 +15,6 @@ build/
 .idea/
 **/.idea/
 *.log
-*.apk
-APKs/
 
 # Local properties
 local.properties
@@ -27,31 +25,8 @@ web-app/node_modules/
 web-app/dist/
 web-app/dist-ssr/
 
-screenshots/
-
-# Root temporary scratch files
-/*.png
-/App_Screenshots/
-test_*.ps1
-inspect_*.ps1
-compare_icons.ps1
-extract_logo.ps1
-ascii_logo.ps1
-deploy_app_icons.ps1
 .deploy_site/
- 
-*.aab
-AABs/
-
- 
-scripts/
-tests/
 scratch/
-backups/
-shared-keystore/
-*.jks
-*.keystore
 .agents/
 supabase/.temp/
 BUNDLE-METADATA/
-
