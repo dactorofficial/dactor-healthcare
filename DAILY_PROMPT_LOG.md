@@ -850,3 +850,31 @@ This file tracks user prompts and the exact changes applied across the codebase,
    - Updated Executive Summary and Version Log in [HANDOFF.md](file:///g:/My%20Drive/New%20folder/HANDOFF.md).
    - Recorded entry in [DAILY_PROMPT_LOG.md](file:///g:/My%20Drive/New%20folder/DAILY_PROMPT_LOG.md).
 
+
+---
+
+### Prompt:
+> "create debug apk for clinic app"
+
+#### Changes Applied:
+1. **Clinic App Dashboard Import Fixes ([DashboardScreen.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/dashboard/DashboardScreen.kt))**:
+   - Added wildcard auto-mirrored icons import: import androidx.compose.material.icons.automirrored.filled.* resolving Icons.AutoMirrored.Filled.ArrowForward.
+   - Added import androidx.compose.ui.text.style.TextOverflow resolving unresolved reference TextOverflow on the Pay at Desk subtitle.
+
+2. **Clinic App Version Increment ([build.gradle.kts](file:///g:/My%20Drive/New%20folder/clinic-app/app/build.gradle.kts))**:
+   - Incremented ersionCode from 83 to 84.
+   - Incremented ersionName from "1.0.83" to "1.0.84".
+
+3. **Clinic App Debug APK Build ([build_apks.ps1](file:///g:/My%20Drive/New%20folder/build_apks.ps1))**:
+   - Staged to fast local SSD builder ($env:LOCALAPPDATA\Temp\dactor-src\clinic-app) bypassing Google Drive latency.
+   - Built with target API 36, Core Library Desugaring, and debug signing key (debug.keystore).
+   - Generated debug binary Dactor-ClinicApp-v1.0.84.apk (39.81 MB).
+   - Staged to central directories:
+     - APKs/Dactor-ClinicApp-v1.0.84.apk
+     - APKs/Dactor-ClinicApp-debug.apk
+     - C:\Users\nitup\Dactor-APKs\Dactor-ClinicApp-v1.0.84.apk
+
+4. **Documentation & Handoff**:
+   - Updated Executive Summary and Version Log in [HANDOFF.md](file:///g:/My%20Drive/New%20folder/HANDOFF.md).
+   - Recorded entry in [DAILY_PROMPT_LOG.md](file:///g:/My%20Drive/New%20folder/DAILY_PROMPT_LOG.md).
+
