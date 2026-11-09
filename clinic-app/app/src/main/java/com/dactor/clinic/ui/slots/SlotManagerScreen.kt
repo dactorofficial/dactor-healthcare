@@ -37,8 +37,6 @@ import com.dactor.clinic.data.repository.ClinicRepository
 import com.dactor.clinic.data.repository.DoctorRepository
 import com.dactor.clinic.data.repository.SlotRepository
 import kotlinx.coroutines.launch
-import org.json.JSONArray
-import org.json.JSONObject
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -47,92 +45,8 @@ import java.time.format.TextStyle
 import java.util.Locale
 import java.util.UUID
 
-data class WorkingHourRange(
-    val startTime: String,
-    val endTime: String,
-    val capacity: Int = 10
-)
-
-data class DayWorkingSchedule(
-    val dayOfWeek: DayOfWeek,
-    val isWorking: Boolean,
-    val ranges: List<WorkingHourRange>
-)
-
 private object ClinicScheduleStorage {
     private const val PREF_NAME = "dactor_clinic_working_schedule"
-
-    fun loadWeeklySchedule(context: Context, clinicId: String): Map<DayOfWeek, DayWorkingSchedule> {
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        val raw = prefs.getString("weekly_$clinicId", null)
-        if (raw.isNullOrBlank()) {
-            return DayOfWeek.values().associateWith { dow ->
-                DayWorkingSchedule(
-                    dayOfWeek = dow,
-                    isWorking = dow != DayOfWeek.SATURDAY,
-                    ranges = if (dow != DayOfWeek.SATURDAY) {
-                        listOf(
-                            WorkingHourRange("06:00", "08:00", 10),
-                            WorkingHourRange("10:00", "14:00", 15)
-                        )
-                    } else emptyList()
-                )
-            }
-        }
-        return try {
-            val obj = JSONObject(raw)
-            DayOfWeek.values().associateWith { dow ->
-                val dayObj = obj.optJSONObject(dow.name)
-                if (dayObj == null) {
-                    DayWorkingSchedule(dow, dow != DayOfWeek.SATURDAY, listOf(WorkingHourRange("06:00", "08:00", 10)))
-                } else {
-                    val isWorking = dayObj.optBoolean("isWorking", true)
-                    val arr = dayObj.optJSONArray("ranges") ?: JSONArray()
-                    val list = mutableListOf<WorkingHourRange>()
-                    for (i in 0 until arr.length()) {
-                        val r = arr.getJSONObject(i)
-                        list.add(
-                            WorkingHourRange(
-                                startTime = r.optString("startTime", "06:00"),
-                                endTime = r.optString("endTime", "08:00"),
-                                capacity = r.optInt("capacity", 10)
-                            )
-                        )
-                    }
-                    DayWorkingSchedule(dow, isWorking, list)
-                }
-            }
-        } catch (e: Exception) {
-            DayOfWeek.values().associateWith { dow ->
-                DayWorkingSchedule(dow, dow != DayOfWeek.SATURDAY, listOf(WorkingHourRange("06:00", "08:00", 10)))
-            }
-        }
-    }
-
-    fun saveWeeklySchedule(context: Context, clinicId: String, schedule: Map<DayOfWeek, DayWorkingSchedule>) {
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        val root = JSONObject()
-        schedule.forEach { (dow, daySched) ->
-            val dObj = JSONObject()
-            dObj.put("isWorking", daySched.isWorking)
-            val arr = JSONArray()
-            daySched.ranges.forEach { r ->
-                val rObj = JSONObject()
-                rObj.put("startTime", r.startTime)
-                rObj.put("endTime", r.endTime)
-                rObj.put("capacity", r.capacity)
-                arr.put(rObj)
-            }
-            dObj.put("ranges", arr)
-            root.put(dow.name, dObj)
-        }
-        prefs.edit().putString("weekly_$clinicId", root.toString()).putBoolean("has_saved_weekly_$clinicId", true).apply()
-    }
-
-    fun hasSavedWeeklySchedule(context: Context, clinicId: String): Boolean {
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        return prefs.getBoolean("has_saved_weekly_$clinicId", false)
-    }
 
     fun saveDateOverrideNote(context: Context, clinicId: String, dateStr: String, note: String) {
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -216,16 +130,8 @@ fun SlotManagerScreen(
     var actionMessage by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
 
-    // ── Weekly Schedule & Date-Specific Override State ────────────────────
-    var weeklySchedule by remember(effectiveClinicId) {
-        mutableStateOf(ClinicScheduleStorage.loadWeeklySchedule(context, effectiveClinicId))
-    }
-    var hasSavedWeekly by remember(effectiveClinicId) {
-        mutableStateOf(ClinicScheduleStorage.hasSavedWeeklySchedule(context, effectiveClinicId))
-    }
-    var showWeeklyScheduleModal by remember { mutableStateOf(false) }
+    // ── Date-Specific Slot Override State ────────────────────────────────
     var showDateOverrideModal by remember { mutableStateOf(false) }
-    var isSyncingSchedule by remember { mutableStateOf(false) }
     var dateOverrideNote by remember(effectiveClinicId, selectedDate) {
         mutableStateOf(ClinicScheduleStorage.getDateOverrideNote(context, effectiveClinicId, selectedDate))
     }
@@ -570,7 +476,7 @@ fun SlotManagerScreen(
                         )
                         if (!dateOverrideNote.isNullOrBlank()) {
                             Text(
-                                text = "Custom Date Override: $dateOverrideNote",
+                                text = "Custom Note: $dateOverrideNote",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color(0xFFD97706)
@@ -848,272 +754,7 @@ fun SlotManagerScreen(
             }
         }
 
-        // ── 1. WEEKLY GENERALIZED WORKING DAYS & DAY-WISE WORKING HOURS MODAL ──
-        if (showWeeklyScheduleModal) {
-            var draftSchedule by remember(weeklySchedule) { mutableStateOf(weeklySchedule) }
-            var selectedDayTab by remember { mutableStateOf(DayOfWeek.MONDAY) }
-            var newRangeStart by remember { mutableStateOf("06:00") }
-            var newRangeEnd by remember { mutableStateOf("08:00") }
-            var newRangeCap by remember { mutableStateOf("10") }
-
-            AlertDialog(
-                onDismissRequest = { if (!isSyncingSchedule) showWeeklyScheduleModal = false },
-                title = {
-                    Column {
-                        Text("Weekly Working Days & Hours", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
-                        Text(
-                            "Set day-wise working hours (e.g., 06:00 to 08:00) generalized every week.",
-                            fontSize = 11.sp,
-                            color = Color(0xFF64748B)
-                        )
-                    }
-                },
-                text = {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text("1. Select Working Days of Week:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            listOf(
-                                DayOfWeek.SUNDAY,
-                                DayOfWeek.MONDAY,
-                                DayOfWeek.TUESDAY,
-                                DayOfWeek.WEDNESDAY,
-                                DayOfWeek.THURSDAY,
-                                DayOfWeek.FRIDAY,
-                                DayOfWeek.SATURDAY
-                            ).forEach { dow ->
-                                val d = draftSchedule[dow] ?: DayWorkingSchedule(dow, true, emptyList())
-                                val isSelectedTab = selectedDayTab == dow
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = when {
-                                        isSelectedTab -> Color(0xFF00796B)
-                                        d.isWorking -> Color(0xFFECFDF5)
-                                        else -> Color(0xFFF1F5F9)
-                                    },
-                                    border = BorderStroke(
-                                        1.dp,
-                                        if (isSelectedTab) Color(0xFF00796B) else if (d.isWorking) Color(0xFF10B981) else Color(0xFFCBD5E1)
-                                    ),
-                                    modifier = Modifier.clickable { selectedDayTab = dow }
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        Text(
-                                            text = dow.getDisplayName(TextStyle.SHORT, Locale.ENGLISH),
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isSelectedTab) Color.White else Color(0xFF0F172A)
-                                        )
-                                        Text(
-                                            text = if (d.isWorking) "Open" else "Off",
-                                            fontSize = 9.sp,
-                                            color = if (isSelectedTab) Color.White.copy(alpha = 0.9f) else if (d.isWorking) Color(0xFF059669) else Color(0xFF94A3B8)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        val currentDaySched = draftSchedule[selectedDayTab] ?: DayWorkingSchedule(selectedDayTab, true, emptyList())
-
-                        Card(
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
-                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "${selectedDayTab.getDisplayName(TextStyle.FULL, Locale.ENGLISH)} Working Status",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp
-                                    )
-                                    Switch(
-                                        checked = currentDaySched.isWorking,
-                                        onCheckedChange = { checked ->
-                                            draftSchedule = draftSchedule.toMutableMap().apply {
-                                                put(selectedDayTab, currentDaySched.copy(isWorking = checked))
-                                            }
-                                        }
-                                    )
-                                }
-
-                                if (currentDaySched.isWorking) {
-                                    Text(
-                                        text = "Working Hours for ${selectedDayTab.getDisplayName(TextStyle.FULL, Locale.ENGLISH)}:",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color(0xFF334155)
-                                    )
-
-                                    if (currentDaySched.ranges.isEmpty()) {
-                                        Text("No hours added yet. Add a shift below (e.g. 06:00 to 08:00).", fontSize = 11.sp, color = Color(0xFF64748B))
-                                    } else {
-                                        currentDaySched.ranges.forEachIndexed { idx, r ->
-                                            Surface(
-                                                shape = RoundedCornerShape(8.dp),
-                                                color = Color.White,
-                                                border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Text(
-                                                        text = "${r.startTime} - ${r.endTime} (Cap: ${r.capacity})",
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color(0xFF0F172A)
-                                                    )
-                                                    IconButton(
-                                                        onClick = {
-                                                            val updated = currentDaySched.ranges.filterIndexed { i, _ -> i != idx }
-                                                            draftSchedule = draftSchedule.toMutableMap().apply {
-                                                                put(selectedDayTab, currentDaySched.copy(ranges = updated))
-                                                            }
-                                                        },
-                                                        modifier = Modifier.size(24.dp)
-                                                    ) {
-                                                        Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    // Quick Preset Shift Chips (e.g., 06:00-08:00, 09:00-12:00, 14:00-17:00, 17:00-19:00)
-                                    Text("Quick Add Shift:", fontSize = 11.sp, color = Color(0xFF64748B))
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        listOf(
-                                            "06:00" to "08:00",
-                                            "08:00" to "12:00",
-                                            "10:00" to "14:00",
-                                            "14:00" to "17:00",
-                                            "17:00" to "19:00"
-                                        ).forEach { (s, e) ->
-                                            AssistChip(
-                                                onClick = {
-                                                    val added = (currentDaySched.ranges + WorkingHourRange(s, e, 10)).distinct()
-                                                    draftSchedule = draftSchedule.toMutableMap().apply {
-                                                        put(selectedDayTab, currentDaySched.copy(isWorking = true, ranges = added))
-                                                    }
-                                                },
-                                                label = { Text("+ $s-$e", fontSize = 11.sp) }
-                                            )
-                                        }
-                                    }
-
-                                    // Custom Shift Input
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        OutlinedTextField(
-                                            value = newRangeStart,
-                                            onValueChange = { newRangeStart = it },
-                                            label = { Text("From", fontSize = 10.sp) },
-                                            singleLine = true,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        OutlinedTextField(
-                                            value = newRangeEnd,
-                                            onValueChange = { newRangeEnd = it },
-                                            label = { Text("To", fontSize = 10.sp) },
-                                            singleLine = true,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        Button(
-                                            onClick = {
-                                                if (newRangeStart.isNotBlank() && newRangeEnd.isNotBlank()) {
-                                                    val cap = (newRangeCap.toIntOrNull() ?: 10).coerceAtLeast(1)
-                                                    val added = currentDaySched.ranges + WorkingHourRange(newRangeStart.trim(), newRangeEnd.trim(), cap)
-                                                    draftSchedule = draftSchedule.toMutableMap().apply {
-                                                        put(selectedDayTab, currentDaySched.copy(isWorking = true, ranges = added))
-                                                    }
-                                                }
-                                            },
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
-                                        ) {
-                                            Text("Add", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-
-                                    // Copy this day's hours to all working days
-                                    TextButton(
-                                        onClick = {
-                                            val updatedMap = draftSchedule.mapValues { (_, v) ->
-                                                if (v.isWorking) v.copy(ranges = currentDaySched.ranges) else v
-                                            }
-                                            draftSchedule = updatedMap
-                                        }
-                                    ) {
-                                        Icon(Icons.Default.CopyAll, contentDescription = null, modifier = Modifier.size(15.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("Copy ${selectedDayTab.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)} hours to all working days", fontSize = 11.sp)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            if (effectiveClinicId.isBlank()) {
-                                showWeeklyScheduleModal = false
-                                return@Button
-                            }
-                            isSyncingSchedule = true
-                            ClinicScheduleStorage.saveWeeklySchedule(context, effectiveClinicId, draftSchedule)
-                            weeklySchedule = draftSchedule
-                            hasSavedWeekly = true
-                            actionMessage = "✓ Weekly working days & hours saved (informational only; slots are added manually)."
-                            isSyncingSchedule = false
-                            showWeeklyScheduleModal = false
-                        },
-                        enabled = !isSyncingSchedule,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B))
-                    ) {
-                        Text(if (isSyncingSchedule) "Saving & Syncing..." else "Save Weekly Schedule", fontWeight = FontWeight.Bold)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showWeeklyScheduleModal = false }) {
-                        Text("Cancel")
-                    }
-                }
-            )
-        }
-
-        // ── 2. DATE-SPECIFIC OVERRIDE MODAL (Add / Subtract / Create Working Hours for `selectedDate`) ──
+        // ── DATE-SPECIFIC SLOT ADJUSTMENTS MODAL (Add / Subtract / Create Working Hours for `selectedDate`) ──
         if (showDateOverrideModal) {
             var customStart by remember { mutableStateOf("06:00") }
             var customEnd by remember { mutableStateOf("08:00") }
@@ -1123,9 +764,9 @@ fun SlotManagerScreen(
                 onDismissRequest = { showDateOverrideModal = false },
                 title = {
                     Column {
-                        Text("Customize Hours for $selectedDate", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                        Text("Manage Slots for $selectedDate", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
                         Text(
-                            "Add, subtract, or replace working hours specifically for $selectedDate without affecting other weeks.",
+                            "Adjust times, add new slots, or clear published slots specifically for $selectedDate.",
                             fontSize = 11.sp,
                             color = Color(0xFF64748B)
                         )
@@ -1138,10 +779,10 @@ fun SlotManagerScreen(
                             .verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text("Current Working Hours on $selectedDate:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Published Slots on $selectedDate:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         val daySlots = slots.filter { it.slotDate == selectedDate }
                         if (daySlots.isEmpty()) {
-                            Text("No active working hours on $selectedDate.", fontSize = 12.sp, color = Color(0xFF64748B))
+                            Text("No published slots on $selectedDate.", fontSize = 12.sp, color = Color(0xFF64748B))
                         } else {
                             daySlots.forEach { s ->
                                 Surface(
@@ -1209,7 +850,7 @@ fun SlotManagerScreen(
 
                         HorizontalDivider()
 
-                        Text("Add / Create Specific Working Hour for $selectedDate:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Add Slot Window for $selectedDate:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1251,7 +892,7 @@ fun SlotManagerScreen(
                                         val note = "Added ${newS.startTime}-${newS.endTime}"
                                         ClinicScheduleStorage.saveDateOverrideNote(context, effectiveClinicId, selectedDate, note)
                                         dateOverrideNote = note
-                                        actionMessage = "✓ Saved custom working hours (${newS.startTime} - ${newS.endTime}) for $selectedDate!"
+                                        actionMessage = "✓ Published slot (${newS.startTime} - ${newS.endTime}) for $selectedDate!"
                                         showDateOverrideModal = false
                                     }
                                 }
@@ -1261,7 +902,7 @@ fun SlotManagerScreen(
                         ) {
                             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Save & Add Hours for $selectedDate", fontWeight = FontWeight.Bold)
+                            Text("Publish Slot for $selectedDate", fontWeight = FontWeight.Bold)
                         }
 
                         OutlinedButton(
@@ -1271,14 +912,14 @@ fun SlotManagerScreen(
                                     slots = slots.filter { it.slotDate != selectedDate }
                                     ClinicScheduleStorage.saveDateOverrideNote(context, effectiveClinicId, selectedDate, "DAY_OFF")
                                     dateOverrideNote = "DAY_OFF"
-                                    actionMessage = "✓ Marked $selectedDate as Day Off (all hours removed for this date)."
+                                    actionMessage = "✓ Cleared all published slots for $selectedDate."
                                     showDateOverrideModal = false
                                 }
                             },
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Mark $selectedDate as Day Off (Clear Hours)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Clear All Slots for $selectedDate", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
                 },

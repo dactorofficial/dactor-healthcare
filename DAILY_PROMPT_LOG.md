@@ -61,6 +61,20 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-09
 
 ### Prompt:
+> "my ptoblem was that the ckinic has automatic generated slots when the clinic were supposed t manuallly publish it /plan"
+
+#### Changes Applied:
+1. **Clinic App — Slot Manager Manual Publishing Hardening ([SlotManagerScreen.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/slots/SlotManagerScreen.kt))**:
+   - Removed legacy `ClinicScheduleStorage` weekly schedule helpers (`loadWeeklySchedule`, `saveWeeklySchedule`, `hasSavedWeeklySchedule`) and data classes (`WorkingHourRange`, `DayWorkingSchedule`) that previously seeded default automatic slots.
+   - Removed unused state (`weeklySchedule`, `hasSavedWeekly`, `showWeeklyScheduleModal`, `isSyncingSchedule`) and eliminated the 260-line unused `showWeeklyScheduleModal` dialog.
+   - Refactored `showDateOverrideModal` to strictly serve as slot adjustments ("Manage Slots for $selectedDate"), removing misleading references to `Slot` database records as "working hours".
+   - Verified date switching in `LazyRow` strictly queries `slotRepository.getSlots(...)` with zero automatic slot creation; dates without slots render a clean empty state requiring explicit "Add slot" taps.
+   - Cleaned up unused imports (`org.json.JSONArray`, `org.json.JSONObject`).
+
+---
+
+
+### Prompt:
 > "automatic slot generation is still there fix this slot is only to be generated after clinic publishes the slot /plan /boost" (Audit & Elimination of False Availability Indicators)
 
 #### Changes Applied:
