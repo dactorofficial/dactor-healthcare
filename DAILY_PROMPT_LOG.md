@@ -7,6 +7,24 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-09
 
 ### Prompt:
+> "https://github.com/multica-ai/andrej-karpathy-skills can you pull this skill ?"
+
+#### Changes Applied:
+1. **Installed Karpathy Guidelines Skill ([`SKILL.md`](file:///g:/My%20Drive/New%20folder/.agents/skills/karpathy-guidelines/SKILL.md), [`EXAMPLES.md`](file:///g:/My%20Drive/New%20folder/.agents/skills/karpathy-guidelines/references/EXAMPLES.md))**:
+   - Pulled and integrated the `karpathy-guidelines` skill from `https://github.com/multica-ai/andrej-karpathy-skills` into `.agents/skills/karpathy-guidelines/` and `.agent/skills/karpathy-guidelines/`.
+   - Configured YAML frontmatter (`name: karpathy-guidelines`) with the 4 core principles:
+     1. **Think Before Coding**: Don't assume, don't hide confusion, surface tradeoffs.
+     2. **Simplicity First**: Minimum code that solves the problem, nothing speculative.
+     3. **Surgical Changes**: Touch only what you must, match existing style, clean up only your own mess.
+     4. **Goal-Driven Execution**: Define verifiable success criteria and loop until verified.
+   - Integrated comprehensive real-world before/after anti-pattern examples in `references/EXAMPLES.md`.
+2. **Project & Global Synchronization ([`CLAUDE.md`](file:///g:/My%20Drive/New%20folder/CLAUDE.md))**:
+   - Added `CLAUDE.md` in workspace root.
+   - Mounted global skill copies in `~/.gemini/config/skills/karpathy-guidelines/` and `~/.gemini/antigravity/skills/karpathy-guidelines/`.
+
+---
+
+### Prompt:
 > "automatic slot generation is still there fix this slot is only to be generated after clinic publishes the slot /plan /boost"
 
 #### Changes Applied:
@@ -57,8 +75,6 @@ This file tracks user prompts and the exact changes applied across the codebase,
    - Enforced that time slots only exist when explicitly published (`is_published = true`) by clinics/labs, rejecting automatic slot generation when clinic has not published slots.
 
 ---
-
-## 2026-11-09
 
 ### Prompt:
 > "my ptoblem was that the ckinic has automatic generated slots when the clinic were supposed t manuallly publish it /plan"
