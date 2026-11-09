@@ -162,6 +162,19 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ### Prompt:
+> "i ran it checki"
+
+#### Changes Applied:
+1. **Live Supabase Database & RPC Verification**:
+   - Connected to live Supabase PostgreSQL backend (`https://ojfoofojcpabqegxmsab.supabase.co`) and verified all stored procedures.
+   - **`confirm_pay_at_desk_booking`**: Verified live execution, authoritative context handling (`dactor.authoritative_context`), and constraint enforcement (quarantining pending Pay at Desk requests to `WAITING_FOR_APPROVAL` and isolating from live queue).
+   - **`approve_pay_at_desk_appointment`**: Verified live execution, `SECURITY DEFINER` privileges, and atomic transfer logic to live queue upon approval.
+   - **`cancel_pending_pay_at_desk_appointment`**: Verified live execution and capacity reconciliation.
+   - Confirmed complete eradication of foreign key constraint errors on `notifications.user_id`.
+
+---
+
+### Prompt:
 > "for reschedule from appoinments section , patient app it did showed me to select slot but when i tapped on to book it showed some error and rescheule didnt work and as for reschudle button in clinic app no show up patiwnt it didnt showed the slots the old logic still exist there /plan /boost"
 
 #### Changes Applied:
