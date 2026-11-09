@@ -32,7 +32,7 @@ The DACTOR platform consists of three tightly coupled applications operating on 
 |---|---|---|---|---|
 | **Super Admin Console** | React 18 + Vite + TypeScript + Tailwind | `admin-panel/` | [Live Site on GitHub Pages](https://dactorofficial.github.io/admin-portal/) <br> GitHub: `https://github.com/dactorofficial/admin-portal` | v1.0 |
 | **Clinic & Doctor App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `clinic-app/` | `APKs/Dactor-ClinicApp-v1.0.74.apk`<br>`AABs/Dactor-ClinicApp-v1.0.83.aab` | **v1.0.83 (Code 83)** |
-| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.18.apk`<br>`AABs/Dactor-PatientApp-v1.0.33.aab` | **v1.0.33 (Code 133)** |
+| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.18.apk`<br>`AABs/Dactor-PatientApp-v1.0.35.aab` | **v1.0.35 (Code 135)** |
 | **Cloud Backend & Storage** | Supabase (PostgreSQL + Auth + Storage + Realtime) | `supabase/` | Project URL: `https://ojfoofojcpabqegxmsab.supabase.co` | Cloud Live |
 
 ---

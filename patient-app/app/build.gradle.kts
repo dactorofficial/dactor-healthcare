@@ -18,8 +18,8 @@ android {
         applicationId = "com.dactor.patient"
         minSdk = 24
         targetSdk = 36
-        versionCode = 134
-        versionName = "1.0.34"
+        versionCode = 135
+        versionName = "1.0.35"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

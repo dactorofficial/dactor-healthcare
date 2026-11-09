@@ -787,3 +787,27 @@ This file tracks user prompts and the exact changes applied across the codebase,
    - Refactored the "View Requests" card layout into a direct single-row structure with fixed 44dp CreditCard badge, 12dp spacers, flex `Modifier.weight(1f)` text column (`maxLines = 2, overflow = TextOverflow.Ellipsis`), and a dedicated 32dp circular `Icons.AutoMirrored.Filled.ArrowForward` badge.
    - Eliminates horizontal compression, ensuring the arrow button remains an uncompressed circle on all screen sizes.
 
+---
+
+### Prompt:
+> "generate aab for patient app"
+
+#### Changes Applied:
+1. **Patient App Version Increment ([build.gradle.kts](file:///g:/My%20Drive/New%20folder/patient-app/app/build.gradle.kts))**:
+   - Incremented `versionCode` from `134` to `135`.
+   - Incremented `versionName` from `"1.0.34"` to `"1.0.35"`.
+
+2. **Official Google Play Store Production Release Bundle Build ([build_patient_bundle_ssd.ps1](file:///g:/My%20Drive/New%20folder/build_patient_bundle_ssd.ps1))**:
+   - Staged to fast local SSD builder (`C:\dactor-ssd-build\patient-app`) and built with API 36, Core Library Desugaring, and production signing key (`dactor-upload`).
+   - Generated production bundle `Dactor-PatientApp-v1.0.35.aab` (16.47 MB / 17,272,630 bytes).
+   - Replicated and synchronized to central release directories:
+     - `AABs/Dactor-PatientApp-v1.0.35.aab`
+     - `AABs/Dactor-PatientApp-v135.aab`
+     - `AABs/Dactor-PatientApp-release.aab`
+     - `PlayStore/patient-app/Dactor-PatientApp-v1.0.35.aab`
+     - `C:\Users\nitup\Dactor-APKs\Dactor-PatientApp-v1.0.35.aab`
+
+3. **Documentation & Handoff**:
+   - Updated Executive Summary and Version Log in [HANDOFF.md](file:///g:/My%20Drive/New%20folder/HANDOFF.md).
+   - Recorded entry in [DAILY_PROMPT_LOG.md](file:///g:/My%20Drive/New%20folder/DAILY_PROMPT_LOG.md).
+
