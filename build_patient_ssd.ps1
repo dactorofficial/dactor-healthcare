@@ -86,6 +86,8 @@ $ssdBkp = "$ssdApksDir\$destApkName"
 
 Copy-Item $apkFound.FullName $gDriveApks -Force
 Copy-Item $apkFound.FullName $ssdBkp -Force
+Copy-Item $apkFound.FullName "G:\My Drive\New folder\APKs\patient-app-debug.apk" -Force
+Copy-Item $apkFound.FullName "G:\My Drive\New folder\APKs\Dactor-PatientApp-debug.apk" -Force
 
 $sw.Stop()
 $sizeMB = [math]::Round(($apkFound.Length / 1MB), 2)

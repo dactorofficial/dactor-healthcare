@@ -811,3 +811,26 @@ This file tracks user prompts and the exact changes applied across the codebase,
    - Updated Executive Summary and Version Log in [HANDOFF.md](file:///g:/My%20Drive/New%20folder/HANDOFF.md).
    - Recorded entry in [DAILY_PROMPT_LOG.md](file:///g:/My%20Drive/New%20folder/DAILY_PROMPT_LOG.md).
 
+---
+
+### Prompt:
+> "create debug apk for patient app"
+
+#### Changes Applied:
+1. **Patient App Version Increment ([build.gradle.kts](file:///g:/My%20Drive/New%20folder/patient-app/app/build.gradle.kts))**:
+   - Incremented `versionCode` from `135` to `136`.
+   - Incremented `versionName` from `"1.0.35"` to `"1.0.36"`.
+
+2. **Patient App Debug APK Build ([build_patient_ssd.ps1](file:///g:/My%20Drive/New%20folder/build_patient_ssd.ps1))**:
+   - Executed clean SSD build pipeline via Gradle `assembleDebug` with target API 36, Java 17, and UTF-8 compile options.
+   - Generated debug binary `Dactor-PatientApp-v1.0.36.apk` (25.52 MB / 26,756,052 bytes).
+   - Staged to:
+     - `APKs/Dactor-PatientApp-v1.0.36.apk`
+     - `APKs/patient-app-debug.apk`
+     - `APKs/Dactor-PatientApp-debug.apk`
+     - `C:\Users\nitup\Dactor-APKs\Dactor-PatientApp-v1.0.36.apk`
+
+3. **Documentation & Tracking**:
+   - Updated Executive Summary and Version Log in [HANDOFF.md](file:///g:/My%20Drive/New%20folder/HANDOFF.md).
+   - Recorded entry in [DAILY_PROMPT_LOG.md](file:///g:/My%20Drive/New%20folder/DAILY_PROMPT_LOG.md).
+
