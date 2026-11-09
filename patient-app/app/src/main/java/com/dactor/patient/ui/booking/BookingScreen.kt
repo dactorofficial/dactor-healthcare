@@ -515,7 +515,7 @@ fun BookingScreen(
                             text = when {
                                 isExecutingReschedule -> "Rescheduling..."
                                 isRescheduleMode && !canBookSelectedSlot -> "Select a Slot to Reschedule"
-                                isRescheduleMode && selectedSlot != null -> "Confirm Reschedule • ${selectedSlot.startTime}"
+                                isRescheduleMode && selectedSlot != null -> "Confirm Reschedule \u2022 ${selectedSlot.startTime}"
                                 !canBookSelectedSlot -> "Select a Published Slot to Book"
                                 isLabClinic -> "Select Lab Tests & Book"
                                 else -> "Book Appointment"
@@ -606,7 +606,7 @@ fun BookingScreen(
                                     )
                                     Spacer(Modifier.width(4.dp))
                                     Text(
-                                        "Cancel Reschedule • Book New Instead",
+                                        "Cancel Reschedule \u2022 Book New Instead",
                                         color = Color(0xFFDC2626),
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Bold
@@ -733,7 +733,7 @@ fun BookingScreen(
                                             color = Color(0xFF00796B)
                                         )
                                         Text(
-                                            text = "Select time slot below • Tests chosen on next step",
+                                            text = "Select time slot below \u00B7 Tests chosen on next step",
                                             fontSize = 11.sp,
                                             color = Color(0xFF64748B)
                                         )
@@ -786,31 +786,19 @@ fun BookingScreen(
                                         text = when {
                                             isDeclaredHolidayOnSelectedDate -> "Closed (Holiday)"
                                             !selectedDateSchedule.isOpen -> "Closed (Off)"
-                                            else -> "${selectedDateSchedule.openTime} – ${selectedDateSchedule.closeTime}"
+                                            else -> {
+                                                val cleanOpen = selectedDateSchedule.openTime.filter { it in ' '..'~' }.trim()
+                                                val cleanClose = selectedDateSchedule.closeTime.filter { it in ' '..'~' }.trim()
+                                                "$cleanOpen - $cleanClose"
+                                            }
                                         },
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 1,
+                                        softWrap = false,
                                         color = if (isClinicClosedOnSelectedDate) Color(0xFFDC2626) else Color(0xFF15803D)
                                     )
                                 }
-                            }
-                            HorizontalDivider(color = Color(0xFFF1F5F9))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    "Doctor Consultation Fee",
-                                    fontSize = 12.sp,
-                                    color = Color(0xFF64748B)
-                                )
-                                Text(
-                                    "Rs. 0 (Direct Diagnostic Tests)",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = Color(0xFF00796B)
-                                )
                             }
                         }
                     }
@@ -988,10 +976,16 @@ fun BookingScreen(
                                         text = when {
                                             isDeclaredHolidayOnSelectedDate -> "Closed (Declared Holiday)"
                                             !selectedDateSchedule.isOpen -> "Closed (Weekly Off)"
-                                            else -> "${selectedDateSchedule.openTime} – ${selectedDateSchedule.closeTime}"
+                                            else -> {
+                                                val cleanOpen = selectedDateSchedule.openTime.filter { it in ' '..'~' }.trim()
+                                                val cleanClose = selectedDateSchedule.closeTime.filter { it in ' '..'~' }.trim()
+                                                "$cleanOpen - $cleanClose"
+                                            }
                                         },
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 1,
+                                        softWrap = false,
                                         color = if (isClinicClosedOnSelectedDate) Color(0xFFDC2626) else Color(0xFF15803D)
                                     )
                                 }

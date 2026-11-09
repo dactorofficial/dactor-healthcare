@@ -2449,7 +2449,7 @@ private fun SearchDoctorResultCard(
                         text = when {
                             clinicsForDoc.isEmpty() -> "Not affiliated"
                             clinicsForDoc.size > 1 -> "Available at ${clinicsForDoc.size} clinics (${primaryClinic?.name ?: ""} & more)"
-                            else -> "Practices at ${primaryClinic?.name ?: "Partner Clinic"} · ${primaryClinic?.addressText ?: "Nepal"}"
+                            else -> "Practices at ${primaryClinic?.name ?: "Partner Clinic"} • ${primaryClinic?.addressText ?: "Nepal"}"
                         },
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,

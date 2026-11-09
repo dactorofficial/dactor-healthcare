@@ -4925,6 +4925,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             <span>{clinicOnBreak ? 'On Break' : 'Take Break'}</span>
           </button>
 
+          {!(selectedClinic?.type === 'diagnostic_lab' || (selectedClinic as any)?.clinicType === 'diagnostic_lab') && (
           <button
             onClick={() => setDeskTab('invitations')}
             className="flex items-center space-x-1 px-2.5 sm:px-3 py-2 bg-brand-500/15 hover:bg-brand-500/25 text-brand-800 dark:text-brand-300 border border-brand-400/40 rounded-xl text-xs font-bold transition-colors cursor-pointer"
@@ -4933,6 +4934,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             <UserPlus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             <span>Add / Invite Doctor</span>
           </button>
+        )}
 
           <button
             onClick={handleLogout}
@@ -5216,7 +5218,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             }`}
           >
             {/* Enlisted Doctors & Presence Roster Bar with Master Switch */}
-          {clinicDoctors.length > 0 && (
+          {clinicDoctors.length > 0 && !(selectedClinic?.type === 'diagnostic_lab' || (selectedClinic as any)?.clinicType === 'diagnostic_lab') && (
             <div className="liquid-glass-card p-5 rounded-3xl border border-white/60 dark:border-white/15 shadow-glass-sm space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/40 dark:border-white/10 pb-3">
                 <div>
@@ -5288,7 +5290,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
           )}
 
-          {!loading && clinicDoctors.length === 0 && (
+          {!loading && clinicDoctors.length === 0 && !(selectedClinic?.type === 'diagnostic_lab' || (selectedClinic as any)?.clinicType === 'diagnostic_lab') && (
             <div className="liquid-glass-card p-6 rounded-3xl border border-blue-200/60 dark:border-blue-900/30 bg-blue-50/40 dark:bg-blue-950/20 text-center space-y-3">
               <div className="w-12 h-12 rounded-2xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto">
                 <UserPlus className="w-6 h-6" />
@@ -5309,7 +5311,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           )}
 
           {/* Top Banner Alert if Doctor is Away or Clinic is on Break */}
-          {!loading && clinicDoctors.length > 0 && !doctorInClinic && (
+          {!loading && clinicDoctors.length > 0 && !doctorInClinic && !(selectedClinic?.type === 'diagnostic_lab' || (selectedClinic as any)?.clinicType === 'diagnostic_lab') && (
             <div className="p-4 bg-rose-500/10 backdrop-blur-md border border-rose-300/60 dark:border-rose-500/30 rounded-2xl flex items-center space-x-3 text-rose-800 dark:text-rose-200 text-xs font-bold">
               <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
               <div>

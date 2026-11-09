@@ -7,6 +7,97 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-09
 
 ### Prompt:
+> "push everything today changed to github"
+
+#### Changes Applied:
+1. **GitHub Synchronization**:
+   - Staged and committed all pending codebase modifications:
+     - `patient-app`: String escaping fixes in `BookingScreen.kt`, Compose and UTF-8 cleanups in `PatientMainScreen.kt`, `PatientSearchScreen.kt`, `QueueStatusScreen.kt`, and version bump to `1.0.33` / Code `133`.
+     - `clinic-app`: Version bump to `1.0.82` / Code `82`.
+     - `web-app`: Diagnostic lab decoupling in `ClinicPortal.tsx`, `ClinicDetail.tsx`, `FindClinics.tsx`, and `PatientPortal.tsx`.
+     - Infrastructure & Scripts: Updated `build_patient_aab_ssd.ps1` and added `desktop.ini` to `.gitignore`.
+     - Documentation: Updated `HANDOFF.md` release registry and `DAILY_PROMPT_LOG.md`.
+     - Signed App Bundles: Pushed Clinic App `v1.0.82` and Patient App `v1.0.33` release `.aab` artifacts to GitHub repository `main`.
+
+---
+
+### Prompt:
+> "aab for patient app"
+
+#### Changes Applied:
+1. **Patient App — Android App Bundle (AAB) Release Generation (`v1.0.33`, `versionCode: 133`)**:
+   - Incremented `versionCode` to `133` (preventing Play Store version collision with prior v132) and `versionName` to `"1.0.33"` in [`patient-app/app/build.gradle.kts`](file:///g:/My%20Drive/New%20folder/patient-app/app/build.gradle.kts).
+   - Fixed character sanitization in [`BookingScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/booking/BookingScreen.kt) by replacing invalid `\x` escape sequences with standard Kotlin character range filters (`filter { it in ' '..'~' }`).
+   - Executed signed release App Bundle build with desugaring enabled (`minSdk = 24`) and signed using the official production upload key (`dactor-upload.jks`, RSA 2048-bit) via [`build_patient_aab_ssd.ps1`](file:///g:/My%20Drive/New%20folder/build_patient_aab_ssd.ps1).
+   - Included all recent fixes:
+     - Unified UTF-8 mojibake eradication across discovery, queue tracker, and booking cards.
+     - Lab mode direct slot booking with doctor selection bypassed and fasting notices.
+     - Reschedule mode preservation and safe cancellation flow.
+   - Generated signed release Android App Bundle artifacts (16.47 MB / 17,275,231 bytes):
+     - `AABs/Dactor-PatientApp-v1.0.33.aab`
+     - `AABs/Dactor-PatientApp-v133.aab`
+     - `AABs/Dactor-PatientApp-release.aab`
+     - `PlayStore/patient-app/Dactor-PatientApp-v1.0.33.aab`
+     - `PlayStore/patient-app/Dactor-PatientApp-v133.aab`
+     - SSD backup: `C:\Users\nitup\Dactor-APKs\Dactor-PatientApp-v1.0.33.aab`
+
+---
+
+### Prompt:
+> "aab for clinic"
+
+#### Changes Applied:
+1. **Clinic App — Android App Bundle (AAB) Release Generation (`v1.0.82`, `versionCode: 82`)**:
+   - Incremented `versionCode` from 81 to 82 and `versionName` from `"1.0.81"` to `"1.0.82"` in [`clinic-app/app/build.gradle.kts`](file:///g:/My%20Drive/New%20folder/clinic-app/app/build.gradle.kts).
+   - Executed signed release App Bundle build with desugaring enabled (`minSdk = 24`) and signed using the official production upload key via [`build_clinic_aab_ssd.ps1`](file:///g:/My%20Drive/New%20folder/build_clinic_aab_ssd.ps1).
+   - Included all recent UI enhancements:
+     - No-Show Patients Directory top bar header reconstruction and status bar insets fix ([`NoShowManagerScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/appointments/NoShowManagerScreen.kt)).
+     - Simplified concise `"Search"` placeholder across all clinic screens ([`NoShowManagerScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/appointments/NoShowManagerScreen.kt), [`PatientDirectoryScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/patients/PatientDirectoryScreen.kt), [`BillingScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/BillingScreen.kt), [`PaymentLogsScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/PaymentLogsScreen.kt), [`LabWorkflowScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/lab/LabWorkflowScreen.kt)).
+     - Pay at Desk "View Requests" arrow button circular aspect ratio and spacing fix ([`DashboardScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/dashboard/DashboardScreen.kt)).
+     - UTF-8 character encoding fixes across appointment repositories and screen views.
+   - Generated signed release Android App Bundle artifacts (23.25 MB / 24,384,358 bytes):
+     - `AABs/Dactor-ClinicApp-v1.0.82.aab`
+     - `AABs/Dactor-ClinicApp-v82.aab`
+     - `AABs/Dactor-ClinicApp-release.aab`
+     - `PlayStore/clinic-app/Dactor-ClinicApp-v1.0.82.aab`
+     - `PlayStore/clinic-app/Dactor-ClinicApp-v82.aab`
+     - Local SSD backup: `C:\Users\nitup\Dactor-APKs\Dactor-ClinicApp-v1.0.82.aab`
+2. **Updated Version Registries**:
+   - Updated [`HANDOFF.md`](file:///g:/My%20Drive/New%20folder/HANDOFF.md) Executive Summary and APK/AAB Version Registry with `v1.0.82 (Code 82)`.
+
+---
+
+### Prompt:
+> "all the changes are done in both website and app right ?"
+
+#### Changes Applied:
+1. **Web App Parity for Diagnostic Labs ([`ClinicPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/ClinicPortal.tsx), [`ClinicDetail.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/ClinicDetail.tsx), [`FindClinics.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/FindClinics.tsx), [`PatientPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/PatientPortal.tsx))**:
+   - **Clinic Portal Header**: Hidden top "Add / Invite Doctor" button when clinic type is `diagnostic_lab`.
+   - **Clinic Portal Dashboard**: Hidden "Enlisted Doctors & Live Cabin Presence Roster", "No Doctors Enlisted" prompt, and "Doctor is away" alerts for `diagnostic_lab`.
+   - **Facility Operational Model Lock**: Permanently locked the facility operational model dropdown with explanatory banner directing changes to Super Admin.
+   - **Web Clinic Detail**: Prevented OPD tab button from displaying for diagnostic labs (`!isLabClinic`), keeping lab facilities locked to the lab test booking workflow.
+   - **Web Find Clinics & Patient Portal**: Replaced clinical doctor specialties with diagnostic pathology badges (`🧪 Pathology Tests`, `🔬 Blood & Urine Scans`, `🩸 Diagnostic Reports`) for labs, and hid attending doctor cards.
+   - **Verified Build**: Successfully compiled web app via `npm --prefix web-app run build` with 0 errors.
+
+2. **Mobile Apps Parity & Typography / Mojibake Clean-Up ([`PatientMainScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt), [`PatientSearchScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/search/PatientSearchScreen.kt), [`QueueStatusScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt))**:
+   - **Removed Encoding Mojibakes**: Replaced literal non-ASCII characters (`·`, `–`, `•`) with explicit Unicode escapes (`\u2022`, `\u00B7`) and standard ASCII hyphens across all screens, permanently eliminating `Â·`, `â€¢`, and `â€“` corruptions.
+   - **Fixed Vertical Column Text Layout**: Set `fill = false` on arrival guidance row (`Modifier.weight(1f, fill = false)`) so the `±15 min` badge is not squeezed into a single-letter vertical column.
+
+---
+
+### Prompt:
+> "hide this as well for diagnostic lab and do you see the text error in collection error fix this"
+
+#### Changes Applied:
+1. **Patient App — Diagnostic Lab Booking Screen Clean-Up ([`BookingScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/booking/BookingScreen.kt))**:
+   - **Hidden Doctor Consultation Fee**: Completely removed the divider and the `"Doctor Consultation Fee: Rs. 0 (Direct Diagnostic Tests)"` row from the diagnostic lab booking card.
+   - **Resolved Collection Hours Character Encoding Artifacts**: Fixed `08:00 AM Ã¢â‚¬â€œ 05:00 PM` by stripping non-ASCII artifacts from operational schedule strings and formatting times using an ASCII hyphen (`"$cleanOpen - $cleanClose"`), preventing CP1252/Windows-1252 mojibake.
+   - **Prevented Awkward 2-Line Text Wrapping**: Added `maxLines = 1` and `softWrap = false` to collection hours and working hours status text so timing stays on a single clean line.
+   - **Cleaned Subtitle Character Encoding**: Replaced literal bullet in `"Select time slot below • Tests chosen on next step"` with Unicode escape `\u00B7` (`·`), resolving `â€¢` corruptions.
+
+---
+
+### Prompt:
 > "do you have acess to upload and create new respiratory for dactor official ?" / "your work is to go on /browser create a new respiratiory and push the complete new folder file by part on it like first clinic app then patient app then admin portal then website file then all the rest files from our new folder" / "then upload complete new folder" / "continue kiddo"
 
 #### Changes Applied:

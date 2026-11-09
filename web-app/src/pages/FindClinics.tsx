@@ -472,23 +472,36 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
                       <span className="truncate font-medium">{hoursText}</span>
                     </div>
 
-                    {/* Specialties Pills */}
-                    {clinic.specialties && clinic.specialties.length > 0 && (
+                    {/* Specialties / Lab Offerings Pills */}
+                    {isLab ? (
                       <div className="flex flex-wrap gap-1.5 pt-0.5">
-                        {clinic.specialties.slice(0, 3).map((s, idx) => (
+                        {['🧪 Pathology Tests', '🔬 Blood & Urine Scans', '🩸 Diagnostic Reports'].map((s, idx) => (
                           <span
                             key={idx}
-                            className="px-2.5 py-0.5 rounded-lg liquid-glass-subtle text-slate-700 dark:text-slate-300 text-[10px] sm:text-[11px] font-semibold"
+                            className="px-2.5 py-0.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-800 dark:text-purple-300 text-[10px] sm:text-[11px] font-semibold"
                           >
                             {s}
                           </span>
                         ))}
-                        {clinic.specialties.length > 3 && (
-                          <span className="px-2 py-0.5 rounded-lg liquid-glass-subtle text-slate-500 dark:text-slate-400 text-[10px] sm:text-[11px] font-medium">
-                            +{clinic.specialties.length - 3} more
-                          </span>
-                        )}
                       </div>
+                    ) : (
+                      clinic.specialties && clinic.specialties.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-0.5">
+                          {clinic.specialties.slice(0, 3).map((s, idx) => (
+                            <span
+                              key={idx}
+                              className="px-2.5 py-0.5 rounded-lg liquid-glass-subtle text-slate-700 dark:text-slate-300 text-[10px] sm:text-[11px] font-semibold"
+                            >
+                              {s}
+                            </span>
+                          ))}
+                          {clinic.specialties.length > 3 && (
+                            <span className="px-2 py-0.5 rounded-lg liquid-glass-subtle text-slate-500 dark:text-slate-400 text-[10px] sm:text-[11px] font-medium">
+                              +{clinic.specialties.length - 3} more
+                            </span>
+                          )}
+                        </div>
+                      )
                     )}
                   </div>
                 </div>

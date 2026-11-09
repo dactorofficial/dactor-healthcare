@@ -3911,7 +3911,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
                                       {/* Specialties chips */}
                                       <div className="flex flex-wrap gap-1.5">
-                                        {(c.specialties && c.specialties.length > 0
+                                        {(isLab
+                                          ? ['🧪 Pathology', '🔬 Lab Diagnostics', '🩸 Blood Tests']
+                                          : c.specialties && c.specialties.length > 0
                                           ? c.specialties
                                           : ['General Medicine']
                                         )

@@ -1713,7 +1713,7 @@ fun HomeTab(
                             color = Color(0xFF0F172A)
                         )
                         Text(
-                            text = if (detectedCityName.isNotBlank()) "$detectedCityName · Checking clinic availability"
+                            text = if (detectedCityName.isNotBlank()) "$detectedCityName • Checking clinic availability"
                                 else "Checking real-time clinic availability",
                             fontSize = 13.sp,
                             color = Color(0xFF64748B),
@@ -1865,7 +1865,7 @@ fun HomeTab(
                                     val distKm = if (userLatitude != null && userLongitude != null && clinic != null) {
                                         calculateDistanceKm(userLatitude!!, userLongitude!!, clinic.latitude ?: 27.7052, clinic.longitude ?: 85.3193)
                                     } else null
-                                    val distStr = if (distKm != null) String.format(java.util.Locale.US, " · %.1f km", distKm) else ""
+                                    val distStr = if (distKm != null) String.format(java.util.Locale.US, " • %.1f km", distKm) else ""
 
                                     Card(
                                         shape = RoundedCornerShape(16.dp),
@@ -2818,7 +2818,7 @@ private fun PatientHomeDoctorCard(
     val distKm = if (userLatitude != null && userLongitude != null && primaryClinic != null) {
         calculateDistanceKm(userLatitude, userLongitude, primaryClinic.latitude ?: 27.7052, primaryClinic.longitude ?: 85.3193)
     } else null
-    val distText = if (distKm != null) String.format(java.util.Locale.US, " · %.1f km away", distKm) else ""
+    val distText = if (distKm != null) String.format(java.util.Locale.US, " • %.1f km away", distKm) else ""
 
     val earliestSlot = remember(docItem, allClinics, selectedDate) {
         val dateStr = selectedDate.toString()
@@ -3111,7 +3111,7 @@ private fun PatientHomeClinicCard(
         }
     val queueCount = item.availableSlots.sumOf { it.bookedCount }
     val estWaitMin = queueCount * 10
-    val queueText = if (queueCount == 0) "No wait · Direct Entry" else "👥 $queueCount in queue (~${estWaitMin}m wait)"
+    val queueText = if (queueCount == 0) "No wait • Direct Entry" else "👥 $queueCount in queue (~${estWaitMin}m wait)"
     val queueBg = when {
         queueCount <= 2 -> Color(0xFFDCFCE7)
         queueCount <= 5 -> Color(0xFFE0F2FE)
@@ -3229,7 +3229,7 @@ private fun PatientHomeClinicCard(
                     ) {
                         Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(14.dp))
                         Text(
-                            text = "${clinic.addressText ?: "Nepal"} · $distText",
+                            text = "${clinic.addressText ?: "Nepal"} • $distText",
                             fontSize = 12.sp,
                             color = Color(0xFF64748B)
                         )
@@ -3396,7 +3396,7 @@ private fun PatientHomeClinicCard(
                                     )
                             )
                             Text(
-                                text = if (todaySched.isOpen) "Open · ${todaySched.openTime} – ${todaySched.closeTime}" else "Closed Today",
+                                text = if (todaySched.isOpen) "Open • ${todaySched.openTime} - ${todaySched.closeTime}" else "Closed Today",
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = if (todaySched.isOpen) Color(0xFF334155) else Color(0xFFDC2626)
@@ -3404,7 +3404,7 @@ private fun PatientHomeClinicCard(
                         }
                         if (hasBreak) {
                             Text(
-                                text = "Break: ${todaySched.breakStart} – ${todaySched.breakEnd}",
+                                text = "Break: ${todaySched.breakStart} - ${todaySched.breakEnd}",
                                 fontSize = 10.sp,
                                 color = Color(0xFFD97706),
                                 fontWeight = FontWeight.Medium,
@@ -6494,7 +6494,7 @@ fun AppointmentsTab(
                                                         color = Color(0xFF0F172A)
                                                     )
                                                     Text(
-                                                        text = appt.appointmentTime ?: "10:00 AM – 11:00 AM",
+                                                        text = appt.appointmentTime ?: "10:00 AM - 11:00 AM",
                                                         fontSize = 14.sp,
                                                         fontWeight = FontWeight.ExtraBold,
                                                         color = Color(0xFF0284C7)
@@ -6530,7 +6530,7 @@ fun AppointmentsTab(
                                                 horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
                                                 Row(
-                                                    modifier = Modifier.weight(1f),
+                                                    modifier = Modifier.weight(1f, fill = false),
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                                 ) {
@@ -6785,7 +6785,7 @@ fun AppointmentsTab(
                                             )
                                         }
                                         Text(
-                                            text = "${todaySched.breakStart} – ${todaySched.breakEnd}",
+                                            text = "${todaySched.breakStart} - ${todaySched.breakEnd}",
                                             fontSize = 11.5.sp,
                                             fontWeight = FontWeight.ExtraBold,
                                             color = Color(0xFFC2410C)

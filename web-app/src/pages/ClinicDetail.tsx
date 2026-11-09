@@ -1772,7 +1772,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
           {/* Quick Action Pills (Full width grid on mobile) */}
           <div className="w-full sm:w-auto grid grid-cols-2 sm:flex items-center gap-2">
-            {(!isLabClinic || doctors.length > 0) && (
+            {!isLabClinic && (
               <button
                 disabled={isReschedule}
                 onClick={() => !isReschedule && setActiveTab('opd')}

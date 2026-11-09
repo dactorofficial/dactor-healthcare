@@ -3,6 +3,8 @@ node_modules/
 __pycache__/
 *.env
 .DS_Store
+desktop.ini
+**/desktop.ini
 
 build/
 **/build/

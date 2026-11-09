@@ -3747,7 +3747,7 @@ fun QueueStatusScreen(
                                     val dName = if (doctorName.isNotBlank()) {
                                         if (doctorName.startsWith("Dr.", ignoreCase = true)) doctorName else "Dr. $doctorName"
                                     } else "Dr. Anubhav Jha"
-                                    "$dName · $formattedDate"
+                                    "$dName • $formattedDate"
                                 }
                                 Text(
                                     text = docTitle,
