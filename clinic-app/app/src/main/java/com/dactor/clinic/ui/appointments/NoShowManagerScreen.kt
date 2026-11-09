@@ -232,50 +232,66 @@ fun NoShowManagerScreen(
     Scaffold(
         containerColor = Color(0xFFF8FAFC),
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFFDC2626),
-                                modifier = Modifier.size(32.dp)
+            Surface(
+                color = Color.White,
+                shadowElevation = 0.5.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                ) {
+                    TopAppBar(
+                        title = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        Icons.Default.EventBusy,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFDC2626),
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Default.EventBusy,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
+                                Text(
+                                    "No-Show Patients Directory",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.5.sp,
+                                    color = Color(0xFF0F172A),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
-                            Text(
-                                "No-Show Patients Directory",
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 17.sp,
-                                color = Color(0xFF0F172A)
-                            )
-                        }
-                        Text(
-                            "Audit missed visits date-wise, call patients & arrange new appointment dates",
-                            fontSize = 11.sp,
-                            color = Color(0xFF64748B)
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color(0xFF0F172A))
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { coroutineScope.launch { loadData() } }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color(0xFF0F172A))
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
-            )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { navController.popBackStack() }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color(0xFF0F172A))
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = { coroutineScope.launch { loadData() } }) {
+                                Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color(0xFF0F172A))
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White),
+                        windowInsets = WindowInsets(0, 0, 0, 0)
+                    )
+                    Text(
+                        "Audit missed visits date-wise, call patients & arrange new appointment dates",
+                        fontSize = 11.5.sp,
+                        color = Color(0xFF64748B),
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 10.dp)
+                    )
+                }
+            }
         }
     ) { padding ->
         Column(
@@ -397,7 +413,7 @@ fun NoShowManagerScreen(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                label = { Text("Search patient name, mobile, 10-digit code or doctor") },
+                placeholder = { Text("Search") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF64748B)) },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
@@ -749,7 +765,7 @@ fun NoShowManagerScreen(
                         ) {
                             Column {
                                 Text(appt.patientName, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF0F172A))
-                                Text("Code: #${appt.trackingCode10Digit} â€¢ ${appt.patientMobile}", fontSize = 11.sp, color = Color(0xFF0284C7), fontFamily = FontFamily.Monospace)
+                                Text("Code: #${appt.trackingCode10Digit} • ${appt.patientMobile}", fontSize = 11.sp, color = Color(0xFF0284C7), fontFamily = FontFamily.Monospace)
                             }
                             Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFFEE2E2)) {
                                 Text(
@@ -882,7 +898,7 @@ fun NoShowManagerScreen(
                                 items(availableSlotsForReschedule) { slot ->
                                     val isSelected = selectedSlotId == slot.id
                                     val availableCapacity = (slot.maxCapacity - slot.bookedCount).coerceAtLeast(0)
-                                    val timeLabel = "${slot.startTime} â€“ ${slot.endTime}"
+                                    val timeLabel = "${slot.startTime} – ${slot.endTime}"
 
                                     Surface(
                                         shape = RoundedCornerShape(8.dp),
@@ -1047,7 +1063,7 @@ private fun NoShowPatientCard(
                         }
                         if (demographics.isNotEmpty()) {
                             Text(
-                                text = demographics.joinToString(" â€¢ "),
+                                text = demographics.joinToString(" • "),
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color(0xFF0284C7)
@@ -1131,9 +1147,11 @@ private fun NoShowPatientCard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Assigned Doctor
-                        val docName = doctor?.let { "Dr. ${it.fullName.removePrefix("Dr. ").removePrefix("Dr.")}" } ?: "OPD Doctor"
-                        val docSpec = doctor?.specialty ?: "General Medicine"
+                        // Assigned Doctor / Service
+                        val docName = doctor?.let { "Dr. ${it.fullName.removePrefix("Dr. ").removePrefix("Dr.")}" }
+                            ?: appointment.selectedLabTests?.takeIf { it.isNotBlank() }
+                            ?: "Diagnostic Sample Collection"
+                        val docSpec = doctor?.specialty ?: "Diagnostic Lab"
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1141,7 +1159,7 @@ private fun NoShowPatientCard(
                         ) {
                             Icon(Icons.Default.MedicalServices, contentDescription = null, tint = Color(0xFF475569), modifier = Modifier.size(12.dp))
                             Text(
-                                text = "$docName â€¢ $docSpec",
+                                text = "$docName • $docSpec",
                                 fontSize = 11.sp,
                                 color = Color(0xFF334155),
                                 maxLines = 1,

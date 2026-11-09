@@ -815,7 +815,8 @@ fun DiscoveryScreen(
                                 }
 
                                 // Doctors Available at this Clinic
-                                if (item.doctors.isNotEmpty()) {
+                                val isLabFacility = item.clinic.type.equals("diagnostic_lab", ignoreCase = true) || (item.clinic.type ?: "").contains("lab", ignoreCase = true)
+                                if (!isLabFacility && item.doctors.isNotEmpty()) {
                                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                         Text("Physicians at this Clinic:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         item.doctors.forEach { doc ->

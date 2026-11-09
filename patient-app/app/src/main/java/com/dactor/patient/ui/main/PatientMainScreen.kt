@@ -3236,46 +3236,101 @@ private fun PatientHomeClinicCard(
                     }
                 }
 
-                // Specialties Chips
-                val rawSpecs = if (clinic.specialties.isNotEmpty()) clinic.specialties else listOf("General Medicine")
+                // Lab / Specialty Chips & Offerings
+                val isLabClinic = remember(clinic) {
+                    clinic.type.equals("diagnostic_lab", ignoreCase = true) ||
+                    clinic.type?.contains("lab", ignoreCase = true) == true ||
+                    clinic.name.contains("lab", ignoreCase = true)
+                }
+
+                val displayChips = remember(clinic, item.services) {
+                    if (isLabClinic) {
+                        if (item.services.isNotEmpty()) {
+                            item.services.map { it.serviceName }
+                        } else {
+                            val labSpecs = clinic.specialties.filter { s ->
+                                val l = s.lowercase()
+                                l.contains("test") || l.contains("scan") || l.contains("lab") ||
+                                l.contains("mri") || l.contains("ct") || l.contains("x-ray") ||
+                                l.contains("blood") || l.contains("patholog") || l.contains("urine") ||
+                                l.contains("profile") || l.contains("ecg") || l.contains("echo")
+                            }
+                            if (labSpecs.isNotEmpty()) labSpecs
+                            else listOf("Blood Tests & CBC", "Pathology", "Digital X-Ray", "Urine Routine")
+                        }
+                    } else {
+                        if (clinic.specialties.isNotEmpty()) clinic.specialties else listOf("General Medicine")
+                    }
+                }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    rawSpecs.take(3).forEach { spec ->
+                    if (isLabClinic) {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFFF1F5F9)
+                            color = Color(0xFFF3E8FF),
+                            border = BorderStroke(1.dp, Color(0xFFD8B4FE))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Science,
+                                    contentDescription = "Diagnostic Lab",
+                                    tint = Color(0xFF7E22CE),
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = "Lab Tests",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF7E22CE)
+                                )
+                            }
+                        }
+                    }
+
+                    displayChips.take(3).forEach { spec ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isLabClinic) Color(0xFFFAF5FF) else Color(0xFFF1F5F9),
+                            border = if (isLabClinic) BorderStroke(1.dp, Color(0xFFE9D5FF)) else null
                         ) {
                             Text(
                                 text = spec,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = Color(0xFF334155),
+                                color = if (isLabClinic) Color(0xFF6B21A8) else Color(0xFF334155),
                                 modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
                             )
                         }
                     }
-                    if (rawSpecs.size > 3) {
+                    if (displayChips.size > 3) {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFFF1F5F9)
+                            color = if (isLabClinic) Color(0xFFFAF5FF) else Color(0xFFF1F5F9),
+                            border = if (isLabClinic) BorderStroke(1.dp, Color(0xFFE9D5FF)) else null
                         ) {
                             Text(
-                                text = "+${rawSpecs.size - 3}",
+                                text = "+${displayChips.size - 3}",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF0284C7),
+                                color = if (isLabClinic) Color(0xFF7E22CE) else Color(0xFF0284C7),
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
                     }
                 }
 
-                // Primary Doctor Row
-                if (primaryDoctor != null) {
+                // Primary Doctor Row (Only for non-lab clinics)
+                if (!isLabClinic && primaryDoctor != null) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -3402,7 +3457,7 @@ private fun PatientHomeClinicCard(
                             .weight(1f)
                             .height(42.dp)
                     ) {
-                        Text("Book OPD", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                        Text(if (isLabClinic) "Book Lab Test" else "Book OPD", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
                         Spacer(Modifier.width(5.dp))
                         Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(15.dp))
                     }

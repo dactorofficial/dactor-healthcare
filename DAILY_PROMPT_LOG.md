@@ -7,6 +7,70 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-09
 
 ### Prompt:
+> "in search text there is written search patient name , number ..... remove this completely just make it search simply no need of such explanation"
+
+#### Changes Applied:
+1. **Clinic App — Simplified Search Placeholder Text**:
+   - Replaced all verbose explanatory search placeholders across the clinic app with a concise, clean `"Search"` placeholder:
+     - [`NoShowManagerScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/appointments/NoShowManagerScreen.kt): Replaced `label = { Text("Search patient name, mobile, 10-digit code or doctor") }` with `placeholder = { Text("Search") }`.
+     - [`PatientDirectoryScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/patients/PatientDirectoryScreen.kt): Replaced `"Search by Name, Phone, or\nAppointment ID"` and `"Search date visits by Name, Phone, or Appt ID..."` with `"Search"`.
+     - [`BillingScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/BillingScreen.kt): Replaced `"Search patient name, mobile, or 10-digit code..."` with `"Search"`.
+     - [`PaymentLogsScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/PaymentLogsScreen.kt): Replaced `"Search token, patient, doctor, ref ID..."` with `"Search"`.
+     - [`LabWorkflowScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/lab/LabWorkflowScreen.kt): Replaced `"Search by Name, Phone, or\n10-Digit Appointment ID"` with `"Search"`.
+
+---
+
+### Prompt:
+> "fix these" (with screenshots of No-Show Patients Directory top bar & mojibakes, and Dashboard Pay at Desk 'View Requests' card arrow clipping)
+
+#### Changes Applied:
+1. **Clinic App — No-Show Patients Directory Header & Layout Remediation ([`NoShowManagerScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/appointments/NoShowManagerScreen.kt))**:
+   - Resolved top bar vertical and horizontal clipping where the `[x]` EventBusy icon was pushed into the status bar and the title "No-Show Patients Directory" was truncated on the right.
+   - Restructured `topBar` with a white `Surface` wrapped in `statusBarsPadding()`, housing a standard-height `TopAppBar(windowInsets = WindowInsets(0, 0, 0, 0))` for the back button, 28dp red icon, and title with `maxLines = 1, overflow = TextOverflow.Ellipsis`.
+   - Moved the subtitle ("Audit missed visits date-wise, call patients & arrange new appointment dates") directly below the TopAppBar within the white header container, giving it full horizontal width and clean line spacing without cramping between action buttons.
+   - Cleaned all mojibake characters in patient card demographics (`â€¢` -> `•`), doctor strings (`â€¢` -> `•`), and reschedule slot times (`â€“` -> `–`).
+
+2. **Clinic App — Appointment Time Parsing Normalization ([`AppointmentRepository.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt))**:
+   - Updated `parseTimeToMinutes` and `parseAppointmentEndTimeToMinutes` to split cleanly across hyphens, en-dashes (`–`), em-dashes (`—`), and `TO`.
+
+3. **Clinic App — Pay at Desk "View Requests" Card Layout ([`DashboardScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/dashboard/DashboardScreen.kt))**:
+   - Fixed arrow button squishing/clipping on the right edge of the "View Requests" card.
+   - Applied `Modifier.weight(1f).padding(end = 12.dp)` to the left content row and `Modifier.weight(1f)` to the text column, ensuring the long description ("Review & approve Pay at Desk appointments") wraps neatly with `lineHeight = 16.sp`.
+   - Added `.aspectRatio(1f)` to the 34dp circular arrow button surface, ensuring it remains an uncompressed circle with generous right-side margins on all screen sizes.
+
+---
+
+### Prompt:
+> "if the date is over and appoinment is completed why to show like this . this was supposed to be shown to appoinment with date in future not up of the past dates .if past appoinment is not completed then should show missed, you can confirm it is missed simply when the patient is tranferred to no show patient"
+
+#### Changes Applied:
+1. **Patient App — Past / Missed / Completed Appointment Display Remediation ([`PatientMainScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt))**:
+   - Resolved fallback branch bug where past uncompleted appointments incorrectly displayed future OPD tracking guidance ("Live OPD queue tracking will activate on...").
+   - Implemented `shouldKeepInAppointmentsTab`:
+     - Detects missed appointments (`isMissed = isNoShow || (isPastDate && !isCompleted)`) and retains them in the active tab for up to 7 days for quick rescheduling.
+     - Keeps recently completed appointments for 2 days before moving them strictly to Records tab.
+     - Keeps today's visits and future scheduled bookings active.
+     - Excludes explicitly cancelled appointments.
+   - Implemented `sortAppointmentsSoonerFirst`:
+     - Sorts appointments logically: (1) Active today's queue visits, (2) Upcoming scheduled appointments, (3) Missed appointments needing rescheduling, (4) Recently completed appointments.
+   - Updated Appointment Card UI:
+     - **Status Badge**: Displays Rose pill `"Missed Appointment"` (`Icons.Default.EventBusy`, `Color(0xFFBE123C)`) when `isMissed`.
+     - **Progress Stepper**: Replaced standard queue progress with custom 3-stage Missed Stepper: `Booked` (checked) -> `Queue Closed` (rose cross circle) -> `Missed` (gray).
+     - **Hero Consultation Box**: Displays dedicated `Missed Consultation` card informing the patient that their slot expired or was marked as a no-show, with guidance that they can reschedule for free.
+     - **Action Footer**: Added prominent primary button `"Reschedule Missed Slot"` (`Icons.Default.CalendarMonth`, `Color(0xFF0284C7)`) launching the free in-place slot reschedule dialog, alongside secondary "Get Directions" and "Remove" options.
+2. **Patient App — Layout Squishing & Mojibake Character Encoding Resolution**:
+   - In [`PatientMainScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt), resolved the vertical letter squishing on the arrival guidance box by applying `Modifier.weight(1f)` with `overflow = TextOverflow.Ellipsis` to the text column and setting `softWrap = false, maxLines = 1` on the `±15 min` pill badge.
+   - In [`PatientMainScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt) and [`QueueRepository.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/data/repository/QueueRepository.kt), replaced corrupted Windows-1252/Latin-1 characters with Unicode escape sequences (`\u2022` for `•`, `\u00B7` for `·`, `\u00B1` for `±`, `\u2013` for `–`, `\u2014` for `—`).
+3. **Clinic App — Queue Status Sync ([`QueueRepository.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/QueueRepository.kt))**:
+   - In `updateQueueStatus`, when moving a queue entry to `"no_show"`, sets `appointments.checkin_status` explicitly to `"no_show"` (rather than `"cancelled"`) preserving no-show status across both patient and clinic views.
+4. **Web App — Cross-Platform Parity ([`PatientPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/PatientPortal.tsx))**:
+   - Added `isMissed` detection for appointments where `checkinStatus === 'no_show'`, `status === 'no_show'`, or the date is past without completion.
+   - Rendered `"Missed Appointment"` badge with warning icon and `"Reschedule Missed Slot (Rs. 0)"` action button across active and completed lists.
+   - Verified web production build via `npm --prefix web-app run build` (0 TypeScript errors, exit code 0).
+
+---
+
+### Prompt:
 > "your work is to go on /browser create a new respiratiory and push the complete new folder file by part on it like first clinic app then patient app then admin portal then website file then all the rest files from our new folder"
 
 #### Changes Applied:

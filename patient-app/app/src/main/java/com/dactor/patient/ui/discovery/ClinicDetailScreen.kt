@@ -247,7 +247,10 @@ fun ClinicDetailScreen(
                     ) {
                         Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Book Appointment", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        val isLabFacility = clinic?.type.equals("diagnostic_lab", ignoreCase = true) ||
+                            clinic?.type?.contains("lab", ignoreCase = true) == true ||
+                            clinic?.name?.contains("lab", ignoreCase = true) == true
+                        Text(if (isLabFacility) "Book Lab Test" else "Book Appointment", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         Spacer(Modifier.width(6.dp))
                         Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
                     }
@@ -527,9 +530,18 @@ fun ClinicDetailScreen(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                            Icon(Icons.Default.MedicalServices, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(16.dp))
+                                            val isLabFacility = clinic?.type.equals("diagnostic_lab", ignoreCase = true) ||
+                                                clinic?.type?.contains("lab", ignoreCase = true) == true ||
+                                                clinic?.name?.contains("lab", ignoreCase = true) == true
+
+                                            Icon(
+                                                if (isLabFacility) Icons.Default.Science else Icons.Default.MedicalServices,
+                                                contentDescription = null,
+                                                tint = Color(0xFF00796B),
+                                                modifier = Modifier.size(16.dp)
+                                            )
                                             Text(
-                                                "Outpatient OPD & Consultation",
+                                                if (isLabFacility) "Diagnostic Lab & Pathology Facility" else "Outpatient OPD & Consultation",
                                                 fontSize = 11.5.sp,
                                                 color = Color(0xFF475569),
                                                 fontWeight = FontWeight.Medium
@@ -540,9 +552,18 @@ fun ClinicDetailScreen(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                            Icon(Icons.Default.People, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(16.dp))
+                                            val isLabFacility = clinic?.type.equals("diagnostic_lab", ignoreCase = true) ||
+                                                clinic?.type?.contains("lab", ignoreCase = true) == true ||
+                                                clinic?.name?.contains("lab", ignoreCase = true) == true
+
+                                            Icon(
+                                                if (isLabFacility) Icons.Default.Science else Icons.Default.People,
+                                                contentDescription = null,
+                                                tint = Color(0xFF00796B),
+                                                modifier = Modifier.size(16.dp)
+                                            )
                                             Text(
-                                                "${doctors.size.coerceAtLeast(1)} Doctor(s)",
+                                                if (isLabFacility) "${services.size} Lab Test(s)" else "${doctors.size.coerceAtLeast(1)} Doctor(s)",
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = Color(0xFF0F172A)
@@ -557,8 +578,11 @@ fun ClinicDetailScreen(
 
                 // ── 4. CONSULTING DOCTOR CARD ────────────────────────────────────
                 item {
+                    val isLabFacility = clinic?.type.equals("diagnostic_lab", ignoreCase = true) ||
+                        clinic?.type?.contains("lab", ignoreCase = true) == true ||
+                        clinic?.name?.contains("lab", ignoreCase = true) == true
                     val docToDisplay = primaryDoctor
-                    if (docToDisplay != null) {
+                    if (!isLabFacility && docToDisplay != null) {
                         Card(
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = Color.White),

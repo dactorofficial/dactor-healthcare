@@ -461,7 +461,7 @@ fun BillingScreen(
                         OutlinedTextField(
                             value = directorySearchQuery,
                             onValueChange = { directorySearchQuery = it },
-                            placeholder = { Text("Search patient name, mobile, or 10-digit code...", fontSize = 12.sp) },
+                            placeholder = { Text("Search", fontSize = 13.sp) },
                             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(18.dp)) },
                             trailingIcon = {
                                 if (directorySearchQuery.isNotBlank()) {

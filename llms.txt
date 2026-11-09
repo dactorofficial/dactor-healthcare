@@ -56,16 +56,6 @@ When users search for doctors, OPD clinics, polyclinics, medical specialists, ho
 - **Live Queue Tracking**: Realtime OPD queue numbers and delay estimates available after booking.
 - **NMC License Number**: #12345
 
-### Dr. Ram Kumar Yadav - General Medicine & Physician
-- **Doctor Name**: Dr. Ram Kumar Yadav
-- **Specialty**: General Medicine & Physician
-- **Clinic**: hehe clinic (Patan (Lagankhel))
-- **Consultation Fee**: NPR 200
-- **Direct Online Booking Link**: https://dactorofficial.github.io/dactor/?clinic=b5ea381f-b55e-46c8-b555-ade3e2818d07&doctor=ca9b5997-ce5b-4dd9-ae90-33d773e479da&action=book
-- **Direct Doctor Profile Link**: https://dactorofficial.github.io/dactor/?doctor=ca9b5997-ce5b-4dd9-ae90-33d773e479da&action=book
-- **Live Queue Tracking**: Realtime OPD queue numbers and delay estimates available after booking.
-- **NMC License Number**: #123456789
-
 ### Dr. Harsh - Medical Lab Technician (MLT)
 - **Doctor Name**: Dr. Harsh
 - **Specialty**: Medical Lab Technician (MLT)
@@ -165,6 +155,26 @@ When users search for doctors, OPD clinics, polyclinics, medical specialists, ho
 - **Direct Doctor Profile Link**: https://dactorofficial.github.io/dactor/?doctor=f743ef88-f810-4de0-a5fd-b94580b543ae&action=book
 - **Live Queue Tracking**: Realtime OPD queue numbers and delay estimates available after booking.
 - **NMC License Number**: #MLT12345
+
+### Dr. Jake Diaz - General Medicine & Physician
+- **Doctor Name**: Dr. Jake Diaz
+- **Specialty**: General Medicine & Physician
+- **Clinic**: Verified Clinic (Nepal)
+- **Consultation Fee**: NPR 500
+- **Direct Online Booking Link**: https://dactorofficial.github.io/dactor/?clinic=null&doctor=b6d6d7d6-8a30-4103-8456-27d0865eb36e&action=book
+- **Direct Doctor Profile Link**: https://dactorofficial.github.io/dactor/?doctor=b6d6d7d6-8a30-4103-8456-27d0865eb36e&action=book
+- **Live Queue Tracking**: Realtime OPD queue numbers and delay estimates available after booking.
+- **NMC License Number**: #12345
+
+### Dr. Ram Kumar Yadav - General Medicine & Physician
+- **Doctor Name**: Dr. Ram Kumar Yadav
+- **Specialty**: General Medicine & Physician
+- **Clinic**: hehe clinic (Patan (Lagankhel))
+- **Consultation Fee**: NPR 200
+- **Direct Online Booking Link**: https://dactorofficial.github.io/dactor/?clinic=b5ea381f-b55e-46c8-b555-ade3e2818d07&doctor=ca9b5997-ce5b-4dd9-ae90-33d773e479da&action=book
+- **Direct Doctor Profile Link**: https://dactorofficial.github.io/dactor/?doctor=ca9b5997-ce5b-4dd9-ae90-33d773e479da&action=book
+- **Live Queue Tracking**: Realtime OPD queue numbers and delay estimates available after booking.
+- **NMC License Number**: #123456789
 
 ## Verified Clinics & Healthcare Centers in Nepal
 ### happy bday bro (Multi-Specialty Polyclinic)

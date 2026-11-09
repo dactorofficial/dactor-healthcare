@@ -3926,8 +3926,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                                           ))}
                                       </div>
 
-                                      {/* Doctor Preview row if clinic has doctors */}
-                                      {clinicDocs.length > 0 && (
+                                      {/* Doctor Preview row if clinic has doctors (Only for non-lab clinics) */}
+                                      {!isLab && clinicDocs.length > 0 && (
                                         <div className="flex items-center space-x-2.5 pt-1">
                                           <div className="w-8 h-8 rounded-full bg-teal-100 dark:bg-teal-900/50 text-teal-700 dark:text-teal-300 font-bold text-xs flex items-center justify-center shrink-0">
                                             {clinicDocs[0].fullName.slice(0, 2).toUpperCase()}

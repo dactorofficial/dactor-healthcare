@@ -1285,7 +1285,7 @@ export const Home: React.FC<HomeProps> = ({
 
                       {/* Doctor & Schedule Info */}
                       <div className="space-y-2 pt-2 border-t border-slate-100/70">
-                        {doc ? (
+                        {clinic.type !== 'diagnostic_lab' && doc ? (
                           <div className="flex items-center space-x-2.5 text-xs font-bold text-slate-800">
                             <div className="w-8 h-8 rounded-xl bg-brand-50/80 text-brand-800 flex items-center justify-center font-black text-xs shrink-0 overflow-hidden border border-white/80 shadow-xs">
                               {doc.profilePictureUrl ? (
@@ -1314,7 +1314,9 @@ export const Home: React.FC<HomeProps> = ({
                           <div className="flex items-center space-x-2 text-xs font-semibold text-slate-600">
                             <Stethoscope className="w-4 h-4 text-brand-600 shrink-0" />
                             <span className="truncate">
-                              {clinic.specialties && clinic.specialties.length > 0
+                              {clinic.type === 'diagnostic_lab'
+                                ? '🧪 Diagnostic & Pathology Testing Facility'
+                                : clinic.specialties && clinic.specialties.length > 0
                                 ? clinic.specialties.slice(0, 2).join(' • ')
                                 : 'OPD & Diagnostic Services'}
                             </span>

@@ -424,7 +424,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
                       </div>
                     )}
 
-                    {matchedDoctor && (
+                    {!isLab && matchedDoctor && (
                       <div className="p-2 bg-teal-500/10 border border-teal-500/20 rounded-xl flex items-center justify-between text-[11px] font-bold text-teal-800 dark:text-teal-300 backdrop-blur-sm">
                         <div className="flex items-center space-x-1.5 truncate">
                           <Stethoscope className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />

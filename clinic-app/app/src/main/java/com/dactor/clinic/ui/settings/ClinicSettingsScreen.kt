@@ -807,51 +807,81 @@ fun ClinicSettingsScreen(
                     }
                 }
 
-                // Section 1: Clinic Operational Type Self-Management
+                // Section 1: Clinic Operational Type (Locked - Super Admin Only)
                 Card(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Clinic Operational Type", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Lock,
+                                    contentDescription = "Locked",
+                                    tint = Color(0xFF64748B),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text("Facility Operational Model", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (selectedType == "diagnostic_lab") Color(0xFFF3E8FF) else Color(0xFFE0F2FE),
+                                border = BorderStroke(1.dp, if (selectedType == "diagnostic_lab") Color(0xFFD8B4FE) else Color(0xFFBAE6FD))
+                            ) {
+                                Text(
+                                    text = when (selectedType) {
+                                        "diagnostic_lab" -> "Diagnostic Lab"
+                                        "single_visit" -> "Single-Visit OPD"
+                                        else -> "Multi-Visit Polyclinic"
+                                    },
+                                    color = if (selectedType == "diagnostic_lab") Color(0xFF7E22CE) else Color(0xFF0369A1),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+
                         Text(
-                            "You can edit your clinic's operational model at any time to configure patient workflow:",
+                            text = when (selectedType) {
+                                "diagnostic_lab" -> "Configured as a Diagnostic / Pathology Laboratory facility for sample collection, lab processing, and report distribution."
+                                "single_visit" -> "Configured for one-time specialist consultations requiring payment at time of booking."
+                                else -> "Configured as an ongoing care / polyclinic facility with 10-digit follow-up patient access."
+                            },
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                RadioButton(
-                                    selected = selectedType == "single_visit",
-                                    onClick = { selectedType = "single_visit" }
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFFFEF3C7),
+                            border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = Color(0xFFD97706),
+                                    modifier = Modifier.size(16.dp)
                                 )
-                                Column(modifier = Modifier.padding(start = 4.dp)) {
-                                    Text("Single Visit Consultation", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                    Text("For one-time specialist consultations. Requires payment for booking.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                RadioButton(
-                                    selected = selectedType == "multi_visit",
-                                    onClick = { selectedType = "multi_visit" }
+                                Text(
+                                    "Facility operational model is permanently locked after registration to protect appointment records and billing history. To change facility type, contact Super Admin / Support.",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF92400E),
+                                    lineHeight = 15.sp
                                 )
-                                Column(modifier = Modifier.padding(start = 4.dp)) {
-                                    Text("Multi-Visit / Ongoing Care Clinic", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                    Text("Returning patients can book follow-ups with 10-digit code directly without upfront payment.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                RadioButton(
-                                    selected = selectedType == "diagnostic_lab",
-                                    onClick = { selectedType = "diagnostic_lab" }
-                                )
-                                Column(modifier = Modifier.padding(start = 4.dp)) {
-                                    Text("Diagnostic / Pathology Lab", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                    Text("Sample collection, diagnostic processing, and digital test report distribution.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
                             }
                         }
                     }

@@ -9749,15 +9749,20 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <label className="text-xs font-bold text-slate-700 block mb-1">
                     Operational Facility Type
                   </label>
-                  <select
-                    value={settingType}
-                    onChange={(e) => setSettingType(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-bold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  >
-                    <option value="multi_visit">Polyclinic / Multi-Visit OPD Hospital</option>
-                    <option value="single_Specialty">Single-Specialty Clinic</option>
-                    <option value="diagnostic_lab">Diagnostic Pathology Lab</option>
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={settingType}
+                      disabled
+                      className="w-full px-3.5 py-2.5 rounded-xl text-xs font-bold liquid-glass-input opacity-75 cursor-not-allowed bg-slate-100 dark:bg-slate-800 focus:outline-none"
+                    >
+                      <option value="multi_visit">Polyclinic / Multi-Visit OPD Hospital</option>
+                      <option value="single_Specialty">Single-Specialty Clinic</option>
+                      <option value="diagnostic_lab">Diagnostic Pathology Lab</option>
+                    </select>
+                    <p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium mt-1">
+                      🔒 Facility operational model is locked after registration. Contact Super Admin to request changes.
+                    </p>
+                  </div>
                 </div>
               </div>
 

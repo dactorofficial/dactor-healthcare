@@ -1310,7 +1310,7 @@ class AppointmentRepository @Inject constructor(
             if (timeStr.isNullOrBlank()) return 23 * 60 + 59
             return try {
                 val clean = timeStr.trim().uppercase()
-                val parts = clean.split("-", "â€“", "TO")
+                val parts = clean.split("-", "–", "—", "TO")
                 val firstPart = parts.first().trim()
                 val secondPart = if (parts.size > 1) parts[1].trim() else ""
 
@@ -1357,7 +1357,7 @@ class AppointmentRepository @Inject constructor(
             if (timeStr.isNullOrBlank()) return 23 * 60 + 59
             return try {
                 val clean = timeStr.trim().uppercase()
-                val parts = clean.split("-", "â€“", "TO")
+                val parts = clean.split("-", "–", "—", "TO")
                 if (parts.size > 1) {
                     parseTimeToMinutes(parts[1].trim())
                 } else {

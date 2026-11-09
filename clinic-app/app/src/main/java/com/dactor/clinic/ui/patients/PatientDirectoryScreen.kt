@@ -764,10 +764,9 @@ fun PatientDirectoryScreen(
                             onValueChange = { searchQuery = it },
                             placeholder = {
                                 Text(
-                                    "Search by Name, Phone, or\nAppointment ID",
-                                    fontSize = 12.5.sp,
-                                    color = Color(0xFF94A3B8),
-                                    lineHeight = 16.sp
+                                    "Search",
+                                    fontSize = 14.sp,
+                                    color = Color(0xFF94A3B8)
                                 )
                             },
                             trailingIcon = {
@@ -1087,8 +1086,8 @@ fun PatientDirectoryScreen(
                                     onValueChange = { datewiseSearchQuery = it },
                                     placeholder = {
                                         Text(
-                                            "Search date visits by Name, Phone, or Appt ID...",
-                                            fontSize = 12.sp,
+                                            "Search",
+                                            fontSize = 13.sp,
                                             color = Color(0xFF94A3B8)
                                         )
                                     },
