@@ -7,6 +7,78 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-09
 
 ### Prompt:
+> "do you have acess to upload and create new respiratory for dactor official ?" / "your work is to go on /browser create a new respiratiory and push the complete new folder file by part on it like first clinic app then patient app then admin portal then website file then all the rest files from our new folder" / "then upload complete new folder" / "continue kiddo"
+
+#### Changes Applied:
+1. **GitHub Repository Creation & Authentication Setup**:
+   - Automated creation of private repository [`dactorofficial/dactor-healthcare`](https://github.com/dactorofficial/dactor-healthcare) on GitHub using the `/browser` subagent.
+   - Generated personal access token `dactor-cli-workflow` with full `repo` and `workflow` scopes.
+   - Configured authenticated remote origin on `main` branch.
+2. **Modular Part-by-Part Source Code Push**:
+   - **Part 1 (Clinic App)**: Staged and pushed 147 files in commit `6b0738e`.
+   - **Part 2 (Patient App)**: Staged and pushed 131 files in commit `6f84b0f`.
+   - **Part 3 (Admin Portal)**: Cleared legacy `.git` pointer, staged 48 real source files in commit `6763536`.
+   - **Part 4 (Website / Web App)**: Cleared legacy `.git` pointer, staged 93 source/public files in commit `54fcbec`.
+   - **Part 5 (Monorepo Core)**: Staged Supabase SQL migrations, documentation, root configs in commit `82019fd`.
+3. **Comprehensive Folder Upload (Binaries, Tests, Assets, and Keystores)**:
+   - **Tooling & Tests**: Pushed 100 files covering `scripts/`, `tests/`, and automation utilities in commit `e1ba9ad`.
+   - **Branding & Screenshots**: Pushed 69 files covering `screenshots/`, `App_Screenshots/`, and root UI assets in commit `af42e47`.
+   - **Signing Keystores, DB Backups & Release APKs**: Pushed 147 files including signing keystores, clinic DB dumps, and historical/debug APKs in commit `047a12c`.
+   - **Latest Source Sync**: Committed and pushed 22 modified source files across Clinic App, Patient App, Web App, and SEO metadata in commit `8dd29f7`.
+   - **PlayStore Bundles**: Pushed 30 Patient App production `.aab` bundles and root `.aab` builds in commit `ed8b6e8`, followed by 33 Clinic App `.aab` bundles in commits `8ea320c` and `1081548`.
+   - **Historical AABs Archive**: Pushed 61 Android App Bundles across three balanced batches in commits `dca1bcf`, `43c575a`, and `6b0b38d`.
+4. **Diagnostic Lab Facility UI Optimization**:
+   - Synchronized [`ClinicDetailScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/discovery/ClinicDetailScreen.kt) with diagnostic lab sample collection status, dynamic test listings, certified lab team labels, and custom inquiry action.
+
+---
+
+### Prompt:
+> "see this is of cdiagnostic lab profile in patient app hide it as well"  
+> "only for diagnostic lab"
+
+#### Changes Applied:
+1. **Patient App — Diagnostic Lab Profile Screen Tailoring ([`ClinicDetailScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/discovery/ClinicDetailScreen.kt))**:
+   - **Hidden OPD Consultation & Doctor Counts**: In the Working Hours card, conditionally hid the divider and the `"Outpatient OPD & Consultation • X Doctor(s)"` row (`if (!isLabFacility)`) so diagnostic labs only display their operational sample collection hours.
+   - **Hidden Consulting Doctor Card**: Completely hid Section 4's Consulting Doctor card (`Dr. Beta Verma`, `Orthopedics`, `No upcoming slots scheduled`) when `isLabFacility == true`.
+   - **Replaced Specialties with Saved Lab Tests**: Configured `displayOfferings` to prioritize the lab's saved tests (`services.map { it.serviceName }`), filtering out medical specialties like "Dermatology & Skin Care", and prepended a `🧪 Lab Tests` pill badge.
+   - **Facility Description & Badges**: Tailored clinic description to highlight certified pathology and sample collection, and updated Overview cards to `"Certified Lab Team"` and `"Affordable Lab Tests"`.
+   - **Bottom Booking Bar**: Replaced `"No upcoming slots scheduled"` with `"Open for Sample Collection"` (green indicator) and set CTA button to `"Book Lab Test"`.
+
+---
+
+### Prompt:
+> "see so for a diagnotic lab remove invite doctor button all three buttons in clinic app and Since this is a diagnostic lab remove that option as well dont show rhese things and why is there dermatology and skin care written it should be the tests that the diagnostic lab has saved .  yeah but the thing is if a clinic mistakely switches the type of clinic dont make it like delete all the details from that clinic . and dont let the clinic edit that after registering once this is only to be changed by super admin /plan i am asking you to hide these things not to remove them because this may affect the app and make it non woking ."
+
+#### Changes Applied:
+1. **Clinic App — Hidden Doctor Invitation & Roster Controls for Diagnostic Labs ([`DashboardScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/dashboard/DashboardScreen.kt))**:
+   - Evaluated `isLabClinic` at top level of the Dashboard composable.
+   - Conditionally hidden the 3 doctor invitation elements and doctor roster controls for diagnostic labs:
+     - **Button 1**: Enlisted Doctors & Presence card (lines 1308–1748) containing the "Add / Invite Doctor" button and doctor status switches is completely hidden.
+     - **Button 2**: "Doctor Invites" module item in Operational Management grid is omitted for diagnostic labs.
+     - **Button 3**: Dedicated Doctor Invitation card ("Invite & Enlist Doctors" with "Invite" button) at the bottom of the dashboard is completely hidden.
+2. **Clinic App & Web Portal — Locked Facility Operational Model (Super Admin Only) ([`ClinicSettingsScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/settings/ClinicSettingsScreen.kt), [`ClinicPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/ClinicPortal.tsx))**:
+   - In `ClinicSettingsScreen.kt`: Replaced interactive RadioButtons with a locked read-only card displaying the current facility operational model (`"Diagnostic / Pathology Lab"` / `"Multi-Visit Polyclinic"` / `"Single-Visit OPD"`), a lock icon, and guidance stating the model is permanently locked after registration to protect clinical records and can only be modified by Super Admin.
+   - In `ClinicPortal.tsx`: Disabled the facility type dropdown (`disabled={true}`) with a lock notification.
+3. **Patient App — Discovery Card Lab Tests Display & Doctor Row Hidden ([`PatientMainScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt), [`ClinicDetailScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/discovery/ClinicDetailScreen.kt), [`DiscoveryScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/discovery/DiscoveryScreen.kt))**:
+   - In `PatientMainScreen.kt`:
+     - Completely hid the primary doctor preview row (`Dr. Beta Verma (Orthopedics)`) for diagnostic labs (`if (!isLabClinic && primaryDoctor != null)`).
+     - Replaced non-lab clinical specialties (e.g. `Dermatology & Skin Care`) with the actual tests saved by the diagnostic lab (`item.services.map { it.serviceName }`), with fallback to lab-related tests and a `🧪 Lab Tests` badge.
+     - Changed card action button to `"Book Lab Test"` for diagnostic labs.
+   - In `ClinicDetailScreen.kt`:
+     - Updated summary bar to display `"Diagnostic Lab & Pathology Facility"` and `"${services.size} Lab Test(s)"`.
+     - Hid the Consulting Doctor Card for diagnostic labs.
+     - Updated booking button to `"Book Lab Test"`.
+   - In `DiscoveryScreen.kt`: Hid the "Physicians at this Clinic" row when `isLabFacility == true`.
+4. **Web App Cross-Platform Parity ([`PatientPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/PatientPortal.tsx), [`Home.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/Home.tsx), [`FindClinics.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/FindClinics.tsx))**:
+   - In `PatientPortal.tsx`: Wrapped doctor preview row in `{!isLab && clinicDocs.length > 0 && (...)}`.
+   - In `Home.tsx`: Hid doctor info row when `clinic.type === 'diagnostic_lab'` and displayed `🧪 Diagnostic & Pathology Testing Facility`.
+   - In `FindClinics.tsx`: Hid attending doctor badge for diagnostic labs.
+5. **Zero Data Destruction**:
+   - All changes strictly use non-destructive UI conditional logic (`if (!isLabClinic)`); zero database records were modified or deleted.
+
+---
+
+### Prompt:
 > "in search text there is written search patient name , number ..... remove this completely just make it search simply no need of such explanation"
 
 #### Changes Applied:

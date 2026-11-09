@@ -92,11 +92,38 @@ fun ClinicDetailScreen(
     val phone = clinic?.contactPhone?.trim().orEmpty()
     val email = clinic?.contactEmail?.trim().orEmpty()
     val panNumber = clinic?.panNumber?.trim().orEmpty()
+    val isLabFacility = remember(clinic) {
+        clinic?.type.equals("diagnostic_lab", ignoreCase = true) ||
+        clinic?.type?.contains("lab", ignoreCase = true) == true ||
+        clinic?.name?.contains("lab", ignoreCase = true) == true ||
+        clinic?.specialties?.any { it.contains("lab", ignoreCase = true) || it.contains("patholog", ignoreCase = true) } == true
+    }
+
+    val displayOfferings = remember(clinic, services, isLabFacility) {
+        if (isLabFacility) {
+            if (services.isNotEmpty()) {
+                services.map { it.serviceName }
+            } else {
+                val labSpecs = clinic?.specialties?.filter { s ->
+                    val l = s.lowercase()
+                    l.contains("test") || l.contains("scan") || l.contains("lab") ||
+                    l.contains("mri") || l.contains("ct") || l.contains("x-ray") ||
+                    l.contains("blood") || l.contains("patholog") || l.contains("urine") ||
+                    l.contains("profile") || l.contains("ecg") || l.contains("echo")
+                } ?: emptyList()
+                if (labSpecs.isNotEmpty()) labSpecs
+                else listOf("Blood Tests & CBC", "Pathology", "Digital X-Ray", "Urine Routine")
+            }
+        } else {
+            if (clinic?.specialties.isNullOrEmpty()) listOf("General Medicine") else clinic!!.specialties
+        }
+    }
+
     val description = clinic?.description?.trim().orEmpty().ifBlank {
-        "$clinicName provides outpatient consultations, diagnostic care, and queue-managed appointments."
+        if (isLabFacility) "$clinicName is a certified diagnostic pathology laboratory offering comprehensive sample collection, diagnostic processing, and digital report distribution."
+        else "$clinicName provides outpatient consultations, diagnostic care, and queue-managed appointments."
     }
     val pictures = clinic?.pictures ?: emptyList()
-    val specialties = if (clinic?.specialties.isNullOrEmpty()) listOf("General Medicine") else clinic!!.specialties
     val primaryDoctor = doctors.firstOrNull()
     val todaySchedule = remember(clinic) {
         clinic?.getTodaySchedule() ?: com.dactor.patient.data.model.DayScheduleInfo(
@@ -210,14 +237,16 @@ fun ClinicDetailScreen(
                                 )
                         )
                         Text(
-                            text = if (hasAvailableSlotsToday) {
+                            text = if (isLabFacility) {
+                                "Open for Sample Collection"
+                            } else if (hasAvailableSlotsToday) {
                                 "Available today"
                             } else {
                                 com.dactor.patient.data.repository.SlotRepository.formatNextAvailableDate(nextAvailableDate)
                             },
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (hasAvailableSlotsToday) Color(0xFF15803D) else Color(0xFFB45309)
+                            color = if (isLabFacility || hasAvailableSlotsToday) Color(0xFF15803D) else Color(0xFFB45309)
                         )
                     }
 
@@ -436,23 +465,51 @@ fun ClinicDetailScreen(
                                 }
                             }
 
-                            // Full-width wrapping specialties tags (Prevents vertical text squishing)
+                            // Full-width wrapping specialties/tests tags (Prevents vertical text squishing)
                             @OptIn(ExperimentalLayoutApi::class)
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
                             ) {
-                                specialties.forEach { spec ->
+                                if (isLabFacility) {
                                     Surface(
                                         shape = RoundedCornerShape(12.dp),
-                                        color = Color(0xFFE6F4F1)
+                                        color = Color(0xFFF3E8FF),
+                                        border = BorderStroke(1.dp, Color(0xFFD8B4FE))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Science,
+                                                contentDescription = "Diagnostic Lab",
+                                                tint = Color(0xFF7E22CE),
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Text(
+                                                text = "Lab Tests",
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF7E22CE)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                displayOfferings.forEach { spec ->
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = if (isLabFacility) Color(0xFFFAF5FF) else Color(0xFFE6F4F1),
+                                        border = if (isLabFacility) BorderStroke(1.dp, Color(0xFFE9D5FF)) else null
                                     ) {
                                         Text(
                                             text = spec,
                                             fontSize = 11.5.sp,
                                             fontWeight = FontWeight.Medium,
-                                            color = Color(0xFF00796B),
+                                            color = if (isLabFacility) Color(0xFF6B21A8) else Color(0xFF00796B),
                                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                             maxLines = 1,
                                             softWrap = false
@@ -519,55 +576,49 @@ fun ClinicDetailScreen(
                                         }
                                     }
 
-                                    HorizontalDivider(color = Color(0xFFDCFCE7))
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            val isLabFacility = clinic?.type.equals("diagnostic_lab", ignoreCase = true) ||
-                                                clinic?.type?.contains("lab", ignoreCase = true) == true ||
-                                                clinic?.name?.contains("lab", ignoreCase = true) == true
-
-                                            Icon(
-                                                if (isLabFacility) Icons.Default.Science else Icons.Default.MedicalServices,
-                                                contentDescription = null,
-                                                tint = Color(0xFF00796B),
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Text(
-                                                if (isLabFacility) "Diagnostic Lab & Pathology Facility" else "Outpatient OPD & Consultation",
-                                                fontSize = 11.5.sp,
-                                                color = Color(0xFF475569),
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                        }
+                                    if (!isLabFacility) {
+                                        HorizontalDivider(color = Color(0xFFDCFCE7))
 
                                         Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            val isLabFacility = clinic?.type.equals("diagnostic_lab", ignoreCase = true) ||
-                                                clinic?.type?.contains("lab", ignoreCase = true) == true ||
-                                                clinic?.name?.contains("lab", ignoreCase = true) == true
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.MedicalServices,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF00796B),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Text(
+                                                    "Outpatient OPD & Consultation",
+                                                    fontSize = 11.5.sp,
+                                                    color = Color(0xFF475569),
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                            }
 
-                                            Icon(
-                                                if (isLabFacility) Icons.Default.Science else Icons.Default.People,
-                                                contentDescription = null,
-                                                tint = Color(0xFF00796B),
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Text(
-                                                if (isLabFacility) "${services.size} Lab Test(s)" else "${doctors.size.coerceAtLeast(1)} Doctor(s)",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color(0xFF0F172A)
-                                            )
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.People,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF00796B),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Text(
+                                                    "${doctors.size.coerceAtLeast(1)} Doctor(s)",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFF0F172A)
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -694,7 +745,7 @@ fun ClinicDetailScreen(
                             contentColor = Color(0xFF00796B),
                             divider = { HorizontalDivider(color = Color(0xFFE2E8F0)) }
                         ) {
-                            listOf("Overview", "Timings", "Services").forEachIndexed { index, title ->
+                            listOf("Overview", "Timings", if (isLabFacility) "Lab Tests" else "Services").forEachIndexed { index, title ->
                                 Tab(
                                     selected = selectedTab == index,
                                     onClick = { selectedTab = index },
@@ -785,7 +836,7 @@ fun ClinicDetailScreen(
                                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                                             ) {
                                                 Icon(Icons.Default.Group, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(20.dp))
-                                                Text("Experienced Medical Team", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                                Text(if (isLabFacility) "Certified Lab Team" else "Experienced Medical Team", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                                             }
                                         }
 
@@ -802,7 +853,7 @@ fun ClinicDetailScreen(
                                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                                             ) {
                                                 Icon(Icons.Default.Payments, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(20.dp))
-                                                Text("Affordable Consultation", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                                Text(if (isLabFacility) "Affordable Lab Tests" else "Affordable Consultation", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                                             }
                                         }
                                     }
