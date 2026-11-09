@@ -7,6 +7,32 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-09
 
 ### Prompt:
+> "automatic slot generation is still there fix this slot is only to be generated after clinic publishes the slot /plan /boost"
+
+#### Changes Applied:
+1. **Patient App — Eliminated Synthetic & Default Slot Generation ([`BookingScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/booking/BookingScreen.kt), [`BookingFormScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/booking/BookingFormScreen.kt))**:
+   - In `computeCalendarDateState`, removed unconditional `CalendarDateState.AVAILABLE` for diagnostic labs. Lab clinics now inspect `rawSlots` for `is_published = true` and active end times just like OPD clinics; calendar dates without published slots are marked `CalendarDateState.CLOSED`.
+   - Removed the 9 synthetic slot generation loop (`lab_auto_${selectedDate}_...`). Slots list now strictly reflects published slots (`is_published = true`) fetched from Supabase.
+   - Removed `chosenSlotId = selectedSlot?.id ?: if (isLabClinic) "synth__lab_$selectedDate" else null` fallback.
+   - Updated CTA button text to explicitly require selecting a published slot (`"Select a Published Lab Slot"` / `"Select a Published Slot to Book"`).
+   - In `BookingFormScreen.kt`, removed obsolete `isSyntheticSlot` handling and `slot_1` default; booking strictly requires real published slot IDs.
+2. **Patient App — Clinic Availability Indicator ([`ClinicDetailScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/discovery/ClinicDetailScreen.kt))**:
+   - Replaced unconditional "Open for Sample Collection" status badge with dynamic check on `hasAvailableSlotsToday`. When no published slots exist for today, displays next available published date or "No upcoming slots scheduled".
+3. **Clinic App — Slot Manager Calendar & Schedule Decoupling ([`SlotManagerScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/slots/SlotManagerScreen.kt))**:
+   - Removed `ensureGeneralizedSlotsForDate` helper that auto-generated slots based on weekly operational hours.
+   - Calendar date slot indicators (`hasSlots`) now strictly check whether published database slots exist (`allClinicSlots.any { it.slotDate == dateStr && it.isPublished }`), clarifying that working hours do not auto-publish slots.
+4. **Web App — Clinic Detail & Patient Portal Slot Decoupling ([`ClinicDetail.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/ClinicDetail.tsx), [`PatientPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/PatientPortal.tsx), [`db.ts`](file:///g:/My%20Drive/New%20folder/web-app/src/services/db.ts))**:
+   - In `ClinicDetail.tsx`, removed `defaultLabWindows` synthetic fallback slots and removed unconditional `'available'` calendar status for lab clinics; calendar and slot grid now strictly query clinic-published slots.
+   - In `PatientPortal.tsx`, removed `defaultTimes` synthetic slot generation (`std-slot-${idx}-${bookingDate}`); when no published slots exist, slot picker renders empty state and disables booking.
+   - Removed weekly schedule opening day fallback in `computeCalendarDateState` that previously marked unseeded dates as `'available'`.
+   - In `db.ts`, removed `lab-auto-` checks from `createAppointment` slot ID resolution.
+5. **Supabase Database RPC Hardening ([`migration_lab_booking_decoupling.sql`](file:///g:/My%20Drive/New%20folder/supabase/migration_lab_booking_decoupling.sql))**:
+   - In `create_patient_appointment`, eliminated automatic `INSERT INTO public.slots` fallback for diagnostic lab bookings.
+   - Replaced with strict requirement that matching slot must exist with `is_published = TRUE`; otherwise raises PostgreSQL exception `'The selected time slot is not published by the clinic or does not exist.'`.
+
+---
+
+### Prompt:
 > "still the appoinments with different appoinment id but same clinic are shown together resolve this /plan" / "continue planning and proceed urself"
 
 #### Changes Applied:
