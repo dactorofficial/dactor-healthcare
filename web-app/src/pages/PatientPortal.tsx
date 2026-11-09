@@ -1532,36 +1532,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         })
 
         setAvailableSlots(validSlots)
-        if (validSlots.length > 0) {
-          setSelectedSlot(validSlots[0])
-        } else {
-          // If no custom slot rows are configured in DB, derive standard OPD consultation slots based on clinic schedule
-          const defaultTimes = [
-            { start: '09:00', end: '10:00' },
-            { start: '10:00', end: '11:00' },
-            { start: '11:00', end: '12:00' },
-            { start: '13:00', end: '14:00' },
-            { start: '14:00', end: '15:00' },
-            { start: '15:00', end: '16:00' },
-            { start: '16:00', end: '17:00' },
-          ]
-          const generated: Slot[] = defaultTimes
-            .filter((t) => !isSlotTimeExpired(bookingDate, t.end, t.start))
-            .map((t, idx) => ({
-              id: `std-slot-${idx}-${bookingDate}`,
-              clinicId: selectedClinic!.id,
-              doctorId: selectedDoctor?.id || '',
-              slotDate: bookingDate,
-              startTime: t.start,
-              endTime: t.end,
-              maxCapacity: 10,
-              bookedCount: 0,
-              isAvailable: true,
-            }))
-
-          setAvailableSlots(generated)
-          setSelectedSlot(generated[0] || null)
-        }
+        setSelectedSlot(validSlots[0] || null)
       } catch (err) {
         console.error('Failed to load slots:', err)
       } finally {

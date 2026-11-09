@@ -706,12 +706,10 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
       ) ?? false)
 
-    if (isLabClinic) {
-      return 'available'
-    }
-
     const rawSlots = (monthSlotsMap[dateStr] || []).filter((s) => s.isAvailable !== false)
-    const relevantSlots = selectedDoctor
+    const relevantSlots = isLabClinic
+      ? rawSlots
+      : selectedDoctor
       ? rawSlots.filter((s) => !s.doctorId || s.doctorId === selectedDoctor.id)
       : rawSlots
 
@@ -863,33 +861,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         })
     }
 
-    // For Diagnostic Labs: Auto-derive standard sample collection windows without requiring technician manual creation
-    if (isLabMode) {
-      const defaultLabWindows = [
-        { start: '07:00:00', end: '08:00:00', label: '07:00 - 08:00 AM' },
-        { start: '08:00:00', end: '09:00:00', label: '08:00 - 09:00 AM' },
-        { start: '09:00:00', end: '10:00:00', label: '09:00 - 10:00 AM' },
-        { start: '10:00:00', end: '11:00:00', label: '10:00 - 11:00 AM' },
-        { start: '11:00:00', end: '12:00:00', label: '11:00 - 12:00 PM' },
-        { start: '12:00:00', end: '13:00:00', label: '12:00 - 01:00 PM' },
-        { start: '13:00:00', end: '14:00:00', label: '01:00 - 02:00 PM' },
-        { start: '14:00:00', end: '15:00:00', label: '02:00 - 03:00 PM' },
-        { start: '15:00:00', end: '16:00:00', label: '03:00 - 04:00 PM' },
-      ]
-
-      return defaultLabWindows
-        .filter((w) => !isSlotTimeExpired(selectedDate, w.end, w.start))
-        .map((w) => ({
-          id: `lab-auto-${selectedDate}-${w.start}`,
-          timeLabel: w.label,
-          rawStart: w.start,
-          remaining: 25,
-          disabled: false,
-          reason: '',
-        }))
-    }
-
-    // Strictly rely on clinic-published slots from Supabase for OPD doctors (NEVER generate fake/fallback slots)
+    // Strictly rely on clinic-published slots from Supabase (NEVER generate fake/fallback slots)
     return []
   }, [slots, selectedDoctor, selectedDate, isSelectedDateHoliday, isLabClinic, activeTab])
 

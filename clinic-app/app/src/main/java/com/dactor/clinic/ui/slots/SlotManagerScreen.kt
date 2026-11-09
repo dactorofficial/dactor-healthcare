@@ -495,6 +495,7 @@ fun SlotManagerScreen(
             ) {
                 items(daysInMonth, key = { it.toString() }) { date ->
                     val dateStr = date.toString()
+                    val isSelected = (selectedDate == dateStr)
                     val dayOfWeekStr = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
                     val hasSlots = allClinicSlots.any { it.slotDate == dateStr && it.isPublished } || slots.any { it.slotDate == dateStr && it.isPublished }
 
@@ -1744,4 +1745,9 @@ fun SlotManagerScreen(
                     ) {
                         Text("Edit Capacity", fontSize = 12.sp)
                     }
-                }
+                }
+            )
+        }
+    }
+}
+
