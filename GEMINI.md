@@ -1,18 +1,29 @@
 # Antigravity Workspace Rules — DACTOR Project
 
-## ⚠️ MANDATORY GLOBAL RULE 1: NEVER GENERATE APK AUTOMATICALLY
+## ⚠️ MANDATORY GLOBAL RULE 1: NEVER COMPILE OR BUILD ANY APP AUTOMATICALLY
+- You **MUST NEVER** compile, build, assemble, or run compilation/build commands (e.g., `./gradlew compileDebugKotlin`, `./gradlew build`, `./gradlew assembleDebug`, etc.) for any application (`patient-app`, `clinic-app`, etc.) automatically or proactively.
+- You must **ONLY** compile or build an app when the user **explicitly commands or requests it in the conversation** (e.g., "compile app", "test compile", "check compilation", "build apk", "generate apk", etc.).
+- Even if all bug fixes, tests, migrations, or code changes are completed, **DO NOT** trigger app compilation or building on your own. Instead, verify code syntax and imports statically, report the status of the changes, and wait for the user's explicit command before compiling or building.
+
+## ⚠️ MANDATORY GLOBAL RULE 2: NEVER GENERATE APK AUTOMATICALLY
 - You **MUST NEVER** generate, build, or assemble an APK (or AAB) automatically or proactively.
 - You must **ONLY** build/generate an APK when the user **explicitly commands or requests it in the conversation** (e.g., "build apk", "generate apk", "build patient app apk", etc.).
 - Even if all bug fixes, tests, migrations, or code changes are completed, **DO NOT** trigger an APK build on your own. Instead, report the status of the changes and wait for the user's explicit command before building.
 
-## ⚠️ MANDATORY GLOBAL RULE 2: MAINTAIN DAILY PROMPT & CHANGE LOG
+## ⚠️ MANDATORY GLOBAL RULE 3: MAINTAIN DAILY PROMPT & CHANGE LOG
 - After implementing requested changes for a user prompt, you **MUST** record an entry in [`DAILY_PROMPT_LOG.md`](file:///g:/My%20Drive/New%20folder/DAILY_PROMPT_LOG.md).
 - Group entries chronologically by Date (e.g., `## YYYY-MM-DD`).
 - For each interaction, record:
   1. **Prompt**: The exact or core user instruction/request.
   2. **Changes Applied**: A clear, concise bulleted list of files modified, database changes made, or configurations updated.
 
-## ⚠️ MANDATORY GLOBAL RULE 3: APK Versioning & Naming Convention (When Commanded by User)
+## ⚠️ MANDATORY GLOBAL RULE 4: ALWAYS COMMIT AND PUSH NEW UPDATES TO REMOTE REPOSITORY
+- After implementing requested changes, bug fixes, features, documentation, or configuration updates for any user prompt, you **MUST ALWAYS** commit and push all new changes to the remote Git repository (`origin/main`).
+- Never leave modified files uncommitted or commits unpushed at the end of a task or turn.
+- Always use descriptive, conventional commit messages (e.g., `feat: ...`, `fix: ...`, `docs: ...`, `chore: ...`, `build: ...`).
+- Always execute `git push origin <branch>` to keep the remote GitHub repository 100% synchronized with the local workspace.
+
+## ⚠️ MANDATORY GLOBAL RULE 5: APK Versioning & Naming Convention (When Commanded by User)
 
 Whenever an APK is generated or commanded by the user to be built/generated, you **MUST** strictly follow this procedure:
 

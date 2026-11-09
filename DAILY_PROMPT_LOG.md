@@ -7,6 +7,19 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-09
 
 ### Prompt:
+> "create a universal rule to always push the new update"
+
+#### Changes Applied:
+1. **Established Universal Mandatory Rule across Global & Workspace Instructions ([`GEMINI.md`](file:///g:/My%20Drive/New%20folder/GEMINI.md), `C:\Users\nitup\.gemini\GEMINI.md`)**:
+   - Formulated **`MANDATORY GLOBAL RULE 4: ALWAYS COMMIT AND PUSH NEW UPDATES TO REMOTE REPOSITORY`**:
+     - Dictates that after implementing any requested code changes, bug fixes, features, documentation, or configuration updates for a user prompt, the assistant **MUST ALWAYS** commit and push all modifications to the remote Git repository (`origin/main`).
+     - Prohibits leaving modified files uncommitted or commits unpushed at the conclusion of an interaction.
+     - Mandates clear, conventional commit messages and prompt execution of `git push origin <branch>`.
+   - Updated both machine-level global rules (`C:\Users\nitup\.gemini\GEMINI.md`) and project workspace rules (`GEMINI.md`).
+
+---
+
+### Prompt:
 > "push everything today changed to github"
 
 #### Changes Applied:
