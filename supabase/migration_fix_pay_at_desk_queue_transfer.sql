@@ -89,23 +89,24 @@ BEGIN
     v_service_charge := ROUND(v_fee * 0.05, 2);
     v_total := v_fee + v_service_charge;
 
-    -- Update appointment atomically to APPROVED, payment_status pending, payment_mode PAY_AT_DESK
+    -- Update appointment atomically to WAITING_FOR_APPROVAL, payment_status pending, payment_mode PAY_AT_DESK
     UPDATE public.appointments
     SET payment_mode = 'PAY_AT_DESK',
-        status = 'APPROVED',
+        status = 'WAITING_FOR_APPROVAL',
         payment_status = 'pending',
-        checkin_status = 'checked_in',
+        checkin_status = 'not_checked_in',
         attempt_number = 1,
         fee_amount = v_fee,
         service_charge_amount = v_service_charge,
         total_amount = v_total,
-        approved_at = NOW(),
-        expires_at = NULL,
         updated_at = NOW()
     WHERE id = v_appt.id
     RETURNING * INTO v_appt;
 
-    -- Reconcile slot booked count
+    -- Live queue isolation: pending Pay at Desk must not be in live queue until approved
+    DELETE FROM public.queue_entries WHERE appointment_id = v_appt.id;
+
+    -- Reconcile slot booked count (only approved appointments count towards slot capacity)
     IF v_appt.slot_id IS NOT NULL THEN
         UPDATE public.slots s
         SET booked_count = (
@@ -117,31 +118,11 @@ BEGIN
         WHERE s.id = v_appt.slot_id;
     END IF;
 
-    -- Atomic Live Queue Transfer: compute next queue token position
-    SELECT COALESCE(MAX(queue_position), 0) + 1 INTO v_next_position
-    FROM public.queue_entries
-    WHERE clinic_id = v_appt.clinic_id AND status IN ('waiting', 'inside');
-
-    IF v_next_position <= 0 THEN
-        v_next_position := 1;
-    END IF;
-
-    -- Insert or update into live queue_entries
-    INSERT INTO public.queue_entries (
-        appointment_id, clinic_id, doctor_id, queue_position, status, estimated_wait_minutes, created_at, updated_at
-    ) VALUES (
-        v_appt.id, v_appt.clinic_id, v_appt.doctor_id, v_next_position, 'waiting', 0, NOW(), NOW()
-    )
-    ON CONFLICT (appointment_id) DO UPDATE
-    SET status = 'waiting',
-        queue_position = EXCLUDED.queue_position,
-        updated_at = NOW();
-
     -- Safe Notification Handling (Protected by exception handler to prevent FK/constraint aborts)
     BEGIN
         SELECT name INTO v_clinic_name FROM public.clinics WHERE id = v_appt.clinic_id;
 
-        -- 1. Notify clinic staff profile if matching email exists
+        -- Notify clinic staff profile if matching email exists
         IF v_appt.clinic_id IS NOT NULL THEN
             SELECT p.id INTO v_clinic_owner_id
             FROM public.clinics c
@@ -156,31 +137,14 @@ BEGIN
                     gen_random_uuid(),
                     v_clinic_owner_id,
                     v_appt.id,
-                    'New Pay at Desk Patient • Token #' || v_next_position,
-                    'Appointment #' || COALESCE(v_appt.tracking_code_10_digit, v_appt.id::TEXT) || ' for ' || v_appt.patient_name || ' added to live queue (Token #' || v_next_position || '). NPR ' || v_total || ' due at desk.',
-                    'queue_alert',
+                    'New Pay at Desk Request',
+                    'New appointment request #' || COALESCE(v_appt.tracking_code_10_digit, v_appt.id::TEXT) || ' from ' || v_appt.patient_name || ' (NPR ' || v_total || ' due at desk).',
+                    'pay_at_desk_request',
                     'specific',
                     false,
                     NOW()
                 );
             END IF;
-        END IF;
-
-        -- 2. Notify patient profile if registered
-        IF v_appt.user_id IS NOT NULL AND EXISTS (SELECT 1 FROM public.profiles WHERE id = v_appt.user_id) THEN
-            INSERT INTO public.notifications (
-                id, user_id, appointment_id, title, message, type, target_audience, is_read, created_at
-            ) VALUES (
-                gen_random_uuid(),
-                v_appt.user_id,
-                v_appt.id,
-                'Booking Confirmed • Token #' || v_next_position,
-                'Your appointment at ' || COALESCE(v_clinic_name, 'the clinic') || ' is confirmed! You are Token #' || v_next_position || ' in line. NPR ' || v_total || ' payable at counter.',
-                'queue_alert',
-                'specific',
-                false,
-                NOW()
-            );
         END IF;
     EXCEPTION WHEN OTHERS THEN
         -- Notification logging never rolls back the transaction

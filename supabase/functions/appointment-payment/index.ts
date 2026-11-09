@@ -1873,15 +1873,13 @@ Deno.serve(async (req) => {
 
       const deskPatch: Record<string, unknown> = {
         payment_mode: "PAY_AT_DESK",
-        status: "APPROVED",
+        status: "WAITING_FOR_APPROVAL",
         payment_status: "pending",
-        checkin_status: "checked_in",
+        checkin_status: "not_checked_in",
         attempt_number: 1,
         fee_amount: authoritativeFee,
         service_charge_amount: serviceCharge,
         total_amount: totalAmount,
-        approved_at: new Date().toISOString(),
-        expires_at: null,
         updated_at: new Date().toISOString(),
       };
       if (isDiagnosticLabDesk) {
@@ -1898,30 +1896,8 @@ Deno.serve(async (req) => {
         return json({ error: updateErr?.message || error?.message || "Failed to confirm Pay at Desk booking" }, 500, corsHeaders);
       }
 
-      // Atomic Live Queue Placement: compute next position and upsert into queue_entries
-      let nextPos = 1;
-      try {
-        const { data: qEntries } = await service.from("queue_entries")
-          .select("queue_position")
-          .eq("clinic_id", updatedAppt.clinic_id)
-          .in("status", ["waiting", "inside"]);
-        if (qEntries && qEntries.length > 0) {
-          nextPos = Math.max(...qEntries.map((e) => e.queue_position || 0)) + 1;
-        }
-      } catch (_e) {
-        nextPos = 1;
-      }
-
-      await service.from("queue_entries").upsert({
-        appointment_id: updatedAppt.id,
-        clinic_id: updatedAppt.clinic_id,
-        doctor_id: updatedAppt.doctor_id,
-        queue_position: nextPos,
-        status: "waiting",
-        estimated_wait_minutes: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "appointment_id" });
+      // Live queue isolation: pending Pay at Desk must not be in live queue until approved
+      await service.from("queue_entries").delete().eq("appointment_id", appointmentId);
 
       // Recalculate slot booked_count (only approved appointments count)
       if (updatedAppt.slot_id) {

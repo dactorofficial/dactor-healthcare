@@ -416,9 +416,7 @@ fun QueueBoardScreen(
                     .filter { entry ->
                         val appt = apptMap[entry.appointmentId]
                         appt != null &&
-                            (appt.status.equals("APPROVED", ignoreCase = true) || (appt.paymentMode == "PAY_AT_DESK" && appt.status != "CANCELLED" && appt.status != "UNAPPROVED" && appt.status != "EXPIRED")) &&
-                            appt.status != "UNAPPROVED" &&
-                            appt.status != "EXPIRED" &&
+                            appt.status.equals("APPROVED", ignoreCase = true) &&
                             appt.checkinStatus != "cancelled"
                     }
                     .sortedWith(
