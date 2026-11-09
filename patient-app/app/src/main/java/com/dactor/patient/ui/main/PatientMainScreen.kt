@@ -2837,7 +2837,7 @@ private fun PatientHomeDoctorCard(
         if (!nextDate.isNullOrBlank()) {
             com.dactor.patient.data.repository.SlotRepository.formatNextAvailableDate(nextDate)
         } else {
-            "Slots on Request"
+            "No Published Slots"
         }
     }
 

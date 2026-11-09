@@ -835,7 +835,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     return Boolean(clinic?.declaredHolidays && clinic.declaredHolidays.includes(selectedDate))
   }, [clinic?.declaredHolidays, selectedDate])
 
-  // Build available time slots (strictly using Supabase slots if configured, or schedule-derived slots filtered by isSlotTimeExpired)
+  // Build available time slots (strictly using clinic-published Supabase slots; NEVER synthesize fake or fallback slots)
   const displaySlots = useMemo(() => {
     if (isSelectedDateHoliday) return []
 

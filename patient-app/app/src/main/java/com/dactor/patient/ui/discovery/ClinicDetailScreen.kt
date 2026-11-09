@@ -55,6 +55,7 @@ fun ClinicDetailScreen(
     var services by remember { mutableStateOf<List<ClinicService>>(emptyList()) }
     var doctors by remember { mutableStateOf<List<Doctor>>(emptyList()) }
     var hasAvailableSlotsToday by remember { mutableStateOf(false) }
+    var publishedTodaySlots by remember { mutableStateOf<List<com.dactor.patient.data.model.Slot>>(emptyList()) }
     var nextAvailableDate by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var isFavorite by remember { mutableStateOf(false) }
@@ -72,6 +73,7 @@ fun ClinicDetailScreen(
             if (slotRepository != null) {
                 val todayStr = java.time.LocalDate.now().toString()
                 val todaySlots = slotRepository.getAvailableSlots(clinicId, todayStr)
+                publishedTodaySlots = todaySlots
                 val isTodayAvail = todaySlots.any {
                     it.isPublished && (it.maxCapacity - it.bookedCount) > 0 &&
                         !com.dactor.patient.data.repository.SlotRepository.isSlotEndTimeOver(it.endTime, todayStr, it.startTime)
@@ -703,16 +705,25 @@ fun ClinicDetailScreen(
                                         fontWeight = FontWeight.Medium,
                                         color = Color(0xFF00796B)
                                     )
+                                    val hasDocSlotToday = remember(publishedTodaySlots, docToDisplay) {
+                                        val today = java.time.LocalDate.now().toString()
+                                        publishedTodaySlots.any {
+                                            it.isPublished &&
+                                                (it.doctorId == docToDisplay.id || it.doctorId.isNullOrBlank()) &&
+                                                (it.maxCapacity - it.bookedCount) > 0 &&
+                                                !com.dactor.patient.data.repository.SlotRepository.isSlotEndTimeOver(it.endTime, today, it.startTime)
+                                        }
+                                    }
                                     Surface(
                                         shape = RoundedCornerShape(6.dp),
-                                        color = if (hasAvailableSlotsToday) Color(0xFFDCFCE7) else Color(0xFFFEF3C7),
+                                        color = if (hasDocSlotToday) Color(0xFFDCFCE7) else Color(0xFFF1F5F9),
                                         modifier = Modifier.padding(top = 2.dp)
                                     ) {
                                         Text(
-                                            if (hasAvailableSlotsToday) "Available Today" else com.dactor.patient.data.repository.SlotRepository.formatNextAvailableDate(nextAvailableDate),
+                                            if (hasDocSlotToday) "Available Today" else "Schedule on Request",
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = if (hasAvailableSlotsToday) Color(0xFF15803D) else Color(0xFFD97706),
+                                            color = if (hasDocSlotToday) Color(0xFF15803D) else Color(0xFF64748B),
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }

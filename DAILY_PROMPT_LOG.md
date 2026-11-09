@@ -61,6 +61,25 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-09
 
 ### Prompt:
+> "automatic slot generation is still there fix this slot is only to be generated after clinic publishes the slot /plan /boost" (Audit & Elimination of False Availability Indicators)
+
+#### Changes Applied:
+1. **Web App — Home Page Status Badges ([Home.tsx](file:///g:/My%20Drive/New%20folder/web-app/src/pages/Home.tsx))**:
+   - Replaced misleading hardcoded `'Doctor Away • Available for Next OPD Slot'` with `'Doctor Away • Check Published Slots'` when a doctor is away.
+   - Replaced unconditional `'Next slot available'` badge with `'Slots published by clinic'` to ensure patients are not given false availability indicators when clinics have not published slots.
+2. **Web App — Clinic Detail Decoupling ([ClinicDetail.tsx](file:///g:/My%20Drive/New%20folder/web-app/src/pages/ClinicDetail.tsx))**:
+   - Verified strictly no synthetic slot fallback in displaySlots calculation; documented zero-synthetic enforcement.
+3. **Patient App — Per-Doctor Availability Badge Isolation ([ClinicDetailScreen.kt](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/discovery/ClinicDetailScreen.kt))**:
+   - Added `publishedTodaySlots` state tracking real published Supabase slots for today.
+   - Isolated doctor card availability badges: doctors only display `"Available Today"` if they have real published, non-expired slots matching their doctor ID or unassigned clinic slots.
+   - For doctors without published slots today, displays `"Schedule on Request"` instead of falsely inheriting the clinic-wide `"Available Today"` status.
+4. **Patient App — Doctor Card Slot Availability Indicator ([PatientMainScreen.kt](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt))**:
+   - Updated doctor card slot text when no future slots are published (`nextDate` is null or blank) from `"Slots on Request"` to `"No Published Slots"`, providing explicit clarity that slots must be published by the clinic.
+
+---
+
+
+### Prompt:
 > "see now when i tapped on confirm to pay at desk it didnt work /plan what happened is like it showed some error in tables or something related to database , but it did showed the patient that the pay at desk was confirmed but the appoinment remained untranferred to live queue /boost please i beg you to solve this properly"
 
 #### Changes Applied:

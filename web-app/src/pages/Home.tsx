@@ -1277,7 +1277,7 @@ export const Home: React.FC<HomeProps> = ({
                             <span className="text-[11px] sm:text-xs font-semibold leading-tight">
                               {clinic.type === 'diagnostic_lab'
                                 ? 'Lab Open for Sample Collection'
-                                : 'Doctor Away • Available for Next OPD Slot'}
+                                : 'Doctor Away • Check Published Slots'}
                             </span>
                           </div>
                         )}
@@ -1344,7 +1344,7 @@ export const Home: React.FC<HomeProps> = ({
                       </span>
                       {!isDocInClinic && clinic.type !== 'diagnostic_lab' && (
                         <span className="text-[10px] text-teal-700 font-semibold block">
-                          Next slot available
+                          Slots published by clinic
                         </span>
                       )}
                     </div>
