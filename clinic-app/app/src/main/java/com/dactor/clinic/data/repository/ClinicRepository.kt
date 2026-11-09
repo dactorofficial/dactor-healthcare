@@ -1017,7 +1017,7 @@ class ClinicRepository @Inject constructor(
                 Instant.now()
             }
             val newExpiryIso = baseInstant.plus(daysToAdd.toLong(), ChronoUnit.DAYS).toString()
-            val noteSummary = "Paid NPR ${paidAmount.toInt()} via ${gateway.uppercase()} • Txn #$transactionId • ${Instant.now()}"
+            val noteSummary = "Paid NPR ${paidAmount.toInt()} via ${gateway.uppercase()} \u2022 Txn #$transactionId \u2022 ${Instant.now()}"
             val updated = current.copy(
                 isActivated = true,
                 activationExpiresAt = newExpiryIso,

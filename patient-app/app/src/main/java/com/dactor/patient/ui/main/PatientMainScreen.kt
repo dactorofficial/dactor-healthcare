@@ -474,7 +474,7 @@ fun PatientMainScreen(
                 if (appt.trackingCode10Digit.isNotBlank() && !hiddenCodes.contains(appt.trackingCode10Digit) && !hiddenCodes.contains(appt.id)) {
                     sessionManager?.saveTrackingCode(
                         appt.trackingCode10Digit,
-                        "${appt.patientName} • ${appt.appointmentDate}"
+                        "${appt.patientName} \u2022 ${appt.appointmentDate}"
                     )
                 }
                 val isDone = appt.checkinStatus.lowercase() in listOf("completed", "done", "cancelled")
@@ -628,7 +628,7 @@ fun PatientMainScreen(
                                         color = Color(0xFFFEF08A)
                                     ) {
                                         Text(
-                                            text = "TODAY • ${appt.appointmentTime}",
+                                            text = "TODAY \u2022 ${appt.appointmentTime}",
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.ExtraBold,
                                             color = Color(0xFF854D0E),
@@ -647,7 +647,7 @@ fun PatientMainScreen(
                                     text = buildString {
                                         append(todayClinicName ?: "Appointment Today")
                                         if (!todayDoctorName.isNullOrBlank()) {
-                                            append(" • Dr. $todayDoctorName")
+                                            append(" \u2022 Dr. $todayDoctorName")
                                         }
                                     },
                                     fontSize = 14.sp,
@@ -1713,7 +1713,7 @@ fun HomeTab(
                             color = Color(0xFF0F172A)
                         )
                         Text(
-                            text = if (detectedCityName.isNotBlank()) "$detectedCityName • Checking clinic availability"
+                            text = if (detectedCityName.isNotBlank()) "$detectedCityName \u2022 Checking clinic availability"
                                 else "Checking real-time clinic availability",
                             fontSize = 13.sp,
                             color = Color(0xFF64748B),
@@ -1865,7 +1865,7 @@ fun HomeTab(
                                     val distKm = if (userLatitude != null && userLongitude != null && clinic != null) {
                                         calculateDistanceKm(userLatitude!!, userLongitude!!, clinic.latitude ?: 27.7052, clinic.longitude ?: 85.3193)
                                     } else null
-                                    val distStr = if (distKm != null) String.format(java.util.Locale.US, " • %.1f km", distKm) else ""
+                                    val distStr = if (distKm != null) String.format(java.util.Locale.US, " \u2022 %.1f km", distKm) else ""
 
                                     Card(
                                         shape = RoundedCornerShape(16.dp),
@@ -2417,7 +2417,7 @@ fun HomeTab(
                         color = Color(0xFF0F172A)
                     )
                     Text(
-                        text = "Dr. ${doctor.fullName} • ${doctor.specialty ?: "Specialist"}",
+                        text = "Dr. ${doctor.fullName} \u2022 ${doctor.specialty ?: "Specialist"}",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Color(0xFF0284C7)
@@ -2818,7 +2818,7 @@ private fun PatientHomeDoctorCard(
     val distKm = if (userLatitude != null && userLongitude != null && primaryClinic != null) {
         calculateDistanceKm(userLatitude, userLongitude, primaryClinic.latitude ?: 27.7052, primaryClinic.longitude ?: 85.3193)
     } else null
-    val distText = if (distKm != null) String.format(java.util.Locale.US, " • %.1f km away", distKm) else ""
+    val distText = if (distKm != null) String.format(java.util.Locale.US, " \u2022 %.1f km away", distKm) else ""
 
     val earliestSlot = remember(docItem, allClinics, selectedDate) {
         val dateStr = selectedDate.toString()
@@ -2910,7 +2910,7 @@ private fun PatientHomeDoctorCard(
                         )
                     }
                     Text(
-                        text = if (!doctor.education.isNullOrBlank()) "${allDocSpecs.first()} • ${doctor.education}" else allDocSpecs.first(),
+                        text = if (!doctor.education.isNullOrBlank()) "${allDocSpecs.first()} \u2022 ${doctor.education}" else allDocSpecs.first(),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         color = Color(0xFF64748B),
@@ -3111,7 +3111,7 @@ private fun PatientHomeClinicCard(
         }
     val queueCount = item.availableSlots.sumOf { it.bookedCount }
     val estWaitMin = queueCount * 10
-    val queueText = if (queueCount == 0) "No wait • Direct Entry" else "👥 $queueCount in queue (~${estWaitMin}m wait)"
+    val queueText = if (queueCount == 0) "No wait \u2022 Direct Entry" else "👥 $queueCount in queue (~${estWaitMin}m wait)"
     val queueBg = when {
         queueCount <= 2 -> Color(0xFFDCFCE7)
         queueCount <= 5 -> Color(0xFFE0F2FE)
@@ -3229,7 +3229,7 @@ private fun PatientHomeClinicCard(
                     ) {
                         Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(14.dp))
                         Text(
-                            text = "${clinic.addressText ?: "Nepal"} • $distText",
+                            text = "${clinic.addressText ?: "Nepal"} \u2022 $distText",
                             fontSize = 12.sp,
                             color = Color(0xFF64748B)
                         )
@@ -3396,7 +3396,7 @@ private fun PatientHomeClinicCard(
                                     )
                             )
                             Text(
-                                text = if (todaySched.isOpen) "Open • ${todaySched.openTime} - ${todaySched.closeTime}" else "Closed Today",
+                                text = if (todaySched.isOpen) "Open \u2022 ${todaySched.openTime} - ${todaySched.closeTime}" else "Closed Today",
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = if (todaySched.isOpen) Color(0xFF334155) else Color(0xFFDC2626)
@@ -3589,7 +3589,7 @@ fun RecordsTab(
                 if (appt.trackingCode10Digit.isNotBlank() && !hiddenCodes.contains(appt.trackingCode10Digit)) {
                     sessionManager?.saveTrackingCode(
                         appt.trackingCode10Digit,
-                        "${appt.patientName} • ${appt.appointmentDate}"
+                        "${appt.patientName} \u2022 ${appt.appointmentDate}"
                     )
                 }
             }
@@ -4195,7 +4195,7 @@ fun RecordsTab(
                                             )
                                             if (demoParts.isNotEmpty()) {
                                                 Text(
-                                                    text = demoParts.joinToString(" • "),
+                                                    text = demoParts.joinToString(" \u2022 "),
                                                     fontSize = 11.sp,
                                                     color = Color(0xFF64748B)
                                                 )
@@ -4358,7 +4358,7 @@ fun RecordsTab(
                                                                         context = context,
                                                                         report = report,
                                                                         patientName = appt.patientName,
-                                                                        patientAgeGender = listOfNotNull(appt.patientGender, appt.patientAge?.let { "$it yrs" }).joinToString(" • "),
+                                                                        patientAgeGender = listOfNotNull(appt.patientGender, appt.patientAge?.let { "$it yrs" }).joinToString(" \u2022 "),
                                                                         clinicName = clinicName,
                                                                         doctorName = doctorName
                                                                     )
@@ -4951,7 +4951,7 @@ fun RecordsTab(
                                     if (found != null) {
                                         sessionManager?.unhideRecord(found.trackingCode10Digit)
                                         sessionManager?.unhideRecord(found.id)
-                                        sessionManager?.saveTrackingCode(found.trackingCode10Digit, "${found.patientName} • ${found.appointmentDate}", explicitUnhide = true)
+                                        sessionManager?.saveTrackingCode(found.trackingCode10Digit, "${found.patientName} \u2022 ${found.appointmentDate}", explicitUnhide = true)
                                         val pid = sessionManager?.getSavedPatientId()
                                         if (!pid.isNullOrBlank()) {
                                             appointmentRepository.claimAppointment(found.id, pid)
@@ -5002,7 +5002,7 @@ fun RecordsTab(
                                     )
                                     val created = appointmentRepository.createAppointment(apptToCreate)
                                     if (created != null) {
-                                        sessionManager?.saveTrackingCode(created.trackingCode10Digit, "${created.patientName} • ${created.appointmentDate}")
+                                        sessionManager?.saveTrackingCode(created.trackingCode10Digit, "${created.patientName} \u2022 ${created.appointmentDate}")
                                         appointmentRepository.saveOrUpdateInvoicePayment(
                                             appointment = created,
                                             existingInvoice = null,
@@ -5314,7 +5314,7 @@ fun AppointmentsTab(
                 if (appt.trackingCode10Digit.isNotBlank() && !hiddenCodes.contains(appt.trackingCode10Digit) && !hiddenCodes.contains(appt.id)) {
                     sessionManager?.saveTrackingCode(
                         appt.trackingCode10Digit,
-                        "${appt.patientName} • ${appt.appointmentDate}"
+                        "${appt.patientName} \u2022 ${appt.appointmentDate}"
                     )
                 }
                 val isDone = appt.checkinStatus.lowercase() in listOf("completed", "done", "cancelled")
@@ -5615,7 +5615,7 @@ fun AppointmentsTab(
                                             if (appt != null) {
                                                 sessionManager?.unhideRecord(appt.trackingCode10Digit)
                                                 sessionManager?.unhideRecord(appt.id)
-                                                sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} • ${appt.appointmentDate}", explicitUnhide = true)
+                                                sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} \u2022 ${appt.appointmentDate}", explicitUnhide = true)
                                                 addCodeMessage = "✓ Code #${appt.trackingCode10Digit} verified!"
                                                 val targetCode = appt.trackingCode10Digit
                                                 trackingInput = ""
@@ -6224,7 +6224,7 @@ fun AppointmentsTab(
                                                 color = Color(0xFF15803D)
                                             )
                                             Text(
-                                                text = "Token #$myPos • Completed today at $clinicName",
+                                                text = "Token #$myPos \u2022 Completed today at $clinicName",
                                                 fontSize = 12.sp,
                                                 color = Color(0xFF166534)
                                             )
@@ -6377,18 +6377,18 @@ fun AppointmentsTab(
                                             verticalArrangement = Arrangement.spacedBy(2.dp)
                                         ) {
                                             Text(
-                                                text = if (isLate) "Arrive Soon • Turn Bypassed" else "Live Queue Position",
+                                                text = if (isLate) "Arrive Soon \u2022 Turn Bypassed" else "Live Queue Position",
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 14.sp,
                                                 color = if (isLate) Color(0xFF9F1239) else Color(0xFF0F172A)
                                             )
                                             Text(
                                                 text = when {
-                                                    isLate -> "Another patient was called inside • Please arrive now"
-                                                    isWithDoctor -> "With doctor in consultation room • Token #$myPos"
-                                                    liveAhead == 0 -> "Next in line (0 ahead) • Token #$myPos • $totalWaiting in queue"
-                                                    liveAhead == 1 && clinicEntries.any { it.status == "inside" || it.status == "in_consultation" } -> "Doctor consulting • You're up next (1 ahead) • Token #$myPos"
-                                                    else -> "$liveAhead ahead of you in line • Token #$myPos • $totalWaiting in queue"
+                                                    isLate -> "Another patient was called inside \u2022 Please arrive now"
+                                                    isWithDoctor -> "With doctor in consultation room \u2022 Token #$myPos"
+                                                    liveAhead == 0 -> "Next in line (0 ahead) \u2022 Token #$myPos \u2022 $totalWaiting in queue"
+                                                    liveAhead == 1 && clinicEntries.any { it.status == "inside" || it.status == "in_consultation" } -> "Doctor consulting \u2022 You're up next (1 ahead) \u2022 Token #$myPos"
+                                                    else -> "$liveAhead ahead of you in line \u2022 Token #$myPos \u2022 $totalWaiting in queue"
                                                 },
                                                 fontSize = 12.sp,
                                                 color = if (isLate) Color(0xFFBE123C) else Color(0xFF64748B)
@@ -6477,7 +6477,7 @@ fun AppointmentsTab(
 
                                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                                     Text(
-                                                        text = if (isTomorrow) "Tomorrow • Position #$myPos in line" else "$formattedDateLabel • Position #$myPos in line",
+                                                        text = if (isTomorrow) "Tomorrow \u2022 Position #$myPos in line" else "$formattedDateLabel \u2022 Position #$myPos in line",
                                                         fontWeight = FontWeight.Bold,
                                                         fontSize = 13.5.sp,
                                                         color = Color(0xFF0F172A)
@@ -6566,7 +6566,7 @@ fun AppointmentsTab(
                                         }
 
                                         Text(
-                                            text = "• Live OPD queue tracking will activate on ${if (isTomorrow) "tomorrow morning" else apptDateStr} when the clinic opens.",
+                                            text = "\u2022 Live OPD queue tracking will activate on ${if (isTomorrow) "tomorrow morning" else apptDateStr} when the clinic opens.",
                                             fontSize = 11.sp,
                                             color = Color(0xFF64748B),
                                             lineHeight = 15.sp
@@ -6738,7 +6738,7 @@ fun AppointmentsTab(
                                     ) {
                                         Icon(Icons.Default.PauseCircle, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(16.dp))
                                         Text(
-                                            text = "Clinic is currently on a break — consultations paused temporarily",
+                                            text = "Clinic is currently on a break \u2014 consultations paused temporarily",
                                             color = Color(0xFF991B1B),
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold
@@ -7033,7 +7033,7 @@ fun AppointmentsTab(
                                 color = Color(0xFF64748B)
                             )
                             Text(
-                                "Current Slot: ${targetAppt.appointmentDate} • ${targetAppt.appointmentTime ?: "10:00 AM"}",
+                                "Current Slot: ${targetAppt.appointmentDate} \u2022 ${targetAppt.appointmentTime ?: "10:00 AM"}",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF0284C7)
@@ -7258,7 +7258,7 @@ fun PatientRecordDetailDialog(
                                     color = Color.White
                                 )
                                 Text(
-                                    text = "Appointment #${targetAppt.trackingCode10Digit} • Complete Visit History",
+                                    text = "Appointment #${targetAppt.trackingCode10Digit} \u2022 Complete Visit History",
                                     fontSize = 12.sp,
                                     color = Color.White.copy(alpha = 0.9f)
                                 )
@@ -7476,7 +7476,7 @@ fun PatientRecordDetailDialog(
                                                 listOfNotNull(
                                                     targetAppt.patientGender?.takeIf { it.isNotBlank() },
                                                     targetAppt.patientAge?.let { "$it yrs" }
-                                                ).joinToString(" • ").ifBlank { "N/A" },
+                                                ).joinToString(" \u2022 ").ifBlank { "N/A" },
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.SemiBold,
                                                 color = Color(0xFF334155)
@@ -7613,7 +7613,7 @@ fun PatientRecordDetailDialog(
                                                                         context = context,
                                                                         report = report,
                                                                         patientName = targetAppt.patientName,
-                                                                        patientAgeGender = listOfNotNull(targetAppt.patientGender, targetAppt.patientAge?.let { "$it yrs" }).joinToString(" • "),
+                                                                        patientAgeGender = listOfNotNull(targetAppt.patientGender, targetAppt.patientAge?.let { "$it yrs" }).joinToString(" \u2022 "),
                                                                         clinicName = clinicName,
                                                                         doctorName = doctorName
                                                                     )
@@ -7855,7 +7855,7 @@ fun PatientRecordDetailDialog(
                                                                 )
                                                             }
                                                             Text(
-                                                                text = "$pastDocName • $pastClinicName",
+                                                                text = "$pastDocName \u2022 $pastClinicName",
                                                                 fontSize = 11.5.sp,
                                                                 color = Color(0xFF475569),
                                                                 maxLines = 1,
@@ -8078,7 +8078,7 @@ fun RemoveRecordConfirmDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "Are you sure you want to remove appointment #${targetAppt.trackingCode10Digit} (${targetAppt.patientName} • ${targetAppt.appointmentDate}) from your active records list?",
+                    "Are you sure you want to remove appointment #${targetAppt.trackingCode10Digit} (${targetAppt.patientName} \u2022 ${targetAppt.appointmentDate}) from your active records list?",
                     fontSize = 13.sp,
                     color = Color(0xFF475569)
                 )
@@ -8174,7 +8174,7 @@ fun RescheduleConfirmDialog(
                             color = Color(0xFF64748B)
                         )
                         Text(
-                            "Visit: ${targetAppt.appointmentDate} • ${targetAppt.appointmentTime ?: "OPD"}",
+                            "Visit: ${targetAppt.appointmentDate} \u2022 ${targetAppt.appointmentTime ?: "OPD"}",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF0284C7)
@@ -8937,7 +8937,7 @@ fun ProfileTab(
                                                         color = Color(0xFF0F172A)
                                                     )
                                                     Text(
-                                                        text = "$dName • ${appt.appointmentDate} (${appt.appointmentTime ?: "OPD"})",
+                                                        text = "$dName \u2022 ${appt.appointmentDate} (${appt.appointmentTime ?: "OPD"})",
                                                         fontSize = 11.sp,
                                                         color = Color(0xFF475569)
                                                     )
@@ -9551,7 +9551,7 @@ fun ProfileTab(
                         value = editAge,
                         onValueChange = { if (it.length <= 3 && it.all { c -> c.isDigit() }) editAge = it },
                         label = { Text("Age (years) *") },
-                        placeholder = { Text("1–120") },
+                        placeholder = { Text("1\u2013120") },
                         isError = isEditAgeError,
                         supportingText = if (isEditAgeError) {
                             { Text("Enter a valid age between 1 and 120.", color = Color(0xFFDC2626), fontSize = 11.sp) }
@@ -9625,7 +9625,7 @@ fun ProfileTab(
                                     sessionManager?.unhideRecord(appt.trackingCode10Digit)
                                     sessionManager?.unhideRecord(appt.id)
                                     sessionManager?.unhideRecord(input)
-                                    sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} • ${appt.appointmentDate}", explicitUnhide = true)
+                                    sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} \u2022 ${appt.appointmentDate}", explicitUnhide = true)
                                     val pid = sessionManager?.getSavedPatientId()
                                     if (!pid.isNullOrBlank()) {
                                         appointmentRepository?.claimAppointment(appt.id, pid)

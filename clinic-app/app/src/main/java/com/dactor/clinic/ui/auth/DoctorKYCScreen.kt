@@ -392,7 +392,7 @@ fun DoctorKYCScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "NMC Credentials Submitted • Pending Review",
+                                text = "NMC Credentials Submitted \u2022 Pending Review",
                                 color = Color(0xFF92400E),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp,

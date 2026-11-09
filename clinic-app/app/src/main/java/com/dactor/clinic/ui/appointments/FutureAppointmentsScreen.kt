@@ -78,7 +78,7 @@ fun FutureAppointmentsScreen(
     // Month navigation
     var displayedMonth by remember { mutableStateOf(YearMonth.from(today)) }
 
-    // Selected date — default to today
+    // Selected date \u2014 default to today
     var selectedDate by remember { mutableStateOf(todayStr) }
 
     var appointments by remember(effectiveClinicId) { mutableStateOf<List<Appointment>>(emptyList()) }
@@ -572,9 +572,9 @@ fun FutureAppointmentsScreen(
                                 ) != null
                                 if (ok) {
                                     actionMessage = if (checked) {
-                                        "🏖️ Declared Holiday on $targetDate — Patients will see Clinic is Closed on this day."
+                                        "🏖️ Declared Holiday on $targetDate \u2014 Patients will see Clinic is Closed on this day."
                                     } else {
-                                        "✓ Removed Holiday on $targetDate — Clinic is marked Open."
+                                        "✓ Removed Holiday on $targetDate \u2014 Clinic is marked Open."
                                     }
                                 } else {
                                     val lockEntry = pendingHolidayToggles[targetDate]
@@ -684,7 +684,7 @@ fun FutureAppointmentsScreen(
                                                 )
                                                 if (slotDoc != null) {
                                                     Text(
-                                                        text = "• Dr. ${slotDoc.fullName}",
+                                                        text = "\u2022 Dr. ${slotDoc.fullName}",
                                                         fontSize = 11.sp,
                                                         color = Color(0xFF0097A7),
                                                         fontWeight = FontWeight.SemiBold
@@ -692,7 +692,7 @@ fun FutureAppointmentsScreen(
                                                 }
                                             }
                                             Text(
-                                                text = "Capacity: ${slot.maxCapacity} patients • Booked: ${slot.bookedCount}",
+                                                text = "Capacity: ${slot.maxCapacity} patients \u2022 Booked: ${slot.bookedCount}",
                                                 fontSize = 11.sp,
                                                 color = Color(0xFF64748B)
                                             )
@@ -1130,7 +1130,7 @@ fun FutureAppointmentsScreen(
                             )
                         } else {
                             Text(
-                                text = "✓ Slot Time Window: ${format12h(slotStartTime)} to ${format12h(slotEndTime)} — Can be published anytime, even on closed days or outside regular hours.",
+                                text = "✓ Slot Time Window: ${format12h(slotStartTime)} to ${format12h(slotEndTime)} \u2014 Can be published anytime, even on closed days or outside regular hours.",
                                 fontSize = 11.sp,
                                 color = Color(0xFF16A34A),
                                 fontWeight = FontWeight.SemiBold

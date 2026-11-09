@@ -303,7 +303,7 @@ fun BookingFormScreen(
                     )
                     for (a in linkedAppts) {
                         if (a.trackingCode10Digit.isNotBlank()) {
-                            val label = "${a.patientName} • ${a.appointmentDate}"
+                            val label = "${a.patientName} \u2022 ${a.appointmentDate}"
                             sessionManager.saveTrackingCode(a.trackingCode10Digit, label)
                             if (savedCodes.none { it.first == a.trackingCode10Digit }) {
                                 savedCodes.add(a.trackingCode10Digit to label)
@@ -437,7 +437,7 @@ fun BookingFormScreen(
 
                     sessionManager?.saveTrackingCode(
                         bookedFollowUp.trackingCode10Digit,
-                        "${bookedFollowUp.patientName} • $resolvedDate"
+                        "${bookedFollowUp.patientName} \u2022 $resolvedDate"
                     )
                     sessionManager?.saveLastConfirmedAppointment(
                         appointmentId = bookedFollowUp.id,
@@ -515,7 +515,7 @@ fun BookingFormScreen(
                         }
                     } ?: (System.currentTimeMillis() + 300_000L)
 
-                    sessionManager?.saveTrackingCode(finalTracking, "${fullName.trim()} • $resolvedDate")
+                    sessionManager?.saveTrackingCode(finalTracking, "${fullName.trim()} \u2022 $resolvedDate")
                     sessionManager?.saveActivePaymentSession(
                         appointmentId = finalApptId,
                         clinicId = finalClinicId,
@@ -557,7 +557,7 @@ fun BookingFormScreen(
                                 color = SlateDark
                             )
                             Text(
-                                "Step 2 of 2 • Confirm Patient Details",
+                                "Step 2 of 2 \u2022 Confirm Patient Details",
                                 fontSize = 11.sp,
                                 color = SlateMuted,
                                 fontWeight = FontWeight.Medium
@@ -790,7 +790,7 @@ fun BookingFormScreen(
                                 }
                                 if (!clinicDisplayName.isNullOrBlank()) {
                                     Text(
-                                        text = "• ${clinicDisplayName!!}",
+                                        text = "\u2022 ${clinicDisplayName!!}",
                                         fontSize = 11.sp,
                                         color = SlateMuted,
                                         fontWeight = FontWeight.SemiBold,
@@ -852,7 +852,7 @@ fun BookingFormScreen(
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
-                                text = if (loadedSlot != null) "${loadedSlot?.startTime} – ${loadedSlot?.endTime}" else "Selected Slot",
+                                text = if (loadedSlot != null) "${loadedSlot?.startTime} \u2013 ${loadedSlot?.endTime}" else "Selected Slot",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp,
                                 color = FormTealDark
@@ -1222,13 +1222,13 @@ fun BookingFormScreen(
                                             )
                                             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                                 Text(
-                                                    text = if (isRetainedActiveAppt) "Active Appointment Found • Rescheduling" else "Completed Visit Found • Free Follow-Up",
+                                                    text = if (isRetainedActiveAppt) "Active Appointment Found \u2022 Rescheduling" else "Completed Visit Found \u2022 Free Follow-Up",
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 12.5.sp,
                                                     color = if (isRetainedActiveAppt) Color(0xFF1E3A8A) else Color(0xFF065F46)
                                                 )
                                                 Text(
-                                                    text = "Patient: ${retained.patientName} (${retained.patientAge} yrs • ${retained.patientGender} • ${retained.patientMobile})",
+                                                    text = "Patient: ${retained.patientName} (${retained.patientAge} yrs \u2022 ${retained.patientGender} \u2022 ${retained.patientMobile})",
                                                     fontWeight = FontWeight.SemiBold,
                                                     fontSize = 12.sp,
                                                     color = SlateDark
@@ -1879,7 +1879,7 @@ fun BookingFormScreen(
                                 },
                                 isError = isAgeError,
                                 supportingText = if (isAgeError) {
-                                    { Text("Enter valid age (1–120)", color = ErrorRed, fontSize = 10.sp) }
+                                    { Text("Enter valid age (1\u2013120)", color = ErrorRed, fontSize = 10.sp) }
                                 } else null,
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),

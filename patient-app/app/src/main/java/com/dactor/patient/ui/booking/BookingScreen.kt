@@ -923,7 +923,7 @@ fun BookingScreen(
                             }
                         }
 
-                        // Clinic Working Hours for Selected Date (Informational — Break hours only shown in queue/appt status)
+                        // Clinic Working Hours for Selected Date (Informational \u2014 Break hours only shown in queue/appt status)
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = if (isClinicClosedOnSelectedDate) Color(0xFFFEF2F2) else Color(0xFFF0FDF4),

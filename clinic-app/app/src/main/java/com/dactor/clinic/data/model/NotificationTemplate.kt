@@ -5,7 +5,7 @@ sealed class NotificationTemplate {
 
     object AppointmentReminder : NotificationTemplate() {
         override val type = NotificationType.QUEUE_ALERT
-        fun buildTitle(code: String) = "Appointment Reminder • #$code"
+        fun buildTitle(code: String) = "Appointment Reminder \u2022 #$code"
         fun buildMessage(patientName: String, code: String, slotTime: String, estWait: String): String {
             return NotificationTemplateData.buildMessageWithMeta(
                 cleanMessage = "Hi $patientName, your appointment (#$code) is scheduled for today at $slotTime. Track your live queue turn anytime.",
@@ -50,7 +50,7 @@ sealed class NotificationTemplate {
 
     object LabProcessing : NotificationTemplate() {
         override val type = NotificationType.LAB_PROCESSING
-        fun buildTitle() = "Sample Collected • Processing Started"
+        fun buildTitle() = "Sample Collected \u2022 Processing Started"
         fun buildMessage(patientName: String, code: String): String {
             return NotificationTemplateData.buildMessageWithMeta(
                 cleanMessage = "Hi $patientName, your lab sample for #$code has been collected and is now processing in the laboratory.",
@@ -168,7 +168,7 @@ sealed class NotificationTemplate {
             return NotificationTemplateData.buildMessageWithMeta(
                 cleanMessage = cleanBody,
                 leftLabel = "Doctor Status",
-                leftValue = "In Clinic • Active",
+                leftValue = "In Clinic \u2022 Active",
                 rightLabel = "Live Queue",
                 rightValue = "Consultations Started",
                 trackingCode = code

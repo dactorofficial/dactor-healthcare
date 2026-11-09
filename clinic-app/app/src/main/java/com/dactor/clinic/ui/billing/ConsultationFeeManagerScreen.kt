@@ -456,7 +456,7 @@ fun ConsultationFeeManagerScreen(
                                                 color = Color(0xFF0F172A)
                                             )
                                             Text(
-                                                "${doctor.specialty ?: "General Physician"}${if (!doctor.nmcLicenseNumber.isNullOrBlank()) " • NMC: ${doctor.nmcLicenseNumber}" else ""}",
+                                                "${doctor.specialty ?: "General Physician"}${if (!doctor.nmcLicenseNumber.isNullOrBlank()) " \u2022 NMC: ${doctor.nmcLicenseNumber}" else ""}",
                                                 fontSize = 12.sp,
                                                 color = Color(0xFF64748B)
                                             )

@@ -799,7 +799,7 @@ fun DoctorDashboardScreen(
                             Icon(Icons.Default.DomainDisabled, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(24.dp))
                         }
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Independent Practice • No Clinic Affiliated", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Independent Practice \u2022 No Clinic Affiliated", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             Text(
                                 "You are not affiliated with any clinic yet. A clinic administrator can invite you using your email: ${doctor?.email ?: "your registered email"}. You can accept the invitation below to get affiliated.",
                                 fontSize = 11.sp,
@@ -1037,7 +1037,7 @@ fun DoctorDashboardScreen(
                         ) {
                             Column {
                                 Text(activeAppointment.patientName, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                Text("${activeAppointment.patientAge} yrs • ${activeAppointment.patientGender} • Ph: ${activeAppointment.patientMobile}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("${activeAppointment.patientAge} yrs \u2022 ${activeAppointment.patientGender} \u2022 Ph: ${activeAppointment.patientMobile}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
 
                             Surface(
@@ -1255,7 +1255,7 @@ fun DoctorDashboardScreen(
                                                 "${nextWaitingAppt.patientAge} yrs".takeIf { (nextWaitingAppt.patientAge ?: 0) > 0 },
                                                 nextWaitingAppt.patientGender?.takeIf { it.isNotBlank() && it != "Registered" },
                                                 nextWaitingAppt.patientMobile.takeIf { it.isNotBlank() }
-                                            ).joinToString(" • ")
+                                            ).joinToString(" \u2022 ")
                                             if (demo.isNotBlank()) {
                                                 Text(demo, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             }

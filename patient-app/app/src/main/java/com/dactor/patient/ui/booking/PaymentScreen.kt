@@ -213,7 +213,7 @@ fun PaymentScreen(
             val confirmed = latest ?: appointmentRepository.getAppointmentById(apptId)
             if (confirmed != null) {
                 sessionManager?.clearActivePaymentSession()
-                sessionManager?.saveTrackingCode(confirmed.trackingCode10Digit, "${confirmed.patientName} • ${confirmed.appointmentDate}")
+                sessionManager?.saveTrackingCode(confirmed.trackingCode10Digit, "${confirmed.patientName} \u2022 ${confirmed.appointmentDate}")
                 sessionManager?.saveLastConfirmedAppointment(
                     appointmentId = confirmed.id,
                     trackingCode = confirmed.trackingCode10Digit,
@@ -304,7 +304,7 @@ fun PaymentScreen(
                 context.startActivity(intent)
                 Toast.makeText(
                     context,
-                    "Opening $gatewayDisplayLabel. Slot is reserved — your appointment confirms automatically even in background.",
+                    "Opening $gatewayDisplayLabel. Slot is reserved \u2014 your appointment confirms automatically even in background.",
                     Toast.LENGTH_LONG
                 ).show()
             } catch (e: Exception) {
@@ -336,7 +336,7 @@ fun PaymentScreen(
                 ) ?: false
                 if (success) {
                     sessionManager?.clearActivePaymentSession()
-                    sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} • ${appt.appointmentDate}")
+                    sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} \u2022 ${appt.appointmentDate}")
                     sessionManager?.saveLastConfirmedAppointment(
                         appointmentId = appt.id,
                         trackingCode = appt.trackingCode10Digit,

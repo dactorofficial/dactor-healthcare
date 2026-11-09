@@ -173,7 +173,7 @@ object OpenRouteSpatialEngine {
         val metrics = getRouteMetrics(userLat, userLng, clinic) ?: return null
         val distStr = String.format(Locale.US, "%.1f km", metrics.distanceKm)
         return if (metrics.isRoadNetworkExact) {
-            "$distStr • ${metrics.durationMinutes} min drive"
+            "$distStr \u2022 ${metrics.durationMinutes} min drive"
         } else {
             "$distStr away"
         }

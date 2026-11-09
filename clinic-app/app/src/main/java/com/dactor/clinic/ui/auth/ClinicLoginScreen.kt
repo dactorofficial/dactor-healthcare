@@ -340,7 +340,7 @@ fun ClinicLoginScreen(
                                 pendingEmail = clinic.contactEmail ?: pending.email
                                 pendingRole = "clinic"
                                 pendingStatus = clinic.verificationStatus ?: "pending"
-                                pendingDetails = "${(clinic.type ?: "clinic").replace('_', ' ').replaceFirstChar { it.uppercase() }} • ${clinic.addressText ?: "Nepal"}"
+                                pendingDetails = "${(clinic.type ?: "clinic").replace('_', ' ').replaceFirstChar { it.uppercase() }} \u2022 ${clinic.addressText ?: "Nepal"}"
                                 pendingId = clinic.id
                                 currentView = "pending_verification"
                             }
@@ -361,7 +361,7 @@ fun ClinicLoginScreen(
                                 pendingEmail = doc.email
                                 pendingRole = "doctor"
                                 pendingStatus = doc.kycStatus ?: "pending"
-                                pendingDetails = "NMC: ${doc.nmcLicenseNumber ?: "N/A"} • ${doc.specialty ?: "General"}"
+                                pendingDetails = "NMC: ${doc.nmcLicenseNumber ?: "N/A"} \u2022 ${doc.specialty ?: "General"}"
                                 pendingId = doc.id
                                 currentView = "pending_verification"
                             }
@@ -471,7 +471,7 @@ fun ClinicLoginScreen(
                             pendingEmail = existingClinic.contactEmail ?: trimmedEmail
                             pendingRole = "clinic"
                             pendingStatus = existingClinic.verificationStatus ?: "pending"
-                            pendingDetails = "${(existingClinic.type ?: "clinic").replace('_', ' ').replaceFirstChar { it.uppercase() }} • ${existingClinic.addressText ?: "Nepal"}"
+                            pendingDetails = "${(existingClinic.type ?: "clinic").replace('_', ' ').replaceFirstChar { it.uppercase() }} \u2022 ${existingClinic.addressText ?: "Nepal"}"
                             pendingId = existingClinic.id
                             sessionManager?.savePendingVerification(
                                 email = pendingEmail,
@@ -555,7 +555,7 @@ fun ClinicLoginScreen(
                             pendingEmail = existingDoctor.email
                             pendingRole = "doctor"
                             pendingStatus = existingDoctor.kycStatus ?: "pending"
-                            pendingDetails = "NMC: ${existingDoctor.nmcLicenseNumber ?: "N/A"} • ${existingDoctor.specialty ?: "General"}"
+                            pendingDetails = "NMC: ${existingDoctor.nmcLicenseNumber ?: "N/A"} \u2022 ${existingDoctor.specialty ?: "General"}"
                             pendingId = existingDoctor.id
                             sessionManager?.savePendingVerification(
                                 email = pendingEmail,
@@ -1135,7 +1135,7 @@ fun ClinicLoginScreen(
                 pendingEmail = email
                 pendingRole = "clinic"
                 pendingStatus = "pending"
-                pendingDetails = "PAN: $cleanPan • ${(newClinic.type ?: "clinic").replace('_', ' ').replaceFirstChar { it.uppercase() }} • ${newClinic.addressText ?: "Nepal"}"
+                pendingDetails = "PAN: $cleanPan \u2022 ${(newClinic.type ?: "clinic").replace('_', ' ').replaceFirstChar { it.uppercase() }} \u2022 ${newClinic.addressText ?: "Nepal"}"
                 pendingId = newId
                 sessionManager?.savePendingVerification(
                     email = email,
@@ -1290,7 +1290,7 @@ fun ClinicLoginScreen(
                 pendingEmail = email
                 pendingRole = "doctor"
                 pendingStatus = "pending"
-                pendingDetails = "NMC: ${newDoctor.nmcLicenseNumber} • ${newDoctor.specialty ?: "General"}"
+                pendingDetails = "NMC: ${newDoctor.nmcLicenseNumber} \u2022 ${newDoctor.specialty ?: "General"}"
                 pendingId = newId
                 sessionManager?.savePendingVerification(
                     email = email,
@@ -1991,7 +1991,7 @@ fun ClinicLoginScreen(
                                         )
                                     } else {
                                         Text(
-                                            "Country code +977 • ${clinicPhoneDigits.length}/10 digits" + if (cleanClinicPhoneDigits.length == 10 && cleanClinicPhoneDigits.startsWith("9")) " ✓" else "",
+                                            "Country code +977 \u2022 ${clinicPhoneDigits.length}/10 digits" + if (cleanClinicPhoneDigits.length == 10 && cleanClinicPhoneDigits.startsWith("9")) " ✓" else "",
                                             color = if (cleanClinicPhoneDigits.length == 10 && cleanClinicPhoneDigits.startsWith("9")) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontSize = 11.sp
                                         )
@@ -2028,7 +2028,7 @@ fun ClinicLoginScreen(
                                         )
                                     } else {
                                         Text(
-                                            "Country code +977 • ${managerPhoneDigits.length}/10 digits" + if (cleanManagerPhoneDigits.length == 10 && cleanManagerPhoneDigits.startsWith("9")) " ✓" else "",
+                                            "Country code +977 \u2022 ${managerPhoneDigits.length}/10 digits" + if (cleanManagerPhoneDigits.length == 10 && cleanManagerPhoneDigits.startsWith("9")) " ✓" else "",
                                             color = if (cleanManagerPhoneDigits.length == 10 && cleanManagerPhoneDigits.startsWith("9")) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontSize = 11.sp
                                         )
@@ -2089,9 +2089,9 @@ fun ClinicLoginScreen(
                                             Spacer(Modifier.height(2.dp))
                                             Text(
                                                 text = when (clinicPictures.size) {
-                                                    0 -> "0/4 photos added • You can select up to 4 pictures"
-                                                    4 -> "4/4 photos added • Maximum reached ✓"
-                                                    else -> "${clinicPictures.size}/4 photos added • Can select up to $remainingClinicSlots more"
+                                                    0 -> "0/4 photos added \u2022 You can select up to 4 pictures"
+                                                    4 -> "4/4 photos added \u2022 Maximum reached ✓"
+                                                    else -> "${clinicPictures.size}/4 photos added \u2022 Can select up to $remainingClinicSlots more"
                                                 },
                                                 fontSize = 11.sp,
                                                 color = if (clinicPictures.isNotEmpty()) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant,

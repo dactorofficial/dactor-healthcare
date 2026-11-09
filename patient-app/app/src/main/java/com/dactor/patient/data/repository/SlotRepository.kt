@@ -62,7 +62,7 @@ class SlotRepository @Inject constructor(
                 var cleanEnd = endTimeStr.trim()
                 var cleanStart = startTimeStr.trim()
 
-                val rangePattern = Regex("""\s*(?:-|–|—|\bto\b)\s*""", RegexOption.IGNORE_CASE)
+                val rangePattern = Regex("""\s*(?:-|\u2013|\u2014|\bto\b)\s*""", RegexOption.IGNORE_CASE)
 
                 if (cleanEnd.isBlank() && cleanStart.contains(rangePattern)) {
                     val parts = cleanStart.split(rangePattern)

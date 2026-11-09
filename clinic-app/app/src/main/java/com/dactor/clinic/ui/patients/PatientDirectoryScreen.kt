@@ -1690,7 +1690,7 @@ fun PatientDirectoryScreen(
                             ) {
                                 Column {
                                     Text(appt.patientName, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF0F172A))
-                                    Text("Code: #${appt.trackingCode10Digit} • ${appt.patientMobile}", fontSize = 11.sp, color = Color(0xFF0284C7), fontFamily = FontFamily.Monospace)
+                                    Text("Code: #${appt.trackingCode10Digit} \u2022 ${appt.patientMobile}", fontSize = 11.sp, color = Color(0xFF0284C7), fontFamily = FontFamily.Monospace)
                                 }
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
@@ -1836,7 +1836,7 @@ fun PatientDirectoryScreen(
                                     items(availableRescheduleSlots) { slot ->
                                         val isSelected = selectedRescheduleSlotId == slot.id
                                         val availableCapacity = (slot.maxCapacity - slot.bookedCount).coerceAtLeast(0)
-                                        val timeLabel = "${slot.startTime} – ${slot.endTime}"
+                                        val timeLabel = "${slot.startTime} \u2013 ${slot.endTime}"
 
                                         Surface(
                                             shape = RoundedCornerShape(8.dp),
@@ -2477,7 +2477,7 @@ private fun PatientRecordCardItem(
                         modifier = Modifier.size(14.dp)
                     )
                     Text(
-                        text = "Clinic Record Only — No Appointment Booked",
+                        text = "Clinic Record Only \u2014 No Appointment Booked",
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Color(0xFF00838F)

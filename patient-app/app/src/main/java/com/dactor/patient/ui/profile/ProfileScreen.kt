@@ -183,7 +183,7 @@ fun ProfileScreen(
                 if (appt.trackingCode10Digit.isNotBlank()) {
                     sessionManager?.saveTrackingCode(
                         appt.trackingCode10Digit,
-                        "${appt.patientName} • ${appt.appointmentDate}"
+                        "${appt.patientName} \u2022 ${appt.appointmentDate}"
                     )
                 }
             }
@@ -446,7 +446,7 @@ fun ProfileScreen(
                 if (appointmentRepository != null) {
                     val appt = appointmentRepository.getAppointmentByTrackingCode(cleaned)
                     if (appt != null) {
-                        sessionManager?.saveTrackingCode(cleaned, "${appt.patientName} • ${appt.appointmentDate}")
+                        sessionManager?.saveTrackingCode(cleaned, "${appt.patientName} \u2022 ${appt.appointmentDate}")
                         savedAppointments = listOf(appt) + savedAppointments.filter { it.trackingCode10Digit != cleaned }
                         showClaimDialog = false
                         claimCodeInput = ""
@@ -770,7 +770,7 @@ fun ProfileScreen(
                                             listOfNotNull(
                                                 userGender?.ifBlank { null },
                                                 userAge?.let { "$it yrs" }
-                                            ).joinToString(" • "),
+                                            ).joinToString(" \u2022 "),
                                             fontSize = 11.sp,
                                             color = MaterialTheme.colorScheme.primary,
                                             fontWeight = FontWeight.SemiBold
@@ -1274,7 +1274,7 @@ fun ProfileScreen(
                                     }
                                     Column {
                                         Text("Delete Account", fontSize = 14.sp, color = Color(0xFFB91C1C), fontWeight = FontWeight.Bold)
-                                        Text("30-day archive period • Clinic appointments preserved", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("30-day archive period \u2022 Clinic appointments preserved", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                             }
@@ -1502,23 +1502,23 @@ fun ProfileScreen(
                     ) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(
-                                "• 30-Day Archive: Your account will be archived for 30 days and deleted on $scheduledDateDisplay.",
+                                "\u2022 30-Day Archive: Your account will be archived for 30 days and deleted on $scheduledDateDisplay.",
                                 fontSize = 12.sp,
                                 color = Color(0xFF991B1B)
                             )
                             Text(
-                                "• Device Logout: You will be logged out of this device immediately.",
+                                "\u2022 Device Logout: You will be logged out of this device immediately.",
                                 fontSize = 12.sp,
                                 color = Color(0xFF991B1B)
                             )
                             Text(
-                                "• Clinic Records Safe: All your past appointment details and medical history in every clinic will safely stay preserved in clinic records. Nothing in Supabase will be wiped.",
+                                "\u2022 Clinic Records Safe: All your past appointment details and medical history in every clinic will safely stay preserved in clinic records. Nothing in Supabase will be wiped.",
                                 fontSize = 12.sp,
                                 color = Color(0xFF166534),
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                "• Restore Anytime: If you log in during the 30-day grace period, you will see your day countdown and can cancel the deletion with a single tap.",
+                                "\u2022 Restore Anytime: If you log in during the 30-day grace period, you will see your day countdown and can cancel the deletion with a single tap.",
                                 fontSize = 12.sp,
                                 color = Color(0xFF1E40AF)
                             )

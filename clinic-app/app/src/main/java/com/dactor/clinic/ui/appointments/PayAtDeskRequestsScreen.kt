@@ -393,13 +393,13 @@ fun PayAtDeskRequestsScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                     DetailRow("10-Digit ID", req.trackingCode10Digit, isMonospace = true)
                     DetailRow("Patient Name", req.patientName)
-                    DetailRow("Age / Gender", "${req.patientAge ?: '—'} yrs • ${req.patientGender ?: '—'}")
+                    DetailRow("Age / Gender", "${req.patientAge ?: '\u2014'} yrs \u2022 ${req.patientGender ?: '\u2014'}")
                     DetailRow("Phone", req.patientMobile)
                     if (!req.patientEmail.isNullOrBlank()) {
                         DetailRow("Email", req.patientEmail)
                     }
                     DetailRow("Doctor", doc?.fullName ?: "Assigned Doctor")
-                    DetailRow("Date & Time", "${req.appointmentDate} • ${req.appointmentTime}")
+                    DetailRow("Date & Time", "${req.appointmentDate} \u2022 ${req.appointmentTime}")
                     if (!req.createdAt.isNullOrBlank()) {
                         DetailRow("Requested At", "${formatRelativeTime(req.createdAt)} (${req.createdAt})")
                     }
@@ -489,7 +489,7 @@ fun PayAtDeskRequestCard(
                             modifier = Modifier.size(15.dp)
                         )
                         Text(
-                            "⚡ OLDEST REQUEST • NEXT TO APPROVE",
+                            "⚡ OLDEST REQUEST \u2022 NEXT TO APPROVE",
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 11.sp,
                             color = Color(0xFFB45309),
@@ -539,7 +539,7 @@ fun PayAtDeskRequestCard(
                         color = Color(0xFF0F172A)
                     )
                     Text(
-                        "${appointment.patientAge ?: "—"} yrs • ${appointment.patientGender ?: "Other"}",
+                        "${appointment.patientAge ?: "\u2014"} yrs \u2022 ${appointment.patientGender ?: "Other"}",
                         fontSize = 12.sp,
                         color = Color(0xFF64748B)
                     )
@@ -574,7 +574,7 @@ fun PayAtDeskRequestCard(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.CalendarToday, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Slot: ${appointment.appointmentDate} • ${appointment.appointmentTime}", fontSize = 12.sp, color = Color(0xFF475569))
+                        Text("Slot: ${appointment.appointmentDate} \u2022 ${appointment.appointmentTime}", fontSize = 12.sp, color = Color(0xFF475569))
                     }
                     if (!appointment.createdAt.isNullOrBlank()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {

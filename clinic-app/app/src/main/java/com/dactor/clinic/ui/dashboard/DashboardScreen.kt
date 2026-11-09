@@ -71,7 +71,7 @@ fun DashboardScreen(
                         id = initialEffectiveClinicId,
                         name = sessionManager.getSavedName()?.takeIf { it.isNotBlank() } ?: "Clinic Dashboard",
                         contactEmail = sessionManager.getSavedEmail(),
-                        addressText = "Offline Mode • Local Operations Active",
+                        addressText = "Offline Mode \u2022 Local Operations Active",
                         isActivated = true
                     )
             } else null
@@ -180,7 +180,7 @@ fun DashboardScreen(
                             id = resolvedCid,
                             name = sessionManager.getSavedName()?.takeIf { it.isNotBlank() } ?: "Clinic Dashboard",
                             contactEmail = sessionManager.getSavedEmail() ?: currentEmail,
-                            addressText = "Offline Mode • Local Operations Active",
+                            addressText = "Offline Mode \u2022 Local Operations Active",
                             isActivated = true
                         )
                     clinic = fallback
@@ -278,7 +278,7 @@ fun DashboardScreen(
     val formattedActivationExpiry = ArchiveDateUtils.formatActivationExpiryDate(clinic?.activationExpiresAt)
 
     val displayClinicTitle = if (isClinicArchived) "Clinic Deletion Archive" else if (!isClinicActivated) "Clinic Portal Locked" else (clinic?.name ?: "Clinic Administration Portal")
-    val displayClinicSubtitle = if (isClinicArchived) "Operations Suspended • 30-Day Archive" else if (!isClinicActivated) "License Subscription Required" else (clinic?.addressText ?: "Nepal Healthcare Operations & Queue Management")
+    val displayClinicSubtitle = if (isClinicArchived) "Operations Suspended \u2022 30-Day Archive" else if (!isClinicActivated) "License Subscription Required" else (clinic?.addressText ?: "Nepal Healthcare Operations & Queue Management")
 
     Scaffold(
         topBar = {
@@ -652,7 +652,7 @@ fun DashboardScreen(
                                     Text("Save Rs. 3,000", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF059669), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                                 }
                             }
-                            Text("365 Days • Uninterrupted clinic & patient portal", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("365 Days \u2022 Uninterrupted clinic & patient portal", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text("Rs. 15,000", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
                     }
@@ -678,9 +678,9 @@ fun DashboardScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("• eSewa / Khalti ID: 9841000000 (Dactor Admin)", fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                Text("• Bank: Nabil Bank | A/C: 01234567890123", fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                Text("• Account Holder: Dactor Health Nepal Pvt Ltd", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                Text("\u2022 eSewa / Khalti ID: 9841000000 (Dactor Admin)", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                Text("\u2022 Bank: Nabil Bank | A/C: 01234567890123", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                Text("\u2022 Account Holder: Dactor Health Nepal Pvt Ltd", fontSize = 12.sp, fontWeight = FontWeight.Medium)
                             }
                         }
                     }
@@ -1237,75 +1237,75 @@ fun DashboardScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(end = 12.dp)
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFFFEF3C7),
+                            modifier = Modifier.size(44.dp)
                         ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = Color(0xFFFEF3C7),
-                                modifier = Modifier.size(46.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        Icons.Default.CreditCard,
-                                        contentDescription = null,
-                                        tint = Color(0xFFD97706),
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                            }
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(
-                                        "View Requests",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp,
-                                        color = Color(0xFF0F172A)
-                                    )
-                                    if (pendingPayAtDeskCount > 0) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = Color(0xFFF59E0B)
-                                        ) {
-                                            Text(
-                                                "$pendingPayAtDeskCount Pending",
-                                                color = Color.White,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                                Text(
-                                    if (pendingPayAtDeskCount > 0) "$pendingPayAtDeskCount Pay at Desk booking(s) waiting for approval" else "Review & approve Pay at Desk appointments",
-                                    fontSize = 12.sp,
-                                    color = Color(0xFF92400E),
-                                    lineHeight = 16.sp
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.CreditCard,
+                                    contentDescription = null,
+                                    tint = Color(0xFFD97706),
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }
 
+                        Spacer(Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    "View Requests",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.5.sp,
+                                    color = Color(0xFF0F172A)
+                                )
+                                if (pendingPayAtDeskCount > 0) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFFF59E0B)
+                                    ) {
+                                        Text(
+                                            "$pendingPayAtDeskCount Pending",
+                                            color = Color.White,
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Text(
+                                text = if (pendingPayAtDeskCount > 0) {
+                                    "$pendingPayAtDeskCount Pay at Desk booking(s) waiting for approval"
+                                } else {
+                                    "Review & approve Pay at Desk appointments"
+                                },
+                                fontSize = 11.5.sp,
+                                color = Color(0xFF92400E),
+                                lineHeight = 15.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Spacer(Modifier.width(12.dp))
+
                         Surface(
                             shape = CircleShape,
                             color = Color(0xFFFEF3C7),
-                            modifier = Modifier
-                                .size(34.dp)
-                                .aspectRatio(1f)
+                            modifier = Modifier.size(32.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    Icons.Default.ArrowForward,
+                                    Icons.AutoMirrored.Filled.ArrowForward,
                                     contentDescription = null,
                                     tint = Color(0xFFD97706),
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(15.dp)
                                 )
                             }
                         }
@@ -1581,7 +1581,7 @@ fun DashboardScreen(
                                                         }
 
                                                         Text(
-                                                            text = "${doctor.specialty ?: if (doctor.isLabTechnician) "Medical Lab Technician" else "General Physician"} • NMC: ${doctor.nmcLicenseNumber ?: "N/A"}",
+                                                            text = "${doctor.specialty ?: if (doctor.isLabTechnician) "Medical Lab Technician" else "General Physician"} \u2022 NMC: ${doctor.nmcLicenseNumber ?: "N/A"}",
                                                             fontSize = 12.sp,
                                                             color = Color(0xFF64748B),
                                                             maxLines = 1,
@@ -1704,7 +1704,7 @@ fun DashboardScreen(
                                                                 modifier = Modifier.size(13.dp)
                                                             )
                                                             Text(
-                                                                text = "Accepted • Active on Clinic Roster",
+                                                                text = "Accepted \u2022 Active on Clinic Roster",
                                                                 color = Color(0xFF15803D),
                                                                 fontSize = 11.sp,
                                                                 fontWeight = FontWeight.SemiBold
@@ -1796,7 +1796,7 @@ fun DashboardScreen(
                     add(
                         ModuleItem(
                             title = "Working Hours & Break",
-                            desc = "Sun–Sat working hours, break times & live break toggle",
+                            desc = "Sun\u2013Sat working hours, break times & live break toggle",
                             icon = Icons.Default.Schedule,
                             route = NavRoutes.WorkingHoursBreak,
                             color = Color(0xFF00796B)
@@ -2231,8 +2231,8 @@ fun DashboardScreen(
                     ) {
                         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text("App Owner Payment Accounts:", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            Text("• eSewa / Khalti: 9841000000 (Dactor Admin)", fontSize = 11.sp)
-                            Text("• Nabil Bank A/C: 01234567890123", fontSize = 11.sp)
+                            Text("\u2022 eSewa / Khalti: 9841000000 (Dactor Admin)", fontSize = 11.sp)
+                            Text("\u2022 Nabil Bank A/C: 01234567890123", fontSize = 11.sp)
                         }
                     }
 

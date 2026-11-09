@@ -554,7 +554,7 @@ fun ClinicDetailScreen(
                                                     fontWeight = FontWeight.Medium
                                                 )
                                                 Text(
-                                                    if (todaySchedule.isOpen) "${todaySchedule.openTime} – ${todaySchedule.closeTime}" else "Closed Today",
+                                                    if (todaySchedule.isOpen) "${todaySchedule.openTime} \u2013 ${todaySchedule.closeTime}" else "Closed Today",
                                                     fontSize = 13.sp,
                                                     fontWeight = FontWeight.ExtraBold,
                                                     color = if (todaySchedule.isOpen) Color(0xFF0F172A) else Color(0xFFDC2626)
@@ -888,7 +888,7 @@ fun ClinicDetailScreen(
                                                     Text(daySched.displayName, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF334155))
                                                     Column(horizontalAlignment = Alignment.End) {
                                                         Text(
-                                                            text = if (daySched.isOpen) "${daySched.openTime} – ${daySched.closeTime}" else "Closed",
+                                                            text = if (daySched.isOpen) "${daySched.openTime} \u2013 ${daySched.closeTime}" else "Closed",
                                                             fontSize = 12.sp,
                                                             fontWeight = FontWeight.SemiBold,
                                                             color = if (daySched.isOpen) Color(0xFF00796B) else Color(0xFFDC2626)

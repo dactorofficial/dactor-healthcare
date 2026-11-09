@@ -216,7 +216,7 @@ fun LoginScreen(
                         if (appt.trackingCode10Digit.isNotBlank()) {
                             sessionManager?.saveTrackingCode(
                                 appt.trackingCode10Digit,
-                                "${appt.patientName} • ${appt.appointmentDate}"
+                                "${appt.patientName} \u2022 ${appt.appointmentDate}"
                             )
                         }
                     }
@@ -504,7 +504,7 @@ fun LoginScreen(
                     if (appt.trackingCode10Digit.isNotBlank()) {
                         sessionManager?.saveTrackingCode(
                             appt.trackingCode10Digit,
-                            "${appt.patientName} • ${appt.appointmentDate}"
+                            "${appt.patientName} \u2022 ${appt.appointmentDate}"
                         )
                     }
                 }
@@ -919,7 +919,7 @@ fun LoginScreen(
                             placeholder = { Text("1 - 120") },
                             isError = isAgeError,
                             supportingText = if (isAgeError) {
-                                { Text("Enter valid age (1–120)", color = MaterialTheme.colorScheme.error, fontSize = 10.sp) }
+                                { Text("Enter valid age (1\u2013120)", color = MaterialTheme.colorScheme.error, fontSize = 10.sp) }
                             } else null,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             singleLine = true,

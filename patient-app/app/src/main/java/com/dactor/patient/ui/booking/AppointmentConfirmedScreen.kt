@@ -121,7 +121,7 @@ fun AppointmentConfirmedScreen(
                     resolvedDate = remote.appointmentDate
                 }
                 if (remote.trackingCode10Digit.isNotBlank()) {
-                    sessionManager?.saveTrackingCode(remote.trackingCode10Digit, "${remote.patientName} • ${remote.appointmentDate}")
+                    sessionManager?.saveTrackingCode(remote.trackingCode10Digit, "${remote.patientName} \u2022 ${remote.appointmentDate}")
                 }
 
                 // Resolve Clinic details
@@ -173,7 +173,7 @@ fun AppointmentConfirmedScreen(
                 if (slotFound != null && slotFound.startTime.isNotBlank() && slotFound.endTime.isNotBlank()) {
                     resolvedTimeWindow = "${formatTime12h(slotFound.startTime)} - ${formatTime12h(slotFound.endTime)}"
                 } else if (remote.appointmentTime.contains("-") || remote.appointmentTime.contains("to", ignoreCase = true)) {
-                    val parts = remote.appointmentTime.split(Regex("[-–—]|to", RegexOption.IGNORE_CASE))
+                    val parts = remote.appointmentTime.split(Regex("[-\u2013\u2014]|to", RegexOption.IGNORE_CASE))
                     if (parts.size >= 2) {
                         resolvedTimeWindow = "${formatTime12h(parts[0].trim())} - ${formatTime12h(parts[1].trim())}"
                     } else {
@@ -399,7 +399,7 @@ fun AppointmentConfirmedScreen(
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(resolvedDoctorName, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
                                 if (resolvedDoctorSpecialty.isNotBlank()) {
-                                    Text("• $resolvedDoctorSpecialty", fontSize = 12.sp, color = Color(0xFF0284C7), fontWeight = FontWeight.SemiBold)
+                                    Text("\u2022 $resolvedDoctorSpecialty", fontSize = 12.sp, color = Color(0xFF0284C7), fontWeight = FontWeight.SemiBold)
                                 }
                             }
                         }

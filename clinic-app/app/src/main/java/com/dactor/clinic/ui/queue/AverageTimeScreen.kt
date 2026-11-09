@@ -434,7 +434,7 @@ fun AverageTimeScreen(
                                     color = if (calculatedMinutes != null) Color(0xFF065F46) else Color(0xFF64748B)
                                 )
                                 Text(
-                                    text = if (completedVisits > 0) "$completedVisits visits • $outliersOmitted outliers" else "Requires past visits",
+                                    text = if (completedVisits > 0) "$completedVisits visits \u2022 $outliersOmitted outliers" else "Requires past visits",
                                     fontSize = 10.sp,
                                     color = Color(0xFF94A3B8),
                                     maxLines = 1

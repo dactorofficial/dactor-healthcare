@@ -954,7 +954,7 @@ fun PatientSearchScreen(
                             if (selectedFeeFilter.isNotBlank()) {
                                 val feeLabel = when (selectedFeeFilter) {
                                     "under_500" -> "Under Rs. 500"
-                                    "500_1000" -> "Rs. 500 – 1000"
+                                    "500_1000" -> "Rs. 500 \u2013 1000"
                                     "above_1000" -> "Above Rs. 1000"
                                     else -> selectedFeeFilter
                                 }
@@ -1585,7 +1585,7 @@ fun PatientSearchScreen(
                     }
                 }
 
-                // 4 & 5. GROUPED SEARCH RESULTS (Doctors, Clinics, Specialties — max 3 per group with "See all")
+                // 4 & 5. GROUPED SEARCH RESULTS (Doctors, Clinics, Specialties \u2014 max 3 per group with "See all")
                 else -> {
                     val showDocsGroup = selectedEntityTypeFilter.isBlank() || selectedEntityTypeFilter == "doctors"
                     val showClinicsGroup = selectedEntityTypeFilter.isBlank() || selectedEntityTypeFilter == "clinics"
@@ -1966,7 +1966,7 @@ fun PatientSearchScreen(
                         listOf(
                             "" to "Any Fee",
                             "under_500" to "Under Rs. 500",
-                            "500_1000" to "Rs. 500–1000",
+                            "500_1000" to "Rs. 500\u20131000",
                             "above_1000" to "Above Rs. 1000"
                         ).forEach { (k, label) ->
                             FilterChip(
@@ -2049,7 +2049,7 @@ fun PatientSearchScreen(
                     }
                     Column {
                         Text("Dr. ${doctor.fullName}", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                        Text(specs.joinToString(" • "), fontSize = 13.sp, color = Color(0xFF00796B), fontWeight = FontWeight.SemiBold)
+                        Text(specs.joinToString(" \u2022 "), fontSize = 13.sp, color = Color(0xFF00796B), fontWeight = FontWeight.SemiBold)
                     }
                 }
             },
@@ -2076,7 +2076,7 @@ fun PatientSearchScreen(
                         )
                         docItem.practicingClinics.forEach { c ->
                             Text(
-                                "• ${c.name} (${c.addressText ?: "Nepal"})",
+                                "\u2022 ${c.name} (${c.addressText ?: "Nepal"})",
                                 fontSize = 12.5.sp,
                                 color = Color(0xFF475569)
                             )
@@ -2122,7 +2122,7 @@ fun PatientSearchScreen(
                         color = Color(0xFF0F172A)
                     )
                     Text(
-                        text = "Dr. ${doctor.fullName} • Date: $bookingDateStr",
+                        text = "Dr. ${doctor.fullName} \u2022 Date: $bookingDateStr",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Color(0xFF00796B)
@@ -2259,7 +2259,7 @@ fun PatientSearchScreen(
 }
 
 /**
- * 5. Result Card for Doctors — Same card as Home, with one addition:
+ * 5. Result Card for Doctors \u2014 Same card as Home, with one addition:
  * - If the doctor is available on the selected date, show the Book button.
  * - If not, show "Next available: Thu 15 Oct" with the Book button to avoid dead ends.
  */
@@ -2449,7 +2449,7 @@ private fun SearchDoctorResultCard(
                         text = when {
                             clinicsForDoc.isEmpty() -> "Not affiliated"
                             clinicsForDoc.size > 1 -> "Available at ${clinicsForDoc.size} clinics (${primaryClinic?.name ?: ""} & more)"
-                            else -> "Practices at ${primaryClinic?.name ?: "Partner Clinic"} • ${primaryClinic?.addressText ?: "Nepal"}"
+                            else -> "Practices at ${primaryClinic?.name ?: "Partner Clinic"} \u2022 ${primaryClinic?.addressText ?: "Nepal"}"
                         },
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
@@ -2532,7 +2532,7 @@ private fun SearchDoctorResultCard(
 }
 
 /**
- * 5. Result Card for Clinics — Same card as Home
+ * 5. Result Card for Clinics \u2014 Same card as Home
  */
 @Composable
 private fun SearchClinicResultCard(

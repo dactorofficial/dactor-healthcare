@@ -53,7 +53,7 @@ data class NotificationTemplateData(
         fun formatSlotWindow(slotTimeStr: String?, avgConsultationMinutes: Int = 10): String {
             if (slotTimeStr.isNullOrBlank()) return ""
             val clean = slotTimeStr.trim()
-            if (clean.contains(" - ") || clean.contains(" – ") || clean.contains(" — ") || clean.contains(" to ", ignoreCase = true)) {
+            if (clean.contains(" - ") || clean.contains(" \u2013 ") || clean.contains(" \u2014 ") || clean.contains(" to ", ignoreCase = true)) {
                 return clean
             }
             val time = parseSlotTime(clean) ?: return clean
@@ -94,7 +94,7 @@ data class NotificationTemplateData(
 
             val toleranceSuffix = if (includeTolerance && avgConsultationMinutes > 0) " (±${avgConsultationMinutes}m)" else ""
 
-            if (clean.contains(" - ") || clean.contains(" – ") || clean.contains(" — ") || clean.contains(" to ", ignoreCase = true)) {
+            if (clean.contains(" - ") || clean.contains(" \u2013 ") || clean.contains(" \u2014 ") || clean.contains(" to ", ignoreCase = true)) {
                 return if (includeTolerance && !clean.contains("±")) "$clean$toleranceSuffix" else clean
             }
 
@@ -179,7 +179,7 @@ data class NotificationTemplateData(
                 notifType == NotificationType.ARRIVE_SOON || title.contains("Arrive Soon", ignoreCase = true) -> {
                     val posMatch = Regex("""(?:#|position\s*|queue\s*#?)(\d+)""", RegexOption.IGNORE_CASE).find(title + " " + cleanMsg)
                     val pos = posMatch?.groupValues?.get(1) ?: "2"
-                    "ARRIVE SOON • #$pos"
+                    "ARRIVE SOON \u2022 #$pos"
                 }
                 notifType == NotificationType.EARLY_ARRIVAL -> "DOCTOR FREE NOW"
                 notifType == NotificationType.CLINIC_BREAK -> "CLINIC BREAK"
@@ -283,7 +283,7 @@ data class NotificationTemplateData(
                 notifType == NotificationType.ARRIVE_SOON ||
                     title.contains("Arrive Soon", ignoreCase = true) ||
                     cleanMsg.contains("arrive soon", ignoreCase = true) -> NotificationTemplateData(
-                    title = title.ifBlank { "Arrive Soon • Turn Approaching" },
+                    title = title.ifBlank { "Arrive Soon \u2022 Turn Approaching" },
                     cleanMessage = cleanMsg,
                     leftLabel = "Turn Status",
                     leftValue = "Arrive Soon",

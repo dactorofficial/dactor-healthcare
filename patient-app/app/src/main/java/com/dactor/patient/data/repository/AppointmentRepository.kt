@@ -1172,9 +1172,10 @@ class AppointmentRepository @Inject constructor(
                 if (trackingCode != null) put("p_tracking_code", trackingCode)
             }
             val response = supabaseClient.postgrest.rpc("reschedule_patient_appointment", rpcParams)
-            val json = response.decodeSingleOrNull<JsonObject>()
+            val json = try { response.decodeSingleOrNull<JsonObject>() } catch (_: Exception) { null }
+            val rawData = response.data
             val isSuccess = json?.get("success")?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
-                ?: (response.body<String>().contains("\"success\":true") || response.body<String>().contains("\"success\": true"))
+                ?: (rawData.contains("\"success\":true") || rawData.contains("\"success\": true") || rawData.trim() == "true")
             if (isSuccess) {
                 return@withContext true
             }
@@ -1273,7 +1274,7 @@ class AppointmentRepository @Inject constructor(
                         "id" to notifId,
                         "user_id" to appt.userId?.takeIf { isValidUuid(it) },
                         "appointment_id" to appt.id,
-                        "title" to "Appointment Rescheduled • $newDate",
+                        "title" to "Appointment Rescheduled \u2022 $newDate",
                         "message" to "Your appointment has been shifted to $newDate at $normalizedTime.",
                         "type" to "queue_alert",
                         "target_audience" to "specific",

@@ -270,7 +270,7 @@ fun PaymentLogsScreen(
                             maxLines = 1
                         )
                         Text(
-                            text = "Live revenue audit • Doctor tracker • Payouts",
+                            text = "Live revenue audit \u2022 Doctor tracker \u2022 Payouts",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -614,7 +614,7 @@ fun PaymentLogsScreen(
                             Column(modifier = Modifier.padding(10.dp)) {
                                 Text("Net Clinic Payout", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF5B21B6))
                                 Text(CurrencyFormatter.formatNPR(netClinicPayout), fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color(0xFF6D28D9))
-                                Text("95% Clinic • 5% Dactor cut", fontSize = 9.sp, color = Color(0xFF7C3AED))
+                                Text("95% Clinic \u2022 5% Dactor cut", fontSize = 9.sp, color = Color(0xFF7C3AED))
                             }
                         }
                     }
@@ -786,7 +786,7 @@ fun PaymentLogsScreen(
             title = {
                 Column {
                     Text("Payment Receipt & Audit", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text("Token #${entry.trackingCode10Digit ?: "–"}", fontSize = 12.sp, color = Color(0xFF0D9488))
+                    Text("Token #${entry.trackingCode10Digit ?: "\u2013"}", fontSize = 12.sp, color = Color(0xFF0D9488))
                 }
             },
             text = {
@@ -931,7 +931,7 @@ private fun LedgerListView(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Token #${log.trackingCode10Digit ?: "–"} • Dr. ${log.doctorName}",
+                                text = "Token #${log.trackingCode10Digit ?: "\u2013"} \u2022 Dr. ${log.doctorName}",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -1203,7 +1203,7 @@ private fun FeesAndSubscriptionView(
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("Method: ${sub.paymentMethod} • Ref: ${sub.referenceId ?: "–"}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("Method: ${sub.paymentMethod} \u2022 Ref: ${sub.referenceId ?: "\u2013"}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text(CurrencyFormatter.formatNPR(sub.amount), fontSize = 13.sp, fontWeight = FontWeight.Black, color = Color(0xFF0D9488))
                                 }
                             }

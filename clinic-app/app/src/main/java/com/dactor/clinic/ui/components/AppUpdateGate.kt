@@ -109,7 +109,7 @@ fun AppUpdateGate(
 
         // Strict Enforcement: Back button cannot dismiss or bypass the update gate
         BackHandler(enabled = true) {
-            // Intentionally blocked — app update is compulsory
+            // Intentionally blocked \u2014 app update is compulsory
         }
 
         Box(

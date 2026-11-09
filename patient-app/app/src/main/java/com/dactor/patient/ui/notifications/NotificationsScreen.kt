@@ -63,7 +63,7 @@ fun DactorTemplateNotificationCard(
         item.toTemplateData()
     }
     val formattedTimestamp = remember(item.createdAt) {
-        val raw = item.createdAt.take(16).replace("T", " • ")
+        val raw = item.createdAt.take(16).replace("T", " \u2022 ")
         if (raw.isBlank()) "Now" else raw
     }
 
@@ -88,7 +88,7 @@ fun DactorTemplateNotificationCard(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Header Row: Real App Logo + Dactor • Now
+            // Header Row: Real App Logo + Dactor \u2022 Now
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -106,7 +106,7 @@ fun DactorTemplateNotificationCard(
                             .clip(RoundedCornerShape(6.dp))
                     )
                     Text(
-                        text = "Dactor • $formattedTimestamp",
+                        text = "Dactor \u2022 $formattedTimestamp",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Color(0xFF334155)

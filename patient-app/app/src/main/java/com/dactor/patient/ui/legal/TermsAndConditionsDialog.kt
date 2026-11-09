@@ -94,7 +94,7 @@ fun TermsAndConditionsDialog(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        "Last Updated: October 2026 • Dactor Nepal Digital Healthcare Platform",
+                        "Last Updated: October 2026 \u2022 Dactor Nepal Digital Healthcare Platform",
                         fontSize = 10.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Medium
@@ -104,10 +104,10 @@ fun TermsAndConditionsDialog(
                     SectionCard(
                         title = "1. What We Do With Your Data (Data Handling Policy)",
                         body = "At Dactor, your medical privacy is sacred. Here is full disclosure of how we handle your information:\n\n" +
-                                "• Information We Collect: Your name, mobile number, age, gender, email, optional Google Sign-In profile (name, email, avatar), booked clinic/doctor, appointment time slots, diagnostic lab tests, uploaded lab reports (PDF/images), device push notification token (FCM), and foreground GPS coordinates.\n" +
-                                "• How We Use It: Strictly to generate live OPD tokens, compute real-time queue wait estimates, send high-priority alerts when your turn is near or doctor is free, verify your identity for lab report downloads, and generate billing invoices.\n" +
-                                "• Storage & Encryption: All data in transit and at rest is secured via industry-standard TLS 1.3 encryption and Supabase/Firebase cloud isolation.\n" +
-                                "• ZERO Data Selling: We DO NOT sell, rent, monetize, or share your personal health or contact information with third-party advertisers or data brokers under any circumstances."
+                                "\u2022 Information We Collect: Your name, mobile number, age, gender, email, optional Google Sign-In profile (name, email, avatar), booked clinic/doctor, appointment time slots, diagnostic lab tests, uploaded lab reports (PDF/images), device push notification token (FCM), and foreground GPS coordinates.\n" +
+                                "\u2022 How We Use It: Strictly to generate live OPD tokens, compute real-time queue wait estimates, send high-priority alerts when your turn is near or doctor is free, verify your identity for lab report downloads, and generate billing invoices.\n" +
+                                "\u2022 Storage & Encryption: All data in transit and at rest is secured via industry-standard TLS 1.3 encryption and Supabase/Firebase cloud isolation.\n" +
+                                "\u2022 ZERO Data Selling: We DO NOT sell, rent, monetize, or share your personal health or contact information with third-party advertisers or data brokers under any circumstances."
                     )
 
                     // Section 2: Medical Disclaimer & Emergency Notice
@@ -119,9 +119,9 @@ fun TermsAndConditionsDialog(
                     // Section 3: Live Queue, Arrival Windows & Opt-in Early Calls
                     SectionCard(
                         title = "3. Live Queue Tracking & Early Arrival Notifications",
-                        body = "• Slot Windows: Dactor displays estimated arrival windows (e.g., 'around 3:20 PM' or '3:15 – 3:30 PM') because clinical consultation times vary per patient.\n" +
-                                "• Non-Opted Patients: Patients who do not opt in retain their fixed scheduled slot. We will never show an estimated time earlier than your slot start time.\n" +
-                                "• Opt-In Early Call: If you explicitly toggle 'Allow Early Call' during booking, the clinic may notify your device when the doctor is free ahead of schedule so you can choose to come in early."
+                        body = "\u2022 Slot Windows: Dactor displays estimated arrival windows (e.g., 'around 3:20 PM' or '3:15 \u2013 3:30 PM') because clinical consultation times vary per patient.\n" +
+                                "\u2022 Non-Opted Patients: Patients who do not opt in retain their fixed scheduled slot. We will never show an estimated time earlier than your slot start time.\n" +
+                                "\u2022 Opt-In Early Call: If you explicitly toggle 'Allow Early Call' during booking, the clinic may notify your device when the doctor is free ahead of schedule so you can choose to come in early."
                     )
 
                     // Section 4: Diagnostic Lab Reports Privacy Gate

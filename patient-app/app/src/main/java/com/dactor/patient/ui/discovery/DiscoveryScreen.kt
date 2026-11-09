@@ -221,7 +221,7 @@ fun DiscoveryScreen(
                 val matchesProximity = distKm != null && distKm <= 35.0
                 if (matchesAlias || matchesProximity) {
                     val badge = OpenRouteSpatialEngine.formatDistanceBadge(userLatitude, userLongitude, item.clinic)
-                    if (badge != null) item.copy(distanceText = "$badge • ${item.clinic.addressText ?: "Nepal"}") else item
+                    if (badge != null) item.copy(distanceText = "$badge \u2022 ${item.clinic.addressText ?: "Nepal"}") else item
                 } else null
             } else if (selectedCity != "All Nepal") {
                 val aliases = com.dactor.patient.ui.main.NEPAL_DISTRICT_ALIASES[selectedCity] ?: listOf(selectedCity.lowercase(java.util.Locale.ROOT))
@@ -826,7 +826,7 @@ fun DiscoveryScreen(
                                                 horizontalArrangement = Arrangement.SpaceBetween,
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Text("• ${doc.fullName}$qual - ${doc.specialty ?: "General"}", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                                Text("\u2022 ${doc.fullName}$qual - ${doc.specialty ?: "General"}", fontSize = 12.sp, fontWeight = FontWeight.Medium)
                                                 val isInClinic = doc.isInClinic == true
                                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                                     Box(
@@ -936,7 +936,7 @@ fun DiscoveryScreen(
                     Column {
                         Text("Select Clinic for Consultation", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         Text(
-                            "${doctor.fullName}${if (!doctor.education.isNullOrBlank()) " (${doctor.education})" else ""} • ${doctor.specialty}",
+                            "${doctor.fullName}${if (!doctor.education.isNullOrBlank()) " (${doctor.education})" else ""} \u2022 ${doctor.specialty}",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.primary
                         )

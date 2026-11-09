@@ -756,7 +756,7 @@ class AppointmentRepository @Inject constructor(
                         "id" to notifId,
                         "user_id" to appt.userId?.takeIf { isValidUuid(it) },
                         "appointment_id" to appt.id,
-                        "title" to "Appointment Rescheduled • $newDate",
+                        "title" to "Appointment Rescheduled \u2022 $newDate",
                         "message" to "Your appointment has been shifted to $newDate ($normalizedTime).",
                         "type" to "queue_alert",
                         "target_audience" to "specific",
@@ -1343,7 +1343,7 @@ class AppointmentRepository @Inject constructor(
             if (timeStr.isNullOrBlank()) return 23 * 60 + 59
             return try {
                 val clean = timeStr.trim().uppercase()
-                val parts = clean.split("-", "–", "—", "TO")
+                val parts = clean.split("-", "\u2013", "\u2014", "TO")
                 val firstPart = parts.first().trim()
                 val secondPart = if (parts.size > 1) parts[1].trim() else ""
 
@@ -1390,7 +1390,7 @@ class AppointmentRepository @Inject constructor(
             if (timeStr.isNullOrBlank()) return 23 * 60 + 59
             return try {
                 val clean = timeStr.trim().uppercase()
-                val parts = clean.split("-", "–", "—", "TO")
+                val parts = clean.split("-", "\u2013", "\u2014", "TO")
                 if (parts.size > 1) {
                     parseTimeToMinutes(parts[1].trim())
                 } else {

@@ -292,9 +292,9 @@ fun WorkingHoursBreakScreen(
                                                     clinicId = effectiveClinicId,
                                                     clinicName = clinic?.name ?: "Clinic"
                                                 ) ?: 0
-                                                statusBannerMessage = "☕ Clinic Break ON — Notified $notifiedCount active appointment(s)."
+                                                statusBannerMessage = "☕ Clinic Break ON \u2014 Notified $notifiedCount active appointment(s)."
                                             } else {
-                                                statusBannerMessage = "✓ Clinic Break OFF — Normal operations resumed."
+                                                statusBannerMessage = "✓ Clinic Break OFF \u2014 Normal operations resumed."
                                             }
                                         } else {
                                             if (System.currentTimeMillis() - lastBreakToggleMs >= 12_000L) {
@@ -340,10 +340,10 @@ fun WorkingHoursBreakScreen(
                                 color = Color(0xFF1E3A8A)
                             )
                             Text(
-                                text = "• Gives patients a rough estimation of when your clinic is open on each day of the week (default for every week).\n" +
-                                    "• Before your clinic opens for the day, patient expected times are calculated from your Opening Time + (Patients Ahead × Average Time).\n" +
-                                    "• Working hours are strictly informational and do NOT automatically publish booking slots.\n" +
-                                    "• Break hours are only shown to patients when checking their Appointment Status or Live Queue Status.",
+                                text = "\u2022 Gives patients a rough estimation of when your clinic is open on each day of the week (default for every week).\n" +
+                                    "\u2022 Before your clinic opens for the day, patient expected times are calculated from your Opening Time + (Patients Ahead × Average Time).\n" +
+                                    "\u2022 Working hours are strictly informational and do NOT automatically publish booking slots.\n" +
+                                    "\u2022 Break hours are only shown to patients when checking their Appointment Status or Live Queue Status.",
                                 fontSize = 11.5.sp,
                                 color = Color(0xFF1E40AF),
                                 lineHeight = 16.sp
@@ -364,7 +364,7 @@ fun WorkingHoursBreakScreen(
                 ) {
                     Column {
                         Text(
-                            text = "Weekly Schedule (Sunday – Saturday)",
+                            text = "Weekly Schedule (Sunday \u2013 Saturday)",
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 16.sp,
                             color = Color(0xFF0F172A)
@@ -428,8 +428,8 @@ fun WorkingHoursBreakScreen(
                                     )
                                     Text(
                                         text = if (dayInfo.isOpen) {
-                                            "Open: ${dayInfo.openTime} – ${dayInfo.closeTime}" +
-                                                if (dayInfo.hasBreak) " • Break: ${dayInfo.breakStart} – ${dayInfo.breakEnd}" else ""
+                                            "Open: ${dayInfo.openTime} \u2013 ${dayInfo.closeTime}" +
+                                                if (dayInfo.hasBreak) " \u2022 Break: ${dayInfo.breakStart} \u2013 ${dayInfo.breakEnd}" else ""
                                         } else {
                                             "Closed (Weekly Off)"
                                         },
@@ -547,7 +547,7 @@ fun WorkingHoursBreakScreen(
                                         color = Color(0xFF334155)
                                     )
                                     Text(
-                                        text = if (dayInfo.hasBreak) "${dayInfo.breakStart} – ${dayInfo.breakEnd}" else "No scheduled break",
+                                        text = if (dayInfo.hasBreak) "${dayInfo.breakStart} \u2013 ${dayInfo.breakEnd}" else "No scheduled break",
                                         fontSize = 11.sp,
                                         color = Color(0xFF64748B)
                                     )

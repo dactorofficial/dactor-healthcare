@@ -1168,9 +1168,9 @@ fun QueueBoardScreen(
                                                     clinicName = currentClinic?.name ?: "Dactor Clinic",
                                                     breakWindowText = windowStr
                                                 ) ?: 0
-                                                notificationSentMessage = "☕ Clinic Break ON — notified $count active appointment(s)."
+                                                notificationSentMessage = "☕ Clinic Break ON \u2014 notified $count active appointment(s)."
                                             } else {
-                                                notificationSentMessage = "✓ Clinic Break OFF — live queue resumed."
+                                                notificationSentMessage = "✓ Clinic Break OFF \u2014 live queue resumed."
                                             }
                                         }
                                     }
@@ -1674,7 +1674,7 @@ fun QueueBoardScreen(
                                             }
                                             if (demographicParts.isNotEmpty()) {
                                                 Text(
-                                                    text = demographicParts.joinToString(" • "),
+                                                    text = demographicParts.joinToString(" \u2022 "),
                                                     fontSize = 12.sp,
                                                     fontWeight = FontWeight.SemiBold,
                                                     color = Color(0xFF0284C7)
@@ -2003,7 +2003,7 @@ fun QueueBoardScreen(
                                                     color = Color(0xFF0F172A)
                                                 )
                                                 Text(
-                                                    text = "Age: ${if (item.patientAge > 0) "${item.patientAge} yrs" else "N/A"} • Gender: ${item.patientGender.ifBlank { "N/A" }}",
+                                                    text = "Age: ${if (item.patientAge > 0) "${item.patientAge} yrs" else "N/A"} \u2022 Gender: ${item.patientGender.ifBlank { "N/A" }}",
                                                     fontSize = 11.5.sp,
                                                     color = Color(0xFF64748B)
                                                 )
@@ -2206,7 +2206,7 @@ fun QueueBoardScreen(
                                                             val alertTitle = "Your Turn is Coming Soon!"
                                                             val alertBody = when {
                                                                 item.status == "inside" -> "You are currently called inside (Position 1). Please proceed to the consultation room."
-                                                                isFirstPos -> "You are at position 1. You are next in line — please be ready at the consultation room!"
+                                                                isFirstPos -> "You are at position 1. You are next in line \u2014 please be ready at the consultation room!"
                                                                 peopleAheadCount == 1 -> "You are at position $pos. Only 1 person is ahead of you in the queue."
                                                                 else -> "You are at position $pos. Only $peopleAheadCount people are ahead of you in the queue."
                                                             }
@@ -2376,7 +2376,7 @@ fun QueueBoardScreen(
                     )
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        text = "For ${target.patientName} • App ID: ${target.trackingCode}",
+                        text = "For ${target.patientName} \u2022 App ID: ${target.trackingCode}",
                         fontSize = 12.sp,
                         color = Color(0xFF64748B)
                     )

@@ -228,7 +228,7 @@ fun NetworkConnectivityGate(
                                 }
                             }
                             Text(
-                                text = "Offline Mode • Local operations active (changes sync automatically)",
+                                text = "Offline Mode \u2022 Local operations active (changes sync automatically)",
                                 color = Color(0xFFF1F5F9),
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 11.5.sp,

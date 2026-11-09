@@ -1098,7 +1098,7 @@ fun SlotManagerScreen(
                                 }
                             } else if (!hasTimeError) {
                                 Text(
-                                    text = "✓ Slot Time Window: ${format12h(startTime)} to ${format12h(endTime)} (${endMinutes - startMinutes} mins) — Can be published anytime, even on closed days or outside regular hours.",
+                                    text = "✓ Slot Time Window: ${format12h(startTime)} to ${format12h(endTime)} (${endMinutes - startMinutes} mins) \u2014 Can be published anytime, even on closed days or outside regular hours.",
                                     fontSize = 11.sp,
                                     color = Color(0xFF047857),
                                     fontWeight = FontWeight.SemiBold
@@ -1327,7 +1327,7 @@ fun SlotManagerScreen(
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    text = "${targetSlot.startTime} – ${targetSlot.endTime} ($selectedDate)",
+                                    text = "${targetSlot.startTime} \u2013 ${targetSlot.endTime} ($selectedDate)",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp,
                                     color = Color(0xFF0F172A)
@@ -1338,7 +1338,7 @@ fun SlotManagerScreen(
                                     color = Color(0xFF475569)
                                 )
                                 Text(
-                                    text = "Registration: ${targetSlot.bookedCount}/${targetSlot.maxCapacity} seats • $remainingSeats seats remaining",
+                                    text = "Registration: ${targetSlot.bookedCount}/${targetSlot.maxCapacity} seats \u2022 $remainingSeats seats remaining",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = if (remainingSeats > 0) Color(0xFF15803D) else Color(0xFFDC2626)

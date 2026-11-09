@@ -71,7 +71,7 @@ object LabReportPdfDownloader {
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
             textPaint.textSize = 11f
             textPaint.color = Color.parseColor("#E0F2F1")
-            canvas.drawText("Official Diagnostic & Pathology Lab Report • Dactor Health Network", 36f, 66f, textPaint)
+            canvas.drawText("Official Diagnostic & Pathology Lab Report \u2022 Dactor Health Network", 36f, 66f, textPaint)
             canvas.drawText("Attending Specialist / Lab Tech: $doctorName", 36f, 86f, textPaint)
 
             // Right badge in header

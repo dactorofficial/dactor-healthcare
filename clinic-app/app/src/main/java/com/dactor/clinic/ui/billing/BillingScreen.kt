@@ -352,7 +352,7 @@ fun BillingScreen(
                     Column {
                         Text("Date-Wise Billing & Patient Ledger", fontWeight = FontWeight.Bold, fontSize = 17.sp)
                         Text(
-                            "Directory by Date • Quick Paid Push • On-Demand Bill PDF",
+                            "Directory by Date \u2022 Quick Paid Push \u2022 On-Demand Bill PDF",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -552,7 +552,7 @@ fun BillingScreen(
                                                     )
                                                 }
                                                 Text(
-                                                    text = "Date: ${appt.appointmentDate} (${appt.appointmentTime ?: "OPD"}) • Ph: ${appt.patientMobile.ifBlank { "N/A" }}",
+                                                    text = "Date: ${appt.appointmentDate} (${appt.appointmentTime ?: "OPD"}) \u2022 Ph: ${appt.patientMobile.ifBlank { "N/A" }}",
                                                     fontSize = 11.sp,
                                                     color = Color(0xFF64748B)
                                                 )
@@ -639,7 +639,7 @@ fun BillingScreen(
                                     color = Color(0xFF0F172A)
                                 )
                                 Text(
-                                    text = "Code: #${appt.trackingCode10Digit} • Visit Date: ${appt.appointmentDate}",
+                                    text = "Code: #${appt.trackingCode10Digit} \u2022 Visit Date: ${appt.appointmentDate}",
                                     fontSize = 12.sp,
                                     color = Color(0xFF0F766E),
                                     fontWeight = FontWeight.SemiBold
@@ -793,7 +793,7 @@ fun BillingScreen(
                             }
                             Column {
                                 Text("Services, Tests & Procedures", fontWeight = FontWeight.Bold, fontSize = 14.5.sp, color = Color(0xFF0F172A))
-                                Text("Add items anytime (e.g. ECG, CT Scan) — will accumulate into combined bill", fontSize = 11.sp, color = Color(0xFF64748B))
+                                Text("Add items anytime (e.g. ECG, CT Scan) \u2014 will accumulate into combined bill", fontSize = 11.sp, color = Color(0xFF64748B))
                             }
                         }
 
@@ -1277,7 +1277,7 @@ fun BillingScreen(
                         Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Save & Push Combined Bill (Total: Rs. ${displayTotal.toInt()} • Paid: Rs. ${totalPaid.toInt()} • Due: Rs. ${displayDue.toInt()})",
+                            "Save & Push Combined Bill (Total: Rs. ${displayTotal.toInt()} \u2022 Paid: Rs. ${totalPaid.toInt()} \u2022 Due: Rs. ${displayDue.toInt()})",
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
                         )

@@ -5,7 +5,7 @@ sealed class NotificationTemplate {
 
     object AppointmentReminder : NotificationTemplate() {
         override val type = NotificationType.QUEUE_ALERT
-        fun buildTitle(code: String) = "Appointment Reminder • #$code"
+        fun buildTitle(code: String) = "Appointment Reminder \u2022 #$code"
         fun buildMessage(
             patientName: String,
             code: String,
@@ -61,7 +61,7 @@ sealed class NotificationTemplate {
 
     object LabProcessing : NotificationTemplate() {
         override val type = NotificationType.LAB_PROCESSING
-        fun buildTitle() = "Sample Collected • Processing Started"
+        fun buildTitle() = "Sample Collected \u2022 Processing Started"
         fun buildMessage(patientName: String, code: String): String {
             return NotificationTemplateData.buildMessageWithMeta(
                 cleanMessage = "Hi $patientName, your lab sample for #$code has been collected and is now processing in the laboratory.",
@@ -174,7 +174,7 @@ sealed class NotificationTemplate {
         fun buildTitle(doctorName: String? = null) = if (!doctorName.isNullOrBlank()) {
             "$doctorName Has Not Arrived Yet"
         } else {
-            "Doctor Not Arrived • Delayed"
+            "Doctor Not Arrived \u2022 Delayed"
         }
         fun buildMessage(
             patientName: String,
@@ -203,7 +203,7 @@ sealed class NotificationTemplate {
     object DoctorDelayed : NotificationTemplate() {
         override val type = NotificationType.DOCTOR_DELAYED
         fun buildTitle(doctorName: String? = null) = if (!doctorName.isNullOrBlank()) {
-            "$doctorName Has Not Arrived Yet • Delay Notice"
+            "$doctorName Has Not Arrived Yet \u2022 Delay Notice"
         } else {
             "Doctor Not Arrived Yet / Delay Notice"
         }
@@ -234,9 +234,9 @@ sealed class NotificationTemplate {
     object WaitForFewMinutes : NotificationTemplate() {
         override val type = NotificationType.WAIT_FEW_MINUTES
         fun buildTitle(reason: String? = null) = if (!reason.isNullOrBlank()) {
-            "Brief Pause ($reason) • Please Wait"
+            "Brief Pause ($reason) \u2022 Please Wait"
         } else {
-            "Brief Pause • Please Wait Few Minutes"
+            "Brief Pause \u2022 Please Wait Few Minutes"
         }
         fun buildMessage(
             patientName: String,
@@ -286,7 +286,7 @@ sealed class NotificationTemplate {
     object ArriveSoon : NotificationTemplate() {
         override val type = NotificationType.ARRIVE_SOON
         fun buildTitle(queuePosition: Int? = null) = if (queuePosition != null && queuePosition > 0) {
-            "Arrive Soon • Turn Approaching (#$queuePosition)"
+            "Arrive Soon \u2022 Turn Approaching (#$queuePosition)"
         } else {
             "Arrive Soon! Turn Approaching"
         }
@@ -308,7 +308,7 @@ sealed class NotificationTemplate {
                 rightLabel = "Queue Position",
                 rightValue = "Position #$queuePosition",
                 trackingCode = code,
-                statusBadge = "ARRIVE SOON • #$queuePosition"
+                statusBadge = "ARRIVE SOON \u2022 #$queuePosition"
             )
         }
     }
@@ -331,7 +331,7 @@ sealed class NotificationTemplate {
             return NotificationTemplateData.buildMessageWithMeta(
                 cleanMessage = cleanBody,
                 leftLabel = "Doctor Status",
-                leftValue = "In Clinic • Active",
+                leftValue = "In Clinic \u2022 Active",
                 rightLabel = "Live Queue",
                 rightValue = "Consultations Started",
                 trackingCode = code,

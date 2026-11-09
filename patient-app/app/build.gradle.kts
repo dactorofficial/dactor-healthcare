@@ -18,8 +18,8 @@ android {
         applicationId = "com.dactor.patient"
         minSdk = 24
         targetSdk = 36
-        versionCode = 133
-        versionName = "1.0.33"
+        versionCode = 134
+        versionName = "1.0.34"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -142,4 +142,8 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    options.encoding = "UTF-8"
 }

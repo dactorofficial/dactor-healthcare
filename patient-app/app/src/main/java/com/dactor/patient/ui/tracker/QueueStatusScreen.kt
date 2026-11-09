@@ -223,7 +223,7 @@ fun QueueStatusScreen(
 
                 // Automatically save tracking code so this device receives alerts even when app is not open
                 if (appt.trackingCode10Digit.isNotBlank()) {
-                    sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} • ${appt.appointmentDate}")
+                    sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} \u2022 ${appt.appointmentDate}")
                 }
 
                 // Always load lab reports so live workflow stage (Processing / Prepared) is accurate
@@ -932,7 +932,7 @@ fun QueueStatusScreen(
                                 )
                                 val todayBreak = clinicObj?.getTodaySchedule()?.takeIf { it.hasBreak }
                                 val breakTimingStr = if (todayBreak != null && !todayBreak.breakStart.isNullOrBlank() && !todayBreak.breakEnd.isNullOrBlank()) {
-                                    "Scheduled Break: ${todayBreak.breakStart} – ${todayBreak.breakEnd}. Consultations will resume shortly."
+                                    "Scheduled Break: ${todayBreak.breakStart} \u2013 ${todayBreak.breakEnd}. Consultations will resume shortly."
                                 } else {
                                     "Consultations are paused temporarily. Will resume shortly."
                                 }
@@ -1009,7 +1009,7 @@ fun QueueStatusScreen(
                                 )
                             }
                             Text(
-                                text = "${todaySched.breakStart} – ${todaySched.breakEnd}",
+                                text = "${todaySched.breakStart} \u2013 ${todaySched.breakEnd}",
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF78350F)
@@ -1393,7 +1393,7 @@ fun QueueStatusScreen(
                             )
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Turn Bypassed • Arrive Soon",
+                                    text = "Turn Bypassed \u2022 Arrive Soon",
                                     fontSize = 13.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFF9F1239)
@@ -1489,7 +1489,7 @@ fun QueueStatusScreen(
                                             queueStatus == "done" -> "✓"
                                             isFutureOrTomorrow -> "$resolvedRankNumber"
                                             patientsAhead >= 0 -> "$patientsAhead"
-                                            else -> "—"
+                                            else -> "\u2014"
                                         }
                                         Text(
                                             text = topBadgeLabel,
@@ -1529,10 +1529,10 @@ fun QueueStatusScreen(
                                             isLabClinic -> "Waiting for Sample Collection"
                                             queueStatus == "inside" -> "You are in OPD session"
                                             queueStatus == "done" -> "Consultation completed"
-                                            isTomorrow -> "Tomorrow • Position #$resolvedRankNumber in line"
-                                            isFutureOrTomorrow -> "$resolvedDateLabel • Position #$resolvedRankNumber in line"
+                                            isTomorrow -> "Tomorrow \u2022 Position #$resolvedRankNumber in line"
+                                            isFutureOrTomorrow -> "$resolvedDateLabel \u2022 Position #$resolvedRankNumber in line"
                                             patientsAhead == 0 -> "You're next in line"
-                                            patientsAhead == 1 && isAnyoneInsideDoctorCabin -> "Doctor is consulting with a patient • You are up next"
+                                            patientsAhead == 1 && isAnyoneInsideDoctorCabin -> "Doctor is consulting with a patient \u2022 You are up next"
                                             else -> "$patientsAhead patients ahead"
                                         },
                                         fontSize = 17.sp,
@@ -1571,18 +1571,18 @@ fun QueueStatusScreen(
                                 }
                                 Text(
                                     text = when {
-                                        isLate -> "Another patient was called inside • Please arrive now"
+                                        isLate -> "Another patient was called inside \u2022 Please arrive now"
                                         !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow) -> "Syncing queue details with clinic..."
-                                        isLabClinic && isReportReady -> "Report Prepared • Verify Name/Phone to View"
-                                        isLabClinic && isSampleProcessing -> "Sample Collected • Processing in Lab"
+                                        isLabClinic && isReportReady -> "Report Prepared \u2022 Verify Name/Phone to View"
+                                        isLabClinic && isSampleProcessing -> "Sample Collected \u2022 Processing in Lab"
                                         isLabClinic && patientsAhead == 0 -> "Proceed for sample collection"
                                         queueStatus == "inside" -> "With doctor in consultation room"
                                         queueStatus == "done" -> "Thank you for visiting"
-                                        isTomorrow -> "Scheduled for Tomorrow • Clinic starts at 08:00 AM"
-                                        isFutureOrTomorrow -> "Scheduled for $resolvedDateLabel • Approx. ${multiSlotResult?.approxAppointmentTimeText ?: (appointment?.appointmentTime ?: "")}"
+                                        isTomorrow -> "Scheduled for Tomorrow \u2022 Clinic starts at 08:00 AM"
+                                        isFutureOrTomorrow -> "Scheduled for $resolvedDateLabel \u2022 Approx. ${multiSlotResult?.approxAppointmentTimeText ?: (appointment?.appointmentTime ?: "")}"
                                         !liveTimingEstimate?.slotNoticeText.isNullOrBlank() -> liveTimingEstimate!!.slotNoticeText
-                                        patientsAhead == 0 -> "0 patients ahead in line • Stay close to the clinic"
-                                        else -> "$patientsAhead ahead in line • Est. wait: ~${(patientsAhead * clinicAvgTimeMinutes).coerceAtLeast(0)} mins (±15 min)"
+                                        patientsAhead == 0 -> "0 patients ahead in line \u2022 Stay close to the clinic"
+                                        else -> "$patientsAhead ahead in line \u2022 Est. wait: ~${(patientsAhead * clinicAvgTimeMinutes).coerceAtLeast(0)} mins (±15 min)"
                                     },
                                     fontSize = 13.sp,
                                     color = if (isLate) Color(0xFFBE123C) else Color(0xFF64748B)
@@ -1597,9 +1597,9 @@ fun QueueStatusScreen(
                                     ) {
                                         Text(
                                             text = if (isTomorrow) {
-                                                "📅 Tomorrow • Position #$resolvedRankNumber in Line"
+                                                "📅 Tomorrow \u2022 Position #$resolvedRankNumber in Line"
                                             } else {
-                                                "📅 $resolvedDateLabel • Rank #$resolvedRankNumber in Line"
+                                                "📅 $resolvedDateLabel \u2022 Rank #$resolvedRankNumber in Line"
                                             },
                                             fontSize = 11.5.sp,
                                             fontWeight = FontWeight.Bold,
@@ -1842,7 +1842,7 @@ fun QueueStatusScreen(
                                         }
 
                                         val slotDisplaySub = when {
-                                            isLate -> "Turn passed • Another patient called inside"
+                                            isLate -> "Turn passed \u2022 Another patient called inside"
                                             isFutureOrTomorrow -> "Slot: $resolvedSlotTime"
                                             appointment?.isWalkin == true -> "Real-time queue"
                                             else -> "Booked window"
@@ -2035,7 +2035,7 @@ fun QueueStatusScreen(
                                             verticalArrangement = Arrangement.spacedBy(2.dp)
                                         ) {
                                             Text(
-                                                text = "Sample Collected • Preparing Report",
+                                                text = "Sample Collected \u2022 Preparing Report",
                                                 fontSize = 13.5.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = Color(0xFF92400E)
@@ -2964,11 +2964,11 @@ fun QueueStatusScreen(
                                         Text(
                                             text = when {
                                                 isReportReady && hasUploadedFile ->
-                                                    if (isImageAttachment) "Report Picture Uploaded • Verify Name/Phone to View or Download"
-                                                    else "Report PDF Uploaded • Verify Name/Phone to View or Download"
-                                                isReportReady -> "Prepared by Laboratory • Verify Name/Phone to View or Download"
-                                                isSampleProcessing -> "Sample Collected • Biochemical Processing Underway"
-                                                else -> "Booked in Live Queue • Proceed for Phlebotomy / Sample Collection"
+                                                    if (isImageAttachment) "Report Picture Uploaded \u2022 Verify Name/Phone to View or Download"
+                                                    else "Report PDF Uploaded \u2022 Verify Name/Phone to View or Download"
+                                                isReportReady -> "Prepared by Laboratory \u2022 Verify Name/Phone to View or Download"
+                                                isSampleProcessing -> "Sample Collected \u2022 Biochemical Processing Underway"
+                                                else -> "Booked in Live Queue \u2022 Proceed for Phlebotomy / Sample Collection"
                                             },
                                             fontSize = 10.5.sp,
                                             color = when {
@@ -3341,7 +3341,7 @@ fun QueueStatusScreen(
                                                 )
                                                 Column {
                                                     Text(
-                                                        text = "${apptItem.appointmentDate} • ${apptItem.appointmentTime}",
+                                                        text = "${apptItem.appointmentDate} \u2022 ${apptItem.appointmentTime}",
                                                         fontWeight = FontWeight.Bold,
                                                         fontSize = 13.5.sp,
                                                         color = Color(0xFF0F172A)
@@ -3974,7 +3974,7 @@ fun QueueStatusScreen(
                     ) {
                         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text("Laboratory Center: ${clinicName.ifBlank { "Diagnostic Lab" }}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF065F46))
-                            Text("Patient: $rawPatientName • Code: $displayTrackingCode", fontSize = 10.sp, color = Color(0xFF047857))
+                            Text("Patient: $rawPatientName \u2022 Code: $displayTrackingCode", fontSize = 10.sp, color = Color(0xFF047857))
                             if (!appointment?.selectedLabTests.isNullOrBlank()) {
                                 Text("Tests: ${appointment!!.selectedLabTests}", fontSize = 10.sp, color = Color(0xFF047857))
                             }
@@ -4263,7 +4263,7 @@ fun QueueStatusScreen(
                             }
                             Text("Specialty: ${doctorSpecialty.ifBlank { "General OPD" }}", fontSize = 11.sp, color = Color(0xFF047857))
                             Text("Clinic: ${clinicName.ifBlank { "Healthcare Clinic" }}", fontSize = 11.sp, color = Color(0xFF047857))
-                            Text("Patient: ${rawPatientName.ifBlank { "Patient" }} • Tracking #$displayTrackingCode", fontSize = 10.5.sp, color = Color(0xFF065F46))
+                            Text("Patient: ${rawPatientName.ifBlank { "Patient" }} \u2022 Tracking #$displayTrackingCode", fontSize = 10.5.sp, color = Color(0xFF065F46))
                         }
                     }
 

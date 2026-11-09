@@ -86,7 +86,7 @@ object BillPdfDownloader {
             } catch (e: Exception) {
                 appointment.appointmentDate
             }
-            canvas.drawText("Official Medical Billing Receipt • Generated: $nowStr", 36f, 84f, textPaint)
+            canvas.drawText("Official Medical Billing Receipt \u2022 Generated: $nowStr", 36f, 84f, textPaint)
 
             // Right badge in header
             textPaint.textAlign = Paint.Align.RIGHT
@@ -122,7 +122,7 @@ object BillPdfDownloader {
 
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
             textPaint.textSize = 10.5f
-            canvas.drawText("Age / Gender: ${appointment.patientAge} yrs • ${appointment.patientGender}", 50f, currentY + 57f, textPaint)
+            canvas.drawText("Age / Gender: ${appointment.patientAge} yrs \u2022 ${appointment.patientGender}", 50f, currentY + 57f, textPaint)
             canvas.drawText("Mobile: ${appointment.patientMobile}", 50f, currentY + 73f, textPaint)
 
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -348,7 +348,7 @@ object BillPdfDownloader {
             textPaint.textSize = 9.5f
             textPaint.textAlign = Paint.Align.CENTER
             canvas.drawText(
-                "Thank you for choosing $clinicName • Powered by Dactor Healthcare Nepal",
+                "Thank you for choosing $clinicName \u2022 Powered by Dactor Healthcare Nepal",
                 (pageWidth / 2).toFloat(),
                 (pageHeight - 36).toFloat(),
                 textPaint

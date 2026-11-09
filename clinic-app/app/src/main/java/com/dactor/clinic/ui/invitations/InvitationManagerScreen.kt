@@ -978,7 +978,7 @@ private fun DoctorCardItem(
                         }
 
                         Text(
-                            text = "${doctor.specialty ?: "General Physician"} • NMC: ${doctor.nmcLicenseNumber ?: "N/A"}",
+                            text = "${doctor.specialty ?: "General Physician"} \u2022 NMC: ${doctor.nmcLicenseNumber ?: "N/A"}",
                             fontSize = 12.sp,
                             color = Color(0xFF64748B),
                             maxLines = 1,
@@ -1143,7 +1143,7 @@ private fun DoctorCardItem(
                                     modifier = Modifier.size(13.dp)
                                 )
                                 Text(
-                                    text = "Accepted • Active on Clinic Roster",
+                                    text = "Accepted \u2022 Active on Clinic Roster",
                                     color = Color(0xFF15803D),
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.SemiBold
@@ -1167,7 +1167,7 @@ private fun DoctorCardItem(
                                     modifier = Modifier.size(12.dp)
                                 )
                                 Text(
-                                    text = "Pending • Awaiting Response",
+                                    text = "Pending \u2022 Awaiting Response",
                                     color = Color(0xFF92400E),
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.SemiBold

@@ -613,7 +613,7 @@ fun LabReportScreen(
                                                 maxLines = 1
                                             )
                                             Text(
-                                                if (isImageFile) "Picture / Image Report • Verified by Laboratory" else "PDF Document • Certified by Clinical Pathologist",
+                                                if (isImageFile) "Picture / Image Report \u2022 Verified by Laboratory" else "PDF Document \u2022 Certified by Clinical Pathologist",
                                                 fontSize = 11.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )

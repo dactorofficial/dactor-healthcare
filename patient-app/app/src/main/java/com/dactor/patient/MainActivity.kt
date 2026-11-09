@@ -349,7 +349,7 @@ class MainActivity : ComponentActivity() {
                     sessionManager.clearActivePaymentSession()
                     sessionManager.saveTrackingCode(
                         confirmed.trackingCode10Digit,
-                        "${confirmed.patientName} • ${confirmed.appointmentDate}"
+                        "${confirmed.patientName} \u2022 ${confirmed.appointmentDate}"
                     )
                     val clinicName = try {
                         clinicRepository.getClinicById(confirmed.clinicId)?.name

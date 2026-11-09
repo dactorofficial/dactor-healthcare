@@ -246,7 +246,7 @@ class NotificationSyncWorker(
                         }
 
                         // Queue alerts, arrival calls, doctor presence, clinic breaks, and "come to clinic" calls require an active queue appointment.
-                        // IMPORTANT: General admin broadcasts (all_users / patients) MUST bypass this gate — they should reach
+                        // IMPORTANT: General admin broadcasts (all_users / patients) MUST bypass this gate \u2014 they should reach
                         // every patient regardless of appointment status.
                         val isQueueOrArrivalAlert = !isGeneralBroadcast && (
                             notif.type in listOf(

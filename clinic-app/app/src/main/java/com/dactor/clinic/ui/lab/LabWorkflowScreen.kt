@@ -949,7 +949,7 @@ fun LabWorkflowScreen(
                         )
 
                         Text(
-                            text = "Upload Report File (Optional — PDF or Picture):",
+                            text = "Upload Report File (Optional \u2014 PDF or Picture):",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF334155)
@@ -1371,7 +1371,7 @@ private fun LabPatientDirectoryStyleCard(
                 val scheduleStr = buildList {
                     if (order.appointmentDate.isNotBlank()) add("${order.appointmentDate} ${order.appointmentTime}".trim())
                     if (order.feeAmount > 0) add("Total: ${CurrencyFormatter.formatNPR(order.feeAmount)}")
-                }.joinToString(" • ")
+                }.joinToString(" \u2022 ")
 
                 if (scheduleStr.isNotBlank()) {
                     Text(
@@ -1409,10 +1409,10 @@ private fun LabPatientDirectoryStyleCard(
                         )
                         Text(
                             text = if (isPrepared) {
-                                if (hasUploadedFile) "Prepared • File: ${order.reportFileName ?: "Attached"}"
-                                else "Report Prepared • Patient Notified"
+                                if (hasUploadedFile) "Prepared \u2022 File: ${order.reportFileName ?: "Attached"}"
+                                else "Report Prepared \u2022 Patient Notified"
                             } else {
-                                "Sample Collected • Under Lab Processing"
+                                "Sample Collected \u2022 Under Lab Processing"
                             },
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold,

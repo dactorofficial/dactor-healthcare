@@ -1152,7 +1152,7 @@ fun ClinicSettingsScreen(
                             singleLine = true,
                             supportingText = {
                                 Text(
-                                    text = "Country code +977 • ${phoneDigits.length}/10 digits" + if (phoneDigits.length == 10) " ✓" else "",
+                                    text = "Country code +977 \u2022 ${phoneDigits.length}/10 digits" + if (phoneDigits.length == 10) " ✓" else "",
                                     color = if (phoneDigits.length == 10) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             },
@@ -1177,7 +1177,7 @@ fun ClinicSettingsScreen(
                             singleLine = true,
                             supportingText = {
                                 Text(
-                                    text = "Country code +977 • ${managerPhoneDigits.length}/10 digits" + if (managerPhoneDigits.length == 10) " ✓" else "",
+                                    text = "Country code +977 \u2022 ${managerPhoneDigits.length}/10 digits" + if (managerPhoneDigits.length == 10) " ✓" else "",
                                     color = if (managerPhoneDigits.length == 10) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             },
@@ -1231,9 +1231,9 @@ fun ClinicSettingsScreen(
                                         Spacer(Modifier.height(2.dp))
                                         Text(
                                             text = when (clinicPictures.size) {
-                                                0 -> "0/4 photos added • You can select up to 4 pictures"
-                                                4 -> "4/4 photos added • Maximum reached ✓"
-                                                else -> "${clinicPictures.size}/4 photos added • Can select up to $remainingClinicSlots more"
+                                                0 -> "0/4 photos added \u2022 You can select up to 4 pictures"
+                                                4 -> "4/4 photos added \u2022 Maximum reached ✓"
+                                                else -> "${clinicPictures.size}/4 photos added \u2022 Can select up to $remainingClinicSlots more"
                                             },
                                             fontSize = 11.sp,
                                             color = if (clinicPictures.isNotEmpty()) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1597,7 +1597,7 @@ fun ClinicSettingsScreen(
                                     OutlinedTextField(
                                         value = paymentSecretKey,
                                         onValueChange = { paymentSecretKey = it },
-                                        label = { Text(if (activeGatewayItem.hasSecretKey) "eSewa Secret Key (Stored — enter to replace)" else "eSewa HMAC Secret Key *") },
+                                        label = { Text(if (activeGatewayItem.hasSecretKey) "eSewa Secret Key (Stored \u2014 enter to replace)" else "eSewa HMAC Secret Key *") },
                                         placeholder = { Text("e.g. 8gBm/:&EnhH.1/q") },
                                         leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                                         trailingIcon = {
@@ -1628,7 +1628,7 @@ fun ClinicSettingsScreen(
                                     OutlinedTextField(
                                         value = paymentSecretKey,
                                         onValueChange = { paymentSecretKey = it },
-                                        label = { Text(if (activeGatewayItem.hasSecretKey) "Khalti Secret Key (Stored — enter to replace)" else "Khalti Secret Key (Required) *") },
+                                        label = { Text(if (activeGatewayItem.hasSecretKey) "Khalti Secret Key (Stored \u2014 enter to replace)" else "Khalti Secret Key (Required) *") },
                                         placeholder = { Text("live_secret_key_... or test_secret_key_...") },
                                         leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                                         trailingIcon = {
@@ -1659,7 +1659,7 @@ fun ClinicSettingsScreen(
                                     OutlinedTextField(
                                         value = paymentSecretKey,
                                         onValueChange = { paymentSecretKey = it },
-                                        label = { Text(if (activeGatewayItem.hasSecretKey) "Fonepay HMAC Secret Key (Stored — enter to replace)" else "Fonepay HMAC-SHA512 Secret Key *") },
+                                        label = { Text(if (activeGatewayItem.hasSecretKey) "Fonepay HMAC Secret Key (Stored \u2014 enter to replace)" else "Fonepay HMAC-SHA512 Secret Key *") },
                                         placeholder = { Text("Fonepay shared secret key") },
                                         leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                                         trailingIcon = {
@@ -1734,7 +1734,7 @@ fun ClinicSettingsScreen(
                                     OutlinedTextField(
                                         value = connectipsAppPassword,
                                         onValueChange = { connectipsAppPassword = it },
-                                        label = { Text(if (activeGatewayItem.hasAppPassword) "Validation API Password (Stored — enter to replace)" else "Validation API Password (Basic Auth) *") },
+                                        label = { Text(if (activeGatewayItem.hasAppPassword) "Validation API Password (Stored \u2014 enter to replace)" else "Validation API Password (Basic Auth) *") },
                                         placeholder = { Text("NCHL validation password") },
                                         leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                                         trailingIcon = {
@@ -1756,7 +1756,7 @@ fun ClinicSettingsScreen(
                                         Spacer(Modifier.width(6.dp))
                                         Text(
                                             connectipsPfxFileName?.let { "Certificate Loaded: $it" }
-                                                ?: if (activeGatewayItem.hasPrivateKey) "Signing Key Stored — Upload New .pfx/.p12 to Replace"
+                                                ?: if (activeGatewayItem.hasPrivateKey) "Signing Key Stored \u2014 Upload New .pfx/.p12 to Replace"
                                                 else "Upload NCHL CREDITOR.pfx / .p12 Certificate",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.SemiBold

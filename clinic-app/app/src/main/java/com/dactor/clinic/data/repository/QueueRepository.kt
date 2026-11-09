@@ -1479,7 +1479,7 @@ class QueueRepository @Inject constructor(
 
         fun parseSlotStartTime(slotStr: String?): LocalTime? {
             if (slotStr.isNullOrBlank()) return null
-            val parts = slotStr.split("-", "–", "—", "to")
+            val parts = slotStr.split("-", "\u2013", "\u2014", "to")
             val token = parts.firstOrNull()?.trim() ?: return null
             var clean = token.uppercase()
             if (!clean.contains("AM") && !clean.contains("PM") && parts.size > 1) {
@@ -1492,7 +1492,7 @@ class QueueRepository @Inject constructor(
 
         fun parseSlotEndTime(slotStr: String?): LocalTime? {
             if (slotStr.isNullOrBlank()) return null
-            val parts = slotStr.split("-", "–", "—", "to")
+            val parts = slotStr.split("-", "\u2013", "\u2014", "to")
             if (parts.size < 2) return null
             val clean = parts[1].trim().uppercase()
             return parseTimeString(clean)
@@ -1502,7 +1502,7 @@ class QueueRepository @Inject constructor(
             val fmt = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
             val start = time.minusMinutes(5)
             val end = time.plusMinutes((spreadMinutes - 5).coerceAtLeast(5).toLong())
-            return "${start.format(fmt)} – ${end.format(fmt)}"
+            return "${start.format(fmt)} \u2013 ${end.format(fmt)}"
         }
 
         fun formatApproxTime(time: LocalTime): String {

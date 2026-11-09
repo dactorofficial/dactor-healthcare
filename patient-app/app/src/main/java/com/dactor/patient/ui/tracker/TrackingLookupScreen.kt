@@ -69,7 +69,7 @@ fun TrackingLookupScreen(
                     if (appt.trackingCode10Digit.isNotBlank()) {
                         sessionManager?.saveTrackingCode(
                             appt.trackingCode10Digit,
-                            "${appt.patientName} • ${appt.appointmentDate}"
+                            "${appt.patientName} \u2022 ${appt.appointmentDate}"
                         )
                     }
                 }
@@ -106,7 +106,7 @@ fun TrackingLookupScreen(
                 if (isDigits && cleaned.length == 10) {
                     val apptByCode = appointmentRepository?.getAppointmentByTrackingCode(cleaned)
                     if (apptByCode != null) {
-                        sessionManager?.saveTrackingCode(cleaned, "${apptByCode.patientName} • ${apptByCode.appointmentDate}")
+                        sessionManager?.saveTrackingCode(cleaned, "${apptByCode.patientName} \u2022 ${apptByCode.appointmentDate}")
                         isLoading = false
                         navController.navigate(NavRoutes.QueueStatus.createRoute(cleaned))
                         return@launch
@@ -132,7 +132,7 @@ fun TrackingLookupScreen(
                 if (foundAppts.isNotEmpty()) {
                     foundAppts.forEach { a ->
                         if (a.trackingCode10Digit.isNotBlank()) {
-                            sessionManager?.saveTrackingCode(a.trackingCode10Digit, "${a.patientName} • ${a.appointmentDate}")
+                            sessionManager?.saveTrackingCode(a.trackingCode10Digit, "${a.patientName} \u2022 ${a.appointmentDate}")
                         }
                     }
                     val targetAppt = foundAppts.find {
@@ -241,7 +241,7 @@ fun TrackingLookupScreen(
                                             color = Color(0xFF0F172A)
                                         )
                                         Text(
-                                            text = "${appt.appointmentDate} • ${appt.appointmentTime} • ID #${appt.trackingCode10Digit}",
+                                            text = "${appt.appointmentDate} \u2022 ${appt.appointmentTime} \u2022 ID #${appt.trackingCode10Digit}",
                                             fontSize = 11.sp,
                                             color = Color(0xFF64748B)
                                         )
@@ -407,10 +407,10 @@ fun TrackingLookupScreen(
                         Text("Instant Tracking Options", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                     Text(
-                        "• 10-Digit Code: From physical token slip or SMS.\n" +
-                        "• Gmail Address: Used at walk-in reception or online booking.\n" +
-                        "• Mobile Number: 10-digit phone number registered for the visit.\n" +
-                        "• Unregistered walk-ins are automatically tracked and synced.",
+                        "\u2022 10-Digit Code: From physical token slip or SMS.\n" +
+                        "\u2022 Gmail Address: Used at walk-in reception or online booking.\n" +
+                        "\u2022 Mobile Number: 10-digit phone number registered for the visit.\n" +
+                        "\u2022 Unregistered walk-ins are automatically tracked and synced.",
                         fontSize = 12.sp,
                         lineHeight = 18.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant

@@ -601,7 +601,7 @@ object MedicalSearchEngine {
         val clinicTypeLower = (clinic.type ?: "").lowercase(Locale.ROOT)
         val clinicDescLower = (clinic.description ?: "").lowercase(Locale.ROOT)
 
-        // 1. Specialty or symptom keywords (Clinic & Doctor Specialties) — Highest rank
+        // 1. Specialty or symptom keywords (Clinic & Doctor Specialties) \u2014 Highest rank
         for (cSpec in clinic.specialties) {
             val cSpecLower = cSpec.lowercase(Locale.ROOT)
             if (cSpecLower.contains(q)) {

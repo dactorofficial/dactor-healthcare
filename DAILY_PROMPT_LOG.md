@@ -175,6 +175,22 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ### Prompt:
+> "generate aab for clinic"
+
+#### Changes Applied:
+1. **Version Increment ([clinic-app/app/build.gradle.kts](file:///g:/My%20Drive/New%20folder/clinic-app/app/build.gradle.kts))**:
+   - Incremented `versionCode`: `82` -> `83`.
+   - Incremented `versionName`: `"1.0.82"` -> `"1.0.83"`.
+2. **AAB Generation & Production Signing ([build_clinic_bundle.ps1](file:///g:/My%20Drive/New%20folder/build_clinic_bundle.ps1))**:
+   - Built signed production Google Play App Bundle using upload keystore (`dactor-upload`) via fast SSD build pipeline.
+   - Output bundle: `Dactor-ClinicApp-v1.0.83.aab` (23.24 MB / 24,372,942 bytes).
+   - Staged to `AABs/Dactor-ClinicApp-v1.0.83.aab`, `AABs/Dactor-ClinicApp-v83.aab`, `PlayStore/clinic-app/Dactor-ClinicApp-v1.0.83.aab`, and SSD backup directory.
+3. **Handoff Documentation ([HANDOFF.md](file:///g:/My%20Drive/New%20folder/HANDOFF.md))**:
+   - Updated Executive Summary and APK/AAB Version Registry with v1.0.83 release details.
+
+---
+
+### Prompt:
 > "for reschedule from appoinments section , patient app it did showed me to select slot but when i tapped on to book it showed some error and rescheule didnt work and as for reschudle button in clinic app no show up patiwnt it didnt showed the slots the old logic still exist there /plan /boost"
 
 #### Changes Applied:
@@ -747,4 +763,27 @@ This file tracks user prompts and the exact changes applied across the codebase,
 3. **Git Synchronization**:
    - Committed changes and pushed cleanly to `origin/main`.
 
+---
+
+### Prompt:
+> Screenshots fixing mojibake character encoding (`Â·`, `â€“`, `â€¢`), No-Show Patients Directory top bar clipping, and Dashboard Pay at Desk 'View Requests' card squishing  
+> "continue"
+
+#### Changes Applied:
+1. **Universal Mojibake Character Encoding Remediation Across All Kotlin Files ([patient-app/](file:///g:/My%20Drive/New%20folder/patient-app/), [clinic-app/](file:///g:/My%20Drive/New%20folder/clinic-app/))**:
+   - Replaced 320+ occurrences of raw UTF-8 punctuation (`•`, `·`, `–`, `—`) across 60 Kotlin source files with pure 7-bit ASCII unicode escape sequences (`\u2022`, `\u00B7`, `\u2013`, `\u2014`), completely eliminating Windows Cp1252 / ISO-8859-1 compilation corruption.
+   - Resolved `Karnat ka Â· 2.3 km` -> `\u2022` / `\u00B7` ([PatientMainScreen.kt](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt)).
+   - Resolved `Open Â· 08:00 AM â€“ 05:00 PM` -> `\u2022` / `\u2013` ([PatientMainScreen.kt](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt), [ClinicDetailScreen.kt](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/discovery/ClinicDetailScreen.kt)).
+   - Resolved `No wait Â· Direct Entry` -> `\u2022` ([PatientMainScreen.kt](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt)).
+   - Resolved `30 yrs â€¢ Other` and `OPD Doctor â€¢ General Medicine` -> `\u2022` ([NoShowManagerScreen.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/appointments/NoShowManagerScreen.kt), [PatientMainScreen.kt](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt)).
+   - Configured `gradle.properties` in both apps with `systemProp.file.encoding=UTF-8` and `org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8`.
+   - Added `tasks.withType<JavaCompile>().configureEach { options.encoding = "UTF-8" }` to both [patient-app/app/build.gradle.kts](file:///g:/My%20Drive/New%20folder/patient-app/app/build.gradle.kts) and [clinic-app/app/build.gradle.kts](file:///g:/My%20Drive/New%20folder/clinic-app/app/build.gradle.kts).
+
+2. **Clinic App — No-Show Patients Directory Top Bar & Alignment ([NoShowManagerScreen.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/appointments/NoShowManagerScreen.kt))**:
+   - Verified that top bar restructuring prevents `[X] No-Show Patients Directory` from exceeding the 64dp app bar bounds or colliding with the status bar.
+   - Ensured navigation back arrow `<-` and refresh button remain vertically centered on the title row, while the subtitle ("Audit missed visits date-wise, call patients & arrange new appointment dates") sits cleanly below on a full-width line with `maxLines = 2, overflow = TextOverflow.Ellipsis`.
+
+3. **Clinic App — Pay at Desk "View Requests" Card Layout ([DashboardScreen.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/dashboard/DashboardScreen.kt))**:
+   - Refactored the "View Requests" card layout into a direct single-row structure with fixed 44dp CreditCard badge, 12dp spacers, flex `Modifier.weight(1f)` text column (`maxLines = 2, overflow = TextOverflow.Ellipsis`), and a dedicated 32dp circular `Icons.AutoMirrored.Filled.ArrowForward` badge.
+   - Eliminates horizontal compression, ensuring the arrow button remains an uncompressed circle on all screen sizes.
 

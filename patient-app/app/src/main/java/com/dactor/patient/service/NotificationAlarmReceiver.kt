@@ -234,7 +234,7 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
                         }
 
                         // Queue alerts, arrival calls, doctor presence, clinic breaks, and "come to clinic" calls require an active queue appointment.
-                        // IMPORTANT: General admin broadcasts (all_users / patients) MUST bypass this gate — they should reach
+                        // IMPORTANT: General admin broadcasts (all_users / patients) MUST bypass this gate \u2014 they should reach
                         // every patient regardless of appointment status. Previously, broadcasts containing words like
                         // "wait", "arrive", "clinic" were silently dropped when the app was closed with no active appointment.
                         val isQueueOrArrivalAlert = !isGeneralBroadcast && (

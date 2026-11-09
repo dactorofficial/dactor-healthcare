@@ -810,7 +810,7 @@ fun PatientDetailScreen(
                         ) {
                             Column {
                                 Text(pastAppt.patientName, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF0F172A))
-                                Text("Code: #${pastAppt.trackingCode10Digit} • ${pastAppt.patientMobile}", fontSize = 11.sp, color = Color(0xFF0284C7), fontFamily = FontFamily.Monospace)
+                                Text("Code: #${pastAppt.trackingCode10Digit} \u2022 ${pastAppt.patientMobile}", fontSize = 11.sp, color = Color(0xFF0284C7), fontFamily = FontFamily.Monospace)
                             }
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
@@ -956,7 +956,7 @@ fun PatientDetailScreen(
                                 items(availablePastSlots) { slot ->
                                     val isSelected = selectedPastSlotId == slot.id
                                     val availableCapacity = (slot.maxCapacity - slot.bookedCount).coerceAtLeast(0)
-                                    val timeLabel = "${slot.startTime} – ${slot.endTime}"
+                                    val timeLabel = "${slot.startTime} \u2013 ${slot.endTime}"
 
                                     Surface(
                                         shape = RoundedCornerShape(8.dp),

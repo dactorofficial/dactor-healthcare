@@ -540,7 +540,7 @@ fun WalkinBookingScreen(
                                 shape = RoundedCornerShape(6.dp)
                             ) {
                                 Text(
-                                    text = if (allSlotsFull) "All Full • Overbooking Mode" else "$totalAvailableSpots available • ${publishedSlots.size} slot${if (publishedSlots.size > 1) "s" else ""}",
+                                    text = if (allSlotsFull) "All Full \u2022 Overbooking Mode" else "$totalAvailableSpots available \u2022 ${publishedSlots.size} slot${if (publishedSlots.size > 1) "s" else ""}",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = if (allSlotsFull) Color(0xFFB45309) else Color(0xFF2E7D32),
@@ -609,7 +609,7 @@ fun WalkinBookingScreen(
                                                         modifier = Modifier.padding(top = 4.dp)
                                                     ) {
                                                         Text(
-                                                            text = "Full (${slot.bookedCount}/${slot.maxCapacity}) • Overbooking Available",
+                                                            text = "Full (${slot.bookedCount}/${slot.maxCapacity}) \u2022 Overbooking Available",
                                                             color = Color(0xFFB45309),
                                                             fontWeight = FontWeight.Bold,
                                                             fontSize = 11.sp,

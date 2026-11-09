@@ -66,7 +66,12 @@ if (-not $bundleFound) {
 
 # 7. Copy to destinations
 $destBundleName = "Dactor-PatientApp-v$vName.aab"
+$destCodeBundleName = "Dactor-PatientApp-v$vCode.aab"
 $aabsDest = "G:\My Drive\New folder\AABs\$destBundleName"
+$aabsCodeDest = "G:\My Drive\New folder\AABs\$destCodeBundleName"
+$aabsReleaseDest = "G:\My Drive\New folder\AABs\Dactor-PatientApp-release.aab"
+$apksDest = "G:\My Drive\New folder\APKs\$destBundleName"
+$apksReleaseDest = "G:\My Drive\New folder\APKs\Dactor-PatientApp-release.aab"
 $playStoreDest = "G:\My Drive\New folder\PlayStore\patient-app\$destBundleName"
 $ssdDir = "C:\Users\nitup\Dactor-APKs"
 if (-not (Test-Path $ssdDir)) {
@@ -75,6 +80,10 @@ if (-not (Test-Path $ssdDir)) {
 $ssdBkp = "$ssdDir\$destBundleName"
 
 Copy-Item $bundleFound.FullName $aabsDest -Force
+Copy-Item $bundleFound.FullName $aabsCodeDest -Force
+Copy-Item $bundleFound.FullName $aabsReleaseDest -Force
+Copy-Item $bundleFound.FullName $apksDest -Force
+Copy-Item $bundleFound.FullName $apksReleaseDest -Force
 Copy-Item $bundleFound.FullName $playStoreDest -Force
 Copy-Item $bundleFound.FullName $ssdBkp -Force
 

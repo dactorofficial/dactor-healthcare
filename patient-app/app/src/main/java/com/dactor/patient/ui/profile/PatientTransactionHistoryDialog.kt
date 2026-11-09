@@ -197,7 +197,7 @@ fun PatientTransactionHistoryDialog(
 
                                     // Row 2: Clinic & Doctor
                                     Text(
-                                        text = "${record.clinicName} • ${record.doctorName}",
+                                        text = "${record.clinicName} \u2022 ${record.doctorName}",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = MaterialTheme.colorScheme.onSurface

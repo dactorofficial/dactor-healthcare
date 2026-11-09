@@ -67,7 +67,7 @@ object LabReportPdfDownloader {
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
             textPaint.textSize = 11f
             textPaint.color = Color.parseColor("#E0F2F1")
-            canvas.drawText("Official Diagnostic & Pathology Lab Report • Dactor Health Network", 36f, 66f, textPaint)
+            canvas.drawText("Official Diagnostic & Pathology Lab Report \u2022 Dactor Health Network", 36f, 66f, textPaint)
             canvas.drawText("Attending Specialist / Lab Tech: $doctorName", 36f, 86f, textPaint)
 
             paint.color = Color.parseColor("#004D40")
@@ -216,7 +216,7 @@ object LabReportPdfDownloader {
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
             textPaint.textSize = 9.5f
             canvas.drawText("This report has been reviewed and verified by the certified diagnostic laboratory department.", 50f, y + 38f, textPaint)
-            canvas.drawText("Authenticated via Dactor Health Cloud Network • Digital Verification ID #${report.id.take(8).uppercase()}", 50f, y + 52f, textPaint)
+            canvas.drawText("Authenticated via Dactor Health Cloud Network \u2022 Digital Verification ID #${report.id.take(8).uppercase()}", 50f, y + 52f, textPaint)
 
             // Signatures at footer
             val signY = pageHeight - 90f
@@ -233,7 +233,7 @@ object LabReportPdfDownloader {
             textPaint.color = slateMuted
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
             textPaint.textSize = 8.5f
-            canvas.drawText("Dactor Health Cloud Verified • Digital Copy", pageWidth / 2f - 90f, pageHeight - 30f, textPaint)
+            canvas.drawText("Dactor Health Cloud Verified \u2022 Digital Copy", pageWidth / 2f - 90f, pageHeight - 30f, textPaint)
 
             pdfDocument.finishPage(page)
 

@@ -766,7 +766,7 @@ fun NoShowManagerScreen(
                         ) {
                             Column {
                                 Text(appt.patientName, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF0F172A))
-                                Text("Code: #${appt.trackingCode10Digit} • ${appt.patientMobile}", fontSize = 11.sp, color = Color(0xFF0284C7), fontFamily = FontFamily.Monospace)
+                                Text("Code: #${appt.trackingCode10Digit} \u2022 ${appt.patientMobile}", fontSize = 11.sp, color = Color(0xFF0284C7), fontFamily = FontFamily.Monospace)
                             }
                             Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFFEE2E2)) {
                                 Text(
@@ -923,7 +923,7 @@ fun NoShowManagerScreen(
                                 items(availableSlotsForReschedule) { slot ->
                                     val isSelected = selectedSlotId == slot.id
                                     val availableCapacity = (slot.maxCapacity - slot.bookedCount).coerceAtLeast(0)
-                                    val timeLabel = "${slot.startTime} – ${slot.endTime}"
+                                    val timeLabel = "${slot.startTime} \u2013 ${slot.endTime}"
 
                                     Surface(
                                         shape = RoundedCornerShape(8.dp),
@@ -1088,7 +1088,7 @@ private fun NoShowPatientCard(
                         }
                         if (demographics.isNotEmpty()) {
                             Text(
-                                text = demographics.joinToString(" • "),
+                                text = demographics.joinToString(" \u2022 "),
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color(0xFF0284C7)
@@ -1184,7 +1184,7 @@ private fun NoShowPatientCard(
                         ) {
                             Icon(Icons.Default.MedicalServices, contentDescription = null, tint = Color(0xFF475569), modifier = Modifier.size(12.dp))
                             Text(
-                                text = "$docName • $docSpec",
+                                text = "$docName \u2022 $docSpec",
                                 fontSize = 11.sp,
                                 color = Color(0xFF334155),
                                 maxLines = 1,
