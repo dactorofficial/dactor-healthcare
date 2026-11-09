@@ -293,7 +293,7 @@ fun QueueStatusScreen(
                 }
 
                 // Fetch queue token and live status (combining queue_entries, appointment checkin_status, and lab_reports)
-                val isPendingClinicApproval = !appt.status.equals("APPROVED", ignoreCase = true) || appt.status == "WAITING_FOR_APPROVAL" || appt.status == "pending_payment"
+                val isPendingClinicApproval = (!appt.status.equals("APPROVED", ignoreCase = true) && !appt.status.equals("confirmed", ignoreCase = true)) || appt.status == "WAITING_FOR_APPROVAL" || appt.status == "pending_payment"
                 var qEntry = if (isPendingClinicApproval) null else queueRepository?.getQueueStatus(appt.id)
                 val isUpcomingOrToday = !isPendingClinicApproval && appt.appointmentDate >= today && appt.checkinStatus.lowercase() in listOf("waiting", "checked_in", "in_queue", "confirmed", "booked")
                 val isAlreadyDone = qEntry?.status?.lowercase() in listOf("done", "completed") || appt.checkinStatus.lowercase() in listOf("done", "completed")

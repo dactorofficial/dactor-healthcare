@@ -2039,21 +2039,61 @@ class AppointmentRepository @Inject constructor(
             val effectiveServiceCharge = if (serviceChargeAmount > 0.0) serviceChargeAmount else Math.round(feeAmount * (PAY_AT_DESK_SERVICE_CHARGE_PERCENT / 100.0) * 100.0) / 100.0
             val effectiveTotal = if (totalAmount > 0.0) totalAmount else feeAmount + effectiveServiceCharge
 
+            val nowIso = java.time.Instant.now().toString()
             supabaseClient.postgrest["appointments"].update({
                 set("payment_mode", "PAY_AT_DESK")
-                set("status", "WAITING_FOR_APPROVAL")
-                set("checkin_status", "not_checked_in")
+                set("status", "APPROVED")
+                set("checkin_status", "checked_in")
                 set("payment_status", "pending")
                 set("attempt_number", 1)
                 set("fee_amount", feeAmount)
                 set("service_charge_amount", effectiveServiceCharge)
                 set("total_amount", effectiveTotal)
+                set("approved_at", nowIso)
+                set("expires_at", null as String?)
+                set("updated_at", nowIso)
             }) {
                 filter { eq("id", appointmentId) }
             }
             try {
-                supabaseClient.postgrest["queue_entries"].delete {
-                    filter { eq("appointment_id", appointmentId) }
+                val appt = supabaseClient.postgrest["appointments"].select {
+                    filter { eq("id", appointmentId) }
+                }.decodeSingleOrNull<Appointment>()
+
+                if (appt != null && appt.clinicId.isNotBlank()) {
+                    val maxPos = try {
+                        val existing = supabaseClient.postgrest["queue_entries"].select {
+                            filter {
+                                eq("clinic_id", appt.clinicId)
+                                isIn("status", listOf("waiting", "inside"))
+                            }
+                        }.decodeList<QueueEntry>()
+                        (existing.maxOfOrNull { it.queuePosition } ?: 0) + 1
+                    } catch (_: Exception) { 1 }
+
+                    @kotlinx.serialization.Serializable
+                    data class FallbackQueueInsert(
+                        val appointment_id: String,
+                        val clinic_id: String,
+                        val doctor_id: String? = null,
+                        val queue_position: Int,
+                        val status: String = "waiting",
+                        val estimated_wait_minutes: Int = 0,
+                        val created_at: String,
+                        val updated_at: String
+                    )
+
+                    supabaseClient.postgrest["queue_entries"].upsert(
+                        FallbackQueueInsert(
+                            appointment_id = appointmentId,
+                            clinic_id = appt.clinicId,
+                            doctor_id = appt.doctorId,
+                            queue_position = maxPos,
+                            status = "waiting",
+                            created_at = nowIso,
+                            updated_at = nowIso
+                        )
+                    )
                 }
             } catch (_: Exception) {}
             return@withContext true

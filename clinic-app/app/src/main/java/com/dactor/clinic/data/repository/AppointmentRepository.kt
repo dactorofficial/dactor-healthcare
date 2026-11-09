@@ -1205,6 +1205,26 @@ class AppointmentRepository @Inject constructor(
         }
     }
 
+    suspend fun markPaymentCollectedAtDesk(appointmentId: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        if (!isValidUuid(appointmentId)) return@withContext Result.failure(IllegalArgumentException("Invalid appointment ID"))
+        try {
+            val nowIso = java.time.Instant.now().toString()
+            supabaseClient.postgrest["appointments"].update({
+                set("payment_status", "paid")
+                set("updated_at", nowIso)
+            }) {
+                filter { eq("id", appointmentId) }
+            }
+            appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
+                appointmentDao.upsert(local.copy(paymentStatus = "paid", syncStatus = "synced"))
+            }
+            Result.success(true)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Result.failure(e)
+        }
+    }
+
     suspend fun rejectPayAtDeskAppointment(appointmentId: String, clinicId: String, reason: String? = null): Result<Boolean> = withContext(Dispatchers.IO) {
         if (!isValidUuid(appointmentId)) return@withContext Result.failure(IllegalArgumentException("Invalid appointment ID"))
         val safeClinicId = clinicId.takeIf { isValidUuid(it) }

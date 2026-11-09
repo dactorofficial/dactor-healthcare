@@ -78,7 +78,10 @@ data class QueueItemUi(
     val selectedLabTests: String? = null,
     val optInEarlyCall: Boolean = false,
     val doctorId: String? = null,
-    val doctorName: String? = null
+    val doctorName: String? = null,
+    val paymentMode: String? = null,
+    val paymentStatus: String? = null,
+    val totalAmount: Double = 0.0
 )
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -413,9 +416,7 @@ fun QueueBoardScreen(
                     .filter { entry ->
                         val appt = apptMap[entry.appointmentId]
                         appt != null &&
-                            appt.status.equals("APPROVED", ignoreCase = true) &&
-                            appt.status != "WAITING_FOR_APPROVAL" &&
-                            appt.status != "pending_payment" &&
+                            (appt.status.equals("APPROVED", ignoreCase = true) || (appt.paymentMode == "PAY_AT_DESK" && appt.status != "CANCELLED" && appt.status != "UNAPPROVED" && appt.status != "EXPIRED")) &&
                             appt.status != "UNAPPROVED" &&
                             appt.status != "EXPIRED" &&
                             appt.checkinStatus != "cancelled"
@@ -454,7 +455,10 @@ fun QueueBoardScreen(
                             selectedLabTests = appt?.selectedLabTests,
                             optInEarlyCall = appt?.optInEarlyCall ?: false,
                             doctorId = entry.doctorId ?: appt?.doctorId,
-                            doctorName = docMap[entry.doctorId ?: appt?.doctorId]?.fullName
+                            doctorName = docMap[entry.doctorId ?: appt?.doctorId]?.fullName,
+                            paymentMode = appt?.paymentMode,
+                            paymentStatus = appt?.paymentStatus,
+                            totalAmount = appt?.totalAmount ?: appt?.feeAmount ?: 0.0
                         )
                     }
 
@@ -1696,6 +1700,22 @@ fun QueueBoardScreen(
                                                     overflow = TextOverflow.Ellipsis
                                                 )
                                             }
+                                            if (item.paymentMode == "PAY_AT_DESK") {
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = if (item.paymentStatus == "paid") Color(0xFFDCFCE7) else Color(0xFFFEF3C7),
+                                                    border = BorderStroke(0.5.dp, if (item.paymentStatus == "paid") Color(0xFF86EFAC) else Color(0xFFFDE68A)),
+                                                    modifier = Modifier.padding(top = 2.dp)
+                                                ) {
+                                                    Text(
+                                                        text = if (item.paymentStatus == "paid") "✓ Paid at Desk" else "💵 Pay at Desk (Due Rs. ${item.totalAmount.toInt()})",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = if (item.paymentStatus == "paid") Color(0xFF166534) else Color(0xFF92400E),
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -2111,6 +2131,29 @@ fun QueueBoardScreen(
                                                     Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(15.dp))
                                                     Spacer(modifier = Modifier.width(4.dp))
                                                     Text("Mark Done", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+
+                                            // Pay at Desk Counter Collection Action
+                                            if (item.paymentMode == "PAY_AT_DESK" && item.paymentStatus != "paid") {
+                                                Button(
+                                                    onClick = {
+                                                        coroutineScope.launch {
+                                                            val res = appointmentRepository?.markPaymentCollectedAtDesk(item.appointmentId)
+                                                            if (res?.isSuccess == true) {
+                                                                notificationSentMessage = "✓ Collected NPR ${item.totalAmount.toInt()} at desk for ${item.patientName}!"
+                                                                loadQueue()
+                                                            }
+                                                        }
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                                                    modifier = Modifier.weight(1.1f),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.White)
+                                                    Spacer(modifier = Modifier.width(3.dp))
+                                                    Text("Mark Paid", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
                                                 }
                                             }
 

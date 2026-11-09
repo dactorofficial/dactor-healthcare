@@ -61,6 +61,34 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-09
 
 ### Prompt:
+> "see now when i tapped on confirm to pay at desk it didnt work /plan what happened is like it showed some error in tables or something related to database , but it did showed the patient that the pay at desk was confirmed but the appoinment remained untranferred to live queue /boost please i beg you to solve this properly"
+
+#### Changes Applied:
+1. **Supabase Database & RPC Migration ([migration_fix_pay_at_desk_queue_transfer.sql](file:///g:/My%20Drive/New%20folder/supabase/migration_fix_pay_at_desk_queue_transfer.sql))**:
+   - Fixed foreign key constraint violation on `notifications.user_id` where clinic UUIDs were incorrectly passed instead of profile UUIDs.
+   - Wrapped notification queries across `confirm_pay_at_desk_booking`, `approve_pay_at_desk_appointment`, and `cancel_pending_pay_at_desk_appointment` in `BEGIN ... EXCEPTION WHEN OTHERS THEN NULL; END;` blocks so notification logging issues never abort appointment transactions.
+   - Resolved `date + varchar` type mismatch in appointment time calculations.
+   - Updated `confirm_pay_at_desk_booking` to atomically set `status = 'APPROVED'`, `payment_mode = 'PAY_AT_DESK'`, `payment_status = 'pending'`, and `checkin_status = 'checked_in'`.
+   - **Atomic Live Queue Enqueueing**: Automatically calculates next available `queue_position` and inserts the patient into `public.queue_entries` with status `'waiting'`.
+2. **Supabase Edge Function ([appointment-payment/index.ts](file:///g:/My%20Drive/New%20folder/supabase/functions/appointment-payment/index.ts))**:
+   - Removed destructive `queue_entries.delete` in Pay at Desk confirmation handler.
+   - Replaced with atomic queue placement: computes next `queue_position` and upserts into `queue_entries` with `status: "waiting"`.
+   - Set status to `"APPROVED"`, `payment_status: "pending"`, and `checkin_status: "checked_in"`.
+   - Safe staff profile notification lookups.
+3. **Patient App — Repositories & Queue Status Tracker ([AppointmentRepository.kt](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt), [QueueStatusScreen.kt](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt))**:
+   - In `updateAppointmentPayAtDesk` fallback, replaced queue deletion with atomic upsert into `queue_entries`.
+   - In `QueueStatusScreen.kt`, updated `isPendingClinicApproval` so approved Pay at Desk bookings enter the main Live Queue status card.
+   - Added amber counter payment banner: `"Pay at Desk • Rs. [Amount] payable at clinic counter"`.
+4. **Clinic App — Queue Board & Desk Collection ([QueueBoardScreen.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/QueueBoardScreen.kt), [AppointmentRepository.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt))**:
+   - Updated Live Queue filter to include approved Pay at Desk appointments in the active OPD queue.
+   - Added `paymentMode`, `paymentStatus`, and `totalAmount` to `QueueItemUi`.
+   - Rendered visual `"💵 Pay at Desk (Due Rs. [Amount])"` status badge on patient queue cards.
+   - Added 1-tap `"Mark Paid"` action button in the expanded patient card to allow counter staff to mark payment collected on arrival.
+   - Added `markPaymentCollectedAtDesk(appointmentId)` repository method.
+
+---
+
+### Prompt:
 > "for reschedule from appoinments section , patient app it did showed me to select slot but when i tapped on to book it showed some error and rescheule didnt work and as for reschudle button in clinic app no show up patiwnt it didnt showed the slots the old logic still exist there /plan /boost"
 
 #### Changes Applied:
