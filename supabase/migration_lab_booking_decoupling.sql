@@ -247,33 +247,17 @@ BEGIN
               AND doctor_id IS NULL 
               AND slot_date = p_appointment_date 
               AND start_time = p_appointment_time
+              AND is_published = TRUE
             LIMIT 1;
 
             IF v_slot_resolved_id IS NOT NULL THEN
                 UPDATE public.slots SET booked_count = booked_count + 1
                 WHERE id = v_slot_resolved_id AND booked_count < max_capacity;
+                IF NOT FOUND THEN
+                    RAISE EXCEPTION 'Slot is full. Cannot book this time slot.';
+                END IF;
             ELSE
-                INSERT INTO public.slots (
-                    id,
-                    clinic_id,
-                    doctor_id,
-                    slot_date,
-                    start_time,
-                    end_time,
-                    max_capacity,
-                    booked_count,
-                    is_published
-                ) VALUES (
-                    gen_random_uuid(),
-                    p_clinic_id,
-                    NULL,
-                    p_appointment_date,
-                    p_appointment_time,
-                    (p_appointment_time + INTERVAL '1 hour')::TIME,
-                    30,
-                    1,
-                    TRUE
-                ) RETURNING id INTO v_slot_resolved_id;
+                RAISE EXCEPTION 'The selected time slot is not published by the clinic or does not exist.';
             END IF;
         END IF;
     END IF;

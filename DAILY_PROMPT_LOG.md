@@ -7,6 +7,34 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-09
 
 ### Prompt:
+> "still the appoinments with different appoinment id but same clinic are shown together resolve this /plan" / "continue planning and proceed urself"
+
+#### Changes Applied:
+1. **Patient App — Live Queue Tracker Strict ID Isolation ([`QueueStatusScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt))**:
+   - Eliminated clinic-wide queries (`getAppointmentsByClinicAndMobile` and `allPt.filter { it.clinicId == appt.clinicId }`) that previously grouped unrelated appointments from the same clinic into the patient's multi-visit timeline.
+   - Strictly isolated timeline visits to appointments matching the exact same 10-digit Appointment ID via `appointmentRepository.getAllAppointmentsByTrackingCode(targetCode)`.
+   - Updated `isMultiVisitClinic` so that connected multi-visit history is only rendered when `multiClinicAppointments.size > 1` under that specific Appointment ID journey.
+   - Refined Card 9 guidance: when no other tracking code exists in session, displays `"Track Another Appointment"` / `"Enter a new 10-digit Appointment ID"` instead of displaying the active doctor details as a duplicate card.
+2. **Patient App — Medical Records Details Modal Boundary Hardening ([`PatientMainScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt))**:
+   - Removed `clinicVisits` aggregation in `LaunchedEffect(viewingRecordDetails?.id)` that previously fetched all clinic visits by phone and user ID.
+   - Constrained `associatedVisitsForDetail` strictly to appointments possessing the same 10-digit tracking code (`it.trackingCode10Digit == targetCode`), preventing Section 6 ("All Associated Appointments & Visits") from combining distinct appointments from the same clinic.
+3. **Web App — Live Tracker & Queue Consultation Boundary Fix ([`db.ts`](file:///g:/My%20Drive/New%20folder/web-app/src/services/db.ts))**:
+   - In `getLinkedConsultations`, removed step 2 query that fetched clinic siblings by `clinic_id` + `patient_mobile`/`user_id`.
+   - Replaced with a query strictly for the same 10-digit Appointment ID (`tracking_code_10_digit = target.trackingCode10Digit`).
+   - Ensures `LiveQueue.tsx` and `LiveTrackerModal.tsx` only show dual-consultation breakdowns (Initial vs. Follow-up) and tabs when records actually share that Appointment ID or have an explicit previous tracking code note reference.
+   - Verified web production build via `npm --prefix web-app run build` (0 TypeScript errors, 1,582 modules transformed).
+4. **Clinic App — Discrete Appointment History & Repository Support ([`AppointmentRepository.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt), [`PatientDetailScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/patients/PatientDetailScreen.kt), [`PatientDirectoryScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/patients/PatientDirectoryScreen.kt))**:
+   - Implemented `getAllAppointmentsByTrackingCode(code: String)` in `AppointmentRepository.kt`.
+   - In `PatientDetailScreen.kt`, replaced clinic-wide patient visits query with `getAllAppointmentsByTrackingCode(remote.trackingCode10Digit)`, preventing distinct appointments from showing in "Past Consultation History".
+   - In `PatientDirectoryScreen.kt`, updated `openPatientHistory` to strictly filter by `item.trackingCode` via `getAllAppointmentsByTrackingCode`, guaranteeing modal consultation history never combines appointments across different Appointment IDs.
+5. **Slot Publishing Decoupling & Lab Constraints Sync ([`PatientPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/PatientPortal.tsx), [`migration_lab_booking_decoupling.sql`](file:///g:/My%20Drive/New%20folder/supabase/migration_lab_booking_decoupling.sql))**:
+   - Enforced that time slots only exist when explicitly published (`is_published = true`) by clinics/labs, rejecting automatic slot generation when clinic has not published slots.
+
+---
+
+## 2026-11-09
+
+### Prompt:
 > "for reschedule from appoinments section , patient app it did showed me to select slot but when i tapped on to book it showed some error and rescheule didnt work and as for reschudle button in clinic app no show up patiwnt it didnt showed the slots the old logic still exist there /plan /boost"
 
 #### Changes Applied:

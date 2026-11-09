@@ -55,7 +55,7 @@ private val ErrorRed = Color(0xFFDC2626)
 @Composable
 fun BookingFormScreen(
     navController: NavController,
-    slotId: String = "slot_1",
+    slotId: String = "",
     clinicId: String = "",
     clinicType: String = "", // "single_visit", "multi_visit", "diagnostic_lab"
     appointmentRepository: AppointmentRepository? = null,
@@ -420,7 +420,7 @@ fun BookingFormScreen(
                     // Retain patient from the 10-digit Appointment ID without requiring patient details input
                     val bookedFollowUp = appointmentRepository?.bookFollowUpAppointment(
                         trackingCode = manualCodeInput,
-                        slotId = if (slotId.isNotBlank() && !isSyntheticSlot) slotId else null,
+                        slotId = slotId.ifBlank { null },
                         clinicId = finalClinicId,
                         doctorId = resolvedDoctorId,
                         appointmentDate = resolvedDate,
@@ -480,7 +480,7 @@ fun BookingFormScreen(
                     val appt = Appointment(
                         id = apptId,
                         trackingCode10Digit = generatedCode,
-                        slotId = if (slotId.isNotBlank() && !isSyntheticSlot) slotId else null,
+                        slotId = slotId.ifBlank { null },
                         clinicId = finalClinicId,
                         doctorId = effectiveDoctorId,
                         userId = resolvedUserId,
@@ -520,7 +520,7 @@ fun BookingFormScreen(
                         appointmentId = finalApptId,
                         clinicId = finalClinicId,
                         doctorId = effectiveDoctorId,
-                        slotId = if (slotId.isNotBlank() && !isSyntheticSlot) slotId else null,
+                        slotId = slotId.ifBlank { null },
                         appointmentDate = resolvedDate,
                         amount = finalFee,
                         transactionId = "TXN-$finalTracking",

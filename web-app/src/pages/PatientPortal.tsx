@@ -1598,12 +1598,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       } catch {}
     }
 
-    // 3. Diagnostic Labs (No OPD doctor slots required)
-    if (isLabClinic) return 'available'
-
-    // 4. OPD Slots
+    // 3. Check Published Slots (slots only exist when published by clinic/lab)
     const rawSlots = (monthSlotsMap[dateStr] || []).filter((s) => s.isAvailable !== false)
-    const relevantSlots = selectedDoctor
+    const relevantSlots = isLabClinic
+      ? rawSlots
+      : selectedDoctor
       ? rawSlots.filter((s) => !s.doctorId || s.doctorId === selectedDoctor.id)
       : rawSlots
 
@@ -1616,21 +1615,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       return hasCapacity ? 'available' : 'fully_booked'
     }
 
-    // Fallback: If no explicit slots are seeded in database, check clinic opening days
-    let isClinicOpenDay = true
-    if (selectedClinic?.weeklyScheduleJson) {
-      try {
-        const parsed = JSON.parse(selectedClinic.weeklyScheduleJson)
-        if (Array.isArray(parsed)) {
-          const dObj = new Date(dateStr + 'T00:00:00')
-          const dayName = dObj.toLocaleDateString('en-US', { weekday: 'short' }).toLowerCase()
-          const match = parsed.find((p: any) => String(p.day || '').toLowerCase().startsWith(dayName))
-          if (match && match.isOpen === false) isClinicOpenDay = false
-        }
-      } catch {}
-    }
-
-    return isClinicOpenDay ? 'available' : 'closed'
+    return 'closed'
   }
 
   // 60-Day Auto-Scanner

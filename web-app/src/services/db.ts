@@ -521,20 +521,15 @@ export async function getLinkedConsultations(appointmentIdOrCode: string): Promi
       }
     }
 
-    // 2. Fetch other visits for this patient at the same clinic
-    if (target.clinicId && (target.patientMobile || target.userId)) {
-      let query = supabase
+    // 2. Fetch other visits strictly sharing the exact same 10-digit Appointment ID
+    // Appointments with different appointment IDs from the same clinic must NEVER be grouped or shown together
+    if (target.trackingCode10Digit) {
+      const { data: siblings } = await supabase
         .from('appointments')
         .select('*, doctor:doctors(*), clinic:clinics(*), queue_entries(*)')
-        .eq('clinic_id', target.clinicId)
+        .eq('tracking_code_10_digit', target.trackingCode10Digit)
+        .order('appointment_date', { ascending: true })
 
-      if (target.patientMobile) {
-        query = query.eq('patient_mobile', target.patientMobile)
-      } else if (target.userId) {
-        query = query.eq('user_id', target.userId)
-      }
-
-      const { data: siblings } = await query.order('appointment_date', { ascending: true })
       if (siblings && siblings.length > 0) {
         for (const s of siblings) {
           const mapped = mapAppointment(s)
@@ -717,7 +712,7 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
           p_patient_gender: appt.patientGender || null,
           p_notes: appt.notes || null,
           p_is_pay_at_desk: isPayAtDesk,
-          p_slot_id: appt.slotId && !appt.slotId.startsWith('lab-auto-') ? appt.slotId : null,
+          p_slot_id: appt.slotId || null,
           p_payment_mode: appt.paymentMode || (isPayAtDesk ? 'PAY_AT_DESK' : 'ONLINE'),
           p_fee_amount: fee,
           p_selected_lab_tests: (appt as any).selectedLabTests || (appt.notes?.startsWith('Lab Tests:') ? appt.notes : null),

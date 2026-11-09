@@ -411,15 +411,24 @@ fun PatientDirectoryScreen(
         coroutineScope.launch {
             isLoadingHistory = true
             patientFullHistoryAppts = if (item.currentAppointment != null) {
-                // Keep discrete: do not combine appointments with different IDs into the same history
-                listOf(item.currentAppointment)
-            } else if (appointmentRepository != null) {
-                appointmentRepository.getAppointmentsForPatient(
-                    patientMobile = item.phone,
-                    userId = item.userId,
-                    patientEmail = item.email,
-                    trackingCode = item.trackingCode
-                ).filter {
+                // Strictly isolate appointments by 10-digit Appointment ID (trackingCode)
+                // Appointments with different appointment IDs from the same clinic must NEVER be grouped into the same history
+                if (item.trackingCode.isNotBlank() && appointmentRepository != null) {
+                    val sameCode = appointmentRepository.getAllAppointmentsByTrackingCode(item.trackingCode)
+                        .filter {
+                            it.status.equals("APPROVED", ignoreCase = true) &&
+                            it.status != "WAITING_FOR_APPROVAL" &&
+                            it.status != "pending_payment" &&
+                            it.status != "UNAPPROVED" &&
+                            it.status != "EXPIRED" &&
+                            it.checkinStatus != "cancelled"
+                        }
+                    sameCode.ifEmpty { listOf(item.currentAppointment) }
+                } else {
+                    listOf(item.currentAppointment)
+                }
+            } else if (appointmentRepository != null && item.trackingCode.isNotBlank()) {
+                appointmentRepository.getAllAppointmentsByTrackingCode(item.trackingCode).filter {
                     it.status.equals("APPROVED", ignoreCase = true) &&
                     it.status != "WAITING_FOR_APPROVAL" &&
                     it.status != "pending_payment" &&

@@ -176,6 +176,16 @@ When users search for doctors, OPD clinics, polyclinics, medical specialists, ho
 - **Live Queue Tracking**: Realtime OPD queue numbers and delay estimates available after booking.
 - **NMC License Number**: #123456789
 
+### Dr. Alex Smith - Medical Lab Technician (MLT)
+- **Doctor Name**: Dr. Alex Smith
+- **Specialty**: Medical Lab Technician (MLT)
+- **Clinic**: Verified Clinic (Nepal)
+- **Consultation Fee**: NPR 500
+- **Direct Online Booking Link**: https://dactorofficial.github.io/dactor/?clinic=null&doctor=16a3a2ee-a993-44af-85e6-48c7ea94ba8c&action=book
+- **Direct Doctor Profile Link**: https://dactorofficial.github.io/dactor/?doctor=16a3a2ee-a993-44af-85e6-48c7ea94ba8c&action=book
+- **Live Queue Tracking**: Realtime OPD queue numbers and delay estimates available after booking.
+- **NMC License Number**: #NHPC12345
+
 ## Verified Clinics & Healthcare Centers in Nepal
 ### happy bday bro (Multi-Specialty Polyclinic)
 - **Clinic Name**: happy bday bro

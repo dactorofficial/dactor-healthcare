@@ -159,14 +159,13 @@ fun PatientDetailScreen(
                     isNotesSaved = true
                 }
 
-                val allPatientVisits = appointmentRepository.getAppointmentsForPatient(
-                    patientMobile = remote.patientMobile,
-                    userId = remote.userId,
-                    trackingCode = remote.trackingCode10Digit
-                )
+                // Strictly isolate past visits by the exact same 10-digit Appointment ID
+                // Appointments with different appointment IDs from the same clinic must NEVER be grouped together
+                val allPatientVisits = if (remote.trackingCode10Digit.isNotBlank()) {
+                    appointmentRepository.getAllAppointmentsByTrackingCode(remote.trackingCode10Digit)
+                } else listOf(remote)
                 pastVisitsForPatient = allPatientVisits.filter { 
                     it.id != remote.id && 
-                    it.patientName.trim().equals(remote.patientName.trim(), ignoreCase = true) &&
                     it.status.equals("APPROVED", ignoreCase = true) &&
                     it.status != "WAITING_FOR_APPROVAL" &&
                     it.status != "pending_payment" &&

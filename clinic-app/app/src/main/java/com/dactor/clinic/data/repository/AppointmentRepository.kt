@@ -253,6 +253,19 @@ class AppointmentRepository @Inject constructor(
         }
     }
 
+    suspend fun getAllAppointmentsByTrackingCode(code: String): List<Appointment> = withContext(Dispatchers.IO) {
+        try {
+            val clean = code.trim()
+            if (clean.isBlank()) return@withContext emptyList()
+            val appts = supabaseClient.postgrest["appointments"]
+                .select { filter { eq("tracking_code_10_digit", clean) } }
+                .decodeList<Appointment>()
+            attachQueueStatus(appts)
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
     suspend fun getAppointmentById(id: String): Appointment? = withContext(Dispatchers.IO) {
         try {
             val appt = supabaseClient.postgrest["appointments"]

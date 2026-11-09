@@ -266,33 +266,30 @@ fun QueueStatusScreen(
                     }
                 }
 
-                // For multi-visit clinics & follow-up visits: fetch all appointments for this patient arranged by date and time
-                val currentClinicType = clinicObj?.type ?: clinicType
-                val hasFollowupRef = appt.feeAmount == 0.0
-                if ((currentClinicType.equals("multi_visit", ignoreCase = true) || hasFollowupRef) && appt.clinicId.isNotBlank()) {
-                    try {
-                        val pMobile = appt.patientMobile.ifBlank { rawPhone }
-                        val pEmail = appt.patientEmail ?: rawEmail
-                        val pUserId = appt.userId
-                        val byMobile = if (pMobile.isNotBlank()) {
-                            appointmentRepository?.getAppointmentsByClinicAndMobile(appt.clinicId, pMobile) ?: emptyList()
-                        } else emptyList()
-                        val allPt = appointmentRepository?.getAllPatientAppointments(pUserId, pMobile, pEmail) ?: emptyList()
-                        val clinicPt = allPt.filter { it.clinicId == appt.clinicId }
-                        val combined = (byMobile + clinicPt + listOf(appt))
-                            .distinctBy { it.id }
-                            .filter { it.patientName.trim().equals(appt.patientName.trim(), ignoreCase = true) }
-                        val sorted = combined.sortedWith(
-                            compareByDescending<Appointment> { it.appointmentDate }
-                                .thenByDescending { it.appointmentTime }
-                        )
-                        multiClinicAppointments = sorted
-                        val apptIds = sorted.map { it.id }
-                        val invMap = appointmentRepository?.getInvoicesForAppointments(apptIds) ?: emptyMap()
-                        appointmentInvoicesMap = invMap
-                    } catch (e: Exception) {
-                        multiClinicAppointments = listOf(appt)
-                    }
+                // Strictly isolate appointments by the exact same 10-digit Appointment ID (trackingCode10Digit)
+                // Appointments with different appointment IDs from the same clinic must NEVER be grouped or shown together
+                val targetCode = appt.trackingCode10Digit
+                try {
+                    val sameCodeVisits = if (targetCode.isNotBlank() && appointmentRepository != null) {
+                        try {
+                            appointmentRepository.getAllAppointmentsByTrackingCode(targetCode)
+                        } catch (_: Exception) {
+                            listOf(appt)
+                        }
+                    } else listOf(appt)
+                    val combined = (sameCodeVisits + listOf(appt))
+                        .distinctBy { it.id }
+                        .filter { it.trackingCode10Digit == targetCode }
+                    val sorted = combined.sortedWith(
+                        compareByDescending<Appointment> { it.appointmentDate }
+                            .thenByDescending { it.appointmentTime }
+                    )
+                    multiClinicAppointments = sorted
+                    val apptIds = sorted.map { it.id }
+                    val invMap = appointmentRepository?.getInvoicesForAppointments(apptIds) ?: emptyMap()
+                    appointmentInvoicesMap = invMap
+                } catch (e: Exception) {
+                    multiClinicAppointments = listOf(appt)
                 }
 
                 // Fetch queue token and live status (combining queue_entries, appointment checkin_status, and lab_reports)
@@ -602,9 +599,8 @@ fun QueueStatusScreen(
     val isConsultancyCompleted = queueStatus in listOf("done", "completed") ||
         appointment?.checkinStatus?.lowercase() in listOf("done", "completed")
 
-    val isMultiVisitClinic = clinicType.equals("multi_visit", ignoreCase = true) ||
-        clinicObj?.type?.equals("multi_visit", ignoreCase = true) == true ||
-        multiClinicAppointments.size > 1
+    // Only show connected multi-visit history if there are genuinely multiple visits sharing this exact Appointment ID
+    val isMultiVisitClinic = multiClinicAppointments.size > 1
 
     val isLabClinic = clinicType.equals("diagnostic_lab", ignoreCase = true) ||
         clinicObj?.type?.equals("diagnostic_lab", ignoreCase = true) == true ||
@@ -3744,10 +3740,12 @@ fun QueueStatusScreen(
                                 val docTitle = if (otherSavedCodes.isNotEmpty()) {
                                     otherSavedCodes.first().second
                                 } else {
-                                    val dName = if (doctorName.isNotBlank()) {
-                                        if (doctorName.startsWith("Dr.", ignoreCase = true)) doctorName else "Dr. $doctorName"
-                                    } else "Dr. Anubhav Jha"
-                                    "$dName • $formattedDate"
+                                    "Track Another Appointment"
+                                }
+                                val docSubtitle = if (otherSavedCodes.isNotEmpty()) {
+                                    "Tap to switch active tracking"
+                                } else {
+                                    "Enter a new 10-digit Appointment ID"
                                 }
                                 Text(
                                     text = docTitle,
@@ -3756,7 +3754,7 @@ fun QueueStatusScreen(
                                     color = Color(0xFF0F172A)
                                 )
                                 Text(
-                                    text = "Tap to switch active tracking",
+                                    text = docSubtitle,
                                     fontSize = 11.sp,
                                     color = Color(0xFF64748B)
                                 )

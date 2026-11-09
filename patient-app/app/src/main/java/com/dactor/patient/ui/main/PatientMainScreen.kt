@@ -3636,20 +3636,9 @@ fun RecordsTab(
                 try { appointmentRepository.getAllAppointmentsByTrackingCode(targetCode) } catch (_: Exception) { emptyList() }
             } else emptyList()
             val codeMatches = allRecords.filter { it.trackingCode10Digit == targetCode }
-            val pMobile = target.patientMobile.ifBlank { sessionManager?.getSavedPhone() ?: "" }
-            val pUserId = target.userId ?: sessionManager?.getSavedPatientId()
-            val pEmail = target.patientEmail ?: sessionManager?.getSavedEmail()
-            val clinicVisits = if (appointmentRepository != null && target.clinicId.isNotBlank()) {
-                val byMob = if (pMobile.isNotBlank()) {
-                    try { appointmentRepository.getAppointmentsByClinicAndMobile(target.clinicId, pMobile) } catch (_: Exception) { emptyList() }
-                } else emptyList()
-                val byUser = try {
-                    appointmentRepository.getAllPatientAppointments(pUserId, pMobile, pEmail).filter { it.clinicId == target.clinicId }
-                } catch (_: Exception) { emptyList() }
-                (byMob + byUser)
-            } else emptyList()
             val hiddenCodes = sessionManager?.getHiddenRecordCodes() ?: emptySet()
-            val combined = (dbByCode + codeMatches + clinicVisits + listOf(target))
+            // Strictly isolate visits by Appointment ID (targetCode); do NOT mix in clinic-wide visits
+            val combined = (dbByCode + codeMatches + listOf(target))
                 .distinctBy { it.id }
                 .filter { !hiddenCodes.contains(it.trackingCode10Digit) && !hiddenCodes.contains(it.id) }
                 .sortedWith(
