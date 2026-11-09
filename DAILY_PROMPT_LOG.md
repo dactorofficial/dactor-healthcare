@@ -7,6 +7,38 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-09
 
 ### Prompt:
+> "for reschedule from appoinments section , patient app it did showed me to select slot but when i tapped on to book it showed some error and rescheule didnt work and as for reschudle button in clinic app no show up patiwnt it didnt showed the slots the old logic still exist there /plan /boost"
+
+#### Changes Applied:
+1. **Supabase Database Migration ([`supabase/migration_reschedule_appointment_rpc.sql`](file:///g:/My%20Drive/New%20folder/supabase/migration_reschedule_appointment_rpc.sql))**:
+   - Resolved PostgreSQL enum crash: verified allowed values in `checkin_status_enum` (`'not_checked_in'`, `'checked_in'`, `'cancelled'`, `'no_show'`).
+   - Created authoritative `SECURITY DEFINER` RPC function `public.reschedule_patient_appointment`:
+     - Sets `dactor.authoritative_context = 'true'` to safely bypass trigger checks.
+     - Validates appointment existence, guards against rescheduling completed visits, and checks tracking code.
+     - Atomically updates appointment date, normalized time, slot ID, and doctor ID, resetting status to `'APPROVED'` and `checkin_status` to valid enum `'not_checked_in'`.
+     - Clears cancellation timestamps and consultation completion dates.
+     - Cleans stale queue entries and automatically re-injects into today's live queue if rescheduled to current date.
+     - Atomically reconciles `slots.booked_count` for both previous and new slots.
+     - Dispatches an in-app alert notification to the clinic.
+   - Updated trigger `prevent_patient_appointment_privilege_escalation` to permit rescheduling fields (`slot_id`, `doctor_id`, `checkin_status`, `status`, `cancelled_at`, `cancellation_reason`, `consultation_completed_at`).
+
+2. **Patient App — Reschedule Execution Fix ([`AppointmentRepository.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt))**:
+   - Replaced invalid enum assignment `checkin_status = "waiting"` with valid PostgreSQL enum value `"not_checked_in"` across `rescheduleAppointment` and `bookFollowUpAppointment`.
+   - Updated `rescheduleAppointment` to call authoritative RPC `reschedule_patient_appointment` with full parameters (`p_appointment_id`, `p_new_date`, `p_new_time`, `p_slot_id`, `p_doctor_id`, `p_tracking_code`).
+   - Added direct fallback update using whitelisted columns and valid enum in case of offline / fallback execution.
+
+3. **Clinic App — No-Show Patients Reschedule Slots & Filter Overhaul ([`NoShowManagerScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/appointments/NoShowManagerScreen.kt), [`AppointmentRepository.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt))**:
+   - **Fixed Empty Slot Filtering**: In `LaunchedEffect`, updated doctor slot filtering with fallback to general clinic slots (`matching.ifEmpty { slots.filter { it.doctorId.isNullOrBlank() } }`), ensuring published slots for diagnostic labs and general OPD counters are fully visible.
+   - **Added "All / General Slots" Doctor Chip**: Added filter chip allowing clinic staff to view clinic-wide slots regardless of doctor attribution.
+   - **Added "Today" Quick Date Chip**: Added `"Today"` chip in quick suggestion row, enabling 1-tap same-day rescheduling into the live queue alongside `"Tomorrow"`, `"+2 Days"`, and `"+1 Week"`.
+   - **Defaulted Reschedule Date**: Defaulted `onOpenReschedule` date to `today.toString()` so today's open slots are immediately fetched and visible.
+   - **Fixed Database Status Update**: Changed `checkin_status` from invalid `"waiting"` to valid `"not_checked_in"` in clinic `AppointmentRepository.rescheduleAppointment`.
+
+---
+
+
+
+### Prompt:
 > "create a universal rule to always push the new update"
 
 #### Changes Applied:

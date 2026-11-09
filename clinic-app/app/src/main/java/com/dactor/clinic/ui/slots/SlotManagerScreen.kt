@@ -230,36 +230,6 @@ fun SlotManagerScreen(
         mutableStateOf(ClinicScheduleStorage.getDateOverrideNote(context, effectiveClinicId, selectedDate))
     }
 
-    // Helper to sync generalized weekly schedule to Supabase slots for a target date if needed
-    suspend fun ensureGeneralizedSlotsForDate(targetDateStr: String, currentRemoteSlots: List<Slot>): List<Slot> {
-        if (!hasSavedWeekly || slotRepository == null || effectiveClinicId.isBlank()) return currentRemoteSlots
-        val docId = if (isLabMode) null else (selectedDoctor?.id ?: doctors.firstOrNull()?.id)
-        val overrideStatus = ClinicScheduleStorage.getDateOverrideNote(context, effectiveClinicId, targetDateStr)
-        if (overrideStatus == "DAY_OFF") return currentRemoteSlots
-        if (currentRemoteSlots.isNotEmpty()) return currentRemoteSlots
-
-        val parsedDate = try { LocalDate.parse(targetDateStr) } catch (e: Exception) { return currentRemoteSlots }
-        val dayConfig = weeklySchedule[parsedDate.dayOfWeek] ?: return currentRemoteSlots
-        if (!dayConfig.isWorking || dayConfig.ranges.isEmpty()) return currentRemoteSlots
-
-        val createdList = mutableListOf<Slot>()
-        for (range in dayConfig.ranges) {
-            val newSlot = Slot(
-                id = UUID.randomUUID().toString(),
-                clinicId = effectiveClinicId,
-                doctorId = docId,
-                slotDate = targetDateStr,
-                startTime = range.startTime,
-                endTime = range.endTime,
-                maxCapacity = if (isLabMode) 25 else range.capacity,
-                bookedCount = 0,
-                isPublished = true
-            )
-            val created = slotRepository.createSlot(newSlot)
-            if (created != null) createdList.add(created)
-        }
-        return if (createdList.isNotEmpty()) createdList else currentRemoteSlots
-    }
 
     LaunchedEffect(effectiveClinicId, selectedDate) {
         if (clinicRepository != null && effectiveClinicId.isNotBlank()) {
@@ -525,10 +495,8 @@ fun SlotManagerScreen(
             ) {
                 items(daysInMonth, key = { it.toString() }) { date ->
                     val dateStr = date.toString()
-                    val isSelected = (selectedDate == dateStr)
                     val dayOfWeekStr = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
-                    val isDayWorkingWeekly = weeklySchedule[date.dayOfWeek]?.isWorking == true
-                    val hasSlots = allClinicSlots.any { it.slotDate == dateStr } || slots.any { it.slotDate == dateStr } || isDayWorkingWeekly
+                    val hasSlots = allClinicSlots.any { it.slotDate == dateStr && it.isPublished } || slots.any { it.slotDate == dateStr && it.isPublished }
 
                     Surface(
                         shape = RoundedCornerShape(14.dp),
@@ -1776,9 +1744,4 @@ fun SlotManagerScreen(
                     ) {
                         Text("Edit Capacity", fontSize = 12.sp)
                     }
-                }
-            )
-        }
-    }
-}
-
+                }

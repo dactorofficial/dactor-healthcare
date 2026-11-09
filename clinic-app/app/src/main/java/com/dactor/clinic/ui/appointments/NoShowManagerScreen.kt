@@ -119,12 +119,13 @@ fun NoShowManagerScreen(
 
     // Load available slots when reschedule date or doctor changes
     LaunchedEffect(newDateInput, rescheduleTargetDoctorId, selectedApptForReschedule) {
-        if (selectedApptForReschedule != null && slotRepository != null && effectiveClinicId.isNotBlank()) {
+        if (selectedApptForReschedule != null && slotRepository != null && effectiveClinicId.isNotBlank() && newDateInput.isNotBlank()) {
             isLoadingSlots = true
             try {
                 val slots = slotRepository.getSlots(effectiveClinicId, newDateInput)
                 availableSlotsForReschedule = if (rescheduleTargetDoctorId.isNotBlank()) {
-                    slots.filter { it.doctorId == rescheduleTargetDoctorId }
+                    val matching = slots.filter { it.doctorId == rescheduleTargetDoctorId }
+                    if (matching.isNotEmpty()) matching else slots.filter { it.doctorId.isNullOrBlank() }
                 } else slots
             } catch (e: Exception) {
                 availableSlotsForReschedule = emptyList()
@@ -691,8 +692,8 @@ fun NoShowManagerScreen(
                                 },
                                 onOpenReschedule = {
                                     selectedApptForReschedule = appt
-                                    rescheduleTargetDoctorId = appt.doctorId ?: doctors.firstOrNull()?.id ?: ""
-                                    newDateInput = today.plusDays(1).toString()
+                                    rescheduleTargetDoctorId = appt.doctorId ?: ""
+                                    newDateInput = today.toString()
                                     newTimeInput = appt.appointmentTime.ifBlank { "10:00" }
                                     selectedSlotId = null
                                 }
@@ -789,6 +790,18 @@ fun NoShowManagerScreen(
                                     .horizontalScroll(rememberScrollState()),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
+                                FilterChip(
+                                    selected = rescheduleTargetDoctorId.isBlank(),
+                                    onClick = {
+                                        rescheduleTargetDoctorId = ""
+                                        selectedSlotId = null
+                                    },
+                                    label = { Text("All / General Slots", fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFF0097A7),
+                                        selectedLabelColor = Color.White
+                                    )
+                                )
                                 doctors.forEach { doc ->
                                     val isSelected = rescheduleTargetDoctorId == doc.id
                                     FilterChip(
@@ -839,11 +852,23 @@ fun NoShowManagerScreen(
                             }
                         }
 
-                        // Quick Chips: Tomorrow, +2 Days, +1 Week
+                        // Quick Chips: Today, Tomorrow, +2 Days, +1 Week
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
+                            SuggestionChip(
+                                onClick = {
+                                    newDateInput = today.toString()
+                                    selectedSlotId = null
+                                },
+                                label = { Text("Today", fontSize = 11.sp) },
+                                colors = SuggestionChipDefaults.suggestionChipColors(
+                                    containerColor = if (newDateInput == today.toString()) Color(0xFFE0F2FE) else Color.White
+                                )
+                            )
                             SuggestionChip(
                                 onClick = {
                                     newDateInput = today.plusDays(1).toString()

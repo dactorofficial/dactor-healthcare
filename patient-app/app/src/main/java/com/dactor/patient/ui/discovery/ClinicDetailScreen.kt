@@ -237,16 +237,14 @@ fun ClinicDetailScreen(
                                 )
                         )
                         Text(
-                            text = if (isLabFacility) {
-                                "Open for Sample Collection"
-                            } else if (hasAvailableSlotsToday) {
-                                "Available today"
+                            text = if (hasAvailableSlotsToday) {
+                                if (isLabFacility) "Sample Collection Open Today" else "Available today"
                             } else {
                                 com.dactor.patient.data.repository.SlotRepository.formatNextAvailableDate(nextAvailableDate)
                             },
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (isLabFacility || hasAvailableSlotsToday) Color(0xFF15803D) else Color(0xFFB45309)
+                            color = if (hasAvailableSlotsToday) Color(0xFF15803D) else Color(0xFFB45309)
                         )
                     }
 

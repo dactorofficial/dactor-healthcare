@@ -308,7 +308,7 @@ class AppointmentRepository @Inject constructor(
                 appointmentDate = appointmentDate,
                 appointmentTime = normalizedTime,
                 paymentStatus = "paid",
-                checkinStatus = "waiting",
+                checkinStatus = "not_checked_in",
                 status = "APPROVED",
                 feeAmount = 0.0,
                 totalAmount = 0.0,
@@ -373,7 +373,7 @@ class AppointmentRepository @Inject constructor(
                     set("appointment_date", appointmentDate)
                     set("appointment_time", normalizedTime)
                     set("payment_status", "paid")
-                    set("checkin_status", "waiting")
+                    set("checkin_status", "not_checked_in")
                     set("status", "APPROVED")
                     set("fee_amount", 0.0)
                 }) {
@@ -1154,22 +1154,42 @@ class AppointmentRepository @Inject constructor(
         slotId: String? = null,
         newDoctorId: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val existing = getAppointmentById(id)
-            val oldSlotId = existing?.slotId
-            val normalizedTime = normalizeTimeForPostgres(newTime)
-            val cleanSlotId = slotId?.trim()?.takeIf { isValidUuid(it) }
-            val cleanDocId = newDoctorId?.trim()?.takeIf { isValidUuid(it) }
+        val existing = getAppointmentById(id)
+        val oldSlotId = existing?.slotId
+        val normalizedTime = normalizeTimeForPostgres(newTime)
+        val cleanSlotId = slotId?.trim()?.takeIf { isValidUuid(it) }
+        val cleanDocId = newDoctorId?.trim()?.takeIf { isValidUuid(it) } ?: existing?.doctorId?.takeIf { isValidUuid(it) }
 
+        // 1. Authoritative SECURITY DEFINER RPC
+        try {
+            val rpcParams = buildJsonObject {
+                put("p_appointment_id", id)
+                put("p_new_date", newDate)
+                put("p_new_time", normalizedTime)
+                if (cleanSlotId != null) put("p_slot_id", cleanSlotId)
+                if (cleanDocId != null) put("p_doctor_id", cleanDocId)
+                val trackingCode = existing?.trackingCode10Digit?.takeIf { it.isNotBlank() }
+                if (trackingCode != null) put("p_tracking_code", trackingCode)
+            }
+            val response = supabaseClient.postgrest.rpc("reschedule_patient_appointment", rpcParams)
+            val json = response.decodeSingleOrNull<JsonObject>()
+            val isSuccess = json?.get("success")?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
+                ?: (response.body<String>().contains("\"success\":true") || response.body<String>().contains("\"success\": true"))
+            if (isSuccess) {
+                return@withContext true
+            }
+        } catch (rpcErr: Exception) {
+            rpcErr.printStackTrace()
+        }
+
+        // 2. Direct database update fallback (whitelisted fields, valid checkin_status)
+        try {
             supabaseClient.postgrest["appointments"]
                 .update({
                     set("appointment_date", newDate)
                     set("appointment_time", normalizedTime)
-                    set("checkin_status", "waiting")
+                    set("checkin_status", "not_checked_in")
                     set("status", "APPROVED")
-                    set("consultation_completed_at", null as String?)
-                    set("cancelled_at", null as String?)
-                    set("cancellation_reason", null as String?)
                     set("updated_at", java.time.Instant.now().toString())
                     if (cleanSlotId != null) {
                         set("slot_id", cleanSlotId)

@@ -75,12 +75,11 @@ fun computeCalendarDateState(
     val isLabClinic = clinic?.type?.lowercase()?.let { it == "diagnostic_lab" || it.contains("lab") } == true ||
         clinic?.name?.lowercase()?.contains("lab") == true ||
         clinic?.specialties?.any { it.lowercase().contains("lab") || it.lowercase().contains("patholog") } == true
-    if (isLabClinic) {
-        return CalendarDateState.AVAILABLE
-    }
 
     val rawSlots = monthSlotsMap[dateStr]?.filter { it.isPublished } ?: emptyList()
-    val relevantSlots = if (selectedDoctor != null) {
+    val relevantSlots = if (isLabClinic) {
+        rawSlots
+    } else if (selectedDoctor != null) {
         val matches = rawSlots.filter { it.doctorId.isNullOrBlank() || it.doctorId == selectedDoctor.id }
         matches.ifEmpty { rawSlots.filter { it.doctorId.isNullOrBlank() } }
     } else {
@@ -302,25 +301,10 @@ fun BookingScreen(
             } else {
                 raw
             }
-            val effectiveList = if (filtered.isEmpty() && isCurrentLab) {
-                listOf(
-                    Slot(id = "lab_auto_${selectedDate}_07:00:00", clinicId = clinicId, doctorId = "", slotDate = selectedDate, startTime = "07:00:00", endTime = "08:00:00", maxCapacity = 25, bookedCount = 0, isPublished = true),
-                    Slot(id = "lab_auto_${selectedDate}_08:00:00", clinicId = clinicId, doctorId = "", slotDate = selectedDate, startTime = "08:00:00", endTime = "09:00:00", maxCapacity = 25, bookedCount = 0, isPublished = true),
-                    Slot(id = "lab_auto_${selectedDate}_09:00:00", clinicId = clinicId, doctorId = "", slotDate = selectedDate, startTime = "09:00:00", endTime = "10:00:00", maxCapacity = 25, bookedCount = 0, isPublished = true),
-                    Slot(id = "lab_auto_${selectedDate}_10:00:00", clinicId = clinicId, doctorId = "", slotDate = selectedDate, startTime = "10:00:00", endTime = "11:00:00", maxCapacity = 25, bookedCount = 0, isPublished = true),
-                    Slot(id = "lab_auto_${selectedDate}_11:00:00", clinicId = clinicId, doctorId = "", slotDate = selectedDate, startTime = "11:00:00", endTime = "12:00:00", maxCapacity = 25, bookedCount = 0, isPublished = true),
-                    Slot(id = "lab_auto_${selectedDate}_12:00:00", clinicId = clinicId, doctorId = "", slotDate = selectedDate, startTime = "12:00:00", endTime = "13:00:00", maxCapacity = 25, bookedCount = 0, isPublished = true),
-                    Slot(id = "lab_auto_${selectedDate}_13:00:00", clinicId = clinicId, doctorId = "", slotDate = selectedDate, startTime = "13:00:00", endTime = "14:00:00", maxCapacity = 25, bookedCount = 0, isPublished = true),
-                    Slot(id = "lab_auto_${selectedDate}_14:00:00", clinicId = clinicId, doctorId = "", slotDate = selectedDate, startTime = "14:00:00", endTime = "15:00:00", maxCapacity = 25, bookedCount = 0, isPublished = true),
-                    Slot(id = "lab_auto_${selectedDate}_15:00:00", clinicId = clinicId, doctorId = "", slotDate = selectedDate, startTime = "15:00:00", endTime = "16:00:00", maxCapacity = 25, bookedCount = 0, isPublished = true)
-                )
+            val active = if (selectedDate == today) {
+                filtered.filter { !SlotRepository.isSlotEndTimeOver(it.endTime, selectedDate, it.startTime) }
             } else {
                 filtered
-            }
-            val active = if (selectedDate == today) {
-                effectiveList.filter { !SlotRepository.isSlotEndTimeOver(it.endTime, selectedDate, it.startTime) }
-            } else {
-                effectiveList
             }
             slots = active
 
@@ -414,7 +398,7 @@ fun BookingScreen(
                     Button(
                         onClick = {
                             if (isNavigatingToForm || isExecutingReschedule) return@Button
-                            val chosenSlotId = selectedSlot?.id ?: if (isLabClinic) "synth__lab_$selectedDate" else null
+                            val chosenSlotId = selectedSlot?.id
                             if (selectedSlot != null && SlotRepository.isSlotEndTimeOver(selectedSlot.endTime, selectedDate, selectedSlot.startTime)) {
                                 Toast.makeText(context, "This time slot has already passed. Please select an upcoming slot.", Toast.LENGTH_SHORT).show()
                                 return@Button
@@ -516,7 +500,7 @@ fun BookingScreen(
                                 isExecutingReschedule -> "Rescheduling..."
                                 isRescheduleMode && !canBookSelectedSlot -> "Select a Slot to Reschedule"
                                 isRescheduleMode && selectedSlot != null -> "Confirm Reschedule \u2022 ${selectedSlot.startTime}"
-                                !canBookSelectedSlot -> "Select a Published Slot to Book"
+                                !canBookSelectedSlot -> if (isLabClinic) "Select a Published Lab Slot" else "Select a Published Slot to Book"
                                 isLabClinic -> "Select Lab Tests & Book"
                                 else -> "Book Appointment"
                             },
@@ -1155,13 +1139,17 @@ fun BookingScreen(
                                 }
                             }
                             Text(
-                                text = "No Published Slots for $selectedDate",
+                                text = if (isLabClinic) "No Published Sample Slots for $selectedDate" else "No Published Slots for $selectedDate",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
                                 color = Color(0xFF0F172A)
                             )
                             Text(
-                                text = "Appointments can only be booked into time slots published by the clinic. Please select another date above or check back once the clinic publishes slots.",
+                                text = if (isLabClinic) {
+                                    "Sample collection slots can only be booked after they are published by the lab facility. Please select another date above or check back once the lab publishes collection slots."
+                                } else {
+                                    "Appointments can only be booked into time slots published by the clinic. Please select another date above or check back once the clinic publishes slots."
+                                },
                                 fontSize = 12.sp,
                                 color = Color(0xFF64748B),
                                 textAlign = TextAlign.Center,

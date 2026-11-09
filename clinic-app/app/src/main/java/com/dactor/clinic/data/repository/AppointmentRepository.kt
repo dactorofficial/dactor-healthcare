@@ -631,7 +631,7 @@ class AppointmentRepository @Inject constructor(
                 .update({
                     set("appointment_date", newDate)
                     set("appointment_time", normalizedTime)
-                    set("checkin_status", "waiting")
+                    set("checkin_status", "not_checked_in")
                     set("status", "APPROVED")
                     set("consultation_completed_at", null as String?)
                     set("cancelled_at", null as String?)

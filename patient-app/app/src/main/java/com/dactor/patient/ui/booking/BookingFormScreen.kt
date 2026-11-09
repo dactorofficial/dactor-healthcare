@@ -267,7 +267,7 @@ fun BookingFormScreen(
     }
 
     LaunchedEffect(slotId) {
-        if (slotId.isNotBlank() && slotId != "slot_1" && !slotId.startsWith("slot_") && !slotId.startsWith("synth__") && slotRepository != null) {
+        if (slotId.isNotBlank() && slotRepository != null) {
             try {
                 val s = slotRepository.getSlotById(slotId)
                 if (s != null) {
@@ -364,15 +364,7 @@ fun BookingFormScreen(
                 var resolvedDate = java.time.LocalDate.now().toString()
                 var resolvedTime = "09:30"
 
-                val isSyntheticSlot = slotId.startsWith("synth__") || slotId.startsWith("slot_") || slotId == "slot_1" || slotId.startsWith("lab_auto_")
-                if (slotId.startsWith("lab_auto_")) {
-                    val rawParts = slotId.removePrefix("lab_auto_").split("_")
-                    if (rawParts.size >= 2) {
-                        resolvedDate = rawParts[0]
-                        resolvedTime = rawParts[1]
-                    }
-                }
-                val s = loadedSlot ?: (if (slotId.isNotBlank() && !isSyntheticSlot && slotRepository != null) slotRepository.getSlotById(slotId) else null)
+                val s = loadedSlot ?: (if (slotId.isNotBlank() && slotRepository != null) slotRepository.getSlotById(slotId) else null)
                 if (s != null) {
                     if (com.dactor.patient.data.repository.SlotRepository.isSlotEndTimeOver(s.endTime, s.slotDate, s.startTime)) {
                         errorMessage = "This slot (${s.startTime} - ${s.endTime}) has ended and is no longer available to book."
