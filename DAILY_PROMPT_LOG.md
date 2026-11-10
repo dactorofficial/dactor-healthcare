@@ -7,6 +7,27 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-10
 
 ### Prompt:
+> "generate aab for clinic app"
+
+#### Changes Applied:
+1. **Clinic App Version Bump ([`build.gradle.kts`](file:///g:/My%20Drive/New%20folder/clinic-app/app/build.gradle.kts))**:
+   - Incremented `versionCode` from `84` to `85`.
+   - Incremented `versionName` from `"1.0.84"` to `"1.0.85"`.
+2. **Production Android App Bundle Build ([`build_clinic_aab_ssd.ps1`](file:///g:/My%20Drive/New%20folder/build_clinic_aab_ssd.ps1))**:
+   - Staged sources to local high-speed SSD build directory (`C:\dactor-ssd-build\clinic-app`).
+   - Built signed production release bundle (`bundleRelease`) using official production upload keystore (`dactor-upload`).
+   - File size: 23.24 MB (24,373,170 bytes).
+3. **Artifact Staging & Distribution**:
+   - `AABs/Dactor-ClinicApp-v1.0.85.aab`
+   - `PlayStore/clinic-app/Dactor-ClinicApp-v1.0.85.aab`
+   - `AABs/Dactor-ClinicApp-v85.aab`
+   - Local SSD backup: `C:\Users\nitup\Dactor-APKs\Dactor-ClinicApp-v1.0.85.aab`
+4. **Documentation Updates**:
+   - Updated executive summary and release log table in [`HANDOFF.md`](file:///g:/My%20Drive/New%20folder/HANDOFF.md).
+
+---
+
+### Prompt:
 > "google login is still not working on website"
 
 #### Changes Applied:
@@ -933,6 +954,27 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-10
 
 ### Prompt:
+> "generate aab for clinic app"
+
+#### Changes Applied:
+1. **Clinic App Version Bump ([`build.gradle.kts`](file:///g:/My%20Drive/New%20folder/clinic-app/app/build.gradle.kts))**:
+   - Incremented `versionCode` from `84` to `85`.
+   - Incremented `versionName` from `"1.0.84"` to `"1.0.85"`.
+2. **Production Android App Bundle Build ([`build_clinic_aab_ssd.ps1`](file:///g:/My%20Drive/New%20folder/build_clinic_aab_ssd.ps1))**:
+   - Staged sources to local high-speed SSD build directory (`C:\dactor-ssd-build\clinic-app`).
+   - Built signed production release bundle (`bundleRelease`) using official production upload keystore (`dactor-upload`).
+   - File size: 23.24 MB (24,373,170 bytes).
+3. **Artifact Staging & Distribution**:
+   - `AABs/Dactor-ClinicApp-v1.0.85.aab`
+   - `PlayStore/clinic-app/Dactor-ClinicApp-v1.0.85.aab`
+   - `AABs/Dactor-ClinicApp-v85.aab`
+   - Local SSD backup: `C:\Users\nitup\Dactor-APKs\Dactor-ClinicApp-v1.0.85.aab`
+4. **Documentation Updates**:
+   - Updated executive summary and release log table in [`HANDOFF.md`](file:///g:/My%20Drive/New%20folder/HANDOFF.md).
+
+---
+
+### Prompt:
 > "pull the new folder from dactor healthcare"
 
 #### Changes Applied:
@@ -987,3 +1029,33 @@ This file tracks user prompts and the exact changes applied across the codebase,
    - Wrapped all ppointmentDao local caching calls across pprovePayAtDeskAppointment, ejectPayAtDeskAppointment, markPaymentCollectedAtDesk, and cancelAppointment in non-fatal 	ry/catch blocks so local caching never aborts or drops successful cloud RPC operations.
    - Removed pproved_at and expires_at from the Tier-2 fallback direct update payload to strictly comply with database anti-tampering triggers (ppointments_prevent_patient_privilege_escalation).
 
+
+---
+
+### Prompt:
+> "generate aab for patient app"
+
+#### Changes Applied:
+1. **Patient App Version Increment ([uild.gradle.kts](file:///g:/My%20Drive/New%20folder/patient-app/app/build.gradle.kts))**:
+   - Incremented `versionCode` from 136 to 137 (+1).
+   - Incremented `versionName` from "1.0.36" to "1.0.37".
+   - Configured isCrunchPngs = false in uildTypes.release to eliminate AAPT2 resource crunching timeouts on high-resolution drawables.
+
+2. **Gradle & AAPT2 Daemon Stability ([gradle.properties](file:///g:/My%20Drive/New%20folder/patient-app/gradle.properties))**:
+   - Configured ndroid.aapt2compiledaemons.max=1 to serialize AAPT2 compile workers and prevent IPC pipe deadlocks on Windows.
+
+3. **Fast SSD Runner Update ([uild_patient_bundle_ssd.ps1](file:///g:/My%20Drive/New%20folder/build_patient_bundle_ssd.ps1))**:
+   - Replaced PowerShell Remove-Item with cmd /c rd /s /q to overcome Windows MAX_PATH length limitations on nested ASM/DEX directories during cleanup.
+
+4. **Production Signed AAB Generation & Multi-Destination Staging**:
+   - Successfully compiled and signed production App Bundle (Dactor-PatientApp-v1.0.37.aab, 16.71 MB / 17,525,857 bytes) using official release key dactor-upload.
+   - Staged bundle across:
+     - AABs/Dactor-PatientApp-v1.0.37.aab
+     - AABs/Dactor-PatientApp-v137.aab
+     - AABs/Dactor-PatientApp-release.aab
+     - APKs/Dactor-PatientApp-v1.0.37.aab
+     - PlayStore/patient-app/Dactor-PatientApp-v1.0.37.aab
+     - C:\Users\nitup\Dactor-APKs\Dactor-PatientApp-v1.0.37.aab
+
+5. **Master Registry & Documentation ([HANDOFF.md](file:///g:/My%20Drive/New%20folder/HANDOFF.md))**:
+   - Updated Executive Summary and Section 7 Version Registry with Patient App 1.0.37 (Code 137) release metadata and file paths.

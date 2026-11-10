@@ -17,7 +17,7 @@ Write-Host "Locked Version: v$vName (Code: $vCode)" -ForegroundColor Green
 # 2. SSD Staging Directory
 $ssdRoot = "C:\dactor-ssd-build\patient-app"
 if (Test-Path $ssdRoot) {
-    Remove-Item -Path $ssdRoot -Recurse -Force -ErrorAction SilentlyContinue
+    cmd /c rd /s /q "$ssdRoot" 2>$null
 }
 New-Item -ItemType Directory -Path "$ssdRoot\app" -Force | Out-Null
 

@@ -31,8 +31,8 @@ The DACTOR platform consists of three tightly coupled applications operating on 
 | Component | Platform / Tech | Source Folder | Live Deployment / Artifacts | Current Latest Version |
 |---|---|---|---|---|
 | **Super Admin Console** | React 18 + Vite + TypeScript + Tailwind | `admin-panel/` | [Live Site on GitHub Pages](https://dactorofficial.github.io/admin-portal/) <br> GitHub: `https://github.com/dactorofficial/admin-portal` | v1.0 |
-| **Clinic & Doctor App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `clinic-app/` | `APKs/Dactor-ClinicApp-v1.0.84.apk`<br>`AABs/Dactor-ClinicApp-v1.0.83.aab` | **v1.0.84 (Code 84)** |
-| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.36.apk`<br>`AABs/Dactor-PatientApp-v1.0.35.aab` | **v1.0.36 (Code 136)** |
+| **Clinic & Doctor App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `clinic-app/` | `APKs/Dactor-ClinicApp-v1.0.84.apk`<br>`AABs/Dactor-ClinicApp-v1.0.85.aab` | **v1.0.85 (Code 85)** |
+| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.36.apk`<br>`AABs/Dactor-PatientApp-v1.0.37.aab` | **v1.0.37 (Code 137)** |
 | **Cloud Backend & Storage** | Supabase (PostgreSQL + Auth + Storage + Realtime) | `supabase/` | Project URL: `https://ojfoofojcpabqegxmsab.supabase.co` | Cloud Live |
 
 ---
@@ -422,6 +422,8 @@ Run the install script, which automatically resolves the latest versioned APK:
 | 2026-11-09 | Clinic & Doctor | v1.0.83 | 83 | `AABs/Dactor-ClinicApp-v1.0.83.aab` | Official Google Play Store production release bundle: signed with production upload key (`dactor-upload`), versionCode 83, versionName 1.0.83 (23.24 MB / 24,372,942 bytes). Includes Pay at Desk database table error resolution, safe notification handling with exception containment, strict live queue isolation for pending requests (`WAITING_FOR_APPROVAL`), atomic queue transfer upon clinic approval into the patient's pre-selected slot, and manual slot publishing decoupling. Staged to `AABs/`, `PlayStore/clinic-app/`, and SSD backup. |
 | 2026-11-09 | Patient | v1.0.33 | 133 | `AABs/Dactor-PatientApp-v1.0.33.aab` | Official Google Play Store production release bundle: signed with production upload key (`dactor-upload`), versionCode 133, versionName 1.0.33 (16.47 MB / 17,275,231 bytes). Includes character sanitization in `BookingScreen.kt`, unified UTF-8 encoding cleanups across discovery and tracking screens, Core Library Desugaring, and multi-destination staging to `AABs/`, `PlayStore/patient-app/`, and SSD backup. |
 | 2026-11-09 | Clinic & Doctor | v1.0.84 | 84 | `APKs/Dactor-ClinicApp-v1.0.84.apk` | Debug APK build: resolved `TextOverflow` and `Icons.AutoMirrored.Filled` import in `DashboardScreen.kt`, compiled with API 36 / Core Library Desugaring, staged to `APKs/` and local SSD backup (39.81 MB). |
+| 2026-11-10 | Clinic & Doctor | v1.0.85 | 85 | `AABs/Dactor-ClinicApp-v1.0.85.aab` | Official Google Play Store production release bundle: signed with production upload key (`dactor-upload`), versionCode 85, versionName 1.0.85 (23.24 MB / 24,373,170 bytes). Staged to `AABs/`, `PlayStore/clinic-app/`, and SSD backup. |
+| 2026-11-10 | Patient | v1.0.37 | 137 | `AABs/Dactor-PatientApp-v1.0.37.aab` | Official Google Play Store production release bundle: signed with production upload key (`dactor-upload`), versionCode 137, versionName 1.0.37 (16.71 MB / 17,525,857 bytes). Compiled with API 36 / Core Library Desugaring, resource crunching optimizations (`isCrunchPngs = false`), AAPT2 daemon serialization (`android.aapt2compiledaemons.max=1`), Room identity integrity resilience, and multi-destination staging to `AABs/`, `APKs/`, `PlayStore/patient-app/`, and SSD backup. |
 
 ---
 
