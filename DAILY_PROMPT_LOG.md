@@ -7,6 +7,21 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-10
 
 ### Prompt:
+> "make the change s live into website"
+
+#### Changes Applied:
+1. **GitHub Pages Deployment Script ([`deploy_ghpages.ps1`](file:///g:/My%20Drive/New%20folder/scripts/deploy_ghpages.ps1))**:
+   - Updated PAT authentication token and added `$env:GIT_TERMINAL_PROMPT = "0"` with `credential.helper = ""` to prevent interactive credential manager blocking.
+   - Re-compiled production web bundle with updated route whitelist and deployed to both GitHub Pages destinations:
+     - Root user domain: `https://dactorofficial.github.io/` (`dactorofficial/dactorofficial.github.io:main`).
+     - Repo subfolder mirror: `https://dactorofficial.github.io/dactor/` (`dactorofficial/dactor:gh-pages`).
+2. **Multi-Repo Source Synchronization ([`push_website_and_repos.cjs`](file:///g:/My%20Drive/New%20folder/scripts/push_website_and_repos.cjs))**:
+   - Synchronized updated source files (`App.tsx`, `firebase.ts`, `PatientPortal.tsx`, `db.ts`, `ClinicPortal.tsx`) to `rajanpurbe/Dactor` (main) and `dactorofficial/dactor` (main).
+   - Confirmed live HTTP response and assets serving the new `index-BbqQpprb.js` bundle with route whitelist fixes intact.
+
+---
+
+### Prompt:
 > "google login of the website is not working. find the error and solve it /plan"
 
 #### Changes Applied:

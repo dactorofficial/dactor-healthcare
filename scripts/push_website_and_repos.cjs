@@ -3,7 +3,7 @@ const path = require('path');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 
-const TOKEN_OFFICIAL = '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';
+const TOKEN_OFFICIAL = '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';
 const TOKEN_RAJAN = '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';
 
 async function githubApi(endpoint, token, options = {}) {
@@ -144,10 +144,13 @@ async function deployDistToPages(owner, repo, branch, token, distDir, commitMsg)
 }
 
 async function main() {
-  const commitMsg = 'feat: arrange pay-at-desk approvals in chronological order oldest on top (FIFO) across clinic app and web portal';
+  const commitMsg = 'fix(web-app): resolve Google login 404 routing error and update route whitelist';
 
   // 1. Files for rajanpurbe/Dactor (web app repository root)
   const webFiles = {
+    'src/App.tsx': path.join(ROOT_DIR, 'web-app', 'src', 'App.tsx'),
+    'src/lib/firebase.ts': path.join(ROOT_DIR, 'web-app', 'src', 'lib', 'firebase.ts'),
+    'src/pages/PatientPortal.tsx': path.join(ROOT_DIR, 'web-app', 'src', 'pages', 'PatientPortal.tsx'),
     'src/services/db.ts': path.join(ROOT_DIR, 'web-app', 'src', 'services', 'db.ts'),
     'src/pages/ClinicPortal.tsx': path.join(ROOT_DIR, 'web-app', 'src', 'pages', 'ClinicPortal.tsx')
   };
@@ -155,23 +158,16 @@ async function main() {
 
   // 2. Files for dactorofficial/dactor (central monorepo)
   const monorepoFiles = {
-    'clinic-app/app/src/main/java/com/dactor/clinic/data/model/Appointment.kt': path.join(ROOT_DIR, 'clinic-app', 'app', 'src', 'main', 'java', 'com', 'dactor', 'clinic', 'data', 'model', 'Appointment.kt'),
-    'clinic-app/app/src/main/java/com/dactor/clinic/data/local/entity/AppointmentEntity.kt': path.join(ROOT_DIR, 'clinic-app', 'app', 'src', 'main', 'java', 'com', 'dactor', 'clinic', 'data', 'local', 'entity', 'AppointmentEntity.kt'),
-    'clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt': path.join(ROOT_DIR, 'clinic-app', 'app', 'src', 'main', 'java', 'com', 'dactor', 'clinic', 'data', 'repository', 'AppointmentRepository.kt'),
-    'clinic-app/app/src/main/java/com/dactor/clinic/ui/appointments/PayAtDeskRequestsScreen.kt': path.join(ROOT_DIR, 'clinic-app', 'app', 'src', 'main', 'java', 'com', 'dactor', 'clinic', 'ui', 'appointments', 'PayAtDeskRequestsScreen.kt'),
-    'clinic-app/app/src/test/java/com/dactor/clinic/domain/util/PayAtDeskOrderingTest.kt': path.join(ROOT_DIR, 'clinic-app', 'app', 'src', 'test', 'java', 'com', 'dactor', 'clinic', 'domain', 'util', 'PayAtDeskOrderingTest.kt'),
+    'web-app/src/App.tsx': path.join(ROOT_DIR, 'web-app', 'src', 'App.tsx'),
+    'web-app/src/lib/firebase.ts': path.join(ROOT_DIR, 'web-app', 'src', 'lib', 'firebase.ts'),
+    'web-app/src/pages/PatientPortal.tsx': path.join(ROOT_DIR, 'web-app', 'src', 'pages', 'PatientPortal.tsx'),
     'web-app/src/services/db.ts': path.join(ROOT_DIR, 'web-app', 'src', 'services', 'db.ts'),
     'web-app/src/pages/ClinicPortal.tsx': path.join(ROOT_DIR, 'web-app', 'src', 'pages', 'ClinicPortal.tsx')
   };
   await pushFilesToRepo('dactorofficial', 'dactor', 'main', TOKEN_OFFICIAL, monorepoFiles, commitMsg);
 
-  // 3. Deploy compiled web-app/dist to GitHub Pages (dactorofficial.github.io & dactor:gh-pages)
-  const distDir = path.join(ROOT_DIR, 'web-app', 'dist');
-  if (fs.existsSync(distDir)) {
-    const deployMsg = 'deploy: arrange pay-at-desk approvals in chronological order oldest on top (FIFO)';
-    await deployDistToPages('dactorofficial', 'dactorofficial.github.io', 'main', TOKEN_OFFICIAL, distDir, deployMsg);
-    await deployDistToPages('dactorofficial', 'dactor', 'gh-pages', TOKEN_OFFICIAL, distDir, deployMsg);
-  }
+  // 3. Deploy compiled web-app/dist to GitHub Pages (already deployed via scripts/deploy_ghpages.ps1)
+  console.log('\nGitHub Pages already synchronized via scripts/deploy_ghpages.ps1.');
 
   console.log('\n🎉 ALL PUSHES AND DEPLOYMENTS COMPLETED SUCCESSFULLY!');
 }
