@@ -49,6 +49,12 @@ export const normalizeTab = (tab: string): string => {
   ) {
     return 'patient-portal'
   }
+  if (clean === 'account' || clean === 'profile') {
+    return 'account'
+  }
+  if (clean === 'records' || clean === 'medical-records') {
+    return 'records'
+  }
   return clean
 }
 
@@ -79,6 +85,9 @@ const getTabFromUrl = (): string => {
         const target = localStorage.getItem('dactor_oauth_target_portal') || sessionStorage.getItem('dactor_oauth_target_portal')
         if (target === 'clinic') return 'portal'
         if (target === 'doctor') return 'doctor-portal'
+        if (target === 'account') return 'account'
+        if (target === 'records') return 'records'
+        if (target === 'patient-portal') return 'patient-portal'
         if (target === 'patient') return 'login'
       } catch {}
       return 'portal'
@@ -182,7 +191,9 @@ const getTabFromUrl = (): string => {
         const target = localStorage.getItem('dactor_oauth_target_portal') || sessionStorage.getItem('dactor_oauth_target_portal')
         if (target === 'clinic') return 'portal'
         if (target === 'doctor') return 'doctor-portal'
-        if (target === 'patient') return 'patient-portal'
+        if (target === 'account') return 'account'
+        if (target === 'records') return 'records'
+        if (target === 'patient' || target === 'patient-portal') return 'patient-portal'
       } catch {}
       return 'portal'
     }
@@ -278,6 +289,9 @@ export const getInitialTab = (): string => {
     const oauthTarget = localStorage.getItem('dactor_oauth_target_portal') || sessionStorage.getItem('dactor_oauth_target_portal')
     if (oauthTarget === 'clinic') return 'portal'
     if (oauthTarget === 'doctor') return 'doctor-portal'
+    if (oauthTarget === 'account') return 'account'
+    if (oauthTarget === 'records') return 'records'
+    if (oauthTarget === 'patient-portal') return 'patient-portal'
     if (oauthTarget === 'patient') return 'patient-portal'
   } catch {}
 
@@ -895,6 +909,8 @@ export const App: React.FC = () => {
             'lab-reports',
             'average-time',
             'patient-portal',
+            'records',
+            'account',
             'login',
             'doctor-portal',
             'portal',

@@ -2396,7 +2396,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     setAuthError(null)
     try {
       await firebaseSignOut()
-      const gUser = await signInWithFirebaseGoogle()
+      const gUser = await signInWithFirebaseGoogle(activeTab === 'account' ? 'account' : 'patient')
       if (!gUser || !gUser.email) return
 
       // Enforce 1 Google Account = 1 Portal Role rule

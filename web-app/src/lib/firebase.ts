@@ -139,7 +139,9 @@ export function onFirebaseAuthStateChanged(callback: (user: FirebaseAuthUser | n
  * Real Google Sign-In with official Google Account Chooser (prompt: 'select_account')
  * Strictly calls official Google OAuth. No mock accounts, no editable email inputs.
  */
-export async function signInWithFirebaseGoogle(portalHint: 'clinic' | 'doctor' | 'patient' = 'clinic'): Promise<FirebaseAuthUser> {
+export async function signInWithFirebaseGoogle(
+  portalHint: 'clinic' | 'doctor' | 'patient' | 'account' | 'records' | 'patient-portal' = 'patient'
+): Promise<FirebaseAuthUser> {
   // Save intended destination so redirect returns properly
   try {
     localStorage.setItem('dactor_oauth_target_portal', portalHint)

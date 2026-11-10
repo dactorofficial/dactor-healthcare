@@ -4,6 +4,23 @@ This file tracks user prompts and the exact changes applied across the codebase,
 
 ---
 
+## 2026-11-10
+
+### Prompt:
+> "google login of the website is not working. find the error and solve it /plan"
+
+#### Changes Applied:
+1. **Web App Router 404 & Active Tab Whitelist ([`App.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/App.tsx))**:
+   - Fixed 404 "Page or Link Not Found" error when visiting `/#account` or `/#records` by adding `'records'` and `'account'` to the recognized route whitelist in the 404 handler condition (`!['home', 'clinics', 'clinic-detail', 'live-queue', 'lab-reports', 'average-time', 'patient-portal', 'records', 'account', 'login', 'doctor-portal', 'portal', 'support'].includes(activeTab)`).
+   - In `normalizeTab`, added explicit normalization for `'account'`, `'profile'`, `'records'`, and `'medical-records'`.
+   - Updated `hasOAuthParams`, `hash.includes('access_token')`, and `getInitialTab` OAuth return checks to support `'account'`, `'records'`, and `'patient-portal'` targets so users returning from Google authentication are properly routed to their intended dashboard.
+2. **Firebase & Google OAuth Hint Parameter ([`firebase.ts`](file:///g:/My%20Drive/New%20folder/web-app/src/lib/firebase.ts))**:
+   - Expanded `portalHint` parameter in `signInWithFirebaseGoogle` to accept `'account' | 'records' | 'patient-portal'` and updated default parameter from `'clinic'` to `'patient'`.
+3. **Patient Portal Google Sign-In ([`PatientPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/PatientPortal.tsx))**:
+   - In `handleGoogleSignIn`, updated `signInWithFirebaseGoogle()` to explicitly pass `activeTab === 'account' ? 'account' : 'patient'`, preventing unintended redirection to the clinic portal upon Google OAuth completion.
+
+---
+
 ## 2026-11-09
 
 ### Prompt:
