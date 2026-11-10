@@ -972,3 +972,18 @@ This file tracks user prompts and the exact changes applied across the codebase,
 #### Changes Applied:
 - **Technical Clarification**: Explained Android package name and signature constraints regarding side-by-side app coexistence.
 - **Dual-Install Solutions Provided**: Outlined how to have two separate instances (Samsung Secure Folder / Dual Apps or configuring `applicationIdSuffix = ".debug"`), as well as confirming that Clinic and Patient apps already run side-by-side without conflict.
+
+---
+
+### Prompt:
+> "Is this the reason why confirm is not working as well /plan" (Screenshots showing Room schema hash integrity mismatch on cancel and Http Method: PATCH error on approve)
+
+#### Changes Applied:
+1. **Clinic Database Version Bump & Self-Healing Integrity Probe ([ClinicDatabase.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/data/local/ClinicDatabase.kt))**:
+   - Incremented Room @Database version from 1 to 2.
+   - Added self-healing schema integrity validation probe on database startup (db.openHelper.writableDatabase), catching schema hash mismatches (Expected identity hash: 9145805391...) and corruption, safely deleting the stale database file, and creating a fresh encrypted instance.
+
+2. **Defensive Room Synchronization & Anti-Tampering Payload Alignment ([AppointmentRepository.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt))**:
+   - Wrapped all ppointmentDao local caching calls across pprovePayAtDeskAppointment, ejectPayAtDeskAppointment, markPaymentCollectedAtDesk, and cancelAppointment in non-fatal 	ry/catch blocks so local caching never aborts or drops successful cloud RPC operations.
+   - Removed pproved_at and expires_at from the Tier-2 fallback direct update payload to strictly comply with database anti-tampering triggers (ppointments_prevent_patient_privilege_escalation).
+

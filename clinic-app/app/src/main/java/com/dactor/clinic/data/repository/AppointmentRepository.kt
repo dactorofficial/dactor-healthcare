@@ -1118,9 +1118,13 @@ class AppointmentRepository @Inject constructor(
                 true
             }
             if (isSuccess) {
-                // Synchronize local Room database if available
-                appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
-                    appointmentDao.upsert(local.copy(status = "APPROVED", checkinStatus = "checked_in", syncStatus = "synced"))
+                // Synchronize local Room database safely without failing cloud operation
+                try {
+                    appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
+                        appointmentDao.upsert(local.copy(status = "APPROVED", checkinStatus = "checked_in", syncStatus = "synced"))
+                    }
+                } catch (roomErr: Exception) {
+                    android.util.Log.w("AppointmentRepository", "Non-fatal Room cache sync ignored: ${roomErr.message}")
                 }
                 return@withContext Result.success(true)
             }
@@ -1193,9 +1197,13 @@ class AppointmentRepository @Inject constructor(
                 }
             }
 
-            // Update local Room database
-            appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
-                appointmentDao.upsert(local.copy(status = "APPROVED", checkinStatus = "checked_in", syncStatus = "synced"))
+            // Update local Room database safely
+            try {
+                appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
+                    appointmentDao.upsert(local.copy(status = "APPROVED", checkinStatus = "checked_in", syncStatus = "synced"))
+                }
+            } catch (roomErr: Exception) {
+                android.util.Log.w("AppointmentRepository", "Non-fatal Room cache sync ignored: ${roomErr.message}")
             }
 
             return@withContext Result.success(true)
@@ -1215,8 +1223,12 @@ class AppointmentRepository @Inject constructor(
             }) {
                 filter { eq("id", appointmentId) }
             }
-            appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
+            try {
+                appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
                 appointmentDao.upsert(local.copy(paymentStatus = "paid", syncStatus = "synced"))
+                }
+            } catch (roomErr: Exception) {
+                android.util.Log.w("AppointmentRepository", "Non-fatal Room cache sync ignored: ${roomErr.message}")
             }
             Result.success(true)
         } catch (e: Exception) {
@@ -1243,8 +1255,12 @@ class AppointmentRepository @Inject constructor(
                 true
             }
             if (isSuccess) {
-                appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
-                    appointmentDao.upsert(local.copy(status = "CANCELLED", checkinStatus = "cancelled", syncStatus = "synced"))
+                try {
+                    appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
+                        appointmentDao.upsert(local.copy(status = "CANCELLED", checkinStatus = "cancelled", syncStatus = "synced"))
+                    }
+                } catch (roomErr: Exception) {
+                    android.util.Log.w("AppointmentRepository", "Non-fatal Room cache sync ignored: ${roomErr.message}")
                 }
                 return@withContext Result.success(true)
             }
@@ -1265,8 +1281,12 @@ class AppointmentRepository @Inject constructor(
                 false
             }
             if (isSuccess) {
-                appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
-                    appointmentDao.upsert(local.copy(status = "CANCELLED", checkinStatus = "cancelled", syncStatus = "synced"))
+                try {
+                    appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
+                        appointmentDao.upsert(local.copy(status = "CANCELLED", checkinStatus = "cancelled", syncStatus = "synced"))
+                    }
+                } catch (roomErr: Exception) {
+                    android.util.Log.w("AppointmentRepository", "Non-fatal Room cache sync ignored: ${roomErr.message}")
                 }
                 return@withContext Result.success(true)
             }
@@ -1293,8 +1313,12 @@ class AppointmentRepository @Inject constructor(
                 }
             } catch (_: Exception) {}
 
-            appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
-                appointmentDao.upsert(local.copy(status = "CANCELLED", checkinStatus = "cancelled", syncStatus = "synced"))
+            try {
+                appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
+                    appointmentDao.upsert(local.copy(status = "CANCELLED", checkinStatus = "cancelled", syncStatus = "synced"))
+                }
+            } catch (roomErr: Exception) {
+                android.util.Log.w("AppointmentRepository", "Non-fatal Room cache sync ignored: ${roomErr.message}")
             }
 
             return@withContext Result.success(true)

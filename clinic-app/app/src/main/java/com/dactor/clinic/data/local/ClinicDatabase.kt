@@ -26,7 +26,7 @@ import net.sqlcipher.database.SupportFactory
         QueueEntryEntity::class,
         SyncMetadataEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class ClinicDatabase : RoomDatabase() {
@@ -68,14 +68,28 @@ abstract class ClinicDatabase : RoomDatabase() {
                 Log.w(TAG, "Pre-flight database check error: ${t.message}", t)
             }
 
-            return Room.databaseBuilder(
-                appContext,
-                ClinicDatabase::class.java,
-                DATABASE_NAME
-            )
-                .openHelperFactory(supportFactory)
-                .fallbackToDestructiveMigration()
-                .build()
+            fun createRoomInstance(): ClinicDatabase {
+                return Room.databaseBuilder(
+                    appContext,
+                    ClinicDatabase::class.java,
+                    DATABASE_NAME
+                )
+                    .openHelperFactory(supportFactory)
+                    .fallbackToDestructiveMigration()
+                    .build()
+            }
+
+            val db = createRoomInstance()
+            return try {
+                // Self-healing schema validation probe: catches identity hash mismatches
+                db.openHelper.writableDatabase
+                db
+            } catch (integrityErr: Throwable) {
+                Log.e(TAG, "Room integrity/schema hash mismatch. Resetting local encrypted DB to self-heal.", integrityErr)
+                try { db.close() } catch (_: Throwable) {}
+                appContext.deleteDatabase(DATABASE_NAME)
+                createRoomInstance()
+            }
         }
     }
 }
