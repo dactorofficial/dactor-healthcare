@@ -142,40 +142,13 @@ export function onFirebaseAuthStateChanged(callback: (user: FirebaseAuthUser | n
 export async function signInWithFirebaseGoogle(
   portalHint: 'clinic' | 'doctor' | 'patient' | 'account' | 'records' | 'patient-portal' = 'patient'
 ): Promise<FirebaseAuthUser> {
-  // Save intended destination so redirect returns properly
+  // Save intended destination so portal navigation persists
   try {
-    localStorage.setItem('dactor_oauth_target_portal', portalHint)
     sessionStorage.setItem('dactor_oauth_target_portal', portalHint)
+    localStorage.setItem('dactor_oauth_target_portal', portalHint)
   } catch {}
 
-  const isMobile = isMobileBrowser()
-
-  // On mobile devices, always use signInWithRedirect because mobile browsers block or fail popups
-  if (isMobile) {
-    if (typeof window !== 'undefined' && (window as any).dactorFirebase?.signInWithRedirect) {
-      await (window as any).dactorFirebase.signInWithRedirect()
-      return new Promise(() => {}) // Browser is navigating to Google OAuth
-    }
-    // Mobile fallback to Supabase Google OAuth if Firebase SDK is not initialized
-    try {
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: window.location.origin + window.location.pathname,
-          queryParams: { prompt: 'select_account' },
-        },
-      })
-      if (error) throw error
-      if (data?.url) {
-        window.location.href = data.url
-        return new Promise(() => {})
-      }
-    } catch (sbErr: any) {
-      console.warn('Supabase OAuth mobile fallback notice:', sbErr)
-    }
-  }
-
-  // On desktop, attempt official Firebase Google popup
+  // Trigger official Google popup (works consistently across desktop & mobile without third-party cookie blocking)
   if (typeof window !== 'undefined' && (window as any).dactorFirebase?.signInWithGoogle) {
     try {
       const result = await (window as any).dactorFirebase.signInWithGoogle()
@@ -191,68 +164,29 @@ export async function signInWithFirebaseGoogle(
         return userObj
       }
     } catch (fbErr: any) {
-      console.warn('Firebase Google Sign-In popup notice:', fbErr)
+      console.warn('Firebase Google Sign-In notice:', fbErr)
       const code = fbErr?.code || ''
       const msg = fbErr?.message || ''
 
-      // On popup blockage or closed by user, fall back to redirect flow
-      if (
-        code === 'auth/popup-blocked' ||
-        code === 'auth/popup-closed-by-user' ||
-        msg.includes('popup-blocked') ||
-        msg.includes('popup-closed-by-user')
-      ) {
-        if ((window as any).dactorFirebase?.signInWithRedirect) {
-          await (window as any).dactorFirebase.signInWithRedirect()
-          return new Promise(() => {})
-        }
+      if (code === 'auth/popup-blocked' || msg.includes('popup-blocked')) {
+        throw new Error('Google Sign-In popup was blocked by your browser. Please tap "Sign in with Google" again and allow popups.')
+      }
+
+      if (code === 'auth/popup-closed-by-user' || msg.includes('popup-closed-by-user') || msg.includes('cancelled')) {
+        throw new Error('Google Sign-In was closed before completing. Please tap to try again.')
       }
 
       if (code === 'auth/unauthorized-domain' || msg.includes('unauthorized-domain')) {
-        // Fallback to Supabase Google OAuth if domain is pending in Firebase console
-        try {
-          const { data, error } = await supabase.auth.signInWithOAuth({
-            provider: 'google',
-            options: {
-              redirectTo: window.location.origin + window.location.pathname,
-              queryParams: { prompt: 'select_account' },
-            },
-          })
-          if (error) throw error
-          if (data?.url) {
-            window.location.href = data.url
-            return new Promise(() => {})
-          }
-        } catch (sbErr: any) {
-          throw new Error(
-            `Google OAuth Domain Authorization: Please ensure "${window.location.hostname}" is added in Firebase Console -> Authentication -> Settings -> Authorized Domains.`
-          )
-        }
+        throw new Error(
+          `Google OAuth Domain Authorization: Please ensure "${window.location.hostname}" is added in Firebase Console -> Authentication -> Settings -> Authorized Domains.`
+        )
       }
 
       throw new Error(fbErr.message || 'Google Sign-In failed. Please try again.')
     }
   }
 
-  // 2. Fallback to Supabase Google OAuth if Firebase unavailable
-  try {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: window.location.origin + window.location.pathname,
-        queryParams: { prompt: 'select_account' },
-      },
-    })
-    if (error) throw error
-    if (data?.url) {
-      window.location.href = data.url
-      return new Promise(() => {})
-    }
-  } catch (sbErr: any) {
-    throw new Error(sbErr.message || 'Google OAuth Sign-In failed.')
-  }
-
-  throw new Error('Google Sign-In service could not be initialized.')
+  throw new Error('Google Sign-In service is initializing. Please tap again in a moment.')
 }
 
 export async function signOutFirebase(): Promise<void> {

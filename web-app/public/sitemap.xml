@@ -299,19 +299,6 @@
     <changefreq>daily</changefreq>
     <priority>0.85</priority>
   </url>
-  <!-- Clinic Booking: Dup Test -->
-  <url>
-    <loc>https://dactorofficial.github.io/dactor/?clinic=518ed5f2-0213-45a1-8933-b10dd2844e52&amp;action=book</loc>
-    <lastmod>2026-10-27</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.95</priority>
-  </url>
-  <url>
-    <loc>https://dactorofficial.github.io/dactor/?clinic=518ed5f2-0213-45a1-8933-b10dd2844e52</loc>
-    <lastmod>2026-10-27</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>0.85</priority>
-  </url>
   <!-- Clinic Booking: try -->
   <url>
     <loc>https://dactorofficial.github.io/dactor/?clinic=d5e5097f-4492-4bb9-8bc7-78b74c6fe540&amp;action=book</loc>
@@ -322,6 +309,19 @@
   <url>
     <loc>https://dactorofficial.github.io/dactor/?clinic=d5e5097f-4492-4bb9-8bc7-78b74c6fe540</loc>
     <lastmod>2026-10-24</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+  <!-- Clinic Booking: Dup Test -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=518ed5f2-0213-45a1-8933-b10dd2844e52&amp;action=book</loc>
+    <lastmod>2026-11-10</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=518ed5f2-0213-45a1-8933-b10dd2844e52</loc>
+    <lastmod>2026-11-10</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.85</priority>
   </url>
@@ -393,13 +393,13 @@
   <!-- Clinic Booking: hehe clinic -->
   <url>
     <loc>https://dactorofficial.github.io/dactor/?clinic=b5ea381f-b55e-46c8-b555-ade3e2818d07&amp;action=book</loc>
-    <lastmod>2026-10-24</lastmod>
+    <lastmod>2026-11-10</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.95</priority>
   </url>
   <url>
     <loc>https://dactorofficial.github.io/dactor/?clinic=b5ea381f-b55e-46c8-b555-ade3e2818d07</loc>
-    <lastmod>2026-10-24</lastmod>
+    <lastmod>2026-11-10</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.85</priority>
   </url>

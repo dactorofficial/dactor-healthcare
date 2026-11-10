@@ -7,6 +7,23 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-10
 
 ### Prompt:
+> "google login is still not working on website"
+
+#### Changes Applied:
+1. **Firebase Authentication Strategy Alignment ([`firebase.ts`](file:///g:/My%20Drive/New%20folder/web-app/src/lib/firebase.ts))**:
+   - Removed `isMobileBrowser()` redirect enforcement. On static hosting like GitHub Pages (`github.io`), `signInWithRedirect` and `getRedirectResult()` fail on mobile browsers because third-party storage/cookies are blocked between `github.io` and `firebaseapp.com`.
+   - Switched to unified `signInWithPopup(googleProvider)` across both mobile and desktop, which executes in a first-party context and successfully returns the authenticated user without cookie partitioning issues.
+   - Enhanced error handling to translate `auth/popup-blocked` and `auth/popup-closed-by-user` into clear, actionable UI guidance.
+2. **Patient Portal User Activation & Auth State Listener ([`PatientPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/PatientPortal.tsx))**:
+   - Removed `await firebaseSignOut()` preceding `signInWithFirebaseGoogle()`, maintaining immediate user interaction event stack and preventing browsers from automatically classifying the Google sign-in window as an un-gestured popup.
+   - Subscribed to `onFirebaseAuthStateChanged` in a dedicated `useEffect` so that asynchronous token hydration and popup completions automatically update patient authentication state and load the dashboard.
+   - Added `authError` alert message display and loading spinner (`RefreshCw animate-spin` / `authSubmitting`) to the `#account` tab Google login view.
+3. **OAuth Target Cleanup ([`App.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/App.tsx))**:
+   - Cleaned up `dactor_oauth_target_portal` upon initial tab resolution so stale redirect hints do not persist in storage.
+
+---
+
+### Prompt:
 > "make the change s live into website"
 
 #### Changes Applied:

@@ -82,13 +82,14 @@ const getTabFromUrl = (): string => {
 
     if (hasOAuthParams) {
       try {
-        const target = localStorage.getItem('dactor_oauth_target_portal') || sessionStorage.getItem('dactor_oauth_target_portal')
+        const target = sessionStorage.getItem('dactor_oauth_target_portal') || localStorage.getItem('dactor_oauth_target_portal')
+        sessionStorage.removeItem('dactor_oauth_target_portal')
+        localStorage.removeItem('dactor_oauth_target_portal')
         if (target === 'clinic') return 'portal'
         if (target === 'doctor') return 'doctor-portal'
         if (target === 'account') return 'account'
         if (target === 'records') return 'records'
-        if (target === 'patient-portal') return 'patient-portal'
-        if (target === 'patient') return 'login'
+        if (target === 'patient-portal' || target === 'patient') return 'patient-portal'
       } catch {}
       return 'portal'
     }
@@ -286,13 +287,16 @@ export const getInitialTab = (): string => {
 
   // Check if user was in the middle of Google OAuth redirect
   try {
-    const oauthTarget = localStorage.getItem('dactor_oauth_target_portal') || sessionStorage.getItem('dactor_oauth_target_portal')
-    if (oauthTarget === 'clinic') return 'portal'
-    if (oauthTarget === 'doctor') return 'doctor-portal'
-    if (oauthTarget === 'account') return 'account'
-    if (oauthTarget === 'records') return 'records'
-    if (oauthTarget === 'patient-portal') return 'patient-portal'
-    if (oauthTarget === 'patient') return 'patient-portal'
+    const oauthTarget = sessionStorage.getItem('dactor_oauth_target_portal')
+    if (oauthTarget) {
+      sessionStorage.removeItem('dactor_oauth_target_portal')
+      localStorage.removeItem('dactor_oauth_target_portal')
+      if (oauthTarget === 'clinic') return 'portal'
+      if (oauthTarget === 'doctor') return 'doctor-portal'
+      if (oauthTarget === 'account') return 'account'
+      if (oauthTarget === 'records') return 'records'
+      if (oauthTarget === 'patient-portal' || oauthTarget === 'patient') return 'patient-portal'
+    }
   } catch {}
 
   // Auto-redirect logged-in users upon initial load to their respective portal

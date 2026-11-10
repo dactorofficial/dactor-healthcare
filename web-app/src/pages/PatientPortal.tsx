@@ -183,6 +183,7 @@ import {
   firebaseSignOut,
   signInWithFirebaseGoogle,
   checkRedirectGoogleUser,
+  onFirebaseAuthStateChanged,
   deleteFirebaseUserAccount,
 } from '../lib/firebase'
 import { supabase } from '../lib/supabase'
@@ -927,6 +928,43 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     }
     restoreSession()
   }, [])
+
+  // Listen for Firebase Auth state changes (popup completion, cached token hydration)
+  useEffect(() => {
+    let isMounted = true
+    const unsub = onFirebaseAuthStateChanged(async (u) => {
+      if (!isMounted || !u || !u.email) return
+
+      // If user is already loaded with the same email, don't re-fetch
+      if (patientUser && patientUser.email.toLowerCase() === u.email.toLowerCase()) return
+
+      try {
+        const assoc = await checkEmailPortalAssociation(u.email)
+        if (assoc && assoc.portal !== 'patient') return
+
+        const profile = await getPatientProfileByEmail(u.email)
+        const photo = u.photoURL || profile?.photoUrl
+        if (profile && profile.fullName) {
+          const fullProfile = { ...profile, photoUrl: photo }
+          if (isMounted) {
+            setPatientUser(fullProfile)
+            initProfileFields(fullProfile)
+            localStorage.setItem('dactor_patient_email', profile.email)
+            localStorage.setItem('dactor_patient_session', JSON.stringify(fullProfile))
+            localStorage.setItem('dactor_patient_logged_in', 'true')
+            window.dispatchEvent(new Event('storage'))
+          }
+        }
+      } catch (err) {
+        console.warn('onFirebaseAuthStateChanged restore notice:', err)
+      }
+    })
+
+    return () => {
+      isMounted = false
+      if (typeof unsub === 'function') unsub()
+    }
+  }, [patientUser])
 
   const archiveDaysLeft = React.useMemo(() => {
     if (!patientUser?.deletionScheduledAt) return 30
@@ -2395,14 +2433,15 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     setAuthSubmitting(true)
     setAuthError(null)
     try {
-      await firebaseSignOut()
+      // Clear any stale local auth state non-blocking to keep browser user-activation gesture fresh
+      firebaseSignOut()
       const gUser = await signInWithFirebaseGoogle(activeTab === 'account' ? 'account' : 'patient')
       if (!gUser || !gUser.email) return
 
       // Enforce 1 Google Account = 1 Portal Role rule
       const assoc = await checkEmailPortalAssociation(gUser.email)
       if (assoc && assoc.portal !== 'patient') {
-        await firebaseSignOut()
+        firebaseSignOut()
         const entitySuffix = assoc.entityName ? ` (${assoc.entityName})` : ''
         setAuthError(
           `This Google account (${assoc.email}) is already associated with a ${assoc.portalLabel} account${entitySuffix}. You cannot log in to the Patient Portal with this Google ID. Please change your Google account.`
@@ -2463,11 +2502,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       console.warn('Patient Google Sign-In notice:', err)
       const errCode = err?.code || ''
       if (errCode === 'auth/popup-closed-by-user' || err?.message?.includes('closed-by-user')) {
-        setAuthError('Sign-in popup was closed before completing. Please try again.')
+        setAuthError('Sign-in popup was closed before completing. Please tap to try again.')
       } else if (errCode === 'auth/popup-blocked' || err?.message?.includes('popup-blocked')) {
-        setAuthError('Popup was blocked by your browser. Please allow popups and try again.')
+        setAuthError('Popup was blocked by your browser. Please tap "Sign in with Google" again and allow popups.')
       } else {
-        setAuthError(err.message || 'Google Sign-In failed')
+        setAuthError(err.message || 'Google Sign-In failed. Please try again.')
       }
     } finally {
       setAuthSubmitting(false)
@@ -5779,14 +5818,40 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   </div>
                 </div>
 
+                {authError && (
+                  <div className="max-w-md mx-auto p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs sm:text-sm flex items-start justify-between gap-3 text-left animate-fadeIn">
+                    <div className="flex items-start gap-2.5">
+                      <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                      <span className="font-medium leading-relaxed">{authError}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setAuthError(null)}
+                      className="p-1 text-rose-400 hover:text-rose-600 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-900/40 transition shrink-0"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
                 <div className="pt-2">
                   <button
                     type="button"
                     onClick={handleGoogleSignIn}
-                    className="inline-flex items-center space-x-2 px-8 py-3 bg-gradient-to-r from-blue-600 via-blue-700 to-sky-600 hover:from-blue-700 hover:to-sky-700 text-white font-bold text-sm rounded-2xl shadow-lg shadow-blue-500/25 transition transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                    disabled={authSubmitting}
+                    className="inline-flex items-center space-x-2 px-8 py-3 bg-gradient-to-r from-blue-600 via-blue-700 to-sky-600 hover:from-blue-700 hover:to-sky-700 text-white font-bold text-sm rounded-2xl shadow-lg shadow-blue-500/25 transition transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    <LogIn className="w-4 h-4" />
-                    <span>Sign in with Google</span>
+                    {authSubmitting ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Connecting to Google...</span>
+                      </>
+                    ) : (
+                      <>
+                        <LogIn className="w-4 h-4" />
+                        <span>Sign in with Google</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
