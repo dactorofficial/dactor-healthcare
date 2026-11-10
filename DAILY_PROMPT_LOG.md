@@ -890,3 +890,14 @@ This file tracks user prompts and the exact changes applied across the codebase,
 - **Repository Synchronization**: Executed git fetch origin and git pull origin main against https://github.com/dactorofficial/dactor-healthcare.git.
 - **Status Verification**: Verified local New folder workspace is 100% synchronized with remote origin/main at commit d60157e, with a clean working tree.
 
+
+
+---
+
+### Prompt:
+> "@[c:\Users\nitup\Downloads\Dactor-ClinicApp-debug.apk] install this app in my decide via adb"
+
+#### Changes Applied:
+- **Device & APK Verification**: Verified target APK exists at `c:\Users\nitup\Downloads\Dactor-ClinicApp-debug.apk`.
+- **ADB Connection Check**: Initialized ADB server via `$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe` and checked attached devices (`adb devices`).
+- **Connection Diagnostics**: Identified that no Android device is currently detected over USB/ADB, and provided troubleshooting instructions and direct installation command.
