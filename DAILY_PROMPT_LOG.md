@@ -954,27 +954,6 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-10
 
 ### Prompt:
-> "generate aab for clinic app"
-
-#### Changes Applied:
-1. **Clinic App Version Bump ([`build.gradle.kts`](file:///g:/My%20Drive/New%20folder/clinic-app/app/build.gradle.kts))**:
-   - Incremented `versionCode` from `84` to `85`.
-   - Incremented `versionName` from `"1.0.84"` to `"1.0.85"`.
-2. **Production Android App Bundle Build ([`build_clinic_aab_ssd.ps1`](file:///g:/My%20Drive/New%20folder/build_clinic_aab_ssd.ps1))**:
-   - Staged sources to local high-speed SSD build directory (`C:\dactor-ssd-build\clinic-app`).
-   - Built signed production release bundle (`bundleRelease`) using official production upload keystore (`dactor-upload`).
-   - File size: 23.24 MB (24,373,170 bytes).
-3. **Artifact Staging & Distribution**:
-   - `AABs/Dactor-ClinicApp-v1.0.85.aab`
-   - `PlayStore/clinic-app/Dactor-ClinicApp-v1.0.85.aab`
-   - `AABs/Dactor-ClinicApp-v85.aab`
-   - Local SSD backup: `C:\Users\nitup\Dactor-APKs\Dactor-ClinicApp-v1.0.85.aab`
-4. **Documentation Updates**:
-   - Updated executive summary and release log table in [`HANDOFF.md`](file:///g:/My%20Drive/New%20folder/HANDOFF.md).
-
----
-
-### Prompt:
 > "pull the new folder from dactor healthcare"
 
 #### Changes Applied:
