@@ -901,3 +901,15 @@ This file tracks user prompts and the exact changes applied across the codebase,
 - **Device & APK Verification**: Verified target APK exists at `c:\Users\nitup\Downloads\Dactor-ClinicApp-debug.apk`.
 - **ADB Connection Check**: Initialized ADB server via `$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe` and checked attached devices (`adb devices`).
 - **Connection Diagnostics**: Identified that no Android device is currently detected over USB/ADB, and provided troubleshooting instructions and direct installation command.
+
+
+---
+
+### Prompt:
+> "install now"
+
+#### Changes Applied:
+- **Device Authorization Check**: Successfully authenticated with target device `R9ZY504BE6M`.
+- **Installation Execution**: Attempted install via `adb -s R9ZY504BE6M install -r -d -g "c:\Users\nitup\Downloads\Dactor-ClinicApp-debug.apk"`.
+- **Signature Conflict Detected**: Encountered `INSTALL_FAILED_UPDATE_INCOMPATIBLE` because the currently installed `com.dactor.clinic` on the device has a different signature (release/upload key vs debug key).
+- **Resolution Strategy**: Informed user that uninstalling the existing package `com.dactor.clinic` is required before installing this debug build.
