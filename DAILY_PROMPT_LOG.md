@@ -913,3 +913,13 @@ This file tracks user prompts and the exact changes applied across the codebase,
 - **Installation Execution**: Attempted install via `adb -s R9ZY504BE6M install -r -d -g "c:\Users\nitup\Downloads\Dactor-ClinicApp-debug.apk"`.
 - **Signature Conflict Detected**: Encountered `INSTALL_FAILED_UPDATE_INCOMPATIBLE` because the currently installed `com.dactor.clinic` on the device has a different signature (release/upload key vs debug key).
 - **Resolution Strategy**: Informed user that uninstalling the existing package `com.dactor.clinic` is required before installing this debug build.
+
+
+---
+
+### Prompt:
+> "cannot you download two ?"
+
+#### Changes Applied:
+- **Technical Clarification**: Explained Android package name and signature constraints regarding side-by-side app coexistence.
+- **Dual-Install Solutions Provided**: Outlined how to have two separate instances (Samsung Secure Folder / Dual Apps or configuring `applicationIdSuffix = ".debug"`), as well as confirming that Clinic and Patient apps already run side-by-side without conflict.
