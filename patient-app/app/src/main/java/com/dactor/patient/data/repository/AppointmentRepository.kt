@@ -2,9 +2,12 @@ package com.dactor.patient.data.repository
 
 import com.dactor.patient.data.model.Appointment
 import com.dactor.patient.data.model.BillingInvoice
+import com.dactor.patient.data.model.Clinic
 import com.dactor.patient.data.model.InvoiceItem
+import com.dactor.patient.data.model.LabReport
 import com.dactor.patient.data.model.Profile
 import com.dactor.patient.data.model.QueueEntry
+import com.dactor.patient.util.DiagnosticLabPolicy
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
@@ -1148,6 +1151,58 @@ class AppointmentRepository @Inject constructor(
         }
     }
 
+    /**
+     * Checks whether a diagnostic lab appointment has already had its sample collected
+     * or reached any subsequent laboratory/completion step.
+     */
+    suspend fun isDiagnosticLabSampleCollectedOrFurther(
+        appointmentId: String,
+        existingAppt: Appointment? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        val appt = existingAppt ?: getAppointmentById(appointmentId) ?: return@withContext false
+        val qEntry = try {
+            supabaseClient.postgrest["queue_entries"]
+                .select { filter { eq("appointment_id", appt.id) } }
+                .decodeList<QueueEntry>()
+                .firstOrNull()
+        } catch (_: Exception) { null }
+
+        val clinic = try {
+            if (appt.clinicId.isNotBlank()) {
+                supabaseClient.postgrest["clinics"]
+                    .select { filter { eq("id", appt.clinicId) } }
+                    .decodeSingleOrNull<Clinic>()
+            } else null
+        } catch (_: Exception) { null }
+
+        val reports = try {
+            val byId = supabaseClient.postgrest["lab_reports"]
+                .select { filter { eq("appointment_id", appt.id) } }
+                .decodeList<LabReport>()
+            if (byId.isNotEmpty()) {
+                byId
+            } else if (appt.trackingCode10Digit.isNotBlank()) {
+                supabaseClient.postgrest["lab_reports"]
+                    .select { filter { eq("appointment_id", appt.trackingCode10Digit) } }
+                    .decodeList<LabReport>()
+            } else {
+                emptyList()
+            }
+        } catch (_: Exception) { emptyList() }
+
+        val isLab = DiagnosticLabPolicy.isDiagnosticLabAppointment(
+            appointment = appt,
+            clinic = clinic,
+            queueStatus = qEntry?.status,
+            labReports = reports
+        )
+        isLab && DiagnosticLabPolicy.isSampleCollectedOrFurther(
+            appointment = appt,
+            queueStatus = qEntry?.status,
+            labReports = reports
+        )
+    }
+
     suspend fun rescheduleAppointment(
         id: String,
         newDate: String,
@@ -1156,6 +1211,9 @@ class AppointmentRepository @Inject constructor(
         newDoctorId: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
         val existing = getAppointmentById(id)
+        if (isDiagnosticLabSampleCollectedOrFurther(id, existing)) {
+            return@withContext false
+        }
         val oldSlotId = existing?.slotId
         val normalizedTime = normalizeTimeForPostgres(newTime)
         val cleanSlotId = slotId?.trim()?.takeIf { isValidUuid(it) }

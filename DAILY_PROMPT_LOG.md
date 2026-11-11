@@ -7,6 +7,25 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-11
 
 ### Prompt:
+> "for patient app there shouldn't be reshedule option for oppointment in diagnostic lab after the sample is collected or any further step done / plan and proceed yourself"
+
+#### Changes Applied:
+1. **Shared Diagnostic Lab Policy Helper ([`DiagnosticLabPolicy.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/util/DiagnosticLabPolicy.kt))**:
+   - Created centralized `DiagnosticLabPolicy` helper covering all sample-collected and post-collection diagnostic stages (`sample_collected`, `processing`, `in_lab`, `prepared`, `report_prepared`, `delivered`, `done`, `completed`, `finished`, or non-empty `lab_reports`).
+   - Added `isDiagnosticLabAppointment(...)`, `isSampleCollectedOrFurther(...)`, `isLabReportReadyOrCompleted(...)`, and `canRescheduleDiagnosticLab(...)`.
+2. **Patient Main Screen — Appointments, Records, Full Details Modal & Profile ([`PatientMainScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt))**:
+   - Injected `labReportRepository` into `AppointmentsTab`, populated `labReportCache` alongside queue statuses, and updated `shouldKeepInAppointmentsTab` / `sortAppointmentsSoonerFirst` so sample-collected or processing lab orders are never treated as missed or reschedulable.
+   - Hid `Reschedule Slot`, `Cancel Booking`, and `Reschedule Missed Slot` in `AppointmentsTab` once sample is collected or further steps are done, showing `"Sample Status & Lab Report"` / `"View Lab Report"` and lab-accurate status cards instead.
+   - Updated `RecordsTab`, `ProfileTab` (with eager lab report fetching in `loadProfileBillsAndHistory()`), `RecordDetailsFullModal` footer, and `RescheduleConfirmDialog` so diagnostic lab reschedule / follow-up actions are blocked and hidden once sample collection or any subsequent stage is reached.
+3. **Live Queue Tracker ([`QueueStatusScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt))**:
+   - Aligned `isLabClinic`, `isLabSampleDone`, `isReportReady`, `canReschedule`, `handleRescheduleClick`, and the multi-visit list (`canRescheduleItem`) with `DiagnosticLabPolicy`, explicitly recognizing `sample_collected`, `in_lab`, `processing`, `prepared`, `report_prepared`, and `delivered`.
+4. **Booking & Repository Execution Guards ([`BookingScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/booking/BookingScreen.kt), [`AppointmentRepository.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt))**:
+   - Added `AppointmentRepository.isDiagnosticLabSampleCollectedOrFurther(...)` checking `appointments`, `clinics`, `queue_entries`, and `lab_reports` and blocked `rescheduleAppointment(...)` at the repository layer if true.
+   - Added entry-time and confirm-time guards in `BookingScreen.kt` to clear stale reschedule mode, notify the patient, and exit if the lab sample has already been collected.
+
+---
+
+### Prompt:
 > "You removed the chosing of slot choosing for walk in patient fix this"
 
 #### Changes Applied:

@@ -138,10 +138,20 @@ fun BookingScreen(
     val isRescheduleMode = pendingReschedule != null
     var isExecutingReschedule by remember { mutableStateOf(false) }
 
-    // Clear stale pending reschedule if navigating without an explicit rescheduleApptId
+    // Clear stale pending reschedule if navigating without an explicit rescheduleApptId,
+    // or block rescheduling if a diagnostic lab sample has already been collected
     LaunchedEffect(rescheduleApptId) {
         if (rescheduleApptId.isNullOrBlank()) {
             sessionManager?.clearPendingReschedule()
+        } else if (appointmentRepository?.isDiagnosticLabSampleCollectedOrFurther(rescheduleApptId) == true) {
+            sessionManager?.clearPendingReschedule()
+            activeRescheduleCancelled = true
+            Toast.makeText(
+                context,
+                "Sample already collected for this lab appointment. It can no longer be rescheduled.",
+                Toast.LENGTH_LONG
+            ).show()
+            navController.popBackStack()
         }
     }
 
@@ -417,6 +427,17 @@ fun BookingScreen(
                                 coroutineScope.launch {
                                     try {
                                         val existingAppt = appointmentRepository?.getAppointmentById(pendingReschedule.appointmentId)
+                                        if (appointmentRepository?.isDiagnosticLabSampleCollectedOrFurther(pendingReschedule.appointmentId, existingAppt) == true) {
+                                            sessionManager?.clearPendingReschedule()
+                                            activeRescheduleCancelled = true
+                                            Toast.makeText(
+                                                context,
+                                                "Sample already collected for this lab appointment. It can no longer be rescheduled.",
+                                                Toast.LENGTH_LONG
+                                            ).show()
+                                            navController.popBackStack()
+                                            return@launch
+                                        }
                                         val isCompleted = existingAppt?.checkinStatus?.lowercase() in listOf("done", "completed")
 
                                         if (isCompleted && !isLabClinic) {

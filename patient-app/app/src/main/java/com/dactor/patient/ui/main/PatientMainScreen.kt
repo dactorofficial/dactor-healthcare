@@ -64,6 +64,7 @@ import com.dactor.patient.ui.components.GuestAccountView
 import com.dactor.patient.ui.legal.TermsAndConditionsDialog
 import com.dactor.patient.ui.navigation.NavRoutes
 import com.dactor.patient.util.BillPdfDownloader
+import com.dactor.patient.util.DiagnosticLabPolicy
 import com.dactor.patient.service.NotificationHelper
 import com.dactor.patient.util.MedicalSearchEngine
 import com.dactor.patient.util.OpenRouteSpatialEngine
@@ -716,6 +717,7 @@ fun PatientMainScreen(
                         queueRepository = queueRepository,
                         doctorRepository = doctorRepository,
                         clinicRepository = clinicRepository,
+                        labReportRepository = labReportRepository,
                         authRepository = authRepository,
                         sessionManager = sessionManager
                     )
@@ -4600,18 +4602,32 @@ fun RecordsTab(
                                 }
 
                                 // ── 6b. ACTION BUTTONS: RESCHEDULE / FOLLOW-UP & VIEW FULL DETAILS ──
-                                val isVisitCompleted = appt.checkinStatus.lowercase() in listOf("done", "completed")
-                                val isLabAppt = !appt.selectedLabTests.isNullOrBlank() ||
-                                    clinicMap[appt.clinicId]?.type == "diagnostic_lab" ||
-                                    clinicMap[appt.clinicId]?.name?.contains("lab", ignoreCase = true) == true
-                                val isNoShow = appt.checkinStatus.lowercase() == "no_show" || appt.status.lowercase() == "no_show"
+                                val isLabAppt = DiagnosticLabPolicy.isDiagnosticLabAppointment(
+                                    appointment = appt,
+                                    clinic = clinic,
+                                    labReports = labReports
+                                )
+                                val isLabReportReady = isLabAppt && DiagnosticLabPolicy.isLabReportReadyOrCompleted(
+                                    appointment = appt,
+                                    labReports = labReports
+                                )
+                                val canRescheduleMissedLab = isLabAppt && DiagnosticLabPolicy.canRescheduleDiagnosticLab(
+                                    appointment = appt,
+                                    labReports = labReports,
+                                    requireNoShow = true
+                                )
+                                val isVisitCompleted = if (isLabAppt) {
+                                    isLabReportReady
+                                } else {
+                                    appt.checkinStatus.lowercase() in listOf("done", "completed")
+                                }
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     if (isLabAppt) {
-                                        if (isVisitCompleted) {
+                                        if (isLabReportReady) {
                                             OutlinedButton(
                                                 onClick = {
                                                     navController.navigate(NavRoutes.QueueStatus.createRoute(appt.trackingCode10Digit))
@@ -4630,7 +4646,7 @@ fun RecordsTab(
                                                 Spacer(Modifier.width(6.dp))
                                                 Text("View Lab Report", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                                             }
-                                        } else if (isNoShow) {
+                                        } else if (canRescheduleMissedLab) {
                                             OutlinedButton(
                                                 onClick = { apptToRescheduleConfirm = appt },
                                                 shape = RoundedCornerShape(12.dp),
@@ -5096,6 +5112,7 @@ fun RecordsTab(
             targetAppt = targetAppt,
             clinicMap = clinicMap,
             doctorMap = doctorMap,
+            labReports = labReportMap[targetAppt.id] ?: emptyList(),
             onDismiss = { apptToRescheduleConfirm = null },
             onConfirmReschedule = { appt ->
                 apptToRescheduleConfirm = null
@@ -5148,20 +5165,23 @@ private fun parseAppointmentTimeMinutes(timeStr: String?): Int {
 private fun shouldKeepInAppointmentsTab(
     appt: Appointment,
     queueStatus: String?,
-    completedAt: String?
+    completedAt: String?,
+    hasLabReport: Boolean = false
 ): Boolean {
     val today = try { LocalDate.now() } catch (_: Exception) { return true }
     val apptDate = try { LocalDate.parse(appt.appointmentDate.trim().take(10)) } catch (_: Exception) { null }
     val isPastDate = apptDate != null && apptDate.isBefore(today)
 
-    val isCompleted = appt.checkinStatus.lowercase() in listOf("completed", "done", "sample_collected", "report_prepared") ||
+    val isCompleted = hasLabReport ||
+        appt.checkinStatus.trim().lowercase() in DiagnosticLabPolicy.SAMPLE_COLLECTED_OR_FURTHER_STATUSES ||
         appt.status.equals("COMPLETED", ignoreCase = true) ||
-        queueStatus?.lowercase() in listOf("completed", "done", "sample_collected", "report_prepared")
+        queueStatus?.trim()?.lowercase() in DiagnosticLabPolicy.SAMPLE_COLLECTED_OR_FURTHER_STATUSES
 
-    val isNoShow = queueStatus?.lowercase() in listOf("no_show", "missed") ||
+    val isNoShowRaw = queueStatus?.lowercase() in listOf("no_show", "missed") ||
         appt.checkinStatus.lowercase() in listOf("no_show", "missed") ||
         appt.status.lowercase() in listOf("no_show", "missed")
 
+    val isNoShow = isNoShowRaw && !isCompleted
     val isMissed = isNoShow || (isPastDate && !isCompleted)
 
     val isExplicitlyCancelled = (appt.checkinStatus.lowercase() in listOf("cancelled", "rejected") && !isNoShow) ||
@@ -5184,7 +5204,7 @@ private fun shouldKeepInAppointmentsTab(
     // Active or upcoming appointments are always displayed
     if (!isCompleted) return true
 
-    // For completed appointments: retain if completed within the last 2 days (<= 2 days)
+    // For completed / sample-collected appointments: retain if completed within the last 2 days (<= 2 days)
     val refDateStr = completedAt?.take(10) ?: appt.appointmentDate.trim().take(10)
     val compDate = try { LocalDate.parse(refDateStr) } catch (_: Exception) { null }
     if (compDate == null) return true
@@ -5195,24 +5215,29 @@ private fun shouldKeepInAppointmentsTab(
 
 private fun sortAppointmentsSoonerFirst(
     appts: List<Appointment>,
-    queueCache: Map<String, QueueEntry> = emptyMap()
+    queueCache: Map<String, QueueEntry> = emptyMap(),
+    labReportCache: Map<String, List<LabReport>> = emptyMap()
 ): List<Appointment> {
     val today = try { LocalDate.now() } catch (_: Exception) { null }
 
     val comparator = compareBy<Appointment> { appt ->
         val q = queueCache[appt.id]
         val qStatus = q?.status?.lowercase()
+        val hasLabReport = !labReportCache[appt.id].isNullOrEmpty()
         val apptDate = try { LocalDate.parse(appt.appointmentDate.trim().take(10)) } catch (_: Exception) { null }
         val isPast = apptDate != null && today != null && apptDate.isBefore(today)
 
-        val isDone = appt.checkinStatus.lowercase() in listOf("completed", "done", "sample_collected", "report_prepared") ||
+        val isDone = hasLabReport ||
+            appt.checkinStatus.trim().lowercase() in DiagnosticLabPolicy.SAMPLE_COLLECTED_OR_FURTHER_STATUSES ||
             appt.status.equals("COMPLETED", ignoreCase = true) ||
-            qStatus in listOf("completed", "done", "sample_collected", "report_prepared")
+            qStatus in DiagnosticLabPolicy.SAMPLE_COLLECTED_OR_FURTHER_STATUSES
 
-        val isMissed = qStatus in listOf("no_show", "missed") ||
+        val isMissed = !isDone && (
+            qStatus in listOf("no_show", "missed") ||
             appt.checkinStatus.lowercase() in listOf("no_show", "missed") ||
             appt.status.lowercase() in listOf("no_show", "missed") ||
-            (isPast && !isDone)
+            isPast
+        )
 
         val isToday = apptDate != null && today != null && apptDate.isEqual(today)
 
@@ -5242,6 +5267,7 @@ fun AppointmentsTab(
     queueRepository: QueueRepository?,
     doctorRepository: DoctorRepository?,
     clinicRepository: ClinicRepository? = null,
+    labReportRepository: LabReportRepository? = null,
     authRepository: AuthRepository? = null,
     sessionManager: UserSessionManager?
 ) {
@@ -5281,6 +5307,7 @@ fun AppointmentsTab(
     }
     val queueCache = remember { mutableStateMapOf<String, QueueEntry>() }
     val clinicQueueCache = remember { mutableStateMapOf<String, List<QueueEntry>>() }
+    val labReportCache = remember { mutableStateMapOf<String, List<LabReport>>() }
 
     // Confirmation Dialog States
     var apptToRescheduleConfirm by remember { mutableStateOf<Appointment?>(null) }
@@ -5373,6 +5400,15 @@ fun AppointmentsTab(
                                 }
                             } catch (ignored: Exception) {}
                         }
+                        if (labReportRepository != null) {
+                            try {
+                                val reports = labReportRepository.getLabReportsForAppointment(
+                                    appointmentId = appt.id,
+                                    trackingCode = appt.trackingCode10Digit
+                                )
+                                labReportCache[appt.id] = reports
+                            } catch (ignored: Exception) {}
+                        }
                     }
                 }
 
@@ -5384,8 +5420,9 @@ fun AppointmentsTab(
                 val q = queueCache[appt.id]
                 val qStatus = q?.status?.lowercase()
                 val qCompletedAt = q?.completedAt
-                val isDoneOrCancelled = qStatus in listOf("completed", "done", "cancelled", "rejected") ||
-                    appt.checkinStatus.lowercase() in listOf("completed", "done", "cancelled", "rejected")
+                val hasLabReport = !labReportCache[appt.id].isNullOrEmpty()
+                val isDoneOrCancelled = qStatus in listOf("completed", "done", "cancelled", "rejected", "report_prepared", "prepared", "delivered") ||
+                    appt.checkinStatus.lowercase() in listOf("completed", "done", "cancelled", "rejected", "report_prepared", "prepared", "delivered")
                 if (isDoneOrCancelled) {
                     NotificationHelper.cancelAppointmentNotifications(context, appt.id)
                     if (appt.trackingCode10Digit.isNotBlank()) {
@@ -5393,12 +5430,12 @@ fun AppointmentsTab(
                     }
                 }
 
-                if (shouldKeepInAppointmentsTab(appt, queueStatus = qStatus, completedAt = qCompletedAt)) {
+                if (shouldKeepInAppointmentsTab(appt, queueStatus = qStatus, completedAt = qCompletedAt, hasLabReport = hasLabReport)) {
                     stillActive.add(appt)
                 }
             }
 
-            val sortedAppts = sortAppointmentsSoonerFirst(stillActive, queueCache)
+            val sortedAppts = sortAppointmentsSoonerFirst(stillActive, queueCache, labReportCache)
             activeAppts = sortedAppts
             appointmentRepository?.setCachedAppointments(sortedAppts)
             sessionManager?.saveCachedActiveAppointments(sortedAppts)
@@ -5750,15 +5787,35 @@ fun AppointmentsTab(
                     val isInClinic = doctor?.isInClinic == true
                     val isWithDoctor = isToday && qEntry?.status == "inside"
                     val isClinicOnBreak = clinic?.isOnBreak == true
-                    val isConsultationDone = qEntry?.status?.lowercase() in listOf("done", "completed", "sample_collected", "report_prepared") ||
-                        appt.checkinStatus.lowercase() in listOf("done", "completed", "sample_collected", "report_prepared") ||
+                    val apptLabReports = labReportCache[appt.id] ?: emptyList()
+                    val isLabAppt = DiagnosticLabPolicy.isDiagnosticLabAppointment(
+                        appointment = appt,
+                        clinic = clinic,
+                        queueStatus = qEntry?.status,
+                        labReports = apptLabReports
+                    )
+                    val isLabSampleDoneOrFurther = isLabAppt && DiagnosticLabPolicy.isSampleCollectedOrFurther(
+                        appointment = appt,
+                        queueStatus = qEntry?.status,
+                        labReports = apptLabReports
+                    )
+                    val isLabReportReady = isLabAppt && DiagnosticLabPolicy.isLabReportReadyOrCompleted(
+                        appointment = appt,
+                        queueStatus = qEntry?.status,
+                        labReports = apptLabReports
+                    )
+                    val isConsultationDone = isLabSampleDoneOrFurther ||
+                        qEntry?.status?.lowercase() in listOf("done", "completed") ||
+                        appt.checkinStatus.lowercase() in listOf("done", "completed") ||
                         appt.status.equals("COMPLETED", ignoreCase = true)
 
-                    val isNoShowStatus = qEntry?.status?.lowercase() in listOf("no_show", "missed") ||
+                    val isNoShowStatus = !isConsultationDone && (
+                        qEntry?.status?.lowercase() in listOf("no_show", "missed") ||
                         appt.checkinStatus.lowercase() in listOf("no_show", "missed") ||
                         appt.status.lowercase() in listOf("no_show", "missed")
+                    )
 
-                    val isMissed = isNoShowStatus || (isPastDate && !isConsultationDone)
+                    val isMissed = !isConsultationDone && (isNoShowStatus || isPastDate)
 
                     // Calculate live queue timing estimate ONLY for today's appointment
                     val timingEstimate = remember(clinic, doctor, qEntry, liveAhead, isInClinic, isClinicOnBreak, clinicEntries, isToday) {
@@ -6176,7 +6233,11 @@ fun AppointmentsTab(
                                         fontWeight = if (isToday || isConsultationDone) FontWeight.Bold else FontWeight.Medium
                                     )
                                     Text(
-                                        text = if (isConsultationDone) "Done" else "With doctor",
+                                        text = when {
+                                            isLabAppt && isLabSampleDoneOrFurther -> if (isLabReportReady) "Report Ready" else "In Lab"
+                                            isConsultationDone -> "Done"
+                                            else -> "With doctor"
+                                        },
                                         fontSize = 11.sp,
                                         color = if (isConsultationDone) Color(0xFF15803D) else if (isWithDoctor) Color(0xFF0284C7) else Color(0xFF94A3B8),
                                         fontWeight = if (isWithDoctor || isConsultationDone) FontWeight.Bold else FontWeight.Medium
@@ -6205,7 +6266,7 @@ fun AppointmentsTab(
                                         ) {
                                             Box(contentAlignment = Alignment.Center) {
                                                 Icon(
-                                                    Icons.Default.CheckCircle,
+                                                    if (isLabAppt) Icons.Default.Science else Icons.Default.CheckCircle,
                                                     contentDescription = null,
                                                     tint = Color.White,
                                                     modifier = Modifier.size(24.dp)
@@ -6218,13 +6279,21 @@ fun AppointmentsTab(
                                             verticalArrangement = Arrangement.spacedBy(2.dp)
                                         ) {
                                             Text(
-                                                text = "Consultation Completed",
+                                                text = when {
+                                                    isLabAppt && isLabReportReady -> "Lab Report Prepared"
+                                                    isLabAppt && isLabSampleDoneOrFurther -> "Sample Collected \u2022 In Lab"
+                                                    else -> "Consultation Completed"
+                                                },
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 14.sp,
                                                 color = Color(0xFF15803D)
                                             )
                                             Text(
-                                                text = "Token #$myPos \u2022 Completed today at $clinicName",
+                                                text = when {
+                                                    isLabAppt && isLabReportReady -> "Your diagnostic report is ready at $clinicName"
+                                                    isLabAppt && isLabSampleDoneOrFurther -> "Sample collected & processing at $clinicName"
+                                                    else -> "Token #$myPos \u2022 Completed today at $clinicName"
+                                                },
                                                 fontSize = 12.sp,
                                                 color = Color(0xFF166534)
                                             )
@@ -6236,7 +6305,11 @@ fun AppointmentsTab(
                                             border = BorderStroke(1.dp, Color(0xFFBBF7D0))
                                         ) {
                                             Text(
-                                                text = "Finished",
+                                                text = when {
+                                                    isLabAppt && isLabReportReady -> "Ready"
+                                                    isLabAppt && isLabSampleDoneOrFurther -> "Processing"
+                                                    else -> "Finished"
+                                                },
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = Color(0xFF16A34A),
@@ -6827,9 +6900,17 @@ fun AppointmentsTab(
                                             .fillMaxWidth()
                                             .height(44.dp)
                                     ) {
-                                        Icon(Icons.Default.ReceiptLong, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Icon(if (isLabAppt) Icons.Default.Science else Icons.Default.ReceiptLong, contentDescription = null, modifier = Modifier.size(16.dp))
                                         Spacer(Modifier.width(6.dp))
-                                        Text("View Consultation & Bills", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            text = when {
+                                                isLabAppt && isLabReportReady -> "View Lab Report"
+                                                isLabAppt && isLabSampleDoneOrFurther -> "Sample Status & Lab Report"
+                                                else -> "View Consultation & Bills"
+                                            },
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                         Spacer(Modifier.width(4.dp))
                                         Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(14.dp))
                                     }
@@ -6987,108 +7068,38 @@ fun AppointmentsTab(
 
     // ── CONFIRMATION DIALOG: RESCHEDULE ──
     apptToRescheduleConfirm?.let { targetAppt ->
-        val targetClinic = targetAppt.clinicId?.let { clinicCache[it] }
-        val targetDoctor = targetAppt.doctorId?.let { doctorCache[it] }
-        AlertDialog(
-            onDismissRequest = { apptToRescheduleConfirm = null },
-            title = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = Color(0xFF0284C7))
-                    Text("Reschedule Appointment?", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "You will be redirected to choose a new available date and time slot from the calendar.",
-                        fontSize = 13.sp,
-                        color = Color(0xFF475569)
+        RescheduleConfirmDialog(
+            targetAppt = targetAppt,
+            clinicMap = clinicCache,
+            doctorMap = doctorCache,
+            labReports = labReportCache[targetAppt.id] ?: emptyList(),
+            queueStatus = queueCache[targetAppt.id]?.status,
+            onDismiss = { apptToRescheduleConfirm = null },
+            onConfirmReschedule = { appt ->
+                apptToRescheduleConfirm = null
+                sessionManager?.savePendingReschedule(
+                    com.dactor.patient.data.local.UserSessionManager.PendingRescheduleData(
+                        appointmentId = appt.id,
+                        trackingCode = appt.trackingCode10Digit,
+                        clinicId = appt.clinicId,
+                        doctorId = appt.doctorId,
+                        patientName = appt.patientName,
+                        patientMobile = appt.patientMobile,
+                        patientAge = appt.patientAge.toString(),
+                        patientGender = appt.patientGender ?: "Male",
+                        patientEmail = appt.patientEmail,
+                        originalDate = appt.appointmentDate,
+                        originalTime = appt.appointmentTime,
+                        status = appt.status
                     )
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color(0xFFF8FAFC),
-                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            val isTargetLab = !targetAppt.selectedLabTests.isNullOrBlank() ||
-                                targetClinic?.type == "diagnostic_lab" ||
-                                targetClinic?.name?.contains("lab", ignoreCase = true) == true
-
-                            Text(
-                                text = if (isTargetLab) "Service: Lab Sample Collection" else "Doctor: Dr. ${targetDoctor?.fullName ?: targetAppt.patientName}",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF0F172A)
-                            )
-                            Text(
-                                "Clinic: ${targetClinic?.name ?: "Clinic"}",
-                                fontSize = 12.sp,
-                                color = Color(0xFF64748B)
-                            )
-                            Text(
-                                "Current Slot: ${targetAppt.appointmentDate} \u2022 ${targetAppt.appointmentTime ?: "10:00 AM"}",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF0284C7)
-                            )
-                            Text(
-                                "Fee: Retained (Rs. 0 / Zero Payment)",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF16A34A)
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val appt = targetAppt
-                        apptToRescheduleConfirm = null
-                        sessionManager?.savePendingReschedule(
-                            com.dactor.patient.data.local.UserSessionManager.PendingRescheduleData(
-                                appointmentId = appt.id,
-                                trackingCode = appt.trackingCode10Digit,
-                                clinicId = appt.clinicId,
-                                doctorId = appt.doctorId,
-                                patientName = appt.patientName,
-                                patientMobile = appt.patientMobile,
-                                patientAge = appt.patientAge.toString(),
-                                patientGender = appt.patientGender ?: "Male",
-                                patientEmail = appt.patientEmail,
-                                originalDate = appt.appointmentDate,
-                                originalTime = appt.appointmentTime
-                            )
-                        )
-                        navController.navigate(
-                            NavRoutes.Booking.createRoute(
-                                clinicId = appt.clinicId,
-                                doctorId = appt.doctorId,
-                                rescheduleApptId = appt.id
-                            )
-                        )
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text("Pick New Slot →", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = { apptToRescheduleConfirm = null },
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text("Keep Current")
-                }
+                )
+                navController.navigate(
+                    NavRoutes.Booking.createRoute(
+                        clinicId = appt.clinicId,
+                        doctorId = appt.doctorId,
+                        rescheduleApptId = appt.id
+                    )
+                )
             }
         )
     }
@@ -7969,33 +7980,49 @@ fun PatientRecordDetailDialog(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                val isLabAppt = DiagnosticLabPolicy.isDiagnosticLabAppointment(
+                                    appointment = targetAppt,
+                                    clinic = dClinic,
+                                    labReports = dLabReports
+                                )
+                                val canRescheduleModalAppt = if (isLabAppt) {
+                                    DiagnosticLabPolicy.canRescheduleDiagnosticLab(
+                                        appointment = targetAppt,
+                                        labReports = dLabReports,
+                                        requireNoShow = true
+                                    )
+                                } else {
+                                    true
+                                }
                                 val isVisitCompleted = targetAppt.checkinStatus.lowercase() in listOf("done", "completed")
-                                OutlinedButton(
-                                    onClick = { onReschedule(targetAppt) },
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, Color(0xFF0284C7)),
-                                    colors = ButtonDefaults.outlinedButtonColors(
-                                        containerColor = Color(0xFFF0F9FF),
-                                        contentColor = Color(0xFF0284C7)
-                                    ),
-                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-                                    modifier = Modifier
-                                        .weight(1.25f)
-                                        .height(42.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (isVisitCompleted) Icons.Default.EventRepeat else Icons.Default.CalendarMonth,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(
-                                        text = if (isVisitCompleted) "Book Follow-Up" else "Reschedule",
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
+                                if (canRescheduleModalAppt) {
+                                    OutlinedButton(
+                                        onClick = { onReschedule(targetAppt) },
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, Color(0xFF0284C7)),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            containerColor = Color(0xFFF0F9FF),
+                                            contentColor = Color(0xFF0284C7)
+                                        ),
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                                        modifier = Modifier
+                                            .weight(1.25f)
+                                            .height(42.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (!isLabAppt && isVisitCompleted) Icons.Default.EventRepeat else Icons.Default.CalendarMonth,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(
+                                            text = if (!isLabAppt && isVisitCompleted) "Book Follow-Up" else "Reschedule",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
                                 }
 
                                 Button(
@@ -8118,25 +8145,47 @@ fun RescheduleConfirmDialog(
     targetAppt: Appointment,
     clinicMap: Map<String, Clinic>,
     doctorMap: Map<String, Doctor>,
+    labReports: List<LabReport> = emptyList(),
+    queueStatus: String? = null,
     onDismiss: () -> Unit,
     onConfirmReschedule: (Appointment) -> Unit
 ) {
     val targetClinic = clinicMap[targetAppt.clinicId]
     val targetDoctor = targetAppt.doctorId?.let { doctorMap[it] }
-    val isCompleted = targetAppt.checkinStatus.lowercase() in listOf("done", "completed")
+    val isTargetLab = DiagnosticLabPolicy.isDiagnosticLabAppointment(
+        appointment = targetAppt,
+        clinic = targetClinic,
+        queueStatus = queueStatus,
+        labReports = labReports
+    )
+    val isLabBlocked = isTargetLab && DiagnosticLabPolicy.isSampleCollectedOrFurther(
+        appointment = targetAppt,
+        queueStatus = queueStatus,
+        labReports = labReports
+    )
+    val isCompleted = !isTargetLab && targetAppt.checkinStatus.lowercase() in listOf("done", "completed")
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = {
             Icon(
-                imageVector = if (isCompleted) Icons.Default.EventRepeat else Icons.Default.CalendarMonth,
+                imageVector = when {
+                    isLabBlocked -> Icons.Default.Science
+                    isCompleted -> Icons.Default.EventRepeat
+                    else -> Icons.Default.CalendarMonth
+                },
                 contentDescription = null,
-                tint = Color(0xFF0284C7),
+                tint = if (isLabBlocked) Color(0xFF00796B) else Color(0xFF0284C7),
                 modifier = Modifier.size(28.dp)
             )
         },
         title = {
             Text(
-                text = if (isCompleted) "Book Follow-Up Consultation?" else "Reschedule Consultation?",
+                text = when {
+                    isLabBlocked -> "Reschedule Unavailable"
+                    isTargetLab -> "Reschedule Lab Appointment?"
+                    isCompleted -> "Book Follow-Up Consultation?"
+                    else -> "Reschedule Consultation?"
+                },
                 fontWeight = FontWeight.Bold,
                 fontSize = 17.sp
             )
@@ -8144,10 +8193,10 @@ fun RescheduleConfirmDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = if (isCompleted) {
-                        "You will be redirected to choose a new follow-up date and time slot. Your past medical notes and prescriptions remain securely preserved."
-                    } else {
-                        "You will be redirected to choose a new available date and time slot from the calendar."
+                    text = when {
+                        isLabBlocked -> "Your diagnostic lab sample has already been collected or processed. This appointment can no longer be rescheduled."
+                        isCompleted -> "You will be redirected to choose a new follow-up date and time slot. Your past medical notes and prescriptions remain securely preserved."
+                        else -> "You will be redirected to choose a new available date and time slot from the calendar."
                     },
                     fontSize = 13.sp,
                     color = Color(0xFF475569)
@@ -8163,7 +8212,7 @@ fun RescheduleConfirmDialog(
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
-                            "Doctor: ${targetDoctor?.fullName?.let { if (it.startsWith("Dr.", true)) it else "Dr. $it" } ?: "Attending Doctor"}",
+                            if (isTargetLab) "Service: Lab Sample Collection" else "Doctor: ${targetDoctor?.fullName?.let { if (it.startsWith("Dr.", true)) it else "Dr. $it" } ?: "Attending Doctor"}",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Color(0xFF0F172A)
@@ -8179,28 +8228,42 @@ fun RescheduleConfirmDialog(
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF0284C7)
                         )
-                        Text(
-                            text = if (isCompleted) "Follow-Up Fee: Free (Rs. 0)" else "Fee: Retained (Rs. 0 / Zero Additional Payment)",
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color(0xFF16A34A)
-                        )
+                        if (!isLabBlocked) {
+                            Text(
+                                text = if (isCompleted) "Follow-Up Fee: Free (Rs. 0)" else "Fee: Retained (Rs. 0 / Zero Additional Payment)",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF16A34A)
+                            )
+                        }
                     }
                 }
             }
         },
         confirmButton = {
-            Button(
-                onClick = { onConfirmReschedule(targetAppt) },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Text(if (isCompleted) "Pick Follow-Up Slot →" else "Pick New Slot →", fontWeight = FontWeight.Bold)
+            if (isLabBlocked) {
+                Button(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00796B)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("Close", fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Button(
+                    onClick = { onConfirmReschedule(targetAppt) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(if (isCompleted) "Pick Follow-Up Slot →" else "Pick New Slot →", fontWeight = FontWeight.Bold)
+                }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
+            if (!isLabBlocked) {
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel")
+                }
             }
         }
     )
@@ -8376,6 +8439,24 @@ fun ProfileTab(
                 val invs = appointmentRepository.getInvoicesForAppointments(filteredAppts.map { it.id })
                 profileInvoiceMap.clear()
                 profileInvoiceMap.putAll(invs)
+            }
+
+            if (labReportRepository != null && filteredAppts.isNotEmpty()) {
+                coroutineScope {
+                    filteredAppts.filter { appt ->
+                        DiagnosticLabPolicy.isDiagnosticLabAppointment(appt, profileClinicMap[appt.clinicId])
+                    }.map { appt ->
+                        async {
+                            try {
+                                val reports = labReportRepository.getLabReportsForAppointment(
+                                    appointmentId = appt.id,
+                                    trackingCode = appt.trackingCode10Digit
+                                )
+                                profileLabReportMap[appt.id] = reports
+                            } catch (_: Exception) {}
+                        }
+                    }.awaitAll()
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -9014,26 +9095,24 @@ fun ProfileTab(
                                                 Text("Full Details", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
                                             }
 
-                                            val isLabRecord = !appt.selectedLabTests.isNullOrBlank() ||
-                                                profileClinicMap[appt.clinicId]?.type == "diagnostic_lab" ||
-                                                profileClinicMap[appt.clinicId]?.name?.contains("lab", ignoreCase = true) == true
-                                            val isNoShowRecord = appt.checkinStatus.lowercase() == "no_show" || appt.status.lowercase() == "no_show"
-                                            val isCompletedRecord = appt.checkinStatus.lowercase() in listOf("done", "completed")
+                                            val apptLabReports = profileLabReportMap[appt.id] ?: emptyList()
+                                            val isLabRecord = DiagnosticLabPolicy.isDiagnosticLabAppointment(
+                                                appointment = appt,
+                                                clinic = profileClinicMap[appt.clinicId],
+                                                labReports = apptLabReports
+                                            )
+                                            val canRescheduleLabRecord = isLabRecord && DiagnosticLabPolicy.canRescheduleDiagnosticLab(
+                                                appointment = appt,
+                                                labReports = apptLabReports,
+                                                requireNoShow = true
+                                            )
+                                            val isCompletedRecord = isLabRecord && DiagnosticLabPolicy.isLabReportReadyOrCompleted(
+                                                appointment = appt,
+                                                labReports = apptLabReports
+                                            )
 
                                             if (isLabRecord) {
-                                                if (isNoShowRecord) {
-                                                    Button(
-                                                        onClick = { apptToRescheduleConfirm = appt },
-                                                        shape = RoundedCornerShape(8.dp),
-                                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                                                        modifier = Modifier.weight(1.05f).height(36.dp)
-                                                    ) {
-                                                        Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(13.dp))
-                                                        Spacer(Modifier.width(3.dp))
-                                                        Text("Reschedule", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
-                                                    }
-                                                } else if (isCompletedRecord) {
+                                                if (isCompletedRecord) {
                                                     Button(
                                                         onClick = {
                                                             navController.navigate(NavRoutes.QueueStatus.createRoute(appt.trackingCode10Digit))
@@ -9046,6 +9125,18 @@ fun ProfileTab(
                                                         Icon(Icons.Default.Science, contentDescription = null, modifier = Modifier.size(13.dp))
                                                         Spacer(Modifier.width(3.dp))
                                                         Text("Lab Report", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                } else if (canRescheduleLabRecord) {
+                                                    Button(
+                                                        onClick = { apptToRescheduleConfirm = appt },
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                                        modifier = Modifier.weight(1.05f).height(36.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(13.dp))
+                                                        Spacer(Modifier.width(3.dp))
+                                                        Text("Reschedule", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
                                                     }
                                                 } else {
                                                     OutlinedButton(
@@ -9815,6 +9906,7 @@ fun ProfileTab(
             targetAppt = targetAppt,
             clinicMap = profileClinicMap,
             doctorMap = profileDoctorMap,
+            labReports = profileLabReportMap[targetAppt.id] ?: emptyList(),
             onDismiss = { apptToRescheduleConfirm = null },
             onConfirmReschedule = { appt ->
                 apptToRescheduleConfirm = null

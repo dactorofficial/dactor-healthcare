@@ -57,6 +57,7 @@ import com.dactor.patient.data.repository.LiveQueueTimingEstimate
 import com.dactor.patient.domain.util.CurrencyFormatter
 import com.dactor.patient.domain.util.DateTimePickers
 import com.dactor.patient.ui.navigation.NavRoutes
+import com.dactor.patient.util.DiagnosticLabPolicy
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -319,7 +320,9 @@ fun QueueStatusScreen(
                 }
                 val rawQueueStatus = qEntry?.status?.lowercase() ?: ""
                 val rawApptStatus = appt.checkinStatus.lowercase()
-                val hasPreparedReport = labReports.any { it.stage.equals("prepared", ignoreCase = true) }
+                val hasPreparedReport = labReports.any {
+                    it.stage.lowercase() in listOf("prepared", "report_prepared", "delivered")
+                }
                 val hasProcessingReport = labReports.any {
                     it.stage.equals("processing", ignoreCase = true) ||
                         it.stage.equals("in_lab", ignoreCase = true) ||
@@ -328,8 +331,8 @@ fun QueueStatusScreen(
 
                 queueStatus = when {
                     isPendingClinicApproval -> appt.status
-                    rawQueueStatus == "report_prepared" || rawApptStatus == "report_prepared" || hasPreparedReport -> "report_prepared"
-                    rawQueueStatus == "processing" || rawQueueStatus == "sample_collected" || rawApptStatus == "processing" || hasProcessingReport -> "processing"
+                    rawQueueStatus == "report_prepared" || rawApptStatus == "report_prepared" || rawQueueStatus == "prepared" || rawApptStatus == "prepared" || rawQueueStatus == "delivered" || rawApptStatus == "delivered" || hasPreparedReport -> "report_prepared"
+                    rawQueueStatus == "processing" || rawQueueStatus == "sample_collected" || rawQueueStatus == "in_lab" || rawApptStatus == "processing" || rawApptStatus == "sample_collected" || rawApptStatus == "in_lab" || hasProcessingReport -> "processing"
                     qEntry != null -> qEntry.status
                     rawApptStatus.isNotBlank() && rawApptStatus != "pending" -> rawApptStatus
                     else -> "waiting"
@@ -602,21 +605,48 @@ fun QueueStatusScreen(
     // Only show connected multi-visit history if there are genuinely multiple visits sharing this exact Appointment ID
     val isMultiVisitClinic = multiClinicAppointments.size > 1
 
-    val isLabClinic = clinicType.equals("diagnostic_lab", ignoreCase = true) ||
-        clinicObj?.type?.equals("diagnostic_lab", ignoreCase = true) == true ||
-        !appointment?.selectedLabTests.isNullOrBlank() ||
-        labReports.isNotEmpty() ||
-        queueStatus == "processing" ||
-        queueStatus == "report_prepared" ||
-        queueStatus == "sample_collected"
+    val isLabClinic = DiagnosticLabPolicy.isDiagnosticLabAppointment(
+        appointment = appointment,
+        clinic = clinicObj,
+        clinicType = clinicType,
+        queueStatus = queueStatus,
+        labReports = labReports
+    )
 
     val isSingleVisitClinic = !isMultiVisitClinic && !isLabClinic
 
-    val isNoShow = queueStatus == "no_show" || appointment?.checkinStatus?.lowercase() == "no_show"
+    val isNoShow = queueStatus == "no_show" ||
+        appointment?.checkinStatus?.lowercase() == "no_show" ||
+        appointment?.status?.lowercase() == "no_show"
 
-    // Reschedule option available for diagnostic labs ONLY when no-show; for doctor clinics when active
+    val isSampleProcessing = queueStatus.lowercase() in listOf("processing", "sample_collected", "in_lab") ||
+        appointment?.checkinStatus?.lowercase() in listOf("processing", "sample_collected", "in_lab") ||
+        labReports.any { it.stage.lowercase() in listOf("processing", "in_lab", "sample_collected") }
+
+    val isReportReady = DiagnosticLabPolicy.isLabReportReadyOrCompleted(
+        appointment = appointment,
+        queueStatus = queueStatus,
+        labReports = labReports
+    )
+
+    val isLabSampleDone = isLabClinic && (
+        isSampleProcessing ||
+        isReportReady ||
+        DiagnosticLabPolicy.isSampleCollectedOrFurther(
+            appointment = appointment,
+            queueStatus = queueStatus,
+            labReports = labReports
+        )
+    )
+
+    // Reschedule option available for diagnostic labs ONLY when no-show AND before sample collection; for doctor clinics when active
     val canReschedule = if (isLabClinic) {
-        isNoShow // Diagnostic Labs: ONLY no-show patients can reschedule their missed appointment
+        DiagnosticLabPolicy.canRescheduleDiagnosticLab(
+            appointment = appointment,
+            queueStatus = queueStatus,
+            labReports = labReports,
+            requireNoShow = true
+        )
     } else {
         !isConsultancyCompleted &&
         queueStatus != "inside" &&
@@ -626,16 +656,40 @@ fun QueueStatusScreen(
     // Reschedule flow handler: saves PendingRescheduleData and navigates directly to interactive calendar
     fun handleRescheduleClick(targetAppt: Appointment? = null) {
         val target = targetAppt ?: appointment ?: return
-        val targetStatus = target.checkinStatus.lowercase()
-        val isTargetNoShow = targetStatus == "no_show" || target.status.lowercase() == "no_show"
-        val isTargetActive = targetStatus !in listOf("done", "completed", "inside", "in_consultation", "cancelled")
+        val targetReports = if (target.id == appointment?.id) labReports else emptyList()
+        val targetQStatus = if (target.id == appointment?.id) queueStatus else null
+        val isTargetLab = isLabClinic || DiagnosticLabPolicy.isDiagnosticLabAppointment(
+            appointment = target,
+            clinic = clinicObj,
+            clinicType = clinicType,
+            queueStatus = targetQStatus,
+            labReports = targetReports
+        )
+        val isTargetActive = target.checkinStatus.lowercase() !in listOf("done", "completed", "inside", "in_consultation", "cancelled")
         val isAllowed = if (targetAppt != null) {
-            if (isLabClinic) isTargetNoShow else isTargetActive
+            if (isTargetLab) {
+                DiagnosticLabPolicy.canRescheduleDiagnosticLab(
+                    appointment = target,
+                    queueStatus = targetQStatus,
+                    labReports = targetReports,
+                    requireNoShow = true
+                )
+            } else {
+                isTargetActive
+            }
         } else {
             canReschedule
         }
         if (!isAllowed) {
-            val msg = if (isLabClinic) "Only missed (no-show) lab appointments can be rescheduled." else "Consultation is completed or in progress. Cannot be rescheduled."
+            val msg = if (isTargetLab) {
+                if (DiagnosticLabPolicy.isSampleCollectedOrFurther(target, targetQStatus, targetReports)) {
+                    "Sample already collected for this lab appointment. It cannot be rescheduled."
+                } else {
+                    "Only missed (no-show) lab appointments before sample collection can be rescheduled."
+                }
+            } else {
+                "Consultation is completed or in progress. Cannot be rescheduled."
+            }
             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
             return
         }
@@ -668,19 +722,6 @@ fun QueueStatusScreen(
             )
         )
     }
-    val isSampleProcessing = queueStatus == "processing" ||
-        queueStatus == "sample_collected" ||
-        appointment?.checkinStatus?.lowercase() in listOf("processing", "sample_collected") ||
-        labReports.any { it.stage == "processing" || it.stage == "in_lab" || it.stage == "sample_collected" }
-
-    val isReportReady = queueStatus == "report_prepared" ||
-        (isLabClinic && queueStatus in listOf("done", "completed")) ||
-        appointment?.checkinStatus?.lowercase() in listOf("report_prepared") ||
-        labReports.any { it.stage == "prepared" }
-
-    val isLabSampleDone = isLabClinic && (isSampleProcessing || isReportReady || labReports.isNotEmpty() ||
-        queueStatus in listOf("sample_collected", "processing", "report_prepared", "done", "completed") ||
-        appointment?.checkinStatus?.lowercase() in listOf("sample_collected", "processing", "report_prepared", "done", "completed"))
 
     val shouldShowSlotAndCallCards = !isConsultancyCompleted && !isLabSampleDone && queueStatus != "inside"
 
@@ -3309,9 +3350,34 @@ fun QueueStatusScreen(
                                 val isSelected = expandedAppointmentId == apptItem.id ||
                                     (expandedAppointmentId == null && apptItem.id == appointment?.id)
                                 val itemStatus = apptItem.checkinStatus.lowercase()
-                                val isItemCompleted = itemStatus == "completed" || itemStatus == "done"
-                                val isItemActive = itemStatus == "waiting" || itemStatus == "inside"
                                 val isItemCurrentLive = apptItem.id == appointment?.id
+                                val itemReports = if (isItemCurrentLive) labReports else emptyList()
+                                val itemQStatus = if (isItemCurrentLive) queueStatus else null
+                                val isItemLab = isLabClinic || DiagnosticLabPolicy.isDiagnosticLabAppointment(
+                                    appointment = apptItem,
+                                    clinic = clinicObj,
+                                    clinicType = clinicType,
+                                    queueStatus = itemQStatus,
+                                    labReports = itemReports
+                                )
+                                val isItemSampleDoneOrFurther = isItemLab && DiagnosticLabPolicy.isSampleCollectedOrFurther(
+                                    appointment = apptItem,
+                                    queueStatus = itemQStatus,
+                                    labReports = itemReports
+                                )
+                                val isItemCompleted = itemStatus == "completed" || itemStatus == "done" ||
+                                    (isItemLab && DiagnosticLabPolicy.isLabReportReadyOrCompleted(apptItem, itemQStatus, itemReports))
+                                val canRescheduleItem = if (isItemLab) {
+                                    DiagnosticLabPolicy.canRescheduleDiagnosticLab(
+                                        appointment = apptItem,
+                                        queueStatus = itemQStatus,
+                                        labReports = itemReports,
+                                        requireNoShow = true
+                                    )
+                                } else {
+                                    !isItemCompleted && itemStatus != "cancelled"
+                                }
+                                val isItemActive = itemStatus == "waiting" || itemStatus == "inside" || (isItemSampleDoneOrFurther && !isItemCompleted)
 
                                 Surface(
                                     shape = RoundedCornerShape(14.dp),
@@ -3542,7 +3608,7 @@ fun QueueStatusScreen(
                                                             Spacer(Modifier.width(4.dp))
                                                             Text("Download Bill", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                                         }
-                                                    } else if (!isItemCompleted && itemStatus != "cancelled") {
+                                                    } else if (canRescheduleItem) {
                                                         OutlinedButton(
                                                             onClick = {
                                                                 handleRescheduleClick(apptItem)
