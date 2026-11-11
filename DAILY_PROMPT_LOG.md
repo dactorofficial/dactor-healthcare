@@ -7,6 +7,22 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-11
 
 ### Prompt:
+> "When clinic taps on confirm for pay at desk this shows this error solve this /plan" / "continue"
+
+#### Changes Applied:
+1. **Supabase Database Schema & Authoritative RPC Remediation ([`supabase/migration_fix_pay_at_desk_queue_entries_schema.sql`](file:///g:/My%20Drive/New%20folder/supabase/migration_fix_pay_at_desk_queue_entries_schema.sql))**:
+   - Added missing column `estimated_wait_minutes INT DEFAULT 0` to `public.queue_entries` to resolve PostgreSQL error `42703: column "estimated_wait_minutes" of relation "queue_entries" does not exist`.
+   - Updated `approve_pay_at_desk_appointment` RPC with `dactor.authoritative_context` setting, verified dual authorization for mobile clients, atomic status transition to `APPROVED`, safe live queue token insertion, slot capacity reconciliation, and error-tolerant notification issuance.
+   - Granted execute permissions to `anon`, `authenticated`, and `service_role`.
+2. **Clinic App — Error Propagation Hardening ([`AppointmentRepository.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt))**:
+   - In `approvePayAtDeskAppointment()`, captured `primaryRpcError` from Tier-1 RPC execution.
+   - Prevented silent masking of underlying database errors by returning `primaryRpcError ?: fallbackErr` if both tiers fail, rather than presenting a misleading anti-tampering trigger error.
+3. **Clinic App — User Interface Error Sanitization ([`PayAtDeskRequestsScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/appointments/PayAtDeskRequestsScreen.kt))**:
+   - Sanitized error message strings displayed in the Snackbar to strip raw REST URL/headers dumps before display.
+
+---
+
+### Prompt:
 > "fix google login for clinic portal webpage / plan"
 
 #### Changes Applied:

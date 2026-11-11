@@ -1105,6 +1105,7 @@ class AppointmentRepository @Inject constructor(
         val safeClinicId = clinicId.takeIf { isValidUuid(it) }
 
         // 1. Primary: Server-authoritative RPC
+        var primaryRpcError: Throwable? = null
         try {
             val response = supabaseClient.postgrest.rpc(
                 "approve_pay_at_desk_appointment",
@@ -1127,9 +1128,12 @@ class AppointmentRepository @Inject constructor(
                     android.util.Log.w("AppointmentRepository", "Non-fatal Room cache sync ignored: ${roomErr.message}")
                 }
                 return@withContext Result.success(true)
+            } else {
+                primaryRpcError = Exception("Approval returned unsuccessful response: $dataStr")
             }
         } catch (rpcErr: Exception) {
             rpcErr.printStackTrace()
+            primaryRpcError = rpcErr
         }
 
         // 2. Resilient Tier-2 Fallback: Direct Supabase Update
@@ -1209,7 +1213,7 @@ class AppointmentRepository @Inject constructor(
             return@withContext Result.success(true)
         } catch (fallbackErr: Exception) {
             fallbackErr.printStackTrace()
-            return@withContext Result.failure(fallbackErr)
+            return@withContext Result.failure(primaryRpcError ?: fallbackErr)
         }
     }
 

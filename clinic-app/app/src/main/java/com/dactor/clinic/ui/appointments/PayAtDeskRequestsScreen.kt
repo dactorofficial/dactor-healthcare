@@ -91,11 +91,13 @@ fun PayAtDeskRequestsScreen(
                     snackbarHostState.showSnackbar("✓ Appointment #${target.trackingCode10Digit} Confirmed!")
                     loadData()
                 } else {
-                    val err = result?.exceptionOrNull()?.message ?: "Failed to confirm appointment"
-                    snackbarHostState.showSnackbar("Error: $err")
+                    val rawErr = result?.exceptionOrNull()?.message ?: "Failed to confirm appointment"
+                    val cleanErr = rawErr.substringBefore("\nURL:").substringBefore("URL:").trim()
+                    snackbarHostState.showSnackbar("Error: $cleanErr")
                 }
             } catch (e: Exception) {
-                snackbarHostState.showSnackbar("Error: ${e.message}")
+                val cleanErr = (e.message ?: "Failed to confirm appointment").substringBefore("\nURL:").substringBefore("URL:").trim()
+                snackbarHostState.showSnackbar("Error: $cleanErr")
             } finally {
                 isProcessingAction = false
                 processingAppointmentId = null
