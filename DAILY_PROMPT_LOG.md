@@ -7,6 +7,22 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-11
 
 ### Prompt:
+> "For diagnostic type clinic the mark done button should add the patient to the processing section not directly complete the appointment completely /plan"
+
+#### Changes Applied:
+1. **Clinic Android App — Diagnostic Clinic Detection & Processing Routing ([`QueueBoardScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/QueueBoardScreen.kt))**:
+   - Implemented `isDiagnosticClinic(c, item)` to check for diagnostic clinic types, lab names, and lab/pathology/radiology specialties.
+   - Pre-hydrated `currentClinic` and `isLabClinic` immediately from cached JSON in `UserSessionManager` to prevent race conditions during initial view load.
+   - Implemented unified `handleMarkDoneAction(item: QueueItemUi)`: For diagnostic visits, moves the appointment and queue entry to status `"processing"`, registers a lab report via `labReportRepository.upsertLabReportForAppointment(..., stage = "processing")`, and displays confirmation that the patient was transferred to the Processing section.
+   - Wired both the collapsed card action button and the expanded card drawer button to `handleMarkDoneAction(item)`, updating button labels to `"Mark Done (Processing)"` with `Biotech` icon for diagnostic clinics.
+   - Updated the Past Queue status stamp to display a cyan `"In Processing"` badge with `Biotech` icon for visits in the processing stage instead of marking them "Completed".
+2. **Web Clinic Portal — Diagnostic Processing Parity ([`ClinicPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/ClinicPortal.tsx))**:
+   - Added `handleMarkDiagnosticProcessing(appt: Appointment)` to set checkin status to `'processing'` and upsert into the lab report processing pipeline.
+   - Wired both the cabin consultation card and the queue table action cell to `handleMarkDiagnosticProcessing` when `isLabClinic` or `selectedTests` are present, displaying `"Mark Done (Processing)"`.
+
+---
+
+### Prompt:
 > "i have run the sql code now verify the status"
 
 #### Changes Applied:

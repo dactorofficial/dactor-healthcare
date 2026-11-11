@@ -53,6 +53,7 @@ import com.dactor.clinic.data.repository.LabReportRepository
 import com.dactor.clinic.data.repository.DoctorRepository
 import com.dactor.clinic.data.repository.QueueRepository
 import com.dactor.clinic.ui.navigation.NavRoutes
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -121,8 +122,32 @@ fun QueueBoardScreen(
         mutableStateOf<String?>(initialDoctorId?.takeIf { it.isNotBlank() } ?: savedDocId?.takeIf { it.isNotBlank() })
     }
 
-    var isLabClinic by remember { mutableStateOf(false) }
-    var currentClinic by remember(effectiveClinicId) { mutableStateOf<com.dactor.clinic.data.model.Clinic?>(null) }
+    fun isDiagnosticClinic(c: com.dactor.clinic.data.model.Clinic?, item: QueueItemUi? = null): Boolean {
+        val t = c?.type?.lowercase() ?: ""
+        val n = c?.name?.lowercase() ?: ""
+        val specs = c?.specialties?.map { it.lowercase() } ?: emptyList()
+        val isClinicMatch = t == "diagnostic_lab" || t.contains("diagnostic") || t.contains("lab") ||
+                n.contains("diagnostic") || n.contains("lab") ||
+                specs.any { it.contains("lab") || it.contains("patholog") || it.contains("diagnostic") || it.contains("radiolog") || it.contains("scan") }
+        val isItemMatch = item?.selectedLabTests?.isNotBlank() == true || (item != null && item.doctorId == null && isClinicMatch)
+        return isClinicMatch || isItemMatch
+    }
+
+    val cachedInitialClinic = remember(effectiveClinicId) {
+        if (effectiveClinicId.isNotBlank()) {
+            clinicRepository?.getCachedClinicById(effectiveClinicId)
+                ?: clinicRepository?.getLastCachedClinic()
+                ?: sessionManager.getLastCachedClinicJson()?.let {
+                    try {
+                        Json { ignoreUnknownKeys = true; isLenient = true }
+                            .decodeFromString<com.dactor.clinic.data.model.Clinic>(it)
+                    } catch (_: Exception) { null }
+                }
+        } else null
+    }
+
+    var currentClinic by remember(effectiveClinicId) { mutableStateOf<com.dactor.clinic.data.model.Clinic?>(cachedInitialClinic) }
+    var isLabClinic by remember(currentClinic) { mutableStateOf(isDiagnosticClinic(currentClinic)) }
     var isClinicOnBreak by remember(effectiveClinicId) { mutableStateOf(false) }
     var lastBreakToggleMs by remember { mutableLongStateOf(0L) }
     var rawQueueEntries by remember(effectiveClinicId) { mutableStateOf<List<QueueEntry>>(emptyList()) }
@@ -148,9 +173,7 @@ fun QueueBoardScreen(
                     if (System.currentTimeMillis() - lastBreakToggleMs > 12_000L) {
                         isClinicOnBreak = c?.isOnBreak == true
                     }
-                    val t = c?.type?.lowercase() ?: ""
-                    val n = c?.name?.lowercase() ?: ""
-                    isLabClinic = t == "diagnostic_lab" || t.contains("lab") || n.contains("lab") || (c?.specialties?.any { it.lowercase().contains("lab") || it.lowercase().contains("patholog") } == true)
+                    isLabClinic = isDiagnosticClinic(c)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -299,6 +322,37 @@ fun QueueBoardScreen(
         queueItems = active + past
         if (expandedItemId == itemId && newStatus in pastStatuses) {
             expandedItemId = null
+        }
+    }
+
+    fun handleMarkDoneAction(item: QueueItemUi) {
+        val isDiag = isDiagnosticClinic(currentClinic, item)
+        if (isDiag) {
+            optimisticallyUpdateStatus(item.id, "processing")
+            coroutineScope.launch {
+                // 1. Move queue entry to processing
+                queueRepository?.updateQueueStatus(item.id, "processing", effectiveClinicId)
+                // 2. Update appointment checkin status to processing
+                appointmentRepository?.updateCheckinStatus(item.appointmentId, "processing")
+                // 3. Upsert lab report into Processing stage
+                labReportRepository?.upsertLabReportForAppointment(
+                    appointmentId = item.appointmentId,
+                    clinicId = effectiveClinicId,
+                    patientName = item.patientName,
+                    testName = item.selectedLabTests?.takeIf { it.isNotBlank() } ?: "Diagnostic Lab Analysis",
+                    stage = "processing"
+                )
+                notificationSentMessage = "✓ Sample collected for ${item.patientName}! Patient transferred to Processing section in Operational Management."
+                loadQueue()
+            }
+        } else {
+            optimisticallyUpdateStatus(item.id, "done")
+            coroutineScope.launch {
+                queueRepository?.updateQueueStatus(item.id, "done", effectiveClinicId)
+                appointmentRepository?.updateCheckinStatus(item.appointmentId, "completed")
+                notificationSentMessage = "✓ Consultation completed for ${item.patientName}!"
+                loadQueue()
+            }
         }
     }
 
@@ -1375,9 +1429,19 @@ fun QueueBoardScreen(
                                     }
 
                                     // Appointment Completion Stamp / Badge
+                                    val isNoShow = item.status == "no_show"
+                                    val isProcessing = item.status == "processing"
+                                    val isReportPrepared = item.status == "report_prepared"
+                                    val isSampleCollected = item.status == "sample_collected"
+
                                     Surface(
                                         shape = RoundedCornerShape(16.dp),
-                                        color = if (item.status == "no_show") Color(0xFFFEE2E2) else Color(0xFFDCFCE7)
+                                        color = when {
+                                            isNoShow -> Color(0xFFFEE2E2)
+                                            isProcessing || isSampleCollected -> Color(0xFFE0F2FE)
+                                            isReportPrepared -> Color(0xFFFEF3C7)
+                                            else -> Color(0xFFDCFCE7)
+                                        }
                                     ) {
                                         Row(
                                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -1385,14 +1449,35 @@ fun QueueBoardScreen(
                                             horizontalArrangement = Arrangement.spacedBy(5.dp)
                                         ) {
                                             Icon(
-                                                if (item.status == "no_show") Icons.Default.Cancel else Icons.Default.CheckCircle,
+                                                when {
+                                                    isNoShow -> Icons.Default.Cancel
+                                                    isProcessing || isSampleCollected -> Icons.Default.Biotech
+                                                    isReportPrepared -> Icons.Default.AssignmentTurnedIn
+                                                    else -> Icons.Default.CheckCircle
+                                                },
                                                 contentDescription = null,
-                                                tint = if (item.status == "no_show") Color(0xFFDC2626) else Color(0xFF16A34A),
+                                                tint = when {
+                                                    isNoShow -> Color(0xFFDC2626)
+                                                    isProcessing || isSampleCollected -> Color(0xFF0284C7)
+                                                    isReportPrepared -> Color(0xFFD97706)
+                                                    else -> Color(0xFF16A34A)
+                                                },
                                                 modifier = Modifier.size(15.dp)
                                             )
                                             Text(
-                                                text = if (item.status == "no_show") "No Show" else "Completed",
-                                                color = if (item.status == "no_show") Color(0xFFDC2626) else Color(0xFF15803D),
+                                                text = when {
+                                                    isNoShow -> "No Show"
+                                                    isProcessing -> "In Processing"
+                                                    isSampleCollected -> "Sample Collected"
+                                                    isReportPrepared -> "Report Prepared"
+                                                    else -> "Completed"
+                                                },
+                                                color = when {
+                                                    isNoShow -> Color(0xFFDC2626)
+                                                    isProcessing || isSampleCollected -> Color(0xFF0369A1)
+                                                    isReportPrepared -> Color(0xFFB45309)
+                                                    else -> Color(0xFF15803D)
+                                                },
                                                 fontWeight = FontWeight.SemiBold,
                                                 fontSize = 12.sp
                                             )
@@ -1850,23 +1935,7 @@ fun QueueBoardScreen(
                                             }
                                             Button(
                                                 onClick = {
-                                                    optimisticallyUpdateStatus(item.id, "processing")
-                                                    coroutineScope.launch {
-                                                        // 1. Move queue entry to processing
-                                                        queueRepository?.updateQueueStatus(item.id, "processing", effectiveClinicId)
-                                                        // 2. Update appointment checkin status to processing
-                                                        appointmentRepository?.updateCheckinStatus(item.appointmentId, "processing")
-                                                        // 3. Upsert lab report into Processing stage
-                                                        labReportRepository?.upsertLabReportForAppointment(
-                                                            appointmentId = item.appointmentId,
-                                                            clinicId = effectiveClinicId,
-                                                            patientName = item.patientName,
-                                                            testName = item.selectedLabTests?.takeIf { it.isNotBlank() } ?: "Diagnostic Lab Analysis",
-                                                            stage = "processing"
-                                                        )
-                                                        notificationSentMessage = "✓ Sample collected for ${item.patientName}! Patient transferred to Processing section in Operational Management."
-                                                        loadQueue()
-                                                    }
+                                                    handleMarkDoneAction(item)
                                                 },
                                                 shape = RoundedCornerShape(10.dp),
                                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F4C81)),
@@ -1880,10 +1949,10 @@ fun QueueBoardScreen(
                                                 )
                                                 Spacer(modifier = Modifier.width(5.dp))
                                                 Text(
-                                                    text = "Collected",
+                                                    text = "Mark Done (Processing)",
                                                     color = Color.White,
                                                     fontWeight = FontWeight.Bold,
-                                                    fontSize = 12.5.sp
+                                                    fontSize = 12.sp
                                                 )
                                             }
                                         }
@@ -1921,29 +1990,24 @@ fun QueueBoardScreen(
                                             )
                                         }
                                     } else if (item.status == "inside") {
+                                        val isDiag = isDiagnosticClinic(currentClinic, item)
                                         Button(
                                             onClick = {
-                                                optimisticallyUpdateStatus(item.id, "done")
-                                                coroutineScope.launch {
-                                                    queueRepository?.updateQueueStatus(item.id, "done", effectiveClinicId)
-                                                    appointmentRepository?.updateCheckinStatus(item.appointmentId, "completed")
-                                                    notificationSentMessage = "✓ Consultation completed for ${item.patientName}!"
-                                                    loadQueue()
-                                                }
+                                                handleMarkDoneAction(item)
                                             },
                                             shape = RoundedCornerShape(10.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                            colors = ButtonDefaults.buttonColors(containerColor = if (isDiag) Color(0xFF0F4C81) else Color(0xFF059669)),
                                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Check,
+                                                imageVector = if (isDiag) Icons.Default.Biotech else Icons.Default.Check,
                                                 contentDescription = null,
                                                 tint = Color.White,
                                                 modifier = Modifier.size(16.dp)
                                             )
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Text(
-                                                text = "Mark Done",
+                                                text = if (isDiag) "Mark Done (Processing)" else "Mark Done",
                                                 color = Color.White,
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 12.5.sp
@@ -2111,24 +2175,19 @@ fun QueueBoardScreen(
                                                     Text("Call Inside", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                                 }
                                             } else if (item.status == "inside") {
+                                                val isDiag = isDiagnosticClinic(currentClinic, item)
                                                 Button(
                                                     onClick = {
-                                                        optimisticallyUpdateStatus(item.id, "done")
-                                                        coroutineScope.launch {
-                                                            queueRepository?.updateQueueStatus(item.id, "done", effectiveClinicId)
-                                                            appointmentRepository?.updateCheckinStatus(item.appointmentId, "completed")
-                                                            notificationSentMessage = "✓ Consultation completed for ${item.patientName}!"
-                                                            loadQueue()
-                                                        }
+                                                        handleMarkDoneAction(item)
                                                     },
-                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                                    colors = ButtonDefaults.buttonColors(containerColor = if (isDiag) Color(0xFF0F4C81) else Color(0xFF059669)),
                                                     modifier = Modifier.weight(1.1f),
                                                     shape = RoundedCornerShape(8.dp),
                                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
                                                 ) {
-                                                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                    Icon(if (isDiag) Icons.Default.Biotech else Icons.Default.Check, contentDescription = null, modifier = Modifier.size(15.dp))
                                                     Spacer(modifier = Modifier.width(4.dp))
-                                                    Text("Mark Done", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                                    Text(if (isDiag) "Mark Done (Processing)" else "Mark Done", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                                 }
                                             }
 
