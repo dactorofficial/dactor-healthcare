@@ -154,7 +154,8 @@ import {
   createSlot,
   createSlotsBatch,
   getSlots,
-  getSlotsByDoctorAndDate,
+  isSlotTimeExpired,
+  parseTimeToMinutes,
   updateSlot,
   deleteSlot,
   reorderQueuePosition,
@@ -971,6 +972,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [walkinSlotTime, setWalkinSlotTime] = useState('')
   const [walkinSlotId, setWalkinSlotId] = useState('')
   const [walkinAvailableSlots, setWalkinAvailableSlots] = useState<Slot[]>([])
+  const [walkinEndedSlotsCount, setWalkinEndedSlotsCount] = useState(0)
   const [walkinDate, setWalkinDate] = useState<string>(() => new Date().toISOString().split('T')[0])
 
   // 3 Clinic Types Classification for active clinic
@@ -1554,14 +1556,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   useEffect(() => {
     if (!selectedClinic?.id) {
       setWalkinAvailableSlots([])
+      setWalkinEndedSlotsCount(0)
       return
     }
+    let active = true
     const docId = walkinDoctorId || clinicDoctors[0]?.id
-    const targetDate = walkinDate || new Date().toISOString().split('T')[0]
+    const targetDate = walkinDate || todayStr
+    const now = new Date()
+    const localTodayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
     getSlots(selectedClinic.id, targetDate)
       .then((slots) => {
+        if (!active) return
         const publishedOnly = (slots || []).filter((s) => s.isPublished !== false)
-        const slotList = isLabClinic
+        const scopedSlots = isLabClinic
           ? (() => {
               const labOnly = publishedOnly.filter((s) => !s.doctorId)
               return labOnly.length > 0 ? labOnly : publishedOnly
@@ -1572,29 +1579,45 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               return docOnly.length > 0 ? docOnly : publishedOnly.filter((s) => !s.doctorId)
             })()
           : publishedOnly
-        setWalkinAvailableSlots(slotList)
-        if (slotList.length > 0) {
-          setWalkinSlotId((prev) => {
-            const found = slotList.find((s) => s.id === prev)
-            if (found) {
-              setWalkinSlotTime(`${found.startTime} - ${found.endTime}`)
-              return found.id
-            }
-            const firstOpen =
-              slotList.find((s) => (s.bookedCount || 0) < (s.maxCapacity || 5)) || slotList[0]
-            setWalkinSlotTime(`${firstOpen.startTime} - ${firstOpen.endTime}`)
-            return firstOpen.id
+        const activeSlots = scopedSlots
+          .filter((s) => {
+            if (targetDate < todayStr) return false
+            if (targetDate > todayStr) return true
+            return !isSlotTimeExpired(localTodayStr, s.endTime || s.startTime, s.startTime)
           })
-        } else {
-          setWalkinSlotId('')
-          setWalkinSlotTime('')
-        }
+          .sort((a, b) => parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime))
+        setWalkinEndedSlotsCount(Math.max(0, scopedSlots.length - activeSlots.length))
+        setWalkinAvailableSlots(activeSlots)
       })
       .catch((err) => {
+        if (!active) return
         console.error('Error loading walkin slots:', err)
+        setWalkinEndedSlotsCount(0)
         setWalkinAvailableSlots([])
       })
-  }, [selectedClinic?.id, isLabClinic, walkinDoctorId, clinicDoctors, walkinDate, refreshKey])
+    return () => {
+      active = false
+    }
+  }, [selectedClinic?.id, isLabClinic, walkinDoctorId, clinicDoctors, walkinDate, todayStr, refreshKey])
+
+  // Auto-select first open published walk-in slot (or keep existing valid selection)
+  useEffect(() => {
+    if (walkinAvailableSlots.length === 0) {
+      setWalkinSlotId('')
+      setWalkinSlotTime('')
+      return
+    }
+    const existing = walkinAvailableSlots.find((s) => s.id === walkinSlotId)
+    const target =
+      existing ||
+      walkinAvailableSlots.find((s) => (s.bookedCount || 0) < (s.maxCapacity || 5)) ||
+      walkinAvailableSlots[0]
+    if (target) {
+      const range = `${target.startTime} - ${target.endTime}`
+      if (walkinSlotId !== target.id) setWalkinSlotId(target.id)
+      if (walkinSlotTime !== range) setWalkinSlotTime(range)
+    }
+  }, [walkinAvailableSlots])
 
 
   // Recalculate bill total amount when line items change
@@ -2524,6 +2547,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       errors.slot = isLabClinic
         ? 'Please select a published lab collection time slot.'
         : 'Please select a published OPD time slot.'
+    } else {
+      const now = new Date()
+      const localTodayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+      const targetWalkinDate = walkinDate || todayStr
+      const chosenSlotObj = walkinAvailableSlots.find((s) => s.id === walkinSlotId)
+      if (
+        targetWalkinDate < todayStr ||
+        (chosenSlotObj &&
+          targetWalkinDate === todayStr &&
+          isSlotTimeExpired(localTodayStr, chosenSlotObj.endTime || chosenSlotObj.startTime, chosenSlotObj.startTime))
+      ) {
+        errors.slot = `Selected slot (${chosenSlotObj ? `${chosenSlotObj.startTime} - ${chosenSlotObj.endTime}` : walkinSlotTime}) has already ended. Please select an active slot.`
+      }
     }
 
     setWalkinErrors(errors)
@@ -2611,6 +2647,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           patient_age: localAppt.patientAge,
           patient_gender: localAppt.patientGender,
           appointment_time: rawTime,
+          slot_id: walkinSlotId || null,
           fee_amount: finalFee,
           payment_status: 'paid',
           notes: walkinNotes,
@@ -2664,6 +2701,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       }
 
       // 2. Optimistic UI State Update (Zero Delay)
+      const submittedSlotId = walkinSlotId
       setAppointments((prev) => [localAppt, ...prev])
       setWalkinSuccessCode(code10)
       setPrintSlipAppt(localAppt)
@@ -2673,6 +2711,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       setWalkinEmail('')
       setWalkinSlotTime('')
       setWalkinSlotId('')
+      if (submittedSlotId) {
+        setWalkinAvailableSlots((prev) =>
+          prev.map((s) =>
+            s.id === submittedSlotId ? { ...s, bookedCount: (s.bookedCount || 0) + 1 } : s
+          )
+        )
+      }
       setWalkinSelectedTests([])
       setWalkinIsFollowup(false)
       setWalkinFollowupCode('')
@@ -2691,7 +2736,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           patientEmail: localAppt.patientEmail,
           appointmentDate: apptDate,
           appointmentTime: rawTime,
-          slotId: walkinSlotId || undefined,
+          slotId: submittedSlotId || undefined,
           checkinStatus: 'waiting',
           paymentStatus: 'paid',
           feeAmount: finalFee,
@@ -2701,6 +2746,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         }).then((created) => {
           if (created) {
             setPrintSlipAppt(created)
+            setRefreshKey((k) => k + 1)
           }
         }).catch((err) => {
           console.warn('Background Supabase appointment create failed, queued offline:', err)
@@ -6868,10 +6914,18 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                     <div className="flex-1">
                       <h4 className="text-xs font-bold">
-                        {isLabClinic ? 'No Published Lab Collection Slots Found' : 'No Published OPD Slots Found'}
+                        {walkinEndedSlotsCount > 0
+                          ? isLabClinic
+                            ? `All Lab Slots Ended for ${walkinDate}`
+                            : `All OPD Slots Ended for ${walkinDate}`
+                          : isLabClinic
+                          ? 'No Published Lab Collection Slots Found'
+                          : 'No Published OPD Slots Found'}
                       </h4>
                       <p className="text-[11px] text-amber-800 mt-0.5">
-                        {isLabClinic
+                        {walkinEndedSlotsCount > 0
+                          ? `All ${walkinEndedSlotsCount} published ${isLabClinic ? 'lab collection' : 'OPD'} slot(s) on ${walkinDate} have already ended. Please publish a new active slot in the Timed Slots Publisher or select an upcoming date.`
+                          : isLabClinic
                           ? `No lab collection time slots have been published on ${walkinDate}. Please create and publish time slots in the Timed Slots Publisher before issuing walk-in tokens.`
                           : `No OPD time slots have been published for this clinic on ${walkinDate}. Please create and publish time slots in the Timed Slots Publisher before issuing walk-in tokens.`}
                       </p>

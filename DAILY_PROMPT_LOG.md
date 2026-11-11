@@ -7,6 +7,20 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-11
 
 ### Prompt:
+> "You removed the chosing of slot choosing for walk in patient fix this"
+
+#### Changes Applied:
+1. **Clinic Android App — Walk-In Slot Choosing Across All Clinic Types ([`WalkinBookingScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/walkin/WalkinBookingScreen.kt), [`SlotManagerScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/slots/SlotManagerScreen.kt))**:
+   - Restored published time slot loading, interactive slot selection, capacity/overbooking notices, and slot validation for ALL clinic types (Diagnostic Labs, doctorless/general clinics, single-doctor, and polyclinics) by removing `!isLabClinic` gates and the `selectedDoctor != null` prerequisite.
+   - Pre-hydrated diagnostic clinic state via `clinicRepository.getCachedClinicById` / `getLastCachedClinic`, added loading state indicator (`isSlotsLoading`), chronological slot sorting (`parseTimeToMinutes`), ended-slot filtering (`isSlotEndTimeOver`) with clear `"All Slots Ended"` empty-state messaging, and facility-wide (`doctorId = null`) walk-in submission for diagnostic labs.
+   - Updated [`SlotManagerScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/slots/SlotManagerScreen.kt) to use shared `clinic?.isDiagnosticLab()` detection and keep `doctorId = null` when publishing lab slots from the date-override modal.
+2. **Web Clinic Portal — Walk-In & Timed Slots Publisher ([`ClinicPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/ClinicPortal.tsx), [`db.ts`](file:///g:/My%20Drive/New%20folder/web-app/src/services/db.ts))**:
+   - Enabled published slot loading (`getSlots`), chronological sorting (`parseTimeToMinutes`), active-slot filtering (`isSlotTimeExpired`), `"All Slots Ended"` empty-state feedback, capacity/overbooking indicators, and facility-wide slot publishing across diagnostic lab, general, single-doctor, and polyclinic modes.
+   - Separated auto-selection of the first open active walk-in slot cleanly from async fetch, optimistically incremented `bookedCount` on walk-in submission, persisted `slot_id` into local IndexedDB `appointments`, normalized `doctor_id: slot.doctorId || null` in `createSlot` / `createSlotsBatch` ([`db.ts`](file:///g:/My%20Drive/New%20folder/web-app/src/services/db.ts)), and removed unused `getSlotsByDoctorAndDate` import.
+
+---
+
+### Prompt:
 > "fix this ui / generative"
 
 #### Changes Applied:

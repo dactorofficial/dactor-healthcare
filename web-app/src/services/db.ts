@@ -1420,7 +1420,7 @@ export async function createSlot(slot: Partial<Slot>): Promise<Slot | null> {
     const dbPayload = {
       id: slot.id || crypto.randomUUID(),
       clinic_id: slot.clinicId,
-      doctor_id: slot.doctorId,
+      doctor_id: slot.doctorId || null,
       slot_date: slot.slotDate,
       start_time: formatTimeForPostgres(slot.startTime),
       end_time: formatTimeForPostgres(slot.endTime),
@@ -1452,7 +1452,7 @@ export async function createSlotsBatch(slots: Partial<Slot>[]): Promise<Slot[]> 
     const dbPayloads = slots.map((slot) => ({
       id: slot.id || crypto.randomUUID(),
       clinic_id: slot.clinicId,
-      doctor_id: slot.doctorId,
+      doctor_id: slot.doctorId || null,
       slot_date: slot.slotDate,
       start_time: formatTimeForPostgres(slot.startTime),
       end_time: formatTimeForPostgres(slot.endTime),

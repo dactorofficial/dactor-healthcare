@@ -87,12 +87,7 @@ fun SlotManagerScreen(
     }
 
     var clinic by remember { mutableStateOf<Clinic?>(null) }
-    val isLabMode = remember(clinic) {
-        val t = clinic?.type?.lowercase() ?: ""
-        val n = clinic?.name?.lowercase() ?: ""
-        t == "diagnostic_lab" || t.contains("lab") || n.contains("lab") ||
-            (clinic?.specialties?.any { it.lowercase().contains("lab") || it.lowercase().contains("patholog") } == true)
-    }
+    val isLabMode = remember(clinic) { clinic?.isDiagnosticLab() == true }
 
     val todayDate = remember { LocalDate.now() }
     val today = remember { todayDate.toString() }
@@ -872,7 +867,7 @@ fun SlotManagerScreen(
                         }
                         Button(
                             onClick = {
-                                val doc = selectedDoctor ?: doctors.firstOrNull()
+                                val doc = if (isLabMode) null else (selectedDoctor ?: doctors.firstOrNull())
                                 if (slotRepository != null) {
                                     val newS = Slot(
                                         id = UUID.randomUUID().toString(),
