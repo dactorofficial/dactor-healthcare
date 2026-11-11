@@ -48,9 +48,33 @@ fun PayAtDeskRequestsScreen(
 
     // Dialog state for confirmation & details
     var selectedRequestForDetail by remember { mutableStateOf<Appointment?>(null) }
-    var confirmApproveAppt by remember { mutableStateOf<Appointment?>(null) }
     var confirmRejectAppt by remember { mutableStateOf<Appointment?>(null) }
     var isProcessingAction by remember { mutableStateOf(false) }
+    var processingAppointmentId by remember { mutableStateOf<String?>(null) }
+
+    fun handleConfirmAppointment(target: Appointment) {
+        if (isProcessingAction) return
+        isProcessingAction = true
+        processingAppointmentId = target.id
+        scope.launch {
+            try {
+                val effectiveCid = target.clinicId.trim().ifEmpty { clinicId.trim() }
+                val result = appointmentRepository?.approvePayAtDeskAppointment(target.id, effectiveCid)
+                if (result?.isSuccess == true) {
+                    snackbarHostState.showSnackbar("✓ Appointment #${target.trackingCode10Digit} Confirmed!")
+                    loadData()
+                } else {
+                    val err = result?.exceptionOrNull()?.message ?: "Failed to confirm appointment"
+                    snackbarHostState.showSnackbar("Error: $err")
+                }
+            } catch (e: Exception) {
+                snackbarHostState.showSnackbar("Error: ${e.message}")
+            } finally {
+                isProcessingAction = false
+                processingAppointmentId = null
+            }
+        }
+    }
 
     fun loadData() {
         if (clinicId.isBlank() || appointmentRepository == null) {
@@ -216,7 +240,7 @@ fun PayAtDeskRequestsScreen(
                                 doctor = doc,
                                 isOldest = (index == 0),
                                 onCardClick = { selectedRequestForDetail = appt },
-                                onApproveClick = { confirmApproveAppt = appt },
+                                onConfirmClick = { handleConfirmAppointment(appt) },
                                 onRejectClick = { confirmRejectAppt = appt },
                                 onCallPhone = { phone ->
                                     try {
@@ -224,7 +248,8 @@ fun PayAtDeskRequestsScreen(
                                         context.startActivity(intent)
                                     } catch (_: Exception) {}
                                 },
-                                isProcessing = isProcessingAction
+                                isProcessing = isProcessingAction,
+                                isConfirming = (processingAppointmentId == appt.id)
                             )
                         }
 
@@ -235,71 +260,6 @@ fun PayAtDeskRequestsScreen(
                 }
             }
         }
-    }
-
-    // Confirmation Modal: Approve Request
-    if (confirmApproveAppt != null) {
-        val target = confirmApproveAppt!!
-        AlertDialog(
-            onDismissRequest = { if (!isProcessingAction) confirmApproveAppt = null },
-            icon = { Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(32.dp)) },
-            title = { Text("Approve Appointment?", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Patient: ${target.patientName}", fontWeight = FontWeight.SemiBold)
-                    Text("Slot: ${target.appointmentDate} at ${target.appointmentTime}")
-                    Text("Total at Desk: NPR ${target.totalAmount}")
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "This patient will be added to the live OPD queue for this slot. If the slot is at capacity, it will be safely overloaded.",
-                        fontSize = 12.sp,
-                        color = Color(0xFF64748B)
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (isProcessingAction) return@Button
-                        isProcessingAction = true
-                        scope.launch {
-                            try {
-                                val effectiveCid = target.clinicId.trim().ifEmpty { clinicId.trim() }
-                                val result = appointmentRepository?.approvePayAtDeskAppointment(target.id, effectiveCid)
-                                if (result?.isSuccess == true) {
-                                    snackbarHostState.showSnackbar("Appointment #${target.trackingCode10Digit} Approved!")
-                                    confirmApproveAppt = null
-                                    loadData()
-                                } else {
-                                    val err = result?.exceptionOrNull()?.message ?: "Failed to approve appointment"
-                                    snackbarHostState.showSnackbar("Error: $err")
-                                }
-                            } catch (e: Exception) {
-                                snackbarHostState.showSnackbar("Error: ${e.message}")
-                            } finally {
-                                isProcessingAction = false
-                            }
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
-                    enabled = !isProcessingAction
-                ) {
-                    if (isProcessingAction) {
-                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    Text("Confirm Approve")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = { confirmApproveAppt = null },
-                    enabled = !isProcessingAction
-                ) {
-                    Text("Cancel")
-                }
-            }
-        )
     }
 
     // Confirmation Modal: Reject / Cancel Request
@@ -425,12 +385,15 @@ fun PayAtDeskRequestsScreen(
                     }
                     Button(
                         onClick = {
-                            confirmApproveAppt = req
                             selectedRequestForDetail = null
+                            handleConfirmAppointment(req)
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A))
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
+                        enabled = !isProcessingAction
                     ) {
-                        Text("Approve")
+                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Confirm")
                     }
                 }
             },
@@ -449,10 +412,11 @@ fun PayAtDeskRequestCard(
     doctor: Doctor?,
     isOldest: Boolean = false,
     onCardClick: () -> Unit,
-    onApproveClick: () -> Unit,
+    onConfirmClick: () -> Unit,
     onRejectClick: () -> Unit,
     onCallPhone: (String) -> Unit,
-    isProcessing: Boolean
+    isProcessing: Boolean,
+    isConfirming: Boolean = false
 ) {
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -628,15 +592,20 @@ fun PayAtDeskRequestCard(
                 }
 
                 Button(
-                    onClick = onApproveClick,
+                    onClick = onConfirmClick,
                     enabled = !isProcessing,
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
                     modifier = Modifier.weight(1f)
                 ) {
-                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Approve", fontWeight = FontWeight.SemiBold)
+                    if (isConfirming) {
+                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(6.dp))
+                    } else {
+                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text("Confirm", fontWeight = FontWeight.SemiBold)
                 }
             }
         }

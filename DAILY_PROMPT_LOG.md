@@ -4,6 +4,21 @@ This file tracks user prompts and the exact changes applied across the codebase,
 
 ---
 
+## 2026-11-11
+
+### Prompt:
+> "For pay at desk in clinic app just make the confirm button direct don't pop up any again text to confirm directly confirm will confirm it /plan"
+
+#### Changes Applied:
+1. **Direct Pay at Desk Confirmation ([`PayAtDeskRequestsScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/appointments/PayAtDeskRequestsScreen.kt))**:
+   - Removed secondary confirmation dialog (`confirmApproveAppt` AlertDialog) completely so clicking confirm directly triggers appointment approval without redundant text popups.
+   - Added direct approval handler `handleConfirmAppointment` that calls `appointmentRepository.approvePayAtDeskAppointment`, displays a green confirmation snackbar, and refreshes the pending requests list.
+   - Updated button label to "Confirm" with checkmark icon and added inline loading indicator (`CircularProgressIndicator`) on the specific card being confirmed.
+   - Updated Request Details modal confirm button to directly approve the request upon tap without opening a second modal.
+   - Maintained Cancel / Reject confirmation modal for safety against accidental misclicks.
+
+---
+
 ## 2026-11-10
 
 ### Prompt:
