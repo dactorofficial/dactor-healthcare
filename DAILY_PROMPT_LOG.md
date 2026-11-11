@@ -7,6 +7,32 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-11
 
 ### Prompt:
+> "fix google login for clinic portal webpage / plan"
+
+#### Changes Applied:
+1. **Firebase Redirect & Ambient State Isolation ([`web-app/src/lib/firebase.ts`](file:///g:/My%20Drive/New%20folder/web-app/src/lib/firebase.ts))**:
+   - Added `checkRedirectGoogleUser(options?: { requireRedirectOnly?: boolean })` support.
+   - When `requireRedirectOnly: true` is passed, strictly inspects `getRedirectResult()` from Firebase and skips checking ambient `localStorage.getItem('dactor_google_user')` or `auth.currentUser`.
+   - Prevents stale Patient credentials in localStorage from leaking into Clinic Portal upon page load.
+2. **Email Association Check Parity ([`web-app/src/services/db.ts`](file:///g:/My%20Drive/New%20folder/web-app/src/services/db.ts))**:
+   - Updated `checkEmailPortalAssociation(email)` to match Android `ClinicLoginScreen.kt` 1:1 parity.
+   - Preserves clinic and doctor profile checks and checks profiles table for `role === 'patient'` with non-empty full name/phone.
+   - Removed legacy `appointments.patient_email` check which was falsely associating clinic managers/receptionists who previously booked a test appointment as patients.
+3. **Clinic Portal Google Login & Session Isolation ([`web-app/src/pages/ClinicPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/ClinicPortal.tsx))**:
+   - Added `isProcessingAuth` and `authInFlightEmail` refs to guard against race conditions between Google OAuth popup completion and `onFirebaseAuthStateChanged`.
+   - Prevented fallback to `cList[0]` in `init()` when clinic is unauthenticated or already authenticated.
+   - In `saveSession`: stored `dactor_last_active_role = 'clinic_manager'` and `dactor_last_active_portal = 'portal'`, and purged conflicting patient session keys (`dactor_patient_logged_in`, `dactor_patient_session`, `dactor_patient_email`).
+   - In `resetToAuthChoice`: cleared clinic session keys and called `firebaseSignOut()`.
+   - In `initGoogleRedirectCheck`: only executes redirect login when `targetPortal === 'clinic'` using `{ requireRedirectOnly: true }` or when `dactor_clinic_logged_in === 'true'`.
+   - In `handleGoogleSignInWithRole`: invoked non-blocking `firebaseSignOut()` prior to `signInWithFirebaseGoogle('clinic')` to guarantee a clean account chooser while preserving user gesture.
+4. **Production Build & Multi-Host Deployment**:
+   - Built production web assets (`web-app/dist/assets/index-CYlR0VJm.js`).
+   - Deployed live to `dactorofficial.github.io` (main) and `dactorofficial/dactor` (gh-pages) via `scripts/deploy_ghpages.ps1`.
+   - Synchronized source repositories (`rajanpurbe/Dactor` and `dactorofficial/dactor`) via `scripts/push_website_and_repos.cjs`.
+
+---
+
+### Prompt:
 > "For pay at desk in clinic app just make the confirm button direct don't pop up any again text to confirm directly confirm will confirm it /plan"
 
 #### Changes Applied:

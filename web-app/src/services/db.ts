@@ -4319,7 +4319,7 @@ export async function checkEmailPortalAssociation(
   if (!cleanEmail) return null
 
   try {
-    // 1. Check clinics table (contact_email)
+    // 1. Check clinics table (contact_email) - highest priority for clinic facilities
     const existingClinic = await getClinicByEmail(cleanEmail)
     if (existingClinic) {
       return {
@@ -4341,7 +4341,7 @@ export async function checkEmailPortalAssociation(
       }
     }
 
-    // 3. Check profiles table (email)
+    // 3. Check profiles table (email) - 1:1 parity with Android ClinicLoginScreen.kt
     const existingProfile = await getPatientProfileByEmail(cleanEmail)
     if (existingProfile) {
       const role = (existingProfile.role || '').trim().toLowerCase()
@@ -4361,29 +4361,14 @@ export async function checkEmailPortalAssociation(
           email: cleanEmail,
         }
       }
-      if (role === 'patient') {
+      // Only block if a real, registered patient profile exists with name or phone (matches Android parity)
+      if (role === 'patient' && (Boolean(existingProfile.fullName?.trim()) || Boolean(existingProfile.phone?.trim()))) {
         return {
           portal: 'patient',
           portalLabel: 'Patient Portal',
           entityName: existingProfile.fullName || '',
           email: cleanEmail,
         }
-      }
-    }
-
-    // 4. Check appointments table (patient_email)
-    const { data: patientAppts } = await supabase
-      .from('appointments')
-      .select('patient_name')
-      .ilike('patient_email', cleanEmail)
-      .limit(1)
-
-    if (patientAppts && patientAppts.length > 0) {
-      return {
-        portal: 'patient',
-        portalLabel: 'Patient Portal',
-        entityName: patientAppts[0].patient_name || 'Patient',
-        email: cleanEmail,
       }
     }
   } catch (err) {

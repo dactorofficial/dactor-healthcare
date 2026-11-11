@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Building2,
   Stethoscope,
@@ -195,6 +195,7 @@ import { supabase } from '../lib/supabase'
 import {
   signInWithFirebaseGoogle,
   signOutFirebase,
+  firebaseSignOut,
   checkRedirectGoogleUser,
   onFirebaseAuthStateChanged,
 } from '../lib/firebase'
@@ -558,6 +559,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   // Google Sign-In Status
   const [firebaseLoading, setFirebaseLoading] = useState(false)
   const [firebaseError, setFirebaseError] = useState<string | null>(null)
+  const isProcessingAuth = useRef(false)
+  const authInFlightEmail = useRef<string | null>(null)
 
   // Taxonomy Lists from Supabase
   const [medicalSpecialties, setMedicalSpecialties] = useState<MedicalSpecialty[]>([])
@@ -1310,7 +1313,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           cList.find((c) => (c.contactEmail || '').toLowerCase() === savedEmail) ||
           (await getClinicByEmail(savedEmail))
       }
-      if (!initialClinic && cList.length > 0) {
+      if (!initialClinic && cList.length > 0 && !localStorage.getItem('dactor_clinic_logged_in') && !selectedClinic) {
         initialClinic = cList[0]
       }
 
@@ -1591,7 +1594,15 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       localStorage.setItem('dactor_clinic_logged_in', 'true')
       localStorage.setItem('dactor_clinic_email', email)
       localStorage.setItem('dactor_clinic_role', role)
+      localStorage.setItem('dactor_last_active_role', 'clinic_manager')
+      localStorage.setItem('dactor_last_active_portal', 'portal')
       localStorage.removeItem('dactor_pending_verification')
+
+      // Purge conflicting patient session keys to prevent Navbar role mismatch
+      localStorage.removeItem('dactor_patient_logged_in')
+      localStorage.removeItem('dactor_patient_session')
+      localStorage.removeItem('dactor_patient_email')
+
       try {
         sessionStorage.removeItem('dactor_explicit_home')
         sessionStorage.removeItem('dactor_allow_home')
@@ -1610,6 +1621,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       localStorage.removeItem('dactor_clinic_email')
       localStorage.removeItem('dactor_clinic_role')
       localStorage.removeItem('dactor_pending_verification')
+      if (localStorage.getItem('dactor_last_active_role') === 'clinic_manager') {
+        localStorage.removeItem('dactor_last_active_role')
+        localStorage.removeItem('dactor_last_active_portal')
+      }
+      firebaseSignOut()
       window.dispatchEvent(new Event('storage'))
     } catch {}
   }
@@ -1618,16 +1634,23 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     resetToAuthChoice()
   }
 
-  // Restore session from Google OAuth redirect or active Firebase session
+  // Restore session from Google OAuth redirect or active Clinic session
   useEffect(() => {
     let isMounted = true
     async function initGoogleRedirectCheck() {
-      // 1. Check if returning from Google OAuth redirect
-      const redirected = await checkRedirectGoogleUser()
-      if (!isMounted) return
-      if (redirected && redirected.email) {
-        await processLoginForEmail(redirected.email, 'clinic')
-        return
+      // 1. Check if returning from genuine Google OAuth redirect intended for clinic
+      const targetPortal =
+        sessionStorage.getItem('dactor_oauth_target_portal') ||
+        localStorage.getItem('dactor_oauth_target_portal')
+      if (targetPortal === 'clinic') {
+        const redirected = await checkRedirectGoogleUser({ requireRedirectOnly: true })
+        if (!isMounted) return
+        if (redirected && redirected.email) {
+          sessionStorage.removeItem('dactor_oauth_target_portal')
+          localStorage.removeItem('dactor_oauth_target_portal')
+          await processLoginForEmail(redirected.email, 'clinic')
+          return
+        }
       }
 
       // 2. Check if already marked as logged in
@@ -1640,9 +1663,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
     initGoogleRedirectCheck()
 
-    // 3. Listen to reactive Firebase auth state changes
+    // 3. Listen to reactive Firebase auth state changes ONLY when clinic Google sign-in was initiated
     const unsub = onFirebaseAuthStateChanged((u) => {
-      if (isMounted && u && u.email && !isAuthenticated && currentView === 'auth_choice') {
+      const targetPortal =
+        sessionStorage.getItem('dactor_oauth_target_portal') ||
+        localStorage.getItem('dactor_oauth_target_portal')
+      if (isMounted && u && u.email && !isAuthenticated && currentView === 'auth_choice' && targetPortal === 'clinic') {
         processLoginForEmail(u.email, 'clinic')
       }
     })
@@ -1656,6 +1682,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   // 1. Process Login & Verification for Clinic Email (Strictly Clinic Portal Only)
   const processLoginForEmail = async (email: string, _roleTab: 'clinic' | 'doctor' = 'clinic') => {
     const trimmedEmail = email.trim().toLowerCase()
+    if (!trimmedEmail) return
+    if (authInFlightEmail.current === trimmedEmail && isAuthenticated) return
+    authInFlightEmail.current = trimmedEmail
+
     setFirebaseLoading(true)
     setFirebaseError(null)
     setVerifiedEmail(trimmedEmail)
@@ -1704,14 +1734,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       setFirebaseError(err.message || 'Error communicating with database')
     } finally {
       setFirebaseLoading(false)
+      authInFlightEmail.current = null
     }
   }
 
   // 2. Google Sign-In Trigger for Clinic Portal
   const handleGoogleSignInWithRole = async (_roleTab: 'clinic' | 'doctor' = 'clinic') => {
+    if (isProcessingAuth.current) return
+    isProcessingAuth.current = true
     setFirebaseLoading(true)
     setFirebaseError(null)
     try {
+      // Clear any stale local auth state non-blocking to keep browser user-activation gesture fresh
+      firebaseSignOut()
       const googleUser = await signInWithFirebaseGoogle('clinic')
       if (googleUser && googleUser.email) {
         await processLoginForEmail(googleUser.email, 'clinic')
@@ -1725,6 +1760,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       }
     } finally {
       setFirebaseLoading(false)
+      isProcessingAuth.current = false
     }
   }
 

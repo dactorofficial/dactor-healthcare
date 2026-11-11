@@ -38,8 +38,8 @@ export function isMobileBrowser(): boolean {
  * Check if the browser just returned from a Firebase signInWithRedirect
  * or if there is already an active authenticated session
  */
-export async function checkRedirectGoogleUser(): Promise<FirebaseAuthUser | null> {
-  // 1. Check Firebase getRedirectResult
+export async function checkRedirectGoogleUser(options?: { requireRedirectOnly?: boolean }): Promise<FirebaseAuthUser | null> {
+  // 1. Check Firebase getRedirectResult (genuine redirect return)
   try {
     if (typeof window !== 'undefined' && (window as any).dactorFirebase?.getRedirectResult) {
       const result = await (window as any).dactorFirebase.getRedirectResult()
@@ -57,6 +57,11 @@ export async function checkRedirectGoogleUser(): Promise<FirebaseAuthUser | null
     }
   } catch (err) {
     console.warn('Firebase getRedirectResult notice:', err)
+  }
+
+  // If caller specifically requested redirect results only, do not probe ambient cache
+  if (options?.requireRedirectOnly) {
+    return null
   }
 
   // 2. Check active Firebase currentUser
