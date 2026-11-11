@@ -52,30 +52,6 @@ fun PayAtDeskRequestsScreen(
     var isProcessingAction by remember { mutableStateOf(false) }
     var processingAppointmentId by remember { mutableStateOf<String?>(null) }
 
-    fun handleConfirmAppointment(target: Appointment) {
-        if (isProcessingAction) return
-        isProcessingAction = true
-        processingAppointmentId = target.id
-        scope.launch {
-            try {
-                val effectiveCid = target.clinicId.trim().ifEmpty { clinicId.trim() }
-                val result = appointmentRepository?.approvePayAtDeskAppointment(target.id, effectiveCid)
-                if (result?.isSuccess == true) {
-                    snackbarHostState.showSnackbar("✓ Appointment #${target.trackingCode10Digit} Confirmed!")
-                    loadData()
-                } else {
-                    val err = result?.exceptionOrNull()?.message ?: "Failed to confirm appointment"
-                    snackbarHostState.showSnackbar("Error: $err")
-                }
-            } catch (e: Exception) {
-                snackbarHostState.showSnackbar("Error: ${e.message}")
-            } finally {
-                isProcessingAction = false
-                processingAppointmentId = null
-            }
-        }
-    }
-
     fun loadData() {
         if (clinicId.isBlank() || appointmentRepository == null) {
             isLoading = false
@@ -99,6 +75,30 @@ fun PayAtDeskRequestsScreen(
                 errorMessage = e.message ?: "Failed to load requests"
             } finally {
                 isLoading = false
+            }
+        }
+    }
+
+    fun handleConfirmAppointment(target: Appointment) {
+        if (isProcessingAction) return
+        isProcessingAction = true
+        processingAppointmentId = target.id
+        scope.launch {
+            try {
+                val effectiveCid = target.clinicId.trim().ifEmpty { clinicId.trim() }
+                val result = appointmentRepository?.approvePayAtDeskAppointment(target.id, effectiveCid)
+                if (result?.isSuccess == true) {
+                    snackbarHostState.showSnackbar("✓ Appointment #${target.trackingCode10Digit} Confirmed!")
+                    loadData()
+                } else {
+                    val err = result?.exceptionOrNull()?.message ?: "Failed to confirm appointment"
+                    snackbarHostState.showSnackbar("Error: $err")
+                }
+            } catch (e: Exception) {
+                snackbarHostState.showSnackbar("Error: ${e.message}")
+            } finally {
+                isProcessingAction = false
+                processingAppointmentId = null
             }
         }
     }

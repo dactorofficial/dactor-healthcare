@@ -19,6 +19,27 @@ This file tracks user prompts and the exact changes applied across the codebase,
 
 ---
 
+### Prompt:
+> "genereate apk"
+
+#### Changes Applied:
+1. **Clinic App Scoping Fix ([`PayAtDeskRequestsScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/appointments/PayAtDeskRequestsScreen.kt))**:
+   - Reordered `loadData()` declaration above `handleConfirmAppointment` to fix Kotlin local scoping compiler resolution.
+2. **Clinic App Version Bump ([`build.gradle.kts`](file:///g:/My%20Drive/New%20folder/clinic-app/app/build.gradle.kts))**:
+   - Incremented `versionCode` from `85` to `86`.
+   - Incremented `versionName` from `"1.0.85"` to `"1.0.86"`.
+3. **Debug APK Build & Staging ([`build_apks.ps1`](file:///g:/My%20Drive/New%20folder/build_apks.ps1))**:
+   - Compiled `assembleDebug` with API 36 / Core Library Desugaring on local SSD builder.
+   - Generated binary `Dactor-ClinicApp-v1.0.86.apk` (39.81 MB).
+   - Staged to:
+     - `APKs/Dactor-ClinicApp-v1.0.86.apk`
+     - `APKs/Dactor-ClinicApp-debug.apk`
+     - `C:\Users\nitup\Dactor-APKs\Dactor-ClinicApp-v1.0.86.apk`
+4. **Documentation & Handoff**:
+   - Updated Executive Summary and Version Log table in [`HANDOFF.md`](file:///g:/My%20Drive/New%20folder/HANDOFF.md).
+
+---
+
 ## 2026-11-10
 
 ### Prompt:
