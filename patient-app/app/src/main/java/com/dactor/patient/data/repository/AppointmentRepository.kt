@@ -11,6 +11,7 @@ import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.functions.functions
 import io.ktor.client.call.body
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonPrimitive
@@ -2068,6 +2069,24 @@ class AppointmentRepository @Inject constructor(
         false
     }
 
+    private fun extractCleanErrorMessage(rawMsg: String?): String {
+        if (rawMsg.isNullOrBlank()) return "Failed to retry appointment request"
+        return try {
+            val element = lenientJson.parseToJsonElement(rawMsg)
+            if (element is JsonObject) {
+                element["message"]?.jsonPrimitive?.contentOrNull
+                    ?: element["error"]?.jsonPrimitive?.contentOrNull
+                    ?: element["msg"]?.jsonPrimitive?.contentOrNull
+                    ?: element["details"]?.jsonPrimitive?.contentOrNull
+                    ?: rawMsg
+            } else {
+                rawMsg
+            }
+        } catch (_: Exception) {
+            rawMsg
+        }
+    }
+
     suspend fun retryPayAtDeskAppointment(appointmentId: String, patientMobile: String? = null): Result<Appointment> = withContext(Dispatchers.IO) {
         try {
             val response = supabaseClient.postgrest.rpc(
@@ -2078,11 +2097,38 @@ class AppointmentRepository @Inject constructor(
                         put("p_patient_mobile", patientMobile)
                     }
                 }
-            ).decodeSingle<Appointment>()
-            Result.success(response)
+            )
+            val raw = response.data?.trim()
+            if (!raw.isNullOrBlank()) {
+                val json = try { lenientJson.parseToJsonElement(raw) } catch (_: Exception) { null }
+                if (json is JsonObject) {
+                    val errorMsg = json["error"]?.jsonPrimitive?.contentOrNull
+                        ?: json["message"]?.jsonPrimitive?.contentOrNull
+                    val isSuccess = json["success"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
+                    if (isSuccess == false && !errorMsg.isNullOrBlank()) {
+                        return@withContext Result.failure(Exception(errorMsg))
+                    }
+                }
+            }
+
+            // Attempt to decode directly if a full appointment object was returned
+            val decodedAppt = if (!raw.isNullOrBlank()) {
+                try {
+                    lenientJson.decodeFromString<Appointment>(raw)
+                } catch (_: Exception) {
+                    null
+                }
+            } else null
+
+            val resultAppt = decodedAppt?.takeIf { it.id.isNotBlank() }
+                ?: getAppointmentById(appointmentId)
+                ?: Appointment(id = appointmentId, status = "WAITING_FOR_APPROVAL")
+
+            Result.success(resultAppt)
         } catch (e: Exception) {
             e.printStackTrace()
-            Result.failure(e)
+            val cleanMsg = extractCleanErrorMessage(e.message)
+            Result.failure(Exception(cleanMsg, e))
         }
     }
 

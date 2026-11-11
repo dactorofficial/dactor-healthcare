@@ -1029,6 +1029,12 @@ fun QueueStatusScreen(
                     val serviceCharge = appt.serviceChargeAmount ?: (fee * 0.05)
                     val total = appt.totalAmount ?: (fee + serviceCharge)
 
+                    LaunchedEffect(status) {
+                        if (status != "UNAPPROVED") {
+                            payAtDeskError = null
+                        }
+                    }
+
                     Card(
                         shape = RoundedCornerShape(22.dp),
                         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -1147,8 +1153,8 @@ fun QueueStatusScreen(
                                 )
                             }
 
-                            // Error banner if any
-                            if (!payAtDeskError.isNullOrBlank()) {
+                            // Error banner if any (only displayed while in UNAPPROVED status)
+                            if (status == "UNAPPROVED" && !payAtDeskError.isNullOrBlank()) {
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
                                     color = Color(0xFFFFF1F2),
@@ -1262,6 +1268,7 @@ fun QueueStatusScreen(
                                                                 patientMobile = appt.patientMobile
                                                             )
                                                             if (res?.isSuccess == true) {
+                                                                payAtDeskError = null
                                                                 Toast.makeText(context, "Request resubmitted to clinic!", Toast.LENGTH_SHORT).show()
                                                                 refreshData()
                                                             } else {

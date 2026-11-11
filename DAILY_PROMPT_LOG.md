@@ -7,6 +7,21 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-11
 
 ### Prompt:
+> "When patient taps on retry it shows this /plan"
+
+#### Changes Applied:
+1. **Patient App — Response Deserialization & Error Sanitization ([`AppointmentRepository.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt))**:
+   - Resolved `Unexpected JSON token at offset 0: Expected start of the array '[', but had '{' instead at path: $` by eliminating unsafe `.decodeSingle<Appointment>()` on PostgreSQL RPC response.
+   - PostgREST returns a single JSONB object (`to_jsonb(v_appt)` or `jsonb_build_object(...)`) rather than a JSON array. Updated `retryPayAtDeskAppointment()` to inspect `response.data`, deserialize with `lenientJson.decodeFromString<Appointment>()`, and fall back to `getAppointmentById()` or a default model if only summary JSON was returned.
+   - Added private `extractCleanErrorMessage()` to sanitize raw Supabase/PostgREST JSON errors (extracting clean message/error/details fields) instead of exposing raw JSON payloads.
+2. **Patient App — Pay at Desk Error State & Banner Lifecycle ([`QueueStatusScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt))**:
+   - Added `LaunchedEffect(status)` to automatically reset `payAtDeskError = null` whenever appointment status transitions away from `UNAPPROVED` (such as to `WAITING_FOR_APPROVAL`).
+   - Confined rendering of the red error card to `status == "UNAPPROVED" && !payAtDeskError.isNullOrBlank()` so stale error banners never linger on waiting or confirmed booking cards.
+   - Explicitly reset `payAtDeskError = null` upon successful retry invocation prior to calling `refreshData()`.
+
+---
+
+### Prompt:
 > "When clinic taps on confirm for pay at desk this shows this error solve this /plan" / "continue"
 
 #### Changes Applied:
