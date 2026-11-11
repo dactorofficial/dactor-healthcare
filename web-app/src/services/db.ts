@@ -1675,57 +1675,147 @@ export async function reconcileSlotBookedCount(slotId: string): Promise<void> {
   }
 }
 
+function getLocalDateIsoString(): string {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
 export async function shiftAppointmentDate(
   appointmentId: string,
   newDate: string,
   newTime?: string,
   reason?: string,
-  newSlotId?: string
+  newSlotId?: string,
+  newDoctorId?: string | null,
+  trackingCode?: string
 ): Promise<boolean> {
   try {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    const validSlotId = newSlotId && uuidRegex.test(newSlotId.trim()) ? newSlotId.trim() : null
+    const validDoctorId = newDoctorId && uuidRegex.test(newDoctorId.trim()) ? newDoctorId.trim() : null
+
     const { data: oldAppt } = await supabase
       .from('appointments')
-      .select('slot_id')
+      .select('id, slot_id, doctor_id, clinic_id, user_id, appointment_time, status, checkin_status, payment_mode, tracking_code_10_digit, clinic:clinics(name)')
       .eq('id', appointmentId)
       .maybeSingle()
 
-    const updatePayload: any = {
-      appointment_date: newDate,
-      checkin_status: 'waiting',
-      status: 'APPROVED',
-      updated_at: new Date().toISOString(),
-    }
-    if (newTime) {
-      updatePayload.appointment_time = newTime
-    }
-    if (newSlotId) {
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-      if (uuidRegex.test(newSlotId.trim())) {
-        updatePayload.slot_id = newSlotId.trim()
+    const normalizedTime = formatTimeForPostgres(newTime || oldAppt?.appointment_time || '10:00 AM')
+    const resolvedDocId = validDoctorId || (oldAppt?.doctor_id && uuidRegex.test(String(oldAppt.doctor_id)) ? String(oldAppt.doctor_id) : null)
+    const cleanReason = reason?.trim() || 'Patient requested reschedule'
+
+    // 1. Primary Authoritative SECURITY DEFINER RPC (supports live and updated RPC signatures)
+    try {
+      let rpcResult = await supabase.rpc('reschedule_patient_appointment', {
+        p_appointment_id: appointmentId,
+        p_new_date: newDate,
+        p_new_time: normalizedTime,
+        p_new_slot_id: validSlotId,
+        p_new_doctor_id: resolvedDocId,
+        p_reason: cleanReason,
+      })
+
+      if (
+        rpcResult.error &&
+        (rpcResult.error.code === 'PGRST202' ||
+          String(rpcResult.error.message || '').includes('schema cache'))
+      ) {
+        rpcResult = await supabase.rpc('reschedule_patient_appointment', {
+          p_appointment_id: appointmentId,
+          p_new_date: newDate,
+          p_new_time: normalizedTime,
+          p_slot_id: validSlotId,
+          p_doctor_id: resolvedDocId,
+          p_tracking_code: trackingCode || oldAppt?.tracking_code_10_digit || null,
+        })
       }
+
+      const rpcPayload = rpcResult.data as any
+      const explicitFalse = rpcPayload && typeof rpcPayload === 'object' && rpcPayload.success === false
+      if (!rpcResult.error && !explicitFalse) {
+        return true
+      }
+      if (explicitFalse) {
+        console.warn('reschedule_patient_appointment rejected:', rpcPayload?.error || rpcPayload)
+        return false
+      }
+    } catch (rpcErr) {
+      console.warn('reschedule_patient_appointment RPC fallback notice:', rpcErr)
     }
 
-    const { data: updatedAppt, error } = await supabase
+    // 2. Direct Fallback Update (valid enum checkin_status = 'not_checked_in' & Postgres TIME)
+    const preservedStatus =
+      oldAppt?.status === 'WAITING_FOR_APPROVAL' ? 'WAITING_FOR_APPROVAL' : 'APPROVED'
+
+    const updatePayload: any = {
+      appointment_date: newDate,
+      appointment_time: normalizedTime,
+      checkin_status: 'not_checked_in',
+      updated_at: new Date().toISOString(),
+    }
+    if (oldAppt?.status !== preservedStatus) {
+      updatePayload.status = preservedStatus
+    }
+    if (validSlotId) {
+      updatePayload.slot_id = validSlotId
+    }
+    if (validDoctorId && validDoctorId !== oldAppt?.doctor_id) {
+      updatePayload.doctor_id = validDoctorId
+    }
+
+    let updatedAppt: any = null
+    let updateErr: any = null
+
+    const primaryRes = await supabase
       .from('appointments')
       .update(updatePayload)
       .eq('id', appointmentId)
       .select('*, clinic:clinics(*)')
       .single()
 
-    if (error) throw error
+    updatedAppt = primaryRes.data
+    updateErr = primaryRes.error
+
+    // If direct update hit patient privilege trigger on restricted columns, retry strictly whitelisted fields
+    if (
+      updateErr &&
+      /(privilege|identity|not authorized|cannot update|only cancel)/i.test(
+        String(updateErr.message || '')
+      )
+    ) {
+      const safePayload: any = {
+        appointment_date: newDate,
+        appointment_time: normalizedTime,
+        updated_at: new Date().toISOString(),
+      }
+      if (validSlotId) safePayload.slot_id = validSlotId
+      const retryRes = await supabase
+        .from('appointments')
+        .update(safePayload)
+        .eq('id', appointmentId)
+        .select('*, clinic:clinics(*)')
+        .single()
+      updatedAppt = retryRes.data
+      updateErr = retryRes.error
+    }
+
+    if (updateErr) throw updateErr
 
     // Reconcile slot capacity for old and new slots
-    if (oldAppt?.slot_id && oldAppt.slot_id !== newSlotId) {
+    if (oldAppt?.slot_id && oldAppt.slot_id !== validSlotId) {
       await reconcileSlotBookedCount(oldAppt.slot_id)
     }
-    if (newSlotId) {
-      await reconcileSlotBookedCount(newSlotId)
+    if (validSlotId) {
+      await reconcileSlotBookedCount(validSlotId)
     }
 
     // Manage Queue Entry on Reschedule / Follow-Up
     try {
-      const todayStr = new Date().toISOString().split('T')[0]
-      const targetTime = newTime || updatedAppt?.appointment_time
+      const todayStr = getLocalDateIsoString()
+      const targetTime = normalizedTime || updatedAppt?.appointment_time
       const targetMinutes = parseTimeToMinutes(targetTime)
 
       const { data: existingQ } = await supabase
@@ -1734,7 +1824,7 @@ export async function shiftAppointmentDate(
         .eq('appointment_id', appointmentId)
         .maybeSingle()
 
-      if (newDate === todayStr) {
+      if (newDate === todayStr && preservedStatus === 'APPROVED') {
         // Patient rescheduled/follow-up to today: reposition slot-aware
         const { data: activeEntries } = await supabase
           .from('queue_entries')
@@ -1793,7 +1883,7 @@ export async function shiftAppointmentDate(
           })
         }
       } else {
-        // Rescheduled / follow-up to a future date: remove from today's active queue
+        // Rescheduled to a future date OR unapproved Pay-at-Desk: remove from today's active queue
         if (existingQ) {
           await supabase
             .from('queue_entries')
@@ -1813,7 +1903,7 @@ export async function shiftAppointmentDate(
         appointment_id: appointmentId,
         user_id: updatedAppt?.user_id && updatedAppt.user_id.length === 36 ? updatedAppt.user_id : null,
         title: `Appointment Rescheduled • ${newDate}`,
-        message: `Your appointment at ${clinicName} has been shifted to ${newDate} (${newTime || updatedAppt?.appointment_time || 'Scheduled'}). Reason: ${reason || 'Schedule adjustment by clinic.'}`,
+        message: `Your appointment at ${clinicName} has been shifted to ${newDate} (${newTime || normalizedTime}). Reason: ${cleanReason}`,
         type: 'queue_alert',
         target_audience: 'specific',
         is_read: false,

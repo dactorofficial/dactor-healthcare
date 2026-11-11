@@ -711,7 +711,8 @@ fun QueueStatusScreen(
                 patientGender = target.patientGender ?: "Male",
                 patientEmail = target.patientEmail,
                 originalDate = target.appointmentDate,
-                originalTime = target.appointmentTime
+                originalTime = target.appointmentTime,
+                status = target.status
             )
         )
         navController.navigate(

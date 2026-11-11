@@ -16,11 +16,14 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -643,6 +646,33 @@ class AppointmentRepository @Inject constructor(
         }
     }
 
+    private fun isMissingRescheduleRpcError(err: Throwable): Boolean {
+        val msg = (err.message ?: "").lowercase()
+        return msg.contains("pgrst202") ||
+            msg.contains("could not find the function") ||
+            msg.contains("schema cache")
+    }
+
+    private fun parseRescheduleRpcSuccess(rawData: String, json: JsonObject?): Boolean {
+        val explicitSuccess = json?.get("success")?.jsonPrimitive?.booleanOrNull
+            ?: json?.get("success")?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
+        if (explicitSuccess != null) return explicitSuccess
+        if (json?.get("error") != null) return false
+
+        val trimmed = rawData.trim()
+        if (trimmed.equals("false", ignoreCase = true) ||
+            trimmed.contains("\"success\":false") ||
+            trimmed.contains("\"success\": false")
+        ) {
+            return false
+        }
+        return trimmed.isBlank() ||
+            trimmed.equals("true", ignoreCase = true) ||
+            trimmed.contains("\"success\":true") ||
+            trimmed.contains("\"success\": true") ||
+            json != null
+    }
+
     suspend fun rescheduleAppointment(
         id: String,
         newDate: String,
@@ -654,27 +684,67 @@ class AppointmentRepository @Inject constructor(
             val existing = getAppointmentById(id)
             val oldSlotId = existing?.slotId
             val normalizedTime = normalizeTimeForPostgres(newTime)
+            val cleanSlotId = newSlotId?.trim()?.takeIf { isValidUuid(it) }
+            val cleanDocId = newDoctorId?.trim()?.takeIf { isValidUuid(it) }
+                ?: existing?.doctorId?.takeIf { isValidUuid(it) }
+            val preservePendingApproval = existing?.status?.equals("WAITING_FOR_APPROVAL", ignoreCase = true) == true
+            val resolvedStatus = if (preservePendingApproval) "WAITING_FOR_APPROVAL" else "APPROVED"
+
+            // 1. Authoritative SECURITY DEFINER RPC (live signature first, migration fallback on PGRST202)
+            try {
+                val primaryParams = buildJsonObject {
+                    put("p_appointment_id", id)
+                    put("p_new_date", newDate)
+                    put("p_new_time", normalizedTime)
+                    put("p_new_slot_id", cleanSlotId)
+                    put("p_new_doctor_id", cleanDocId)
+                    put("p_reason", "Rescheduled via Dactor Clinic Portal App")
+                }
+                val response = try {
+                    supabaseClient.postgrest.rpc("reschedule_patient_appointment", primaryParams)
+                } catch (primaryErr: Exception) {
+                    if (!isMissingRescheduleRpcError(primaryErr)) throw primaryErr
+                    val fallbackParams = buildJsonObject {
+                        put("p_appointment_id", id)
+                        put("p_new_date", newDate)
+                        put("p_new_time", normalizedTime)
+                        if (cleanSlotId != null) put("p_slot_id", cleanSlotId)
+                        if (cleanDocId != null) put("p_doctor_id", cleanDocId)
+                        val trackingCode = existing?.trackingCode10Digit?.takeIf { it.isNotBlank() }
+                        if (trackingCode != null) put("p_tracking_code", trackingCode)
+                    }
+                    supabaseClient.postgrest.rpc("reschedule_patient_appointment", fallbackParams)
+                }
+                val json = try { response.decodeSingleOrNull<JsonObject>() } catch (_: Exception) { null }
+                if (parseRescheduleRpcSuccess(response.data, json)) {
+                    return@withContext true
+                }
+            } catch (rpcErr: Exception) {
+                rpcErr.printStackTrace()
+            }
+
+            // 2. Direct table update fallback for authenticated clinic staff
             supabaseClient.postgrest["appointments"]
                 .update({
                     set("appointment_date", newDate)
                     set("appointment_time", normalizedTime)
                     set("checkin_status", "not_checked_in")
-                    set("status", "APPROVED")
+                    set("status", resolvedStatus)
                     set("consultation_completed_at", null as String?)
                     set("cancelled_at", null as String?)
                     set("cancellation_reason", null as String?)
                     set("updated_at", java.time.Instant.now().toString())
-                    if (newSlotId != null && isValidUuid(newSlotId)) set("slot_id", newSlotId)
-                    if (newDoctorId != null && isValidUuid(newDoctorId)) set("doctor_id", newDoctorId)
+                    if (cleanSlotId != null) set("slot_id", cleanSlotId)
+                    if (cleanDocId != null) set("doctor_id", cleanDocId)
                 }) {
                     filter {
                         eq("id", id)
                     }
                 }
 
-            val todayStr = java.time.LocalDate.now().toString()
-            if (newDate != todayStr) {
-                // Remove queue entry if moved away from today
+            val todayStr = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kathmandu")).toString()
+            if (newDate != todayStr || preservePendingApproval) {
+                // Remove queue entry if moved away from today or awaiting approval
                 try {
                     supabaseClient.postgrest["queue_entries"]
                         .delete {
@@ -685,7 +755,7 @@ class AppointmentRepository @Inject constructor(
                 // Rescheduled to TODAY: Re-inject or reset to waiting in today's active queue
                 try {
                     val appt = existing ?: getAppointmentById(id)
-                    if (appt != null) {
+                    if (appt != null && !appt.status.equals("WAITING_FOR_APPROVAL", ignoreCase = true)) {
                         val activeEntries = supabaseClient.postgrest["queue_entries"]
                             .select {
                                 filter {
@@ -703,7 +773,7 @@ class AppointmentRepository @Inject constructor(
                                 filter { eq("appointment_id", id) }
                             }.decodeSingleOrNull<QueueEntry>()
 
-                        val resolvedDocId = if (!newDoctorId.isNullOrBlank() && isValidUuid(newDoctorId)) newDoctorId else appt.doctorId
+                        val resolvedDocId = cleanDocId ?: appt.doctorId
 
                         if (existingQ != null) {
                             supabaseClient.postgrest["queue_entries"].update({
@@ -734,7 +804,7 @@ class AppointmentRepository @Inject constructor(
             }
 
             // Recalculate old slot booked count if changed
-            if (oldSlotId != null && isValidUuid(oldSlotId) && oldSlotId != newSlotId) {
+            if (oldSlotId != null && isValidUuid(oldSlotId) && oldSlotId != cleanSlotId) {
                 try {
                     val slotAppts = supabaseClient.postgrest["appointments"]
                         .select { filter { eq("slot_id", oldSlotId) } }
@@ -748,15 +818,15 @@ class AppointmentRepository @Inject constructor(
             }
 
             // Recalculate new slot booked count if slot was provided
-            if (newSlotId != null && isValidUuid(newSlotId)) {
+            if (cleanSlotId != null) {
                 try {
                     val slotAppts = supabaseClient.postgrest["appointments"]
-                        .select { filter { eq("slot_id", newSlotId) } }
+                        .select { filter { eq("slot_id", cleanSlotId) } }
                         .decodeList<Appointment>()
                     val realCount = slotAppts.count { it.checkinStatus != "cancelled" && it.checkinStatus != "no_show" }
                     supabaseClient.postgrest["slots"]
                         .update({ set("booked_count", realCount) }) {
-                            filter { eq("id", newSlotId) }
+                            filter { eq("id", cleanSlotId) }
                         }
                 } catch (_: Exception) {}
             }

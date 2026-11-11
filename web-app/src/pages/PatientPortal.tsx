@@ -139,6 +139,7 @@ import {
 } from '../types'
 import {
   getClinics,
+  getClinicById,
   getDoctors,
   getDoctorsByClinic,
   getClinicServices,
@@ -538,6 +539,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
   // Polyclinic Follow-Up Visit State
   const [isReturningPatient, setIsReturningPatient] = useState(false)
+  const [isRescheduleMode, setIsRescheduleMode] = useState(false)
   const [followupCodeInput, setFollowupCodeInput] = useState('')
   const [retainedAppointment, setRetainedAppointment] = useState<Appointment | null>(null)
   const [isLookingUpCode, setIsLookingUpCode] = useState(false)
@@ -616,6 +618,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   useEffect(() => {
     let active = true
     const clean = followupCodeInput.trim()
+    if (isRescheduleMode && retainedAppointment && retainedAppointment.trackingCode10Digit === clean) {
+      return
+    }
     if (isReturningPatient && clean.length === 10 && /^\d{10}$/.test(clean)) {
       setIsLookingUpCode(true)
       setFollowupLookupError(null)
@@ -766,6 +771,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   const [rescheduleAppt, setRescheduleAppt] = useState<Appointment | null>(null)
   const [newRescheduleDate, setNewRescheduleDate] = useState<string>(() => new Date().toISOString().split('T')[0])
   const [newRescheduleTime, setNewRescheduleTime] = useState<string>('10:00 AM - 11:00 AM')
+  const [newRescheduleSlotId, setNewRescheduleSlotId] = useState<string | undefined>(undefined)
   const [rescheduleReason, setRescheduleReason] = useState<string>('')
   const [isRescheduling, setIsRescheduling] = useState(false)
   const [rescheduleAvailableSlots, setRescheduleAvailableSlots] = useState<Slot[]>([])
@@ -780,17 +786,26 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           const avail = (slots || []).filter(
             (s) =>
               s.isAvailable !== false &&
+              (s.bookedCount || 0) < (s.maxCapacity || 10) &&
+              !isSlotTimeExpired(newRescheduleDate, s.endTime || s.startTime, s.startTime) &&
               (!rescheduleAppt.doctorId || !s.doctorId || s.doctorId === rescheduleAppt.doctorId)
           )
           setRescheduleAvailableSlots(avail)
           if (avail.length > 0) {
             setNewRescheduleTime(`${avail[0].startTime} - ${avail[0].endTime}`)
+            setNewRescheduleSlotId(avail[0].id)
+          } else {
+            setNewRescheduleSlotId(undefined)
           }
         })
-        .catch(() => setRescheduleAvailableSlots([]))
+        .catch(() => {
+          setRescheduleAvailableSlots([])
+          setNewRescheduleSlotId(undefined)
+        })
         .finally(() => setIsLoadingRescheduleSlots(false))
     } else {
       setRescheduleAvailableSlots([])
+      setNewRescheduleSlotId(undefined)
     }
   }, [rescheduleAppt, newRescheduleDate])
 
@@ -1454,6 +1469,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     setSelectedLabTests([])
     setSelectedSlot(null)
     setIsReturningPatient(false)
+    setIsRescheduleMode(false)
     setFollowupCodeInput('')
     setRetainedAppointment(null)
     setFollowupLookupError(null)
@@ -1570,7 +1586,15 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         })
 
         setAvailableSlots(validSlots)
-        setSelectedSlot(validSlots[0] || null)
+        setSelectedSlot(prev => {
+          if (prev) {
+            const matched = validSlots.find(s =>
+              s.id && prev.id ? s.id === prev.id : s.timeLabel === prev.timeLabel
+            )
+            if (matched) return matched
+          }
+          return validSlots[0] || null
+        })
       } catch (err) {
         console.error('Failed to load slots:', err)
       } finally {
@@ -1675,10 +1699,13 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
   // Auto-select open date
   useEffect(() => {
+    if (bookingDate && computeCalendarDateState(bookingDate) === 'available') {
+      return
+    }
     const todayState = computeCalendarDateState(todayIso)
     if (todayState === 'available') {
       setBookingDate(todayIso)
-    } else if (nextAvailableDate && (bookingDate === todayIso || computeCalendarDateState(bookingDate) !== 'available')) {
+    } else if (nextAvailableDate) {
       const targetD = new Date(nextAvailableDate + 'T00:00:00')
       setViewedYearMonth({ year: targetD.getFullYear(), month: targetD.getMonth() })
       setBookingDate(nextAvailableDate)
@@ -1687,6 +1714,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
   // Calculate Fee strictly matching rules for all 3 clinic types
   const calculatedFee = useMemo(() => {
+    if (isRescheduleMode && retainedAppointment) {
+      return 0
+    }
     if (isLabClinic) {
       return selectedLabTests.reduce((acc, t) => acc + (t.price || 0), 0)
     }
@@ -1694,7 +1724,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       return 0 // 100% Free Follow-up
     }
     return selectedDoctor?.consultationFee || 500
-  }, [isLabClinic, selectedLabTests, isReturningPatient, retainedAppointment, selectedDoctor])
+  }, [isRescheduleMode, isLabClinic, selectedLabTests, isReturningPatient, retainedAppointment, selectedDoctor])
 
   // Confirm booking & launch payment
   const handleProceedToPayment = (e: React.FormEvent) => {
@@ -1742,7 +1772,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         ? `${selectedSlot.startTime} - ${selectedSlot.endTime}`
         : '10:00 AM'
 
-      const isFreeFollowup = Boolean(isReturningPatient && retainedAppointment && calculatedFee === 0)
+      const isFreeFollowup = Boolean(
+        retainedAppointment && (isRescheduleMode || (isReturningPatient && calculatedFee === 0))
+      )
       const targetPatientName = isFreeFollowup && retainedAppointment ? retainedAppointment.patientName : bookPatientName.trim()
       const targetPatientAge = isFreeFollowup && retainedAppointment ? (retainedAppointment.patientAge || parseInt(bookPatientAge) || 28) : (parseInt(bookPatientAge) || 28)
       const targetPatientGender = isFreeFollowup && retainedAppointment ? (retainedAppointment.patientGender || bookPatientGender) : bookPatientGender
@@ -1751,25 +1783,38 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       let finalAppt: Appointment
       let code10: string
 
-      // 1. Follow-Up: Update/Shift existing appointment in-place without generating a new ID or token
+      // 1. Reschedule / Follow-Up: Update/Shift existing appointment in-place without generating a new ID or token
       if (isFreeFollowup && retainedAppointment) {
         code10 = retainedAppointment.trackingCode10Digit
+        const targetDoctorId = selectedDoctor?.id || retainedAppointment.doctorId
+        const shiftReason = isRescheduleMode
+          ? `Rescheduled by patient via Patient Portal (Ref: #${retainedAppointment.trackingCode10Digit})`
+          : `Follow-Up Consultation (Ref: ${retainedAppointment.trackingCode10Digit})`
         const ok = await shiftAppointmentDate(
           retainedAppointment.id,
           bookingDate,
           slotTimeStr,
-          `Follow-Up Consultation (Ref: ${retainedAppointment.trackingCode10Digit})`,
-          selectedSlot?.id
+          shiftReason,
+          selectedSlot?.id,
+          targetDoctorId,
+          retainedAppointment.trackingCode10Digit
         )
         if (!ok) {
-          throw new Error('Could not schedule follow-up appointment for this slot. Please try another slot.')
+          throw new Error('Could not reschedule appointment for this slot. Please try another slot.')
         }
+        const preservedStatus =
+          retainedAppointment.status?.toUpperCase() === 'WAITING_FOR_APPROVAL'
+            ? 'WAITING_FOR_APPROVAL'
+            : 'APPROVED'
         finalAppt = {
           ...retainedAppointment,
           appointmentDate: bookingDate,
           appointmentTime: slotTimeStr,
           slotId: selectedSlot?.id,
-          checkinStatus: 'waiting',
+          doctorId: targetDoctorId,
+          doctor: selectedDoctor || retainedAppointment.doctor,
+          status: preservedStatus,
+          checkinStatus: 'not_checked_in',
         }
       } else if (
         (['esewa', 'khalti', 'fonepay', 'connectips'] as const).includes(selectedPaymentMethod as any) &&
@@ -1859,7 +1904,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
       // 2. Record Transaction & Billing Invoice in Supabase
       const isCash = selectedPaymentMethod === 'pay_at_desk' || selectedPaymentMethod === 'cash'
-      const methodLabel = isFreeFollowup
+      const methodLabel = isRescheduleMode
+        ? 'RESCHEDULE (NO EXTRA FEE)'
+        : isFreeFollowup
         ? 'FREE FOLLOW-UP'
         : isBypass
         ? 'Bypass Test'
@@ -1878,8 +1925,10 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         amount: calculatedFee,
         paymentMethod: methodLabel,
         paymentStatus: isFreeFollowup ? 'paid' : (isCash ? 'pending' : 'paid'),
-        notes: isFreeFollowup
-          ? `Free Follow-Up (Previous ID: #${retainedAppointment.trackingCode10Digit})`
+        notes: isRescheduleMode
+          ? `Appointment Rescheduled to ${bookingDate} ${slotTimeStr} (Token #${retainedAppointment?.trackingCode10Digit || code10})`
+          : isFreeFollowup
+          ? `Free Follow-Up (Previous ID: #${retainedAppointment?.trackingCode10Digit || code10})`
           : isBypass
           ? 'Confirmed via Testing Bypass button'
           : isCash
@@ -2109,7 +2158,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   // PENDING BOOKING RESTORE & ADVANCE HANDLERS
   // ==========================================
   const handleProceedFromSlotStep = () => {
-    if (isLabClinic && selectedLabTests.length === 0) {
+    if (!isRescheduleMode && isLabClinic && selectedLabTests.length === 0) {
       alert('Please select at least one diagnostic test or pathology package to continue.')
       return
     }
@@ -2118,8 +2167,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       return
     }
 
-    // STREAMLINED FOLLOW-UP CONFIRMATION (Matches ClinicDetail.tsx)
-    if (isReturningPatient && retainedAppointment) {
+    // STREAMLINED FOLLOW-UP / RESCHEDULE CONFIRMATION (Matches ClinicDetail.tsx)
+    if ((isRescheduleMode || isReturningPatient) && retainedAppointment) {
       handleExecutePayment(true)
       return
     }
@@ -2287,14 +2336,61 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     await loadTransactions()
   }
 
-  const handleConfirmRescheduleFromModal = (targetAppt: Appointment) => {
+  const handleConfirmRescheduleFromModal = async (targetAppt: Appointment) => {
     setApptToRescheduleConfirm(null)
     setViewingConsultationDetailsAppt(null)
     setRetainedAppointment(targetAppt)
     setIsReturningPatient(true)
+    setIsRescheduleMode(true)
     setFollowupCodeInput(targetAppt.trackingCode10Digit)
-    if (targetAppt.clinic) setSelectedClinic(targetAppt.clinic)
-    if (targetAppt.doctor) setSelectedDoctor(targetAppt.doctor)
+    setSelectedSlot(null)
+    setSelectedLabTests([])
+    setBookingDate(todayIso)
+    setBookPatientName(targetAppt.patientName || '')
+    setBookPatientAge(String(targetAppt.patientAge || ''))
+    setBookPatientGender(targetAppt.patientGender || 'Male')
+    setBookPatientPhone(targetAppt.patientMobile || '')
+
+    const resolvedClinic =
+      targetAppt.clinic ||
+      clinics.find((c) => c.id === targetAppt.clinicId) ||
+      (targetAppt.clinicId ? await getClinicById(targetAppt.clinicId) : null)
+
+    if (resolvedClinic) {
+      setSelectedClinic(resolvedClinic)
+      const isLab =
+        resolvedClinic.type === 'diagnostic_lab' ||
+        resolvedClinic.type?.toLowerCase().includes('lab') ||
+        resolvedClinic.name.toLowerCase().includes('lab') ||
+        (resolvedClinic.specialties?.some(
+          (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
+        ) ?? false)
+      setBookingMode(isLab ? 'lab' : 'opd')
+    }
+
+    if (targetAppt.clinicId) {
+      try {
+        const [docs, servs, pCfg] = await Promise.all([
+          getDoctorsByClinic(targetAppt.clinicId),
+          getClinicServices(targetAppt.clinicId),
+          getClinicPaymentConfig(targetAppt.clinicId),
+        ])
+        setClinicDoctors(docs)
+        setClinicServices(servs.filter((s) => s.isAvailable !== false))
+        setClinicPaymentConfig(pCfg)
+        const matchedDoc =
+          (targetAppt.doctorId ? docs.find((d) => d.id === targetAppt.doctorId) : null) ||
+          targetAppt.doctor ||
+          docs[0] ||
+          null
+        setSelectedDoctor(matchedDoc)
+      } catch {
+        if (targetAppt.doctor) setSelectedDoctor(targetAppt.doctor)
+      }
+    } else if (targetAppt.doctor) {
+      setSelectedDoctor(targetAppt.doctor)
+    }
+
     setActiveTab('book')
     setBookingStep(2)
   }
@@ -2311,7 +2407,10 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         rescheduleAppt.id,
         newRescheduleDate,
         newRescheduleTime,
-        rescheduleReason.trim() || 'Patient requested reschedule via Patient Portal'
+        rescheduleReason.trim() || 'Patient requested reschedule via Patient Portal',
+        newRescheduleSlotId,
+        rescheduleAppt.doctorId,
+        rescheduleAppt.trackingCode10Digit
       )
       if (ok) {
         setRescheduleAppt(null)
@@ -4020,7 +4119,10 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   <div className="flex items-center justify-between">
                     <button
                       type="button"
-                      onClick={() => setBookingStep(1)}
+                      onClick={() => {
+                        setIsRescheduleMode(false)
+                        setBookingStep(1)
+                      }}
                       className="flex items-center space-x-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 bg-white px-3 py-1.5 rounded-xl border border-slate-200 transition shadow-2xs cursor-pointer"
                     >
                       <ArrowLeft className="w-3.5 h-3.5" />
@@ -4096,10 +4198,39 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   </div>
                 </div>
 
+                {/* Reschedule Active Banner (All clinic types: Lab, Single Doctor OPD, Polyclinic) */}
+                {isRescheduleMode && retainedAppointment && (
+                  <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-start justify-between gap-3 text-emerald-950">
+                    <div className="flex items-start space-x-3">
+                      <RefreshCw className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                      <div className="text-xs space-y-0.5">
+                        <strong className="block font-bold">
+                          Rescheduling Appointment #{retainedAppointment.trackingCode10Digit}
+                        </strong>
+                        <p className="text-emerald-800">
+                          Patient: {retainedAppointment.patientName} • Current Slot: {retainedAppointment.appointmentDate} ({retainedAppointment.appointmentTime}) • Pick your new date & slot below (NPR 0 extra fee).
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsRescheduleMode(false)
+                        setIsReturningPatient(false)
+                        setRetainedAppointment(null)
+                        setFollowupCodeInput('')
+                      }}
+                      className="text-[11px] font-bold text-emerald-800 hover:underline shrink-0 cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+
                 {/* ============================================================== */}
                 {/* CASE 1: DIAGNOSTIC PATHOLOGY LAB */}
                 {/* ============================================================== */}
-                {isLabClinic && (
+                {isLabClinic && !isRescheduleMode && (
                   <div className="space-y-6">
                     {/* Notice Banner */}
                     <div className="p-4 bg-purple-50 border border-purple-200 rounded-2xl flex items-start space-x-3 text-purple-900">
@@ -4304,6 +4435,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     </div>
 
                     {/* Visit Type Toggle: New vs Follow-up */}
+                    {!isRescheduleMode && (
                     <div className="space-y-2">
                       <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
                         Consultation Type
@@ -4313,6 +4445,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                           type="button"
                           onClick={() => {
                             setIsReturningPatient(false)
+                            setIsRescheduleMode(false)
                             setFollowupCodeInput('')
                             setRetainedAppointment(null)
                           }}
@@ -4345,9 +4478,10 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                         </button>
                       </div>
                     </div>
+                    )}
 
                     {/* Follow-up 10-Digit Code Input Box */}
-                    {isReturningPatient && (
+                    {!isRescheduleMode && isReturningPatient && (
                       <div className="p-4 bg-emerald-50/60 border border-emerald-200 rounded-2xl space-y-3">
                         <label className="block text-xs font-bold text-emerald-900">
                           Enter 10-Digit Previous Appointment Token ID *
@@ -4627,7 +4761,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   )}
                 </div>
 
-                {/* Continue Action / 1-Click Follow-Up Action */}
+                {/* Continue Action / 1-Click Follow-Up or Reschedule Action */}
                 <div className="space-y-2 pt-2">
                   <button
                     type="button"
@@ -4636,10 +4770,10 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       isPaymentProcessing ||
                       !selectedSlot ||
                       availableSlots.length === 0 ||
-                      (isLabClinic && selectedLabTests.length === 0)
+                      (!isRescheduleMode && isLabClinic && selectedLabTests.length === 0)
                     }
-                    className={`w-full py-3.5 font-bold text-sm rounded-xl shadow-md transition flex items-center justify-center space-x-2 cursor-pointer ${
-                      isReturningPatient && retainedAppointment
+                    className={`w-full py-3.5 font-bold text-sm rounded-xl shadow-md transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 ${
+                      (isRescheduleMode || isReturningPatient) && retainedAppointment
                         ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20'
                         : 'bg-brand-600 hover:bg-brand-700 text-white shadow-brand-600/20'
                     }`}
@@ -4647,12 +4781,12 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     {isPaymentProcessing ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Confirming Follow-Up...</span>
+                        <span>{isRescheduleMode ? 'Rescheduling Appointment...' : 'Confirming Follow-Up...'}</span>
                       </>
-                    ) : isReturningPatient && retainedAppointment ? (
+                    ) : (isRescheduleMode || isReturningPatient) && retainedAppointment ? (
                       <>
                         <ShieldCheck className="w-4 h-4" />
-                        <span>Confirm Follow-Up</span>
+                        <span>{isRescheduleMode ? 'Confirm Reschedule' : 'Confirm Follow-Up'}</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     ) : (
@@ -4662,7 +4796,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       </>
                     )}
                   </button>
-                  {isReturningPatient && retainedAppointment ? (
+                  {isRescheduleMode && retainedAppointment ? (
+                    <p className="text-[11px] text-center text-emerald-700 font-semibold">
+                      ✓ Rescheduling Token #{retainedAppointment.trackingCode10Digit} • Patient: {retainedAppointment.patientName} • NPR 0 Extra Fee
+                    </p>
+                  ) : isReturningPatient && retainedAppointment ? (
                     <p className="text-[11px] text-center text-emerald-700 font-semibold">
                       ✓ 100% Free Follow-Up • Verified for {retainedAppointment.patientName} (#{retainedAppointment.trackingCode10Digit}) • Instant Booking (No Login or Payment Required)
                     </p>
@@ -5162,9 +5300,13 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   <CheckCircle2 className="w-10 h-10" />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-black text-slate-900">Appointment Confirmed!</h3>
+                  <h3 className="text-2xl font-black text-slate-900">
+                    {isRescheduleMode ? 'Appointment Rescheduled!' : 'Appointment Confirmed!'}
+                  </h3>
                   <p className="text-xs text-slate-500 mt-1">
-                    Your appointment has been registered in the live clinic queue board.
+                    {isRescheduleMode
+                      ? 'Your appointment time and clinic slot have been updated using your existing tracking token.'
+                      : 'Your appointment has been registered in the live clinic queue board.'}
                   </p>
                 </div>
 
@@ -5219,6 +5361,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   </button>
                   <button
                     onClick={() => {
+                      setIsRescheduleMode(false)
                       setActiveTab('appointments')
                       setBookingStep(1)
                     }}
@@ -7185,28 +7328,44 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 </div>
                 {rescheduleAvailableSlots.length > 0 ? (
                   <select
-                    value={newRescheduleTime}
-                    onChange={(e) => setNewRescheduleTime(e.target.value)}
+                    value={newRescheduleSlotId ? `slot:${newRescheduleSlotId}` : `raw:${newRescheduleTime}`}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      if (val.startsWith('slot:')) {
+                        const sid = val.slice(5)
+                        const matched = rescheduleAvailableSlots.find((s) => s.id === sid)
+                        if (matched) {
+                          setNewRescheduleSlotId(matched.id)
+                          setNewRescheduleTime(`${matched.startTime} - ${matched.endTime}`)
+                        }
+                      } else {
+                        setNewRescheduleSlotId(undefined)
+                        setNewRescheduleTime(val.startsWith('raw:') ? val.slice(4) : val)
+                      }
+                    }}
                     className="w-full px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-bold text-slate-900 dark:text-white outline-none"
                   >
                     <optgroup label="Published Doctor Slots">
                       {rescheduleAvailableSlots.map((s) => (
-                        <option key={s.id} value={`${s.startTime} - ${s.endTime}`}>
+                        <option key={s.id} value={`slot:${s.id}`}>
                           {s.startTime} - {s.endTime} ({s.bookedCount || 0}/{s.maxCapacity || 5} booked)
                         </option>
                       ))}
                     </optgroup>
                     <optgroup label="General Time Slots">
-                      <option value="09:00 AM - 10:00 AM">09:00 AM - 10:00 AM (Morning)</option>
-                      <option value="11:00 AM - 12:00 PM">11:00 AM - 12:00 PM (Noon)</option>
-                      <option value="02:00 PM - 03:00 PM">02:00 PM - 03:00 PM (Afternoon)</option>
-                      <option value="04:00 PM - 05:00 PM">04:00 PM - 05:00 PM (Evening)</option>
+                      <option value="raw:09:00 AM - 10:00 AM">09:00 AM - 10:00 AM (Morning)</option>
+                      <option value="raw:11:00 AM - 12:00 PM">11:00 AM - 12:00 PM (Noon)</option>
+                      <option value="raw:02:00 PM - 03:00 PM">02:00 PM - 03:00 PM (Afternoon)</option>
+                      <option value="raw:04:00 PM - 05:00 PM">04:00 PM - 05:00 PM (Evening)</option>
                     </optgroup>
                   </select>
                 ) : (
                   <select
                     value={newRescheduleTime}
-                    onChange={(e) => setNewRescheduleTime(e.target.value)}
+                    onChange={(e) => {
+                      setNewRescheduleSlotId(undefined)
+                      setNewRescheduleTime(e.target.value)
+                    }}
                     className="w-full px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-bold text-slate-900 dark:text-white outline-none"
                   >
                     <option value="09:00 AM - 10:00 AM">09:00 AM - 10:00 AM (Morning)</option>

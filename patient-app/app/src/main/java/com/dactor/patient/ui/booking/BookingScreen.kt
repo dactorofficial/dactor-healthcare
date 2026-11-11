@@ -80,7 +80,7 @@ fun computeCalendarDateState(
     val relevantSlots = if (isLabClinic) {
         rawSlots
     } else if (selectedDoctor != null) {
-        val matches = rawSlots.filter { it.doctorId.isNullOrBlank() || it.doctorId == selectedDoctor.id }
+        val matches = rawSlots.filter { it.doctorId == selectedDoctor.id }
         matches.ifEmpty { rawSlots.filter { it.doctorId.isNullOrBlank() } }
     } else {
         rawSlots
@@ -122,36 +122,58 @@ fun BookingScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val todayDate = remember { LocalDate.now() }
+    val todayDate = remember { LocalDate.now(java.time.ZoneId.of("Asia/Kathmandu")) }
     val today = remember { todayDate.toString() }
 
+    var fallbackReschedule by remember { mutableStateOf<com.dactor.patient.data.local.UserSessionManager.PendingRescheduleData?>(null) }
     var activeRescheduleCancelled by remember { mutableStateOf(false) }
-    val pendingReschedule = remember(rescheduleApptId, activeRescheduleCancelled) {
+    val pendingReschedule = remember(rescheduleApptId, activeRescheduleCancelled, fallbackReschedule) {
         if (activeRescheduleCancelled || rescheduleApptId.isNullOrBlank()) {
             null
         } else {
             sessionManager?.getPendingReschedule()?.takeIf {
                 it.appointmentId == rescheduleApptId
-            }
+            } ?: fallbackReschedule?.takeIf { it.appointmentId == rescheduleApptId }
         }
     }
     val isRescheduleMode = pendingReschedule != null
     var isExecutingReschedule by remember { mutableStateOf(false) }
 
     // Clear stale pending reschedule if navigating without an explicit rescheduleApptId,
-    // or block rescheduling if a diagnostic lab sample has already been collected
+    // block rescheduling if a diagnostic lab sample has already been collected,
+    // and hydrate fallback reschedule metadata from DB if session prefs are missing
     LaunchedEffect(rescheduleApptId) {
         if (rescheduleApptId.isNullOrBlank()) {
             sessionManager?.clearPendingReschedule()
-        } else if (appointmentRepository?.isDiagnosticLabSampleCollectedOrFurther(rescheduleApptId) == true) {
-            sessionManager?.clearPendingReschedule()
-            activeRescheduleCancelled = true
-            Toast.makeText(
-                context,
-                "Sample already collected for this lab appointment. It can no longer be rescheduled.",
-                Toast.LENGTH_LONG
-            ).show()
-            navController.popBackStack()
+        } else {
+            val appt = appointmentRepository?.getAppointmentById(rescheduleApptId)
+            if (appointmentRepository?.isDiagnosticLabSampleCollectedOrFurther(rescheduleApptId, appt) == true) {
+                sessionManager?.clearPendingReschedule()
+                activeRescheduleCancelled = true
+                Toast.makeText(
+                    context,
+                    "Sample already collected for this lab appointment. It can no longer be rescheduled.",
+                    Toast.LENGTH_LONG
+                ).show()
+                navController.popBackStack()
+            } else if (sessionManager?.getPendingReschedule()?.appointmentId != rescheduleApptId && appt != null) {
+                val hydrated = com.dactor.patient.data.local.UserSessionManager.PendingRescheduleData(
+                    appointmentId = appt.id,
+                    trackingCode = appt.trackingCode10Digit,
+                    clinicId = appt.clinicId,
+                    doctorId = appt.doctorId,
+                    patientName = appt.patientName,
+                    patientMobile = appt.patientMobile,
+                    patientAge = appt.patientAge.toString(),
+                    patientGender = appt.patientGender ?: "Male",
+                    patientEmail = appt.patientEmail,
+                    originalDate = appt.appointmentDate,
+                    originalTime = appt.appointmentTime,
+                    status = appt.status
+                )
+                fallbackReschedule = hydrated
+                sessionManager?.savePendingReschedule(hydrated)
+            }
         }
     }
 
@@ -469,7 +491,8 @@ fun BookingScreen(
                                                 newDoctorId = if (isLabClinic) null else targetDoctorId
                                             ) ?: false
                                             if (ok) {
-                                                if (selectedDate == today && !pendingReschedule.status.equals("WAITING_FOR_APPROVAL", ignoreCase = true)) {
+                                                val effectiveStatus = existingAppt?.status ?: pendingReschedule.status
+                                                if (selectedDate == today && !effectiveStatus.equals("WAITING_FOR_APPROVAL", ignoreCase = true)) {
                                                     queueRepository?.ensureQueueEntryForAppointment(
                                                         appointmentId = pendingReschedule.appointmentId,
                                                         clinicId = pendingReschedule.clinicId,

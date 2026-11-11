@@ -365,7 +365,8 @@ export const App: React.FC = () => {
   const [rescheduleTrackingCode, setRescheduleTrackingCode] = useState<string>(() => {
     try {
       const p = new URLSearchParams(window.location.search)
-      return p.get('rescheduleCode') || p.get('followupCode') || ''
+      const hp = new URLSearchParams(window.location.hash.split('?')[1] || '')
+      return p.get('rescheduleCode') || p.get('followupCode') || hp.get('rescheduleCode') || hp.get('followupCode') || ''
     } catch {
       return ''
     }
@@ -373,7 +374,8 @@ export const App: React.FC = () => {
   const [isRescheduleMode, setIsRescheduleMode] = useState<boolean>(() => {
     try {
       const p = new URLSearchParams(window.location.search)
-      return p.get('reschedule') === 'true'
+      const hp = new URLSearchParams(window.location.hash.split('?')[1] || '')
+      return p.get('reschedule') === 'true' || hp.get('reschedule') === 'true'
     } catch {
       return false
     }

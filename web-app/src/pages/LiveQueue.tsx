@@ -680,7 +680,19 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     setRescheduleProcessing(true)
     setRescheduleMsg('')
     try {
-      await shiftAppointmentDate(appointment.id, rescheduleDate, rescheduleTime || '10:00 AM')
+      const ok = await shiftAppointmentDate(
+        appointment.id,
+        rescheduleDate,
+        rescheduleTime || appointment.appointmentTime || '10:00 AM',
+        'Rescheduled by patient via Live Queue',
+        undefined,
+        appointment.doctorId,
+        appointment.trackingCode10Digit
+      )
+      if (!ok) {
+        setRescheduleMsg('Failed to reschedule. Please pick an open slot or contact clinic reception.')
+        return
+      }
       setRescheduleMsg('Appointment rescheduled successfully!')
       setTimeout(() => {
         setShowRescheduleModal(false)
@@ -2288,7 +2300,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">Select New Date</label>
                 <input
                   type="date"
-                  min={new Date().toISOString().split('T')[0]}
+                  min={new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kathmandu' })}
                   value={rescheduleDate}
                   onChange={(e) => setRescheduleDate(e.target.value)}
                   className="w-full px-3.5 sm:px-4 py-2.5 liquid-glass-input rounded-xl text-xs font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-teal-500"

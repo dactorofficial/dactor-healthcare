@@ -660,7 +660,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       try {
         const slotsMap = await getMonthSlots(clinicId, startStr, endStr)
         if (!active) return
-        setMonthSlotsMap(slotsMap)
+        setMonthSlotsMap((prev) => ({ ...prev, ...slotsMap }))
       } catch (err) {
         console.error('Error loading month slots:', err)
       } finally {
@@ -746,18 +746,19 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     return null
   }, [todayIso, clinic, selectedDoctor, monthSlotsMap])
 
-  // Auto-select: default today if available, otherwise next available date
+  // Auto-select: preserve current available date; fallback to today or next available date when unavailable
   useEffect(() => {
     if (Object.keys(monthSlotsMap).length === 0) return
+    if (computeCalendarDateState(selectedDate) === 'available') return
     const todayState = computeCalendarDateState(todayIso)
     if (todayState === 'available') {
       setSelectedDate(todayIso)
-    } else if (nextAvailableDate && (selectedDate === todayIso || computeCalendarDateState(selectedDate) !== 'available')) {
+    } else if (nextAvailableDate) {
       const targetD = new Date(nextAvailableDate + 'T00:00:00')
       setViewedYearMonth({ year: targetD.getFullYear(), month: targetD.getMonth() })
       setSelectedDate(nextAvailableDate)
     }
-  }, [monthSlotsMap, todayIso, nextAvailableDate])
+  }, [monthSlotsMap, todayIso, nextAvailableDate, selectedDate])
 
   // 5-minute countdown timer when on payment step
   useEffect(() => {
@@ -865,16 +866,24 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     return []
   }, [slots, selectedDoctor, selectedDate, isSelectedDateHoliday, isLabClinic, activeTab])
 
-  // Auto-select first available non-disabled slot
+  // Auto-select first available non-disabled slot while preserving user's explicit selection
   useEffect(() => {
-    const firstAvailable = displaySlots.find((s) => !s.disabled)
-    if (firstAvailable) {
-      setSelectedSlotTime(firstAvailable.timeLabel)
-      setSelectedSlotId(firstAvailable.id)
-    } else {
+    setSelectedSlotId((prevId) => {
+      if (prevId) {
+        const matched = displaySlots.find((s) => !s.disabled && s.id === prevId)
+        if (matched) {
+          setSelectedSlotTime(matched.timeLabel)
+          return matched.id
+        }
+      }
+      const firstAvailable = displaySlots.find((s) => !s.disabled)
+      if (firstAvailable) {
+        setSelectedSlotTime(firstAvailable.timeLabel)
+        return firstAvailable.id
+      }
       setSelectedSlotTime('')
-      setSelectedSlotId(undefined)
-    }
+      return undefined
+    })
   }, [displaySlots])
 
   // Toggle selected test
@@ -1004,7 +1013,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
             paymentStatus: 'paid',
             paymentMode: 'ONLINE',
             status: 'APPROVED',
-            checkinStatus: 'waiting',
+            checkinStatus: 'not_checked_in',
             notes: `Free Follow-Up Consultation (Ref: #${retainedAppointment.trackingCode10Digit})`
           })
 
@@ -1027,16 +1036,22 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
             selectedDate,
             selectedSlotTime || '10:00 AM',
             'Patient rescheduled via clinic booking portal',
-            selectedSlotId
+            selectedSlotId,
+            activeTab === 'opd' ? (selectedDoctor?.id || retainedAppointment.doctorId) : null,
+            retainedAppointment.trackingCode10Digit
           )
           if (ok) {
+            const preservedStatus =
+              retainedAppointment.status === 'WAITING_FOR_APPROVAL'
+                ? 'WAITING_FOR_APPROVAL'
+                : 'APPROVED'
             const updatedAppt: Appointment = {
               ...retainedAppointment,
               appointmentDate: selectedDate,
               appointmentTime: selectedSlotTime || '10:00 AM',
               slotId: selectedSlotId,
-              status: 'APPROVED',
-              checkinStatus: 'waiting',
+              status: preservedStatus,
+              checkinStatus: 'not_checked_in',
             }
             setConfirmedAppt(updatedAppt)
             setConfirmedTxnId(`RESCHEDULED-${retainedAppointment.trackingCode10Digit}`)
@@ -1045,7 +1060,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
             setSubmitting(false)
             return
           } else {
-            alert('Could not schedule appointment for this slot. Please select another slot.')
+            alert('Could not reschedule appointment for this slot. Please try another slot or contact reception.')
             setSubmitting(false)
             return
           }
@@ -2513,10 +2528,14 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 ) : (
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     {displaySlots.map((slotItem) => {
-                      const isSelected = selectedSlotTime === slotItem.timeLabel && !slotItem.disabled
+                      const isSelected =
+                        !slotItem.disabled &&
+                        (selectedSlotId
+                          ? selectedSlotId === slotItem.id
+                          : selectedSlotTime === slotItem.timeLabel)
                       return (
                         <button
-                          key={slotItem.timeLabel}
+                          key={slotItem.id || slotItem.timeLabel}
                           type="button"
                           disabled={slotItem.disabled}
                           onClick={() => {
@@ -2751,24 +2770,49 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
           {/* Right Column: Lab Checkout Summary */}
           <div className="space-y-6">
-            <div className="liquid-glass-elevated p-6 rounded-3xl space-y-6 sticky top-28">
-              <h3 className="text-lg font-black text-slate-900 dark:text-white">Lab Booking Summary</h3>
+            <div id="booking-schedule" className="liquid-glass-elevated p-6 rounded-3xl space-y-6 sticky top-28">
+              <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                {isReschedule ? 'Reschedule Lab Collection' : 'Lab Booking Summary'}
+              </h3>
+
+              {isReschedule && (
+                <div className="p-3.5 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-black text-cyan-900 dark:text-cyan-300 flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
+                      <span>Booking Details Locked</span>
+                    </span>
+                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-cyan-600 text-white">
+                      Fee Retained
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-cyan-800 dark:text-cyan-300">
+                    Token #{retainedAppointment?.trackingCode10Digit || followupCodeInput || initialTrackingCode}
+                    {retainedAppointment?.patientName ? ` • ${retainedAppointment.patientName}` : ''}
+                  </p>
+                  {followupLookupError && (
+                    <p className="text-[11px] text-rose-600 font-bold">{followupLookupError}</p>
+                  )}
+                </div>
+              )}
 
               {/* Selected Tests List */}
-              <div className="space-y-2 max-h-40 overflow-y-auto">
-                {selectedTestList.length === 0 ? (
-                  <p className="text-xs text-slate-400 dark:text-slate-500 italic">
-                    No tests selected yet. Please select at least one test from the left.
-                  </p>
-                ) : (
-                  selectedTestList.map((t) => (
-                    <div key={t.id} className="flex justify-between text-xs py-1 border-b border-slate-200/50 dark:border-white/10">
-                      <span className="text-slate-700 dark:text-slate-300 truncate max-w-[160px]">{t.serviceName}</span>
-                      <span className="font-bold text-slate-900 dark:text-white">Rs. {t.price}</span>
-                    </div>
-                  ))
-                )}
-              </div>
+              {!isReschedule && (
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {selectedTestList.length === 0 ? (
+                    <p className="text-xs text-slate-400 dark:text-slate-500 italic">
+                      No tests selected yet. Please select at least one test from the left.
+                    </p>
+                  ) : (
+                    selectedTestList.map((t) => (
+                      <div key={t.id} className="flex justify-between text-xs py-1 border-b border-slate-200/50 dark:border-white/10">
+                        <span className="text-slate-700 dark:text-slate-300 truncate max-w-[160px]">{t.serviceName}</span>
+                        <span className="font-bold text-slate-900 dark:text-white">Rs. {t.price}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
 
               {/* Date selection for Lab */}
               <div className="space-y-2">
@@ -2805,6 +2849,27 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                     )
                   })}
                 </div>
+                <div className="pt-1 flex items-center gap-2">
+                  <input
+                    type="date"
+                    min={todayIso}
+                    value={selectedDate}
+                    onChange={(e) => {
+                      if (e.target.value) setSelectedDate(e.target.value)
+                    }}
+                    className="flex-1 px-3 py-2 rounded-xl liquid-glass-input text-xs font-bold text-slate-900 dark:text-white outline-none"
+                    aria-label="Pick custom sample collection date"
+                  />
+                  {nextAvailableDate && nextAvailableDate !== selectedDate && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDate(nextAvailableDate)}
+                      className="px-2.5 py-2 rounded-xl bg-teal-500/10 border border-teal-500/30 text-[11px] font-bold text-teal-700 dark:text-teal-300 whitespace-nowrap cursor-pointer"
+                    >
+                      Next Open
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Sample Collection Time Slot Picker */}
@@ -2833,10 +2898,14 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 ) : (
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     {displaySlots.map((slotItem) => {
-                      const isSelected = selectedSlotTime === slotItem.timeLabel && !slotItem.disabled
+                      const isSelected =
+                        !slotItem.disabled &&
+                        (selectedSlotId
+                          ? selectedSlotId === slotItem.id
+                          : selectedSlotTime === slotItem.timeLabel)
                       return (
                         <button
-                          key={slotItem.timeLabel}
+                          key={slotItem.id || slotItem.timeLabel}
                           type="button"
                           disabled={slotItem.disabled}
                           onClick={() => {
@@ -2866,24 +2935,53 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
               {/* Total Calculation */}
               <div className="p-4 liquid-glass-subtle rounded-2xl text-xs space-y-1.5 border-teal-500/30">
-                <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                  <span>Selected Tests ({selectedTestList.length}):</span>
-                  <span>Rs. {calculatedLabFee}</span>
-                </div>
+                {!isReschedule && (
+                  <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                    <span>Selected Tests ({selectedTestList.length}):</span>
+                    <span>Rs. {calculatedLabFee}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-slate-600 dark:text-slate-300">
                   <span>Collection Slot:</span>
-                  <span className="font-bold text-slate-900 dark:text-white">{selectedSlotTime || 'Select a slot'}</span>
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    {selectedDate} {selectedSlotTime ? `• ${selectedSlotTime}` : '(Select a slot)'}
+                  </span>
                 </div>
-                <div className="flex justify-between pt-2 border-t border-slate-200/50 dark:border-white/10 font-black text-sm text-teal-800 dark:text-teal-300">
-                  <span>Total Payable:</span>
-                  <span>Rs. {calculatedLabFee}</span>
-                </div>
+                {!isReschedule ? (
+                  <div className="flex justify-between pt-2 border-t border-slate-200/50 dark:border-white/10 font-black text-sm text-teal-800 dark:text-teal-300">
+                    <span>Total Payable:</span>
+                    <span>Rs. {calculatedLabFee}</span>
+                  </div>
+                ) : (
+                  <div className="flex justify-between pt-2 border-t border-slate-200/50 dark:border-white/10 font-black text-sm text-cyan-800 dark:text-cyan-300">
+                    <span>Reschedule Charge:</span>
+                    <span>Rs. 0 (Fee Retained)</span>
+                  </div>
+                )}
               </div>
 
               <button
                 type="button"
-                disabled={selectedTestList.length === 0 || !selectedSlotTime || isSelectedDateHoliday}
+                disabled={
+                  isReschedule
+                    ? (!selectedSlotTime || isSelectedDateHoliday || submitting || isLookingUpCode)
+                    : (selectedTestList.length === 0 || !selectedSlotTime || isSelectedDateHoliday)
+                }
                 onClick={() => {
+                  if (isLookingUpCode) return
+                  if (isReschedule || (isReturningPatient && retainedAppointment)) {
+                    if (!retainedAppointment) {
+                      alert('Could not verify existing appointment details. Please check your tracking code.')
+                      return
+                    }
+                    if (!selectedSlotTime) {
+                      alert('Please select an available sample collection slot.')
+                      return
+                    }
+                    handleConfirmBookingAndPayment()
+                    return
+                  }
+
                   const isUserLoggedIn = Boolean(
                     localStorage.getItem('dactor_patient_session') ||
                       localStorage.getItem('dactor_patient_logged_in') === 'true'
@@ -2923,7 +3021,17 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                 }}
                 className="w-full py-3.5 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black rounded-2xl shadow-glass-base active:scale-[0.98] transition-all flex items-center justify-center space-x-2 cursor-pointer border-t border-white/20"
               >
-                <span>Proceed to Patient Details</span>
+                <span>
+                  {submitting
+                    ? 'Shifting Appointment...'
+                    : isLookingUpCode
+                    ? 'Verifying Appointment...'
+                    : isReschedule
+                    ? selectedSlotTime
+                      ? `Confirm Reschedule to ${selectedDate} (${selectedSlotTime})`
+                      : 'Select a Published Slot to Reschedule'
+                    : 'Proceed to Patient Details'}
+                </span>
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>

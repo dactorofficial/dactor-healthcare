@@ -7,6 +7,26 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-11
 
 ### Prompt:
+> "reshedule when i picked the slot and tapped it didn't work / plan and proceed to solve yourself"
+
+#### Changes Applied:
+1. **Web Database & RPC Alignment ([`web-app/src/services/db.ts`](file:///g:/My%20Drive/New%20folder/web-app/src/services/db.ts), [`supabase/migration_reschedule_appointment_rpc.sql`](file:///g:/My%20Drive/New%20folder/supabase/migration_reschedule_appointment_rpc.sql))**:
+   - Fixed `shiftAppointmentDate` parameter signature mismatch against live Supabase (`p_new_slot_id`, `p_new_doctor_id`, `p_reason`) while keeping `PGRST202` fallback to legacy `(p_slot_id, p_doctor_id, p_tracking_code)`.
+   - Formatted incoming time labels via `formatTimeForPostgres()`, replaced invalid enum `'waiting'` with `'not_checked_in'`, preserved `'WAITING_FOR_APPROVAL'` status, added whitelisted-field retry on trigger rejection, and used Nepal Standard Time (`Asia/Kathmandu`) local dates.
+   - Updated [`supabase/migration_reschedule_appointment_rpc.sql`](file:///g:/My%20Drive/New%20folder/supabase/migration_reschedule_appointment_rpc.sql) to canonical signature `(p_appointment_id, p_new_date, p_new_time, p_new_slot_id, p_new_doctor_id, p_reason)`, TIME normalization, slot capacity locking, `Asia/Kathmandu` today check, `WAITING_FOR_APPROVAL` status preservation, and `estimated_wait_minutes`.
+2. **Web Reschedule Slot-Picking & Confirmation Flows ([`web-app/src/App.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/App.tsx), [`web-app/src/pages/ClinicDetail.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/ClinicDetail.tsx), [`web-app/src/pages/PatientPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/PatientPortal.tsx), [`web-app/src/pages/LiveQueue.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/LiveQueue.tsx))**:
+   - Updated [`App.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/App.tsx) to parse `rescheduleCode`, `followupCode`, and `reschedule` from both `window.location.search` and hash query parameters.
+   - Updated [`ClinicDetail.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/ClinicDetail.tsx) to merge `monthSlotsMap` across months, preserve user-picked dates/slots (`selectedSlotId`), track slot selection via `selectedSlotId`, support lab reschedule directly in the Lab tab without test-selection lock, pass `doctorId` & `trackingCode10Digit` to `shiftAppointmentDate`, and fix `checkinStatus` to `'not_checked_in'`.
+   - Updated [`PatientPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/PatientPortal.tsx) with explicit `isRescheduleMode`, async clinic/doctor/service hydration (`getClinicById`) in `handleConfirmRescheduleFromModal`, preserved slot/date selection, `$0` fee bypass for rescheduling across clinics/labs, `slot:<id>` state sync in the quick reschedule modal, and `not_checked_in` status.
+   - Updated [`LiveQueue.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/LiveQueue.tsx) to check `shiftAppointmentDate` boolean result, pass `doctorId` & `trackingCode10Digit`, and enforce `Asia/Kathmandu` min date.
+3. **Android Patient & Clinic Apps ([`patient-app/.../AppointmentRepository.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt), [`BookingScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/booking/BookingScreen.kt), [`QueueStatusScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt), [`clinic-app/.../AppointmentRepository.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt))**:
+   - Updated `rescheduleAppointment` in both [`patient-app/.../AppointmentRepository.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt) and [`clinic-app/.../AppointmentRepository.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt) to invoke `reschedule_patient_appointment` with `(p_new_slot_id, p_new_doctor_id, p_reason)` first (with `PGRST202` fallback), preserve `WAITING_FOR_APPROVAL`, retry whitelisted fields on trigger errors, and use `ZoneId.of("Asia/Kathmandu")`.
+   - Delegated active reschedules in `bookFollowUpAppointment` directly to `rescheduleAppointment`.
+   - Fixed calendar dot vs slot-list doctor matching, added `appointmentRepository.getAppointmentById` fallback hydration when session prefs are absent, used Kathmandu date for `todayDate`, and guarded `WAITING_FOR_APPROVAL` against premature `ensureQueueEntryForAppointment` in [`BookingScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/booking/BookingScreen.kt) & [`QueueStatusScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt).
+
+---
+
+### Prompt:
 > "for patient app there shouldn't be reshedule option for oppointment in diagnostic lab after the sample is collected or any further step done / plan and proceed yourself"
 
 #### Changes Applied:

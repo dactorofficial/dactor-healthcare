@@ -365,77 +365,39 @@ class AppointmentRepository @Inject constructor(
 
             return@withContext created
         } else {
-            // ACTIVE / UPCOMING VISIT -> RESCHEDULE EXISTING APPOINTMENT
-            val oldSlotId = existing.slotId
-            try {
-                supabaseClient.postgrest["appointments"].update({
-                    set("slot_id", validSlotId)
-                    set("clinic_id", clinicId)
-                    if (!validDoctorId.isNullOrBlank()) set("doctor_id", validDoctorId)
-                    if (!retainedUserId.isNullOrBlank()) set("user_id", retainedUserId)
-                    if (!retainedEmail.isNullOrBlank()) set("patient_email", retainedEmail)
-                    set("appointment_date", appointmentDate)
-                    set("appointment_time", normalizedTime)
-                    set("payment_status", "paid")
-                    set("checkin_status", "not_checked_in")
-                    set("status", "APPROVED")
-                    set("fee_amount", 0.0)
-                }) {
-                    filter { eq("id", existing.id) }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
+            // ACTIVE / UPCOMING VISIT -> RESCHEDULE EXISTING APPOINTMENT AUTHORITATIVELY
+            val ok = rescheduleAppointment(
+                id = existing.id,
+                newDate = appointmentDate,
+                newTime = normalizedTime,
+                slotId = validSlotId,
+                newDoctorId = validDoctorId,
+                reason = "Follow-Up Consultation (Ref: ${existing.trackingCode10Digit})"
+            )
+            if (!ok) {
+                return@withContext null
             }
 
-            if (!oldSlotId.isNullOrBlank() && oldSlotId != validSlotId) {
-                reconcileSlotBookedCount(oldSlotId)
-            }
-            if (!validSlotId.isNullOrBlank()) {
-                reconcileSlotBookedCount(validSlotId)
+            val updated = getAppointmentById(existing.id)
+            if (updated != null) {
+                return@withContext updated
             }
 
-            // Remove any old queue entries for this appointment
-            try {
-                supabaseClient.postgrest["queue_entries"].delete {
-                    filter { eq("appointment_id", existing.id) }
-                }
-            } catch (ignored: Exception) {}
-
-            // Only insert a fresh waiting queue entry if the rescheduled appointment is for TODAY
-            if (isToday) {
-                try {
-                    val existingEntries = supabaseClient.postgrest["queue_entries"]
-                        .select { filter { eq("clinic_id", clinicId) } }
-                        .decodeList<com.dactor.patient.data.model.QueueEntry>()
-                    val nextPos = (existingEntries
-                        .filter { it.status == "waiting" || it.status == "inside" }
-                        .maxOfOrNull { it.queuePosition } ?: 0) + 1
-                    val queueEntryDto = QueueEntryInsertDto(
-                        id = UUID.randomUUID().toString(),
-                        appointmentId = existing.id,
-                        clinicId = clinicId,
-                        doctorId = validDoctorId,
-                        queuePosition = nextPos,
-                        status = "waiting"
-                    )
-                    supabaseClient.postgrest["queue_entries"].insert(queueEntryDto)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+            val preservedStatus = if (existing.status.equals("WAITING_FOR_APPROVAL", ignoreCase = true)) {
+                "WAITING_FOR_APPROVAL"
+            } else {
+                "APPROVED"
             }
-
             return@withContext existing.copy(
                 slotId = validSlotId,
                 clinicId = clinicId,
-                doctorId = validDoctorId,
+                doctorId = validDoctorId ?: existing.doctorId,
                 userId = retainedUserId,
                 patientEmail = retainedEmail,
                 appointmentDate = appointmentDate,
                 appointmentTime = normalizedTime,
-                paymentStatus = "paid",
-                checkinStatus = "waiting",
-                status = "APPROVED",
-                feeAmount = 0.0
+                checkinStatus = "not_checked_in",
+                status = preservedStatus
             )
         }
     }
@@ -1203,12 +1165,39 @@ class AppointmentRepository @Inject constructor(
         )
     }
 
+    private fun parseRescheduleRpcResult(rawData: String, json: JsonObject?): Boolean {
+        val explicitSuccess = json?.get("success")?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
+        if (explicitSuccess != null) return explicitSuccess
+        if (json?.get("error") != null) return false
+
+        val trimmed = rawData.trim()
+        if (trimmed.equals("false", ignoreCase = true) ||
+            trimmed.contains("\"success\":false") ||
+            trimmed.contains("\"success\": false")
+        ) {
+            return false
+        }
+        return trimmed.isBlank() ||
+            trimmed.equals("true", ignoreCase = true) ||
+            trimmed.contains("\"success\":true") ||
+            trimmed.contains("\"success\": true") ||
+            json != null
+    }
+
+    private fun isMissingRpcSignatureError(err: Throwable): Boolean {
+        val msg = (err.message ?: "").lowercase()
+        return msg.contains("pgrst202") ||
+            msg.contains("could not find the function") ||
+            msg.contains("schema cache")
+    }
+
     suspend fun rescheduleAppointment(
         id: String,
         newDate: String,
         newTime: String,
         slotId: String? = null,
-        newDoctorId: String? = null
+        newDoctorId: String? = null,
+        reason: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
         val existing = getAppointmentById(id)
         if (isDiagnosticLabSampleCollectedOrFurther(id, existing)) {
@@ -1218,48 +1207,80 @@ class AppointmentRepository @Inject constructor(
         val normalizedTime = normalizeTimeForPostgres(newTime)
         val cleanSlotId = slotId?.trim()?.takeIf { isValidUuid(it) }
         val cleanDocId = newDoctorId?.trim()?.takeIf { isValidUuid(it) } ?: existing?.doctorId?.takeIf { isValidUuid(it) }
+        val cleanReason = reason?.trim()?.takeIf { it.isNotBlank() } ?: "Rescheduled by patient via Dactor Patient App"
+        val trackingCode = existing?.trackingCode10Digit?.takeIf { it.isNotBlank() }
+        val preservePendingApproval = existing?.status?.equals("WAITING_FOR_APPROVAL", ignoreCase = true) == true
+        val resolvedStatus = if (preservePendingApproval) "WAITING_FOR_APPROVAL" else "APPROVED"
 
-        // 1. Authoritative SECURITY DEFINER RPC
+        // 1. Authoritative SECURITY DEFINER RPC (Live signature first, legacy migration fallback on PGRST202)
         try {
-            val rpcParams = buildJsonObject {
+            val primaryParams = buildJsonObject {
                 put("p_appointment_id", id)
                 put("p_new_date", newDate)
                 put("p_new_time", normalizedTime)
-                if (cleanSlotId != null) put("p_slot_id", cleanSlotId)
-                if (cleanDocId != null) put("p_doctor_id", cleanDocId)
-                val trackingCode = existing?.trackingCode10Digit?.takeIf { it.isNotBlank() }
-                if (trackingCode != null) put("p_tracking_code", trackingCode)
+                put("p_new_slot_id", cleanSlotId)
+                put("p_new_doctor_id", cleanDocId)
+                put("p_reason", cleanReason)
             }
-            val response = supabaseClient.postgrest.rpc("reschedule_patient_appointment", rpcParams)
+            val response = try {
+                supabaseClient.postgrest.rpc("reschedule_patient_appointment", primaryParams)
+            } catch (primaryErr: Exception) {
+                if (!isMissingRpcSignatureError(primaryErr)) throw primaryErr
+                val fallbackParams = buildJsonObject {
+                    put("p_appointment_id", id)
+                    put("p_new_date", newDate)
+                    put("p_new_time", normalizedTime)
+                    if (cleanSlotId != null) put("p_slot_id", cleanSlotId)
+                    if (cleanDocId != null) put("p_doctor_id", cleanDocId)
+                    if (trackingCode != null) put("p_tracking_code", trackingCode)
+                }
+                supabaseClient.postgrest.rpc("reschedule_patient_appointment", fallbackParams)
+            }
             val json = try { response.decodeSingleOrNull<JsonObject>() } catch (_: Exception) { null }
-            val rawData = response.data
-            val isSuccess = json?.get("success")?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
-                ?: (rawData.contains("\"success\":true") || rawData.contains("\"success\": true") || rawData.trim() == "true")
-            if (isSuccess) {
+            if (parseRescheduleRpcResult(response.data, json)) {
                 return@withContext true
             }
         } catch (rpcErr: Exception) {
             rpcErr.printStackTrace()
         }
 
-        // 2. Direct database update fallback (whitelisted fields, valid checkin_status)
+        // 2. Direct database update fallback (whitelisted fields retry if patient privilege trigger rejects restricted fields)
         try {
-            supabaseClient.postgrest["appointments"]
-                .update({
-                    set("appointment_date", newDate)
-                    set("appointment_time", normalizedTime)
-                    set("checkin_status", "not_checked_in")
-                    set("status", "APPROVED")
-                    set("updated_at", java.time.Instant.now().toString())
-                    if (cleanSlotId != null) {
-                        set("slot_id", cleanSlotId)
+            try {
+                supabaseClient.postgrest["appointments"]
+                    .update({
+                        set("appointment_date", newDate)
+                        set("appointment_time", normalizedTime)
+                        set("checkin_status", "not_checked_in")
+                        set("status", resolvedStatus)
+                        set("updated_at", java.time.Instant.now().toString())
+                        if (cleanSlotId != null) {
+                            set("slot_id", cleanSlotId)
+                        }
+                        if (cleanDocId != null) {
+                            set("doctor_id", cleanDocId)
+                        }
+                    }) {
+                        filter { eq("id", id) }
                     }
-                    if (cleanDocId != null) {
-                        set("doctor_id", cleanDocId)
+            } catch (privilegeErr: Exception) {
+                // Retry strictly with patient-whitelisted reschedule columns
+                supabaseClient.postgrest["appointments"]
+                    .update({
+                        set("appointment_date", newDate)
+                        set("appointment_time", normalizedTime)
+                        set("checkin_status", "not_checked_in")
+                        set("updated_at", java.time.Instant.now().toString())
+                        if (cleanSlotId != null) {
+                            set("slot_id", cleanSlotId)
+                        }
+                        if (cleanDocId != null && (existing?.doctorId.isNullOrBlank() || cleanDocId == existing?.doctorId)) {
+                            set("doctor_id", cleanDocId)
+                        }
+                    }) {
+                        filter { eq("id", id) }
                     }
-                }) {
-                    filter { eq("id", id) }
-                }
+            }
 
             if (!oldSlotId.isNullOrBlank() && oldSlotId != cleanSlotId) {
                 reconcileSlotBookedCount(oldSlotId)
@@ -1268,8 +1289,8 @@ class AppointmentRepository @Inject constructor(
                 reconcileSlotBookedCount(cleanSlotId)
             }
 
-            val todayStr = java.time.LocalDate.now().toString()
-            if (newDate != todayStr) {
+            val todayStr = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kathmandu")).toString()
+            if (newDate != todayStr || preservePendingApproval) {
                 try {
                     supabaseClient.postgrest["queue_entries"].delete {
                         filter { eq("appointment_id", id) }
@@ -1280,7 +1301,7 @@ class AppointmentRepository @Inject constructor(
                     val appt = supabaseClient.postgrest["appointments"]
                         .select { filter { eq("id", id) } }
                         .decodeSingleOrNull<Appointment>()
-                    if (appt != null) {
+                    if (appt != null && !appt.status.equals("WAITING_FOR_APPROVAL", ignoreCase = true)) {
                         val existingQ = supabaseClient.postgrest["queue_entries"]
                             .select { filter { eq("appointment_id", id) } }
                             .decodeSingleOrNull<com.dactor.patient.data.model.QueueEntry>()
