@@ -93,10 +93,7 @@ fun DashboardScreen(
     var pendingPayAtDeskCount by remember { mutableIntStateOf(0) }
 
     val isLabClinic = remember(clinic) {
-        clinic?.type?.equals("diagnostic_lab", ignoreCase = true) == true ||
-        clinic?.type?.contains("lab", ignoreCase = true) == true ||
-        clinic?.name?.contains("lab", ignoreCase = true) == true ||
-        clinic?.specialties?.any { it.contains("lab", ignoreCase = true) || it.contains("patholog", ignoreCase = true) } == true
+        clinic?.isDiagnosticLab() == true
     }
 
     // Activation & License Subscription state

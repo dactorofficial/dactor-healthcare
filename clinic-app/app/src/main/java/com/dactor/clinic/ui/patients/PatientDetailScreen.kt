@@ -569,8 +569,7 @@ fun PatientDetailScreen(
             }
 
             val currentClinic = clinicsMap[appointment.clinicId]
-            val isLabClinic = currentClinic?.type?.equals("diagnostic_lab", ignoreCase = true) == true ||
-                    currentClinic?.type?.contains("lab", ignoreCase = true) == true
+            val isLabClinic = currentClinic?.isDiagnosticLab() == true
 
             // Quick Actions: Billing & (Only for Lab Type Clinics) Lab Process Workflow
             Row(
@@ -643,12 +642,14 @@ fun PatientDetailScreen(
                             OutlinedButton(
                                 onClick = {
                                     coroutineScope.launch {
+                                        queueRepository?.updateQueueStatus(appointment.id, "processing", appointment.clinicId)
+                                        appointmentRepository?.updateCheckinStatus(appointment.id, "processing")
                                         labReportRepository?.upsertLabReportForAppointment(
                                             appointmentId = appointment.id,
                                             clinicId = appointment.clinicId,
                                             patientName = appointment.patientName,
                                             testName = clinicalNotes.ifBlank { "Complete Diagnostic Panel" },
-                                            stage = "in_lab"
+                                            stage = "processing"
                                         )
                                         actionMessage = "✓ Stage 2: Sample is now Processing in Lab!"
                                     }
@@ -670,6 +671,8 @@ fun PatientDetailScreen(
                                             stage = "prepared",
                                             fileName = "Dactor_Lab_Report_${appointment.trackingCode10Digit}.pdf"
                                         )
+                                        queueRepository?.updateQueueStatusByAppointmentId(appointment.id, "report_prepared")
+                                        appointmentRepository?.updateCheckinStatus(appointment.id, "report_prepared")
                                         actionMessage = "✓ Stage 3: Lab Report Published & Patient Notified!"
                                         navController.navigate(NavRoutes.LabWorkflow)
                                     }

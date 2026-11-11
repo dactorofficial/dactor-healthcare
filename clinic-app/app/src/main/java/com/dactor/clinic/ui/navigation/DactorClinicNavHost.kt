@@ -114,7 +114,8 @@ fun DactorClinicNavHost(
                 queueRepository = queueRepository,
                 appointmentRepository = appointmentRepository,
                 invitationRepository = invitationRepository,
-                clinicRepository = clinicRepository
+                clinicRepository = clinicRepository,
+                labReportRepository = labReportRepository
             )
         }
         composable("${NavRoutes.DoctorDashboard}/{doctorId}") { backStackEntry ->
@@ -126,7 +127,8 @@ fun DactorClinicNavHost(
                 queueRepository = queueRepository,
                 appointmentRepository = appointmentRepository,
                 invitationRepository = invitationRepository,
-                clinicRepository = clinicRepository
+                clinicRepository = clinicRepository,
+                labReportRepository = labReportRepository
             )
         }
         fun currentClinicId(argCid: String? = null): String {

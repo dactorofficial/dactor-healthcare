@@ -39,6 +39,7 @@ import com.dactor.clinic.data.repository.AppointmentRepository
 import com.dactor.clinic.data.repository.ClinicRepository
 import com.dactor.clinic.data.repository.DoctorRepository
 import com.dactor.clinic.data.repository.InvitationRepository
+import com.dactor.clinic.data.repository.LabReportRepository
 import com.dactor.clinic.data.repository.QueueRepository
 import com.dactor.clinic.ui.navigation.NavRoutes
 import kotlinx.coroutines.delay
@@ -55,7 +56,8 @@ fun DoctorDashboardScreen(
     queueRepository: QueueRepository? = null,
     appointmentRepository: AppointmentRepository? = null,
     invitationRepository: InvitationRepository? = null,
-    clinicRepository: ClinicRepository? = null
+    clinicRepository: ClinicRepository? = null,
+    labReportRepository: LabReportRepository? = null
 ) {
     val context = LocalContext.current
     val sessionManager = remember { com.dactor.clinic.data.local.UserSessionManager(context) }
@@ -237,7 +239,7 @@ fun DoctorDashboardScreen(
                     val effectiveTargetClinicId = clinic?.id ?: activeCId
                     appointmentsQueue = appts.filter { appt ->
                         (effectiveTargetClinicId.isNullOrBlank() || appt.clinicId == effectiveTargetClinicId) &&
-                        appt.checkinStatus != "completed" && appt.checkinStatus != "cancelled" &&
+                        appt.checkinStatus !in listOf("completed", "done", "cancelled", "no_show", "processing", "report_prepared") &&
                         appt.status.equals("APPROVED", ignoreCase = true) &&
                         appt.status != "WAITING_FOR_APPROVAL" &&
                         appt.status != "pending_payment" &&
@@ -272,7 +274,10 @@ fun DoctorDashboardScreen(
     val displayNmc = doctor?.nmcLicenseNumber ?: "Pending Verification"
     val kycStatus = doctor?.kycStatus ?: "pending"
     val activeAppointment = appointmentsQueue.firstOrNull { it.checkinStatus == "inside" || it.checkinStatus == "in_consultation" || it.checkinStatus == "inside_opd" }
-    val nextWaitingAppt = appointmentsQueue.firstOrNull { it.id != activeAppointment?.id && it.checkinStatus != "completed" && it.checkinStatus != "cancelled" }
+    val nextWaitingAppt = appointmentsQueue.firstOrNull {
+        it.id != activeAppointment?.id &&
+            it.checkinStatus !in listOf("completed", "done", "cancelled", "no_show", "processing", "report_prepared")
+    }
     val isAffiliated = doctor?.clinicId != null && clinic != null
 
     val commonSpecialties = listOf(
@@ -1077,8 +1082,8 @@ fun DoctorDashboardScreen(
                         }
 
                         val isLabPractitionerOrClinic = doctor?.isLabTechnician == true ||
-                            clinic?.type == "diagnostic_lab" ||
-                            clinic?.type?.contains("lab", ignoreCase = true) == true
+                            clinic?.isDiagnosticLab() == true ||
+                            !activeAppointment.selectedLabTests.isNullOrBlank()
 
                         // Clinical Rx & Lab Buttons
                         Row(
@@ -1100,7 +1105,12 @@ fun DoctorDashboardScreen(
                             if (isLabPractitionerOrClinic) {
                                 OutlinedButton(
                                     onClick = {
-                                        navController.navigate(NavRoutes.LabWorkflow)
+                                        val cid = clinic?.id?.takeIf { it.isNotBlank() } ?: activeAppointment.clinicId
+                                        if (cid.isNotBlank()) {
+                                            navController.navigate("${NavRoutes.LabWorkflow}/$cid")
+                                        } else {
+                                            navController.navigate(NavRoutes.LabWorkflow)
+                                        }
                                     },
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(10.dp)
@@ -1112,7 +1122,7 @@ fun DoctorDashboardScreen(
                             }
                         }
 
-                        // Complete Consultation Button
+                        // Complete Consultation / Transfer to Processing Button
                         var isCompleting by remember { mutableStateOf(false) }
                         Button(
                             onClick = {
@@ -1120,11 +1130,21 @@ fun DoctorDashboardScreen(
                                 isCompleting = true
                                 coroutineScope.launch {
                                     try {
-                                        if (appointmentRepository != null) {
-                                            val completedApptId = activeAppointment.id
-                                            // Immediately update local state so next patient appears smoothly
-                                            appointmentsQueue = appointmentsQueue.filter { it.id != completedApptId }
-                                            val ok = appointmentRepository.completeConsultation(completedApptId)
+                                        val completedApptId = activeAppointment.id
+                                        appointmentsQueue = appointmentsQueue.filter { it.id != completedApptId }
+                                        if (isLabPractitionerOrClinic) {
+                                            val targetClinicId = clinic?.id?.takeIf { it.isNotBlank() } ?: activeAppointment.clinicId
+                                            queueRepository?.updateQueueStatus(completedApptId, "processing", targetClinicId)
+                                            appointmentRepository?.updateCheckinStatus(completedApptId, "processing")
+                                            labReportRepository?.upsertLabReportForAppointment(
+                                                appointmentId = completedApptId,
+                                                clinicId = targetClinicId,
+                                                patientName = activeAppointment.patientName,
+                                                testName = activeAppointment.selectedLabTests?.takeIf { it.isNotBlank() } ?: "Diagnostic Lab Analysis",
+                                                stage = "processing"
+                                            )
+                                        } else if (appointmentRepository != null) {
+                                            appointmentRepository.completeConsultation(completedApptId)
                                         }
                                         loadDoctorData()
                                     } catch (e: Exception) {
@@ -1134,15 +1154,26 @@ fun DoctorDashboardScreen(
                                     }
                                 }
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isLabPractitionerOrClinic) Color(0xFF0F4C81) else MaterialTheme.colorScheme.primary
+                            ),
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(10.dp),
                             enabled = !isCompleting
                         ) {
-                            Icon(Icons.Default.DoneAll, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(
+                                if (isLabPractitionerOrClinic) Icons.Default.Biotech else Icons.Default.DoneAll,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                text = if (isCompleting) "Completing Consultation..." else "Complete Consultation",
+                                text = when {
+                                    isCompleting && isLabPractitionerOrClinic -> "Moving to Processing..."
+                                    isCompleting -> "Completing Consultation..."
+                                    isLabPractitionerOrClinic -> "Mark Done (Add to Processing)"
+                                    else -> "Complete Consultation"
+                                },
                                 fontWeight = FontWeight.Bold
                             )
                         }

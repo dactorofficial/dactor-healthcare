@@ -31,6 +31,40 @@ import {
   WebPaymentRecord,
 } from '../utils/paymentLedger'
 
+/** Returns true when a clinic, practitioner, or appointment belongs to a diagnostic/lab workflow. */
+export function isDiagnosticLabClinic(
+  clinic?: Clinic | null,
+  doctor?: Doctor | null,
+  appt?: Appointment | null
+): boolean {
+  if (doctor?.isLabTechnician || doctor?.practitionerRole === 'lab_technician') {
+    return true
+  }
+  if (appt?.selectedTests && appt.selectedTests.length > 0) {
+    return true
+  }
+  if (typeof appt?.selectedLabTests === 'string' && appt.selectedLabTests.trim().length > 0) {
+    return true
+  }
+  if (Array.isArray(appt?.selectedLabTests) && appt.selectedLabTests.length > 0) {
+    return true
+  }
+  if (!clinic) return false
+  const t = (clinic.type || '').toLowerCase()
+  const n = (clinic.name || '').toLowerCase()
+  return (
+    t === 'diagnostic_lab' ||
+    t.includes('diagnostic') ||
+    t.includes('lab') ||
+    n.includes('diagnostic') ||
+    n.includes('lab') ||
+    (clinic.specialties?.some((s) => {
+      const sl = s.toLowerCase()
+      return sl.includes('lab') || sl.includes('patholog') || sl.includes('diagnostic') || sl.includes('radiolog') || sl.includes('scan')
+    }) ?? false)
+  )
+}
+
 
 // ==========================================
 // CLINICS API
@@ -1165,9 +1199,9 @@ export async function updateAppointmentStatus(id: string, status: string): Promi
         if (qStatus === 'inside') {
           notifTitle = "It's Your Turn! • Please Enter Cabin"
           notifMessage = `Dear ${patientName}, the doctor is ready for your consultation at ${clinicName}. Please proceed into the doctor's cabin now.${code10 ? ` (Tracking Code: ${code10})` : ''}`
-        } else if (qStatus === 'sample_collected') {
+        } else if (qStatus === 'sample_collected' || qStatus === 'processing') {
           notifTitle = 'Sample Collected • Processing in Lab'
-          notifMessage = `Dear ${patientName}, your test sample has been safely collected at ${clinicName} and is now being processed.${code10 ? ` (Tracking Code: ${code10})` : ''}`
+          notifMessage = `Dear ${patientName}, your diagnostic test sample has been collected at ${clinicName} and is now in the Processing stage.${code10 ? ` (Tracking Code: ${code10})` : ''}`
         } else if (qStatus === 'report_prepared') {
           notifTitle = 'Lab Report Ready • Download Available'
           notifMessage = `Dear ${patientName}, your diagnostic lab test report from ${clinicName} is now ready to view and download.${code10 ? ` (Tracking Code: ${code10})` : ''}`
@@ -1196,8 +1230,8 @@ export async function updateAppointmentStatus(id: string, status: string): Promi
           await reindexActiveQueue(targetAppt.clinic_id, (targetAppt as any).doctor_id)
         }
 
-        // When a patient enters cabin or completes, notify approaching patients in queue
-        if (targetAppt.clinic_id && (qStatus === 'inside' || qStatus === 'done')) {
+        // When a patient enters cabin, finishes, or moves to processing, notify approaching patients in queue
+        if (targetAppt.clinic_id && (qStatus === 'inside' || qStatus === 'done' || qStatus === 'processing')) {
           checkAndNotifyApproachingPatients(targetAppt.clinic_id).catch(() => {})
         }
       }
@@ -1246,7 +1280,7 @@ export async function autoTransferUncompletedQueueToNoShow(
       .from('appointments')
       .select('id, appointment_date, appointment_time, checkin_status, slot_id')
       .lt('appointment_date', todayStr)
-      .not('checkin_status', 'in', '("completed","cancelled","done","no_show")')
+      .not('checkin_status', 'in', '("completed","cancelled","done","no_show","processing","report_prepared")')
 
     if (clinicId) {
       apptQuery = apptQuery.eq('clinic_id', clinicId)
@@ -1294,7 +1328,7 @@ export async function autoTransferUncompletedQueueToNoShow(
       for (const entry of activeEntries) {
         const appt: any = entry.appointments
         const isPast = appt ? appt.appointment_date < todayStr : (entry.created_at && entry.created_at.slice(0, 10) < todayStr)
-        const isUncompleted = appt ? !['completed', 'cancelled', 'done'].includes(appt.checkin_status || '') : true
+        const isUncompleted = appt ? !['completed', 'cancelled', 'done', 'processing', 'report_prepared'].includes(appt.checkin_status || '') : true
 
         if (isPast && isUncompleted) {
           await supabase

@@ -107,6 +107,7 @@ import {
 import {
   getClinics,
   getClinicById,
+  isDiagnosticLabClinic,
   getClinicForPortalById,
   getClinicByEmail,
   getDoctors,
@@ -705,8 +706,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     // Keep desk tab clean
   }, [])
 
-  // Queue Board Segmented Sub-Tab (QueueBoardScreen.kt: Live vs Completed)
-  const [queueSubTab, setQueueSubTab] = useState<'waiting' | 'past'>('waiting')
+  // Queue Board Segmented Sub-Tab (QueueBoardScreen.kt: Live vs Processing vs Completed)
+  const [queueSubTab, setQueueSubTab] = useState<'waiting' | 'processing' | 'past'>('waiting')
   const [selectedQueueDate, setSelectedQueueDate] = useState<string>(
     () => new Date().toISOString().split('T')[0]
   )
@@ -973,26 +974,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [walkinDate, setWalkinDate] = useState<string>(() => new Date().toISOString().split('T')[0])
 
   // 3 Clinic Types Classification for active clinic
-  const isLabClinic = useMemo(() => {
-    if (!selectedClinic) return false
-    const t = (selectedClinic.type || '').toLowerCase()
-    const n = (selectedClinic.name || '').toLowerCase()
-    return (
-      t === 'diagnostic_lab' ||
-      t.includes('diagnostic') ||
-      t.includes('lab') ||
-      n.includes('diagnostic') ||
-      n.includes('lab') ||
-      (selectedClinic.specialties?.some(
-        (s) =>
-          s.toLowerCase().includes('lab') ||
-          s.toLowerCase().includes('patholog') ||
-          s.toLowerCase().includes('diagnostic') ||
-          s.toLowerCase().includes('radiolog') ||
-          s.toLowerCase().includes('scan')
-      ) ?? false)
-    )
-  }, [selectedClinic])
+  const isLabClinic = useMemo(() => isDiagnosticLabClinic(selectedClinic), [selectedClinic])
 
   const isSingleDoctorClinic = useMemo(() => {
     if (isLabClinic) return false
@@ -2735,17 +2717,27 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     try {
       await handleStatusChange(appt.id, 'processing')
       if (selectedClinic) {
-        await saveLabReport({
+        const testNameStr =
+          appt.selectedTests?.join(', ') ||
+          (typeof appt.selectedLabTests === 'string' ? appt.selectedLabTests : '') ||
+          'Diagnostic Report'
+        const saved = await saveLabReport({
           appointmentId: appt.id,
           clinicId: selectedClinic.id,
           trackingCode10Digit: appt.trackingCode10Digit,
           patientName: appt.patientName,
-          testName: appt.selectedTests?.join(', ') || 'Diagnostic Report',
+          testName: testNameStr,
           status: 'processing',
         })
+        if (saved) {
+          setLabReports((prev) => [
+            saved,
+            ...prev.filter((r) => r.appointmentId !== appt.id && r.id !== saved.id),
+          ])
+        }
       }
       setRefreshKey((k) => k + 1)
-      alert(`✓ Sample collected for ${appt.patientName}! Patient transferred to Processing in Lab.`)
+      alert(`✓ ${appt.patientName} added to Processing section! Mark report prepared in Processing / Diagnostic Lab Pipeline.`)
     } catch (err) {
       console.error('Error transitioning to processing:', err)
     }
@@ -2817,7 +2809,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     try {
       const ok = await updateAppointmentStatus(appointmentId, newStatus)
       if (ok) {
-        if (selectedClinic && (newStatus === 'in_consultation' || newStatus === 'completed')) {
+        if (selectedClinic && (newStatus === 'in_consultation' || newStatus === 'completed' || newStatus === 'processing')) {
           checkAndNotifyApproachingPatients(selectedClinic.id, settingThreshold || 2).catch(() => {})
         }
       }
@@ -2840,8 +2832,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
   // Shift Appointment Modal Handlers
   const handleOpenShiftModal = (appt: Appointment) => {
-    if (appt.checkinStatus === 'completed' || appt.checkinStatus === 'done') {
-      alert('Completed visits are preserved clinical records and cannot be shifted. Please schedule a new follow-up visit.')
+    if (
+      appt.checkinStatus === 'completed' ||
+      appt.checkinStatus === 'done' ||
+      appt.checkinStatus === 'report_prepared' ||
+      appt.checkinStatus === 'processing'
+    ) {
+      alert('Completed or processing visits cannot be shifted. Please schedule a new follow-up visit.')
       return
     }
     setShiftTargetAppt(appt)
@@ -3478,7 +3475,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         }
       }
 
-      await saveLabReport({
+      const savedReport = await saveLabReport({
         appointmentId: targetLabAppt.id,
         clinicId: selectedClinic.id,
         trackingCode10Digit: targetLabAppt.trackingCode10Digit,
@@ -3491,7 +3488,20 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         technicianNotes: technicianNotes.trim() || undefined,
       })
 
-      await updateAppointmentStatus(targetLabAppt.id, 'completed')
+      await updateAppointmentStatus(targetLabAppt.id, 'report_prepared')
+      setAppointments((prev) =>
+        prev.map((a) =>
+          a.id === targetLabAppt.id
+            ? { ...a, checkinStatus: 'report_prepared' as any, updatedAt: new Date().toISOString() }
+            : a
+        )
+      )
+      if (savedReport) {
+        setLabReports((prev) => [
+          savedReport,
+          ...prev.filter((r) => r.appointmentId !== targetLabAppt.id && r.id !== savedReport.id),
+        ])
+      }
 
       await sendBroadcastNotification(
         selectedClinic.id,
@@ -3935,7 +3945,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         (a) =>
           a.checkinStatus === 'no_show' ||
           a.checkinStatus === 'cancelled' ||
-          (a.appointmentDate < todayStr && a.checkinStatus !== 'completed' && a.checkinStatus !== 'done')
+          (a.appointmentDate < todayStr &&
+            a.checkinStatus !== 'completed' &&
+            a.checkinStatus !== 'done' &&
+            a.checkinStatus !== 'processing' &&
+            a.checkinStatus !== 'report_prepared')
       ),
     [appointments, todayStr]
   )
@@ -3962,7 +3976,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const queueInsideCount = todayAppointments.filter(
     (a) => a.checkinStatus === 'in_consultation' || a.checkinStatus === 'inside'
   ).length
-  const queueCompletedCount = todayAppointments.filter((a) => a.checkinStatus === 'completed').length
+  const queueProcessingCount = todayAppointments.filter(
+    (a) => a.checkinStatus === 'processing' || a.checkinStatus === 'sample_collected'
+  ).length
+  const queueCompletedCount = todayAppointments.filter(
+    (a) => a.checkinStatus === 'completed' || a.checkinStatus === 'done' || a.checkinStatus === 'report_prepared'
+  ).length
 
   // Appointments for the selected future date
   const futureDateAppointments = useMemo(
@@ -5572,7 +5591,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <div className="flex items-center space-x-2 w-full md:w-auto">
                 <button
                   onClick={() => {
-                    if (isLabClinic || activeConsultationPatient.selectedTests?.length) {
+                    if (isDiagnosticLabClinic(selectedClinic, null, activeConsultationPatient)) {
                       handleMarkDiagnosticProcessing(activeConsultationPatient)
                     } else {
                       handleStatusChange(activeConsultationPatient.id, 'completed')
@@ -5580,7 +5599,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   }}
                   className="flex-1 md:flex-initial px-4 py-2.5 bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 text-white text-xs font-bold rounded-xl shadow-glass-brand border border-white/25 transition-colors cursor-pointer active:scale-[0.98]"
                 >
-                  {isLabClinic || activeConsultationPatient.selectedTests?.length ? 'Mark Done (Processing)' : 'Mark Consultation Done'}
+                  {isDiagnosticLabClinic(selectedClinic, null, activeConsultationPatient)
+                    ? 'Mark Done (Processing)'
+                    : 'Mark Consultation Done'}
                 </button>
                 <button
                   onClick={() => handleOpenRemarkModal(activeConsultationPatient)}
@@ -5617,7 +5638,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             className="mb-3"
           />
 
-          {/* Section Header + Segmented Sub-Tabs (Live vs Completed) */}
+          {/* Section Header + Segmented Sub-Tabs (Live vs Processing vs Completed) */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div className="flex items-center gap-1.5 p-1 liquid-glass-subtle rounded-xl border border-white/40 dark:border-white/10 overflow-x-auto no-scrollbar max-w-full">
               <button
@@ -5634,6 +5655,23 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               >
                 Live ({queueWaitingCount + queueInsideCount})
               </button>
+              {(isLabClinic || queueProcessingCount > 0) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQueueSubTab('processing')
+                    setExpandedQueueApptId(null)
+                  }}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap cursor-pointer inline-flex items-center space-x-1 ${
+                    queueSubTab === 'processing'
+                      ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                  }`}
+                >
+                  <FlaskConical className="w-3.5 h-3.5" />
+                  <span>Processing ({queueProcessingCount})</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -5646,7 +5684,16 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
                 }`}
               >
-                Completed ({todayAppointments.filter((a) => a.checkinStatus === 'completed' || a.checkinStatus === 'done' || a.checkinStatus === 'no_show').length})
+                Completed (
+                {todayAppointments.filter(
+                  (a) =>
+                    a.checkinStatus === 'completed' ||
+                    a.checkinStatus === 'done' ||
+                    a.checkinStatus === 'report_prepared' ||
+                    a.checkinStatus === 'no_show' ||
+                    a.checkinStatus === 'cancelled'
+                ).length}
+                )
               </button>
             </div>
 
@@ -5695,21 +5742,40 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   </thead>
                   <tbody className="divide-y divide-white/30 dark:divide-white/5 font-medium">
                     {todayAppointments
-                      .filter((appt) =>
-                        queueSubTab === 'waiting'
-                          ? appt.checkinStatus === 'waiting' ||
+                      .filter((appt) => {
+                        if (queueSubTab === 'waiting') {
+                          return (
+                            appt.checkinStatus === 'waiting' ||
                             appt.checkinStatus === 'in_consultation' ||
                             appt.checkinStatus === 'inside'
-                          : appt.checkinStatus === 'completed' ||
-                            appt.checkinStatus === 'done' ||
-                            appt.checkinStatus === 'no_show' ||
-                            appt.checkinStatus === 'cancelled'
-                      )
+                          )
+                        }
+                        if (queueSubTab === 'processing') {
+                          return (
+                            appt.checkinStatus === 'processing' ||
+                            appt.checkinStatus === 'sample_collected'
+                          )
+                        }
+                        return (
+                          appt.checkinStatus === 'completed' ||
+                          appt.checkinStatus === 'done' ||
+                          appt.checkinStatus === 'report_prepared' ||
+                          appt.checkinStatus === 'no_show' ||
+                          appt.checkinStatus === 'cancelled'
+                        )
+                      })
                       .map((appt, idx) => {
                         const isWaiting = appt.checkinStatus === 'waiting'
                         const inCabin =
                           appt.checkinStatus === 'in_consultation' || appt.checkinStatus === 'inside'
-                        const isDone = appt.checkinStatus === 'completed' || appt.checkinStatus === 'done'
+                        const isProcessing =
+                          appt.checkinStatus === 'processing' || appt.checkinStatus === 'sample_collected'
+                        const isReportPrepared = appt.checkinStatus === 'report_prepared'
+                        const isDone =
+                          appt.checkinStatus === 'completed' ||
+                          appt.checkinStatus === 'done' ||
+                          isReportPrepared
+                        const isDiagAppt = isDiagnosticLabClinic(selectedClinic, null, appt)
                         const isExpanded = expandedQueueApptId === appt.id
 
                         return (
@@ -5755,6 +5821,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                   <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-900 dark:text-amber-200 border border-amber-400/40 animate-pulse">
                                     Inside Cabin
                                   </span>
+                                ) : isProcessing ? (
+                                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-900 dark:text-blue-200 border border-blue-400/40">
+                                    {appt.checkinStatus === 'sample_collected' ? 'Sample Collected' : 'Processing in Lab'}
+                                  </span>
+                                ) : isReportPrepared ? (
+                                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-teal-500/20 text-teal-900 dark:text-teal-200 border border-teal-400/40">
+                                    Report Prepared
+                                  </span>
                                 ) : isDone ? (
                                   <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-900 dark:text-emerald-200 border border-emerald-400/40">
                                     Completed
@@ -5788,20 +5862,35 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                               {/* Action Cell: ONLY Call Inside or Mark Done without tapping */}
                               <td className="py-3.5 px-4 text-right whitespace-nowrap">
                                 {isWaiting && (
-                                  <button
-                                    type="button"
-                                    onClick={async (e) => {
-                                      e.stopPropagation()
-                                      try {
-                                        playClinicChime()
-                                      } catch {}
-                                      await handleStatusChange(appt.id, 'in_consultation')
-                                    }}
-                                    className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-700 hover:to-sky-700 text-white rounded-lg font-bold text-xs shadow-sm cursor-pointer active:scale-[0.98] inline-flex items-center space-x-1"
-                                  >
-                                    <Bell className="w-3.5 h-3.5" />
-                                    <span>Call Inside</span>
-                                  </button>
+                                  <div className="inline-flex items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={async (e) => {
+                                        e.stopPropagation()
+                                        try {
+                                          playClinicChime()
+                                        } catch {}
+                                        await handleStatusChange(appt.id, 'in_consultation')
+                                      }}
+                                      className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-700 hover:to-sky-700 text-white rounded-lg font-bold text-xs shadow-sm cursor-pointer active:scale-[0.98] inline-flex items-center space-x-1"
+                                    >
+                                      <Bell className="w-3.5 h-3.5" />
+                                      <span>{isDiagAppt ? 'Call' : 'Call Inside'}</span>
+                                    </button>
+                                    {isDiagAppt && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleMarkDiagnosticProcessing(appt)
+                                        }}
+                                        className="px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg font-bold text-xs shadow-sm cursor-pointer active:scale-[0.98] inline-flex items-center space-x-1"
+                                      >
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        <span>Mark Done (Processing)</span>
+                                      </button>
+                                    )}
+                                  </div>
                                 )}
 
                                 {inCabin && (
@@ -5809,7 +5898,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation()
-                                      if (isLabClinic || appt.selectedTests?.length) {
+                                      if (isDiagAppt) {
                                         handleMarkDiagnosticProcessing(appt)
                                       } else {
                                         handleStatusChange(appt.id, 'completed')
@@ -5818,7 +5907,22 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                     className="px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg font-bold text-xs shadow-sm cursor-pointer active:scale-[0.98] inline-flex items-center space-x-1"
                                   >
                                     <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span>{isLabClinic || appt.selectedTests?.length ? 'Mark Done (Processing)' : 'Mark Done'}</span>
+                                    <span>{isDiagAppt ? 'Mark Done (Processing)' : 'Mark Done'}</span>
+                                  </button>
+                                )}
+
+                                {isProcessing && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setTargetLabAppt(appt)
+                                      setLabUploadModalOpen(true)
+                                    }}
+                                    className="px-3 py-1.5 bg-gradient-to-r from-brand-600 to-teal-600 hover:from-brand-700 hover:to-teal-700 text-white rounded-lg font-bold text-xs shadow-sm cursor-pointer active:scale-[0.98] inline-flex items-center space-x-1"
+                                  >
+                                    <UploadCloud className="w-3.5 h-3.5" />
+                                    <span>Prepare Report</span>
                                   </button>
                                 )}
 
@@ -5957,7 +6061,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                       </button>
 
                                       {/* Shift Date */}
-                                      {appt.checkinStatus !== 'completed' && appt.checkinStatus !== 'done' && (
+                                      {!isDone && !isProcessing && (
                                         <button
                                           type="button"
                                           onClick={(e) => {
@@ -5985,7 +6089,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                       </button>
 
                                       {/* Mark No Show */}
-                                      {!isDone && appt.checkinStatus !== 'no_show' && (
+                                      {!isDone && !isProcessing && appt.checkinStatus !== 'no_show' && (
                                         <button
                                           type="button"
                                           onClick={(e) => {
@@ -9296,39 +9400,45 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 <tbody className="divide-y divide-slate-200/50 font-medium">
                   {appointments
                     .filter((appt) => {
+                      const st = (appt.status || 'APPROVED').toUpperCase()
+                      if (st !== 'APPROVED') return false
+                      return appt.checkinStatus !== 'cancelled' && appt.checkinStatus !== 'no_show'
+                    })
+                    .map((appt) => {
                       const relatedReport = labReports.find(
-                        (r) => r.trackingCode10Digit === appt.trackingCode10Digit
+                        (r) =>
+                          r.appointmentId === appt.id ||
+                          (Boolean(appt.trackingCode10Digit) && r.trackingCode10Digit === appt.trackingCode10Digit)
                       )
-                      const labStatus =
-                        relatedReport?.status ||
-                        (appt.checkinStatus === 'completed'
+                      const rawReportStatus = relatedReport?.status as string | undefined
+                      const labStatus: 'sample_collected' | 'processing' | 'prepared' =
+                        rawReportStatus === 'ready' || rawReportStatus === 'prepared' || rawReportStatus === 'delivered'
                           ? 'prepared'
-                          : appt.checkinStatus === 'in_consultation'
+                          : rawReportStatus === 'processing'
                           ? 'processing'
-                          : 'sample_collected')
+                          : appt.checkinStatus === 'report_prepared' ||
+                            appt.checkinStatus === 'completed' ||
+                            appt.checkinStatus === 'done'
+                          ? 'prepared'
+                          : appt.checkinStatus === 'processing' || appt.checkinStatus === 'in_consultation'
+                          ? 'processing'
+                          : 'sample_collected'
+                      return { appt, relatedReport, labStatus }
+                    })
+                    .filter(({ appt, labStatus }) => {
                       if (labSubTab === 'processing' && labStatus !== 'processing') return false
                       if (labSubTab === 'prepared' && labStatus !== 'prepared') return false
                       if (labSearchQuery.trim()) {
                         const q = labSearchQuery.toLowerCase()
                         return (
                           appt.trackingCode10Digit.toLowerCase().includes(q) ||
-                          appt.patientName.toLowerCase().includes(q)
+                          appt.patientName.toLowerCase().includes(q) ||
+                          (appt.selectedTests?.join(', ').toLowerCase().includes(q) ?? false)
                         )
                       }
                       return true
                     })
-                    .map((appt) => {
-                    const relatedReport = labReports.find(
-                      (r) => r.trackingCode10Digit === appt.trackingCode10Digit
-                    )
-
-                    const labStatus =
-                      relatedReport?.status ||
-                      (appt.checkinStatus === 'completed'
-                        ? 'prepared'
-                        : appt.checkinStatus === 'in_consultation'
-                        ? 'processing'
-                        : 'sample_collected')
+                    .map(({ appt, relatedReport, labStatus }) => {
 
                     return (
                       <tr key={appt.id} className="hover:bg-white/45 transition-colors">
@@ -9359,7 +9469,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         <td className="py-3.5 px-4 text-right space-x-1.5">
                           {labStatus !== 'processing' && labStatus !== 'prepared' && (
                             <button
-                              onClick={() => handleStatusChange(appt.id, 'in_consultation')}
+                              onClick={() => handleMarkDiagnosticProcessing(appt)}
                               className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[11px] shadow-glass-sm cursor-pointer"
                             >
                               Mark Processing

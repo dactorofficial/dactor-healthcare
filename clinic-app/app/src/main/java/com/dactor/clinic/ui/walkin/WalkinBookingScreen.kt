@@ -94,6 +94,8 @@ fun WalkinBookingScreen(
     var selectedDoctor by remember { mutableStateOf<Doctor?>(null) }
     var publishedSlots by remember { mutableStateOf<List<com.dactor.clinic.data.model.Slot>>(emptyList()) }
     var selectedSlot by remember { mutableStateOf<com.dactor.clinic.data.model.Slot?>(null) }
+    var isSlotsLoading by remember { mutableStateOf(false) }
+    var endedSlotsCountForDate by remember { mutableIntStateOf(0) }
 
     // Check whether the selected slot's end time is over.
     val isTimeInPast = remember(appointmentDate, selectedSlot) {
@@ -107,7 +109,15 @@ fun WalkinBookingScreen(
         } else false
     }
 
-    var isLabClinic by remember { mutableStateOf(false) }
+    fun isDiagnosticClinic(c: com.dactor.clinic.data.model.Clinic?): Boolean = c?.isDiagnosticLab() == true
+
+    val initialCachedClinic = remember(effectiveClinicId) {
+        if (effectiveClinicId.isNotBlank()) {
+            clinicRepository?.getCachedClinicById(effectiveClinicId) ?: clinicRepository?.getLastCachedClinic()
+        } else null
+    }
+
+    var isLabClinic by remember(effectiveClinicId) { mutableStateOf(isDiagnosticClinic(initialCachedClinic)) }
     var availableLabTests by remember { mutableStateOf<List<com.dactor.clinic.data.model.ClinicService>>(emptyList()) }
     var selectedLabTests by remember { mutableStateOf<List<com.dactor.clinic.data.model.ClinicService>>(emptyList()) }
     val isLabTestError = validationTriggered && isLabClinic && availableLabTests.isNotEmpty() && selectedLabTests.isEmpty()
@@ -123,15 +133,16 @@ fun WalkinBookingScreen(
                 }
             } catch (ignored: Exception) {}
         }
+        var detectedLab = isLabClinic
         if (clinicRepository != null && effectiveClinicId.isNotBlank()) {
             try {
                 val c = clinicRepository.getClinicById(effectiveClinicId)
-                val t = c?.type?.lowercase() ?: ""
-                val n = c?.name?.lowercase() ?: ""
-                val labDetected = t == "diagnostic_lab" || t.contains("lab") || n.contains("lab") ||
-                    (c?.specialties?.any { it.lowercase().contains("lab") || it.lowercase().contains("patholog") } == true)
-                isLabClinic = labDetected
-                if (labDetected) {
+                detectedLab = isDiagnosticClinic(c)
+                isLabClinic = detectedLab
+                if (detectedLab) {
+                    isFollowUpVisit = false
+                    returningPatientRecord = null
+                    selectedDoctor = null
                     feeAmount = "0"
                     availableLabTests = clinicRepository.getClinicServices(effectiveClinicId)
                 }
@@ -140,7 +151,7 @@ fun WalkinBookingScreen(
         if (doctorRepository != null && effectiveClinicId.isNotBlank()) {
             val docs = doctorRepository.getDoctorsByClinic(effectiveClinicId)
             affiliatedDoctors = docs
-            if (selectedDoctor == null) {
+            if (!detectedLab && selectedDoctor == null) {
                 selectedDoctor = docs.firstOrNull()
             }
         }
@@ -151,7 +162,12 @@ fun WalkinBookingScreen(
         }
     }
 
-    LaunchedEffect(mobileNumber, selectedDoctor, pastClinicAppointments) {
+    LaunchedEffect(mobileNumber, selectedDoctor, pastClinicAppointments, isLabClinic) {
+        if (isLabClinic) {
+            returningPatientRecord = null
+            isFollowUpVisit = false
+            return@LaunchedEffect
+        }
         val clean = mobileNumber.filter { it.isDigit() }.takeLast(10)
         if (clean.length == 10) {
             val matchedPrior = pastClinicAppointments.firstOrNull { appt ->
@@ -170,27 +186,51 @@ fun WalkinBookingScreen(
         }
     }
 
-    LaunchedEffect(effectiveClinicId, appointmentDate, selectedDoctor) {
-        if (slotRepository != null && effectiveClinicId.isNotBlank() && selectedDoctor != null) {
-            val allSlots = slotRepository.getSlots(effectiveClinicId, appointmentDate)
-            val activeSlots = allSlots.filter { slot ->
-                slot.doctorId == selectedDoctor?.id &&
+    LaunchedEffect(effectiveClinicId, appointmentDate, selectedDoctor, isLabClinic) {
+        if (slotRepository != null && effectiveClinicId.isNotBlank() && appointmentDate.isNotBlank()) {
+            isSlotsLoading = true
+            try {
+                val allSlots = slotRepository.getSlots(effectiveClinicId, appointmentDate)
+                val publishedForDate = allSlots.filter { it.isPublished }
+                val scopedSlots = when {
+                    isLabClinic -> {
+                        val facilitySlots = publishedForDate.filter { it.doctorId.isNullOrBlank() }
+                        if (facilitySlots.isNotEmpty()) facilitySlots else publishedForDate
+                    }
+                    selectedDoctor != null -> {
+                        val doctorSpecific = publishedForDate.filter { it.doctorId == selectedDoctor?.id }
+                        if (doctorSpecific.isNotEmpty()) doctorSpecific else publishedForDate.filter { it.doctorId.isNullOrBlank() }
+                    }
+                    else -> publishedForDate
+                }
+                val activeSlots = scopedSlots.filter { slot ->
                     !com.dactor.clinic.data.repository.SlotRepository.isSlotEndTimeOver(
                         endTimeStr = slot.endTime,
                         dateStr = appointmentDate,
                         startTimeStr = slot.startTime
                     )
-            }
-            publishedSlots = activeSlots
-            // Clear selectedSlot if its end time is now over or it's no longer in activeSlots
-            if (selectedSlot != null && activeSlots.none { it.id == selectedSlot?.id }) {
-                selectedSlot = null
-            }
-            // Auto-select first slot that has open availability; if all full, fallback to first slot for overbooking
-            if (selectedSlot == null && activeSlots.isNotEmpty()) {
-                selectedSlot = activeSlots.firstOrNull { it.bookedCount < it.maxCapacity } ?: activeSlots.first()
+                }.sortedBy {
+                    com.dactor.clinic.data.repository.SlotRepository.parseTimeToMinutes(it.startTime) ?: Int.MAX_VALUE
+                }
+                endedSlotsCountForDate = (scopedSlots.size - activeSlots.size).coerceAtLeast(0)
+                publishedSlots = activeSlots
+                // Clear selectedSlot if its end time is now over or it's no longer in activeSlots
+                if (selectedSlot != null && activeSlots.none { it.id == selectedSlot?.id }) {
+                    selectedSlot = null
+                }
+                // Auto-select first slot that has open availability; if all full, fallback to first slot for overbooking
+                if (selectedSlot == null && activeSlots.isNotEmpty()) {
+                    selectedSlot = activeSlots.firstOrNull { it.bookedCount < it.maxCapacity } ?: activeSlots.first()
+                }
+            } catch (_: Exception) {
+                endedSlotsCountForDate = 0
+                publishedSlots = emptyList()
+            } finally {
+                isSlotsLoading = false
             }
         } else {
+            isSlotsLoading = false
+            endedSlotsCountForDate = 0
             publishedSlots = emptyList()
         }
     }
@@ -345,7 +385,7 @@ fun WalkinBookingScreen(
                 shape = RoundedCornerShape(12.dp)
             )
 
-            if (affiliatedDoctors.isNotEmpty()) {
+            if (!isLabClinic && affiliatedDoctors.isNotEmpty()) {
                 Text("Select Attending Doctor", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 Row(
                     modifier = Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()),
@@ -492,164 +532,191 @@ fun WalkinBookingScreen(
                 shape = RoundedCornerShape(12.dp)
             )
 
-            // Published Slots Section
-            if (!isLabClinic) {
-                if (publishedSlots.isEmpty()) {
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
-                        ),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
+            // Published Slots Section (All clinic types: OPD, General & Diagnostic Lab)
+            if (isSlotsLoading) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Text(
+                        text = if (isLabClinic) "Loading published lab collection slots..." else "Loading published OPD slots...",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else if (publishedSlots.isEmpty()) {
+                val slotsEndedToday = endedSlotsCountForDate > 0
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                            Column {
-                                Text(
-                                    "No Published OPD Slots",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onErrorContainer
-                                )
-                                Text(
-                                    "No active OPD slots are published for ${selectedDoctor?.fullName?.let { "Dr. $it" } ?: "the attending doctor"} on $appointmentDate. Please create and publish slots in Doctor Schedule before issuing walk-in tokens.",
-                                    fontSize = 11.5.sp,
-                                    color = MaterialTheme.colorScheme.onErrorContainer
-                                )
-                            }
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Column {
+                            Text(
+                                text = when {
+                                    slotsEndedToday && isLabClinic -> "All Lab Slots Ended for $appointmentDate"
+                                    slotsEndedToday -> "All OPD Slots Ended for $appointmentDate"
+                                    isLabClinic -> "No Published Lab Collection Slots"
+                                    else -> "No Published OPD Slots"
+                                },
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Text(
+                                text = when {
+                                    slotsEndedToday -> "All $endedSlotsCountForDate published ${if (isLabClinic) "sample collection" else "OPD"} slot(s) for $appointmentDate have already ended. Please publish a new active slot in Slot Publishing or select an upcoming date."
+                                    isLabClinic -> "No active lab sample collection slots are published on $appointmentDate. Please publish slots in Slot Publishing before issuing walk-in tokens."
+                                    else -> "No active OPD slots are published for ${selectedDoctor?.fullName?.let { "Dr. $it" } ?: "this clinic"} on $appointmentDate. Please create and publish slots in Slot Publishing before issuing walk-in tokens."
+                                },
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
                         }
                     }
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val totalAvailableSpots = publishedSlots.sumOf { (it.maxCapacity - it.bookedCount).coerceAtLeast(0) }
-                        val allSlotsFull = publishedSlots.isNotEmpty() && totalAvailableSpots == 0
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val totalAvailableSpots = publishedSlots.sumOf { (it.maxCapacity - it.bookedCount).coerceAtLeast(0) }
+                    val allSlotsFull = publishedSlots.isNotEmpty() && totalAvailableSpots == 0
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isLabClinic) "Select Published Lab Collection Slot *" else "Select Published OPD Slot *",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                        Surface(
+                            color = if (allSlotsFull) Color(0xFFFEF3C7) else Color(0xFFE8F5E9),
+                            shape = RoundedCornerShape(6.dp)
                         ) {
-                            Text("Select Published OPD Slot *", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Surface(
-                                color = if (allSlotsFull) Color(0xFFFEF3C7) else Color(0xFFE8F5E9),
-                                shape = RoundedCornerShape(6.dp)
-                            ) {
-                                Text(
-                                    text = if (allSlotsFull) "All Full \u2022 Overbooking Mode" else "$totalAvailableSpots available \u2022 ${publishedSlots.size} slot${if (publishedSlots.size > 1) "s" else ""}",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (allSlotsFull) Color(0xFFB45309) else Color(0xFF2E7D32),
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                )
-                            }
+                            Text(
+                                text = if (allSlotsFull) "All Full \u2022 Overbooking Mode" else "$totalAvailableSpots available \u2022 ${publishedSlots.size} slot${if (publishedSlots.size > 1) "s" else ""}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (allSlotsFull) Color(0xFFB45309) else Color(0xFF2E7D32),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
                         }
+                    }
 
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            for (slot in publishedSlots) {
-                                val spotsAvailable = (slot.maxCapacity - slot.bookedCount).coerceAtLeast(0)
-                                val isFull = slot.bookedCount >= slot.maxCapacity
-                                val isSelected = selectedSlot?.id == slot.id
-                                val slotRange = "${slot.startTime} - ${slot.endTime}"
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (slot in publishedSlots) {
+                            val spotsAvailable = (slot.maxCapacity - slot.bookedCount).coerceAtLeast(0)
+                            val isFull = slot.bookedCount >= slot.maxCapacity
+                            val isSelected = selectedSlot?.id == slot.id
+                            val slotRange = "${slot.startTime} - ${slot.endTime}"
 
-                                Surface(
-                                    onClick = { selectedSlot = slot },
-                                    shape = RoundedCornerShape(12.dp),
+                            Surface(
+                                onClick = { selectedSlot = slot },
+                                shape = RoundedCornerShape(12.dp),
+                                color = when {
+                                    isSelected && isFull -> Color(0xFFFEF3C7)
+                                    isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                                    isFull -> Color(0xFFFFFBEB)
+                                    else -> MaterialTheme.colorScheme.surface
+                                },
+                                border = BorderStroke(
+                                    width = if (isSelected) 2.dp else 1.dp,
                                     color = when {
-                                        isSelected && isFull -> Color(0xFFFEF3C7)
-                                        isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
-                                        isFull -> Color(0xFFFFFBEB)
-                                        else -> MaterialTheme.colorScheme.surface
-                                    },
-                                    border = BorderStroke(
-                                        width = if (isSelected) 2.dp else 1.dp,
-                                        color = when {
-                                            isSelected && isFull -> Color(0xFFD97706)
-                                            isSelected -> MaterialTheme.colorScheme.primary
-                                            isFull -> Color(0xFFF59E0B)
-                                            else -> MaterialTheme.colorScheme.outlineVariant
-                                        }
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
+                                        isSelected && isFull -> Color(0xFFD97706)
+                                        isSelected -> MaterialTheme.colorScheme.primary
+                                        isFull -> Color(0xFFF59E0B)
+                                        else -> MaterialTheme.colorScheme.outlineVariant
+                                    }
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 12.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier.weight(1f)
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            RadioButton(
-                                                selected = isSelected,
-                                                onClick = { selectedSlot = slot },
-                                                colors = RadioButtonDefaults.colors(
-                                                    selectedColor = if (isFull) Color(0xFFD97706) else MaterialTheme.colorScheme.primary
-                                                )
+                                        RadioButton(
+                                            selected = isSelected,
+                                            onClick = { selectedSlot = slot },
+                                            colors = RadioButtonDefaults.colors(
+                                                selectedColor = if (isFull) Color(0xFFD97706) else MaterialTheme.colorScheme.primary
                                             )
-                                            Column {
-                                                Text(
-                                                    text = slotRange,
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 14.sp,
-                                                    color = if (isSelected && !isFull) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                                )
-                                                if (isFull) {
+                                        )
+                                        Column {
+                                            Text(
+                                                text = slotRange,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp,
+                                                color = if (isSelected && !isFull) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                            )
+                                            if (isFull) {
+                                                Surface(
+                                                    color = Color(0xFFFEF3C7),
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    modifier = Modifier.padding(top = 4.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Full (${slot.bookedCount}/${slot.maxCapacity}) \u2022 Overbooking Available",
+                                                        color = Color(0xFFB45309),
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 11.sp,
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            } else {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                    modifier = Modifier.padding(top = 2.dp)
+                                                ) {
                                                     Surface(
-                                                        color = Color(0xFFFEF3C7),
-                                                        shape = RoundedCornerShape(6.dp),
-                                                        modifier = Modifier.padding(top = 4.dp)
+                                                        color = Color(0xFFE8F5E9),
+                                                        shape = RoundedCornerShape(4.dp)
                                                     ) {
                                                         Text(
-                                                            text = "Full (${slot.bookedCount}/${slot.maxCapacity}) \u2022 Overbooking Available",
-                                                            color = Color(0xFFB45309),
+                                                            text = "$spotsAvailable available",
+                                                            color = Color(0xFF2E7D32),
                                                             fontWeight = FontWeight.Bold,
                                                             fontSize = 11.sp,
-                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                         )
                                                     }
-                                                } else {
-                                                    Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                        modifier = Modifier.padding(top = 2.dp)
-                                                    ) {
-                                                        Surface(
-                                                            color = Color(0xFFE8F5E9),
-                                                            shape = RoundedCornerShape(4.dp)
-                                                        ) {
-                                                            Text(
-                                                                text = "$spotsAvailable available",
-                                                                color = Color(0xFF2E7D32),
-                                                                fontWeight = FontWeight.Bold,
-                                                                fontSize = 11.sp,
-                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                            )
-                                                        }
-                                                        Text(
-                                                            text = "(${slot.bookedCount} / ${slot.maxCapacity} booked)",
-                                                            fontSize = 11.sp,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                        )
-                                                    }
+                                                    Text(
+                                                        text = "(${slot.bookedCount} / ${slot.maxCapacity} booked)",
+                                                        fontSize = 11.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
                                                 }
                                             }
                                         }
-                                        Text(
-                                            text = "Cap: ${slot.maxCapacity}",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
                                     }
+                                    Text(
+                                        text = "Cap: ${slot.maxCapacity}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             }
                         }
@@ -787,7 +854,7 @@ fun WalkinBookingScreen(
             }
 
             // Contextual Slot Capacity & Overbooking Status Notice
-            if (!isLabClinic && selectedSlot != null) {
+            if (selectedSlot != null) {
                 val isSelectedFull = selectedSlot!!.bookedCount >= selectedSlot!!.maxCapacity
                 if (isSelectedFull) {
                     Card(
@@ -807,7 +874,7 @@ fun WalkinBookingScreen(
                             Column {
                                 Text("Reception Desk Overbooking Active", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF92400E))
                                 Text(
-                                    "The selected OPD slot (${selectedSlot?.startTime} - ${selectedSlot?.endTime}) is at maximum capacity (${selectedSlot?.bookedCount}/${selectedSlot?.maxCapacity}). Submitting will overbook this walk-in patient into today's queue.",
+                                    "The selected ${if (isLabClinic) "lab collection" else "OPD"} slot (${selectedSlot?.startTime} - ${selectedSlot?.endTime}) is at maximum capacity (${selectedSlot?.bookedCount}/${selectedSlot?.maxCapacity}). Submitting will overbook this walk-in patient into today's queue.",
                                     fontSize = 11.5.sp,
                                     color = Color(0xFFB45309)
                                 )
@@ -862,7 +929,7 @@ fun WalkinBookingScreen(
                 }
             }
 
-            val isSelectedSlotOverbooked = !isLabClinic && selectedSlot != null && selectedSlot!!.bookedCount >= selectedSlot!!.maxCapacity
+            val isSelectedSlotOverbooked = selectedSlot != null && selectedSlot!!.bookedCount >= selectedSlot!!.maxCapacity
             Button(
                 onClick = {
                     validationTriggered = true
@@ -910,11 +977,18 @@ fun WalkinBookingScreen(
                         appointmentDate = todayStr
                     }
 
-                    if (!isLabClinic && selectedSlot == null) {
-                        errorMessage = if (publishedSlots.isEmpty()) {
-                            "No published OPD slots for this doctor on $appointmentDate. Please create slots first."
-                        } else {
-                            "Please select a published OPD time slot."
+                    if (selectedSlot == null) {
+                        errorMessage = when {
+                            publishedSlots.isEmpty() && endedSlotsCountForDate > 0 ->
+                                "All published ${if (isLabClinic) "lab collection" else "OPD"} slots on $appointmentDate have already ended. Please publish a new slot or pick an upcoming date."
+                            publishedSlots.isEmpty() && isLabClinic ->
+                                "No published lab collection slots on $appointmentDate. Please publish slots in Slot Publishing first."
+                            publishedSlots.isEmpty() ->
+                                "No published OPD slots for this clinic on $appointmentDate. Please create slots first."
+                            isLabClinic ->
+                                "Please select a published lab collection time slot."
+                            else ->
+                                "Please select a published OPD time slot."
                         }
                         coroutineScope.launch { scrollState.animateScrollTo(0) }
                         return@Button
@@ -968,7 +1042,7 @@ fun WalkinBookingScreen(
                                 trackingCode10Digit = generatedCode,
                                 slotId = selectedSlot?.id,
                                 clinicId = cleanClinicId,
-                                doctorId = selectedDoctor?.id ?: affiliatedDoctors.firstOrNull()?.id,
+                                doctorId = if (isLabClinic) null else (selectedDoctor?.id ?: affiliatedDoctors.firstOrNull()?.id),
                                 patientName = patientName.trim(),
                                 patientMobile = cleanPhone,
                                 patientAge = (age.trim().toIntOrNull() ?: 30).coerceIn(1, 120),

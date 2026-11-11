@@ -45,6 +45,7 @@ import {
   getAppointmentByTrackingCodeOrContact,
   getAppointmentsByClinic,
   getClinicById,
+  isDiagnosticLabClinic,
   getDoctorById,
   getLabReportsByTrackingCode,
   shiftAppointmentDate,
@@ -487,9 +488,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
   // Status flags
   const isLabClinic =
-    clinic?.type === 'diagnostic_lab' ||
-    Boolean(appointment?.selectedTests && appointment.selectedTests.length > 0) ||
-    labReports.length > 0
+    isDiagnosticLabClinic(clinic, doctor, appointment) || labReports.length > 0
 
   const isConsultancyCompleted =
     appointment?.checkinStatus !== 'waiting' &&
@@ -497,8 +496,10 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     (
       appointment?.checkinStatus === 'completed' ||
       appointment?.checkinStatus === 'done' ||
+      appointment?.checkinStatus === 'report_prepared' ||
       (appointment as any)?.queueStatus === 'completed' ||
-      (appointment as any)?.queueStatus === 'done'
+      (appointment as any)?.queueStatus === 'done' ||
+      (appointment as any)?.queueStatus === 'report_prepared'
     )
 
   const isInsideChamber =
@@ -509,9 +510,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       (appointment as any)?.queueStatus?.toLowerCase() || ''
     )
 
-  const isCalledInsideOrDone = isConsultancyCompleted || isInsideChamber
-
-  const hasPreparedReport = labReports.some((r) => r.status === 'prepared' || r.status === 'delivered')
+  const hasPreparedReport =
+    labReports.some((r) => {
+      const st = (r.status as string | undefined)?.toLowerCase()
+      return st === 'prepared' || st === 'ready' || st === 'delivered'
+    }) ||
+    appointment?.checkinStatus?.toLowerCase() === 'report_prepared' ||
+    (appointment as any)?.queueStatus?.toLowerCase() === 'report_prepared'
   const hasProcessingReport = labReports.some((r) => r.status === 'processing')
   const isLabOrderProcessing =
     ['processing', 'sample_collected', 'in_lab'].includes(
@@ -520,6 +525,9 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     ['processing', 'sample_collected', 'in_lab'].includes(
       (appointment as any)?.queueStatus?.toLowerCase() || ''
     )
+
+  const isCalledInsideOrDone =
+    isConsultancyCompleted || isInsideChamber || isLabOrderProcessing || hasProcessingReport || hasPreparedReport
 
   const effectiveLabStatus: 'waiting' | 'inside' | 'processing' | 'prepared' = hasPreparedReport
     ? 'prepared'
@@ -553,7 +561,11 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           )
 
           if (pendingVerificationAction === 'view_report') {
-            const rep = labReports.find((r) => r.status === 'prepared') || labReports[0]
+            const rep =
+              labReports.find((r) => {
+                const st = (r.status as string | undefined)?.toLowerCase()
+                return st === 'prepared' || st === 'ready' || st === 'delivered'
+              }) || labReports[0]
             setSelectedReportToView(rep ? { ...rep, reportFileUrl: signedUrl } : null)
             setShowReportModal(true)
           } else {

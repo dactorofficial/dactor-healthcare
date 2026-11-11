@@ -71,6 +71,8 @@ import {
   getClinics,
   uploadDoctorPhoto,
   getSupportUrl,
+  saveLabReport,
+  isDiagnosticLabClinic,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
 import { extractCleanClinicalRemarks } from '../utils/paymentLedger'
@@ -801,6 +803,28 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     )
   }
 
+  const finalizeConsultationOrSendToProcessing = async (appt: Appointment) => {
+    const apptClinic = affiliatedClinics.find((c) => c.id === appt.clinicId) || selectedClinic
+    const isDiag = isDiagnosticLabClinic(apptClinic, currentDoctor, appt)
+    if (isDiag) {
+      await updateAppointmentStatus(appt.id, 'processing')
+      const testNameStr =
+        appt.selectedTests?.join(', ') ||
+        (typeof appt.selectedLabTests === 'string' ? appt.selectedLabTests : '') ||
+        'Diagnostic Lab Analysis'
+      await saveLabReport({
+        appointmentId: appt.id,
+        clinicId: appt.clinicId,
+        trackingCode10Digit: appt.trackingCode10Digit,
+        patientName: appt.patientName,
+        testName: testNameStr,
+        status: 'processing',
+      })
+    } else {
+      await updateAppointmentStatus(appt.id, 'completed')
+    }
+  }
+
   const handleSavePrescriptionAndComplete = async () => {
     if (!rxTargetAppt || !currentDoctor) return
     setSavingRx(true)
@@ -822,7 +846,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       if (formattedNotes.trim()) {
         await updateAppointmentNotes(rxTargetAppt.id, formattedNotes.trim())
       }
-      await updateAppointmentStatus(rxTargetAppt.id, 'completed')
+      await finalizeConsultationOrSendToProcessing(rxTargetAppt)
 
       // Refresh appointments
       const refreshed = await getDoctorAppointments(currentDoctor.id)
@@ -839,7 +863,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   const handleMarkCompleted = async (appt: Appointment) => {
     if (!currentDoctor) return
     try {
-      await updateAppointmentStatus(appt.id, 'completed')
+      await finalizeConsultationOrSendToProcessing(appt)
       const refreshed = await getDoctorAppointments(currentDoctor.id)
       setAppointments(refreshed)
     } catch (err) {
@@ -1026,9 +1050,20 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       ),
     [todayAppointments]
   )
-  const completedPatients = useMemo(
-    () => todayAppointments.filter((a) => a.checkinStatus === 'completed'),
+  const processingPatients = useMemo(
+    () => todayAppointments.filter((a) => a.checkinStatus === 'processing' || a.checkinStatus === 'sample_collected'),
     [todayAppointments]
+  )
+  const completedPatients = useMemo(
+    () =>
+      todayAppointments.filter(
+        (a) => a.checkinStatus === 'completed' || a.checkinStatus === 'done' || a.checkinStatus === 'report_prepared'
+      ),
+    [todayAppointments]
+  )
+  const isDiagnosticPortalClinic = useMemo(
+    () => isDiagnosticLabClinic(selectedClinic, currentDoctor),
+    [selectedClinic, currentDoctor]
   )
   const futureAppointments = useMemo(
     () =>
@@ -2145,18 +2180,28 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
             </div>
 
             <div className="liquid-glass-card p-5 rounded-2xl border border-white/40 dark:border-white/10 shadow-xs flex items-center space-x-4">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold border border-emerald-500/20">
-                <CheckCircle2 className="w-6 h-6" />
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold border ${
+                isDiagnosticPortalClinic
+                  ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
+                  : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+              }`}>
+                {isDiagnosticPortalClinic ? <FlaskConical className="w-6 h-6" /> : <CheckCircle2 className="w-6 h-6" />}
               </div>
               <div>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">{completedPatients.length}</div>
-                <div className="text-xs text-slate-500 dark:text-slate-400 font-bold">Completed Consultations</div>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">
+                  {isDiagnosticPortalClinic ? processingPatients.length : completedPatients.length}
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 font-bold">
+                  {isDiagnosticPortalClinic ? 'In Processing (Lab)' : 'Completed Consultations'}
+                </div>
               </div>
             </div>
           </div>
 
           {/* ACTIVE IN-CABIN PATIENT HERO CARD */}
-          {currentInsidePatient && (
+          {currentInsidePatient && (() => {
+            const isActiveDiag = isDiagnosticLabClinic(selectedClinic, currentDoctor, currentInsidePatient)
+            return (
             <div className="liquid-glass-elevated bg-gradient-to-r from-teal-950/85 via-slate-950/85 to-cyan-950/85 text-white rounded-3xl p-6 sm:p-8 shadow-xl space-y-4 border border-teal-500/30 relative overflow-hidden backdrop-blur-2xl">
               {/* Top cyan specular line */}
               <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-cyan-400/60 to-transparent" />
@@ -2216,22 +2261,27 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                     className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-blue-700 to-sky-600 hover:brightness-110 text-white font-black text-xs shadow-md shadow-blue-500/30 border border-white/30 transition-all cursor-pointer flex items-center justify-center space-x-2 active:scale-[0.98]"
                   >
                     <FileText className="w-4 h-4" />
-                    <span>Write Rx & Complete</span>
+                    <span>{isActiveDiag ? 'Write Notes & Processing' : 'Write Rx & Complete'}</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleMarkCompleted(currentInsidePatient)}
                     className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all cursor-pointer flex items-center justify-center space-x-1.5 active:scale-[0.98]"
-                    title="Complete consultation without adding new prescription notes"
+                    title={
+                      isActiveDiag
+                        ? 'Transfer patient to Processing section without adding extra notes'
+                        : 'Complete consultation without adding new prescription notes'
+                    }
                   >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Quick Complete</span>
+                    {isActiveDiag ? <FlaskConical className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                    <span>{isActiveDiag ? 'Mark Done (Processing)' : 'Quick Complete'}</span>
                   </button>
                 </div>
               </div>
             </div>
-          )}
+            )
+          })()}
 
           {/* WAITING QUEUE PATIENTS LIST */}
           <div className="liquid-glass-card rounded-3xl border border-white/40 dark:border-white/10 shadow-sm overflow-hidden">
@@ -2347,6 +2397,33 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
               </div>
             )}
           </div>
+
+          {/* IN PROCESSING PATIENTS ACCORDION / LIST */}
+          {processingPatients.length > 0 && (
+            <div className="liquid-glass-subtle rounded-3xl border border-blue-400/30 shadow-sm p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-black text-slate-900 dark:text-white">
+                  Processing in Lab Today ({processingPatients.length})
+                </h3>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {processingPatients.map((p) => (
+                  <div
+                    key={p.id}
+                    className="p-3 liquid-glass-card rounded-2xl border border-blue-500/20 flex items-center justify-between text-xs"
+                  >
+                    <div>
+                      <div className="font-bold text-slate-900 dark:text-white">{p.patientName}</div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                        Token #{p.queueNumber} • {p.trackingCode10Digit}
+                      </div>
+                    </div>
+                    <FlaskConical className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* COMPLETED PATIENTS ACCORDION / LIST */}
           {completedPatients.length > 0 && (

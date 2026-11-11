@@ -85,10 +85,7 @@ fun ServicesScreen(
                 val c = clinicRepository.getClinicById(effectiveClinicId)
                 currentClinic = c
                 if (c != null) {
-                    val t = c.type?.lowercase() ?: ""
-                    val n = c.name.lowercase()
-                    isLabClinic = t.contains("lab") || t == "diagnostic_lab" || n.contains("lab") ||
-                        (c.specialties?.any { it.lowercase().contains("lab") || it.lowercase().contains("patholog") } == true)
+                    isLabClinic = c.isDiagnosticLab()
                 }
             } catch (ignored: Exception) {}
         }
