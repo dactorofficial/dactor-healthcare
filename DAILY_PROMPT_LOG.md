@@ -7,6 +7,18 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-11
 
 ### Prompt:
+> "i have run the sql code now verify the status"
+
+#### Changes Applied:
+1. **Live Database Status Verification**:
+   - Verified that `migration_pay_at_desk_slot_decoupling_and_priority_queue.sql` was successfully applied to the live Supabase instance (`ojfoofojcpabqegxmsab`).
+   - Verified that Pay at Desk booking (`create_patient_appointment` with `p_is_pay_at_desk = true`) leaves slot `booked_count` untouched until clinic confirmation (`Slot decoupled successfully: true`).
+   - Verified that approving an appointment whose slot date/time has passed triggers priority queue insertion (`slot_passed = true`, `queue_position = 1`), shifting existing entries down.
+   - Verified that `queue_entries` record is successfully created with `status = "waiting"` and `estimated_wait_minutes = 0`.
+
+---
+
+### Prompt:
 > "So basically after the person has put pay at desk for a specific slot and date the patient, if the slot is passed still put that person in the live queue at the first position. Right now after confirming it wasn't transferred to the live queue. Before confirming don't reserve the slot i mean when user is asking for pay at desk it's already showing one less available slot but it shouldnot be reserved before it is confirmed by the clinic and also don't forget the over booking allowed . / plan"
 
 #### Changes Applied:
