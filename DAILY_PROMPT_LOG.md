@@ -7,6 +7,27 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-11
 
 ### Prompt:
+> "Sorry there was supposed to be a edit , A little edit when the confirm is clicked by clinic for pay at desk request if the slot time has not passed put the person at the end of the same exact slot position . But if the slot time has passed away put the person at the top of the queue . If the date of the slot chosen is already passed expire the request means cancel it itself. /plan"
+
+#### Changes Applied:
+1. **Supabase Authoritative RPC ([`supabase/migration_pay_at_desk_slot_expiry_and_exact_slot_queue.sql`](file:///g:/My%20Drive/New%20folder/supabase/migration_pay_at_desk_slot_expiry_and_exact_slot_queue.sql)) & Verification Suite ([`supabase/test_pay_at_desk_slot_expiry_and_exact_slot_queue.cjs`](file:///g:/My%20Drive/New%20folder/supabase/test_pay_at_desk_slot_expiry_and_exact_slot_queue.cjs))**:
+   - Updated `approve_pay_at_desk_appointment` evaluated in Nepal Standard Time (`Asia/Kathmandu`):
+     - **Past Date Auto-Expiry (`slot_date < today`)**: Automatically sets `status = 'EXPIRED'`, `checkin_status = 'cancelled'`, purges any stray queue entries, sends notification, and returns `expired: true`.
+     - **Today Passed Slot (`slot_date == today && end_time < now`)**: Approves and places the patient at the top of the waiting queue (Position 1 if nobody inside, or right behind the active `inside` patient), shifting waiting entries down safely via two-pass negative offsets.
+     - **Today Active/Upcoming Slot (`slot_date == today && end_time >= now`)**: Approves and places the patient at the exact end of their chosen slot (after `inside`, earlier slots, and same-slot entries; before later-slot entries shifted `+1`).
+     - **Future Date (`slot_date > today`)**: Approves and reconciles slot capacity without inserting prematurely into today's live `queue_entries`.
+   - Verified with Node test suite (`21 / 21` assertions passing).
+2. **Clinic Android App ([`AppointmentRepository.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt), [`QueueRepository.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/QueueRepository.kt), [`PayAtDeskRequestsScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/appointments/PayAtDeskRequestsScreen.kt))**:
+   - Updated Tier-1 RPC handling (`EXPIRED`/`CANCELLED`/`is_future_date`) and Tier-2 fallback in `approvePayAtDeskAppointment` to enforce date expiration, future isolation, top-of-queue passed slot placement, and exact slot-end insertion.
+   - Added `sortBySlotTime = false` preservation to `QueueRepository.reindexActiveQueue()` and `AppointmentRepository.reindexActiveQueueChronologically()` so routine status updates do not undo top-of-queue or exact-slot placements.
+   - Added `"PAST SLOT DATE • CONFIRMING WILL EXPIRE & CANCEL"` warning banner and tailored Snackbar confirmation notifications in `PayAtDeskRequestsScreen.kt`.
+3. **Web Clinic Portal ([`web-app/src/services/db.ts`](file:///g:/My%20Drive/New%20folder/web-app/src/services/db.ts), [`web-app/src/pages/ClinicPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/ClinicPortal.tsx))**:
+   - Updated `approvePayAtDeskAppointment()` and `handleApprovePayAtDesk()` to surface `EXPIRED` and `isFutureDate` states clearly.
+   - Updated `reindexActiveQueue()` in `db.ts` to preserve queue order priority on consultation status transitions.
+
+---
+
+### Prompt:
 > "For diagnostic type clinic the mark done button should add the patient to the processing section not directly complete the appointment completely /plan"
 
 #### Changes Applied:

@@ -115,7 +115,7 @@ export interface DoctorHomeItem {
 export interface Slot {
   id: string
   clinicId: string
-  doctorId: string
+  doctorId?: string | null
   slotDate: string
   startTime: string
   endTime: string

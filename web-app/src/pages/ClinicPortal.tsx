@@ -152,6 +152,7 @@ import {
   getSupportUrl,
   createSlot,
   createSlotsBatch,
+  getSlots,
   getSlotsByDoctorAndDate,
   updateSlot,
   deleteSlot,
@@ -978,10 +979,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     const n = (selectedClinic.name || '').toLowerCase()
     return (
       t === 'diagnostic_lab' ||
+      t.includes('diagnostic') ||
       t.includes('lab') ||
+      n.includes('diagnostic') ||
       n.includes('lab') ||
       (selectedClinic.specialties?.some(
-        (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
+        (s) =>
+          s.toLowerCase().includes('lab') ||
+          s.toLowerCase().includes('patholog') ||
+          s.toLowerCase().includes('diagnostic') ||
+          s.toLowerCase().includes('radiolog') ||
+          s.toLowerCase().includes('scan')
       ) ?? false)
     )
   }, [selectedClinic])
@@ -1485,11 +1493,23 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         await fetchPayAtDesk()
         const [appts, liveSlots] = await Promise.all([
           getAppointmentsByClinic(selectedClinic.id),
-          getSlotsByDoctorAndDate(appt.doctorId || '', appt.appointmentDate),
+          getSlots(selectedClinic.id, appt.appointmentDate),
         ])
         setAppointments(appts)
-        setPublishedSlots(liveSlots)
-        playClinicChime()
+        setPublishedSlots(
+          isLabClinic
+            ? liveSlots.filter((s) => !s.doctorId).length > 0
+              ? liveSlots.filter((s) => !s.doctorId)
+              : liveSlots
+            : slotDoctorId
+            ? liveSlots.filter((s) => s.doctorId === slotDoctorId || !s.doctorId)
+            : liveSlots
+        )
+        if (res.expired) {
+          alert(res.message || `Appointment #${appt.trackingCode10Digit || appt.id} slot date has already passed. The request has been expired and cancelled.`)
+        } else {
+          playClinicChime()
+        }
       } else {
         alert(res.error || 'Failed to approve request')
       }
@@ -1519,14 +1539,26 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
   }
 
-  // Load published slots for selected doctor & date
+  // Load published slots for selected clinic / doctor & date
   useEffect(() => {
-    if (!slotDoctorId || !slotDate) return
+    if (!selectedClinic?.id || !slotDate) return
+    if (!isLabClinic && clinicDoctors.length > 0 && !slotDoctorId) return
     async function loadSlots() {
       setLoadingSlots(true)
       try {
-        const slots = await getSlotsByDoctorAndDate(slotDoctorId, slotDate)
-        setPublishedSlots(slots)
+        const allSlots = await getSlots(selectedClinic!.id, slotDate)
+        const scoped = isLabClinic
+          ? (() => {
+              const labOnly = allSlots.filter((s) => !s.doctorId)
+              return labOnly.length > 0 ? labOnly : allSlots
+            })()
+          : slotDoctorId
+          ? (() => {
+              const docOnly = allSlots.filter((s) => s.doctorId === slotDoctorId)
+              return docOnly.length > 0 ? docOnly : allSlots.filter((s) => !s.doctorId)
+            })()
+          : allSlots
+        setPublishedSlots(scoped)
       } catch (err) {
         console.error('Error loading slots:', err)
       } finally {
@@ -1534,19 +1566,30 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       }
     }
     loadSlots()
-  }, [slotDoctorId, slotDate, refreshKey])
+  }, [selectedClinic?.id, isLabClinic, clinicDoctors.length, slotDoctorId, slotDate, refreshKey])
 
-  // Load published slots for walk-in appointment registration
+  // Load published slots for walk-in appointment registration (all clinic types: OPD, General & Diagnostic Lab)
   useEffect(() => {
-    const docId = walkinDoctorId || clinicDoctors[0]?.id
-    if (!docId) {
+    if (!selectedClinic?.id) {
       setWalkinAvailableSlots([])
       return
     }
+    const docId = walkinDoctorId || clinicDoctors[0]?.id
     const targetDate = walkinDate || new Date().toISOString().split('T')[0]
-    getSlotsByDoctorAndDate(docId, targetDate)
+    getSlots(selectedClinic.id, targetDate)
       .then((slots) => {
-        const slotList = slots || []
+        const publishedOnly = (slots || []).filter((s) => s.isPublished !== false)
+        const slotList = isLabClinic
+          ? (() => {
+              const labOnly = publishedOnly.filter((s) => !s.doctorId)
+              return labOnly.length > 0 ? labOnly : publishedOnly
+            })()
+          : docId
+          ? (() => {
+              const docOnly = publishedOnly.filter((s) => s.doctorId === docId)
+              return docOnly.length > 0 ? docOnly : publishedOnly.filter((s) => !s.doctorId)
+            })()
+          : publishedOnly
         setWalkinAvailableSlots(slotList)
         if (slotList.length > 0) {
           setWalkinSlotId((prev) => {
@@ -1555,8 +1598,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               setWalkinSlotTime(`${found.startTime} - ${found.endTime}`)
               return found.id
             }
-            setWalkinSlotTime(`${slotList[0].startTime} - ${slotList[0].endTime}`)
-            return slotList[0].id
+            const firstOpen =
+              slotList.find((s) => (s.bookedCount || 0) < (s.maxCapacity || 5)) || slotList[0]
+            setWalkinSlotTime(`${firstOpen.startTime} - ${firstOpen.endTime}`)
+            return firstOpen.id
           })
         } else {
           setWalkinSlotId('')
@@ -1567,7 +1612,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         console.error('Error loading walkin slots:', err)
         setWalkinAvailableSlots([])
       })
-  }, [walkinDoctorId, clinicDoctors, walkinDate, refreshKey])
+  }, [selectedClinic?.id, isLabClinic, walkinDoctorId, clinicDoctors, walkinDate, refreshKey])
 
 
   // Recalculate bill total amount when line items change
@@ -2493,8 +2538,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     if (isLabClinic && walkinSelectedTests.length === 0) {
       errors.tests = 'Please select at least one diagnostic lab test.'
     }
-    if (!isLabClinic && !walkinSlotId) {
-      errors.slot = 'Please select a published OPD time slot.'
+    if (!walkinSlotId) {
+      errors.slot = isLabClinic
+        ? 'Please select a published lab collection time slot.'
+        : 'Please select a published OPD time slot.'
     }
 
     setWalkinErrors(errors)
@@ -2847,19 +2894,20 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   // Slot Publishing Handlers
   const handlePublishSlot = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedClinic || !slotDoctorId || !slotDate || !slotStartTime) {
-      alert('Please select doctor, date, and start time')
+    if (!selectedClinic || !slotDate || !slotStartTime || (!isLabClinic && clinicDoctors.length > 0 && !slotDoctorId)) {
+      alert(isLabClinic || clinicDoctors.length === 0 ? 'Please select date and start time' : 'Please select doctor, date, and start time')
       return
     }
     setPublishingSlot(true)
     try {
+      const targetDoctorId = isLabClinic ? undefined : (slotDoctorId || undefined)
       const newSlot = await createSlot({
         clinicId: selectedClinic.id,
-        doctorId: slotDoctorId,
+        doctorId: targetDoctorId,
         slotDate: slotDate,
         startTime: slotStartTime,
         endTime: slotEndTime || slotStartTime,
-        maxCapacity: Number(slotCapacity) || 5,
+        maxCapacity: Number(slotCapacity) || (isLabClinic ? 25 : 5),
         bookedCount: 0,
         isPublished: true,
       })
@@ -2889,12 +2937,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   }
 
   const handleGenerateBulkSlots = async (startH: number, endH: number, intervalMinutes: number) => {
-    if (!selectedClinic || !slotDoctorId || !slotDate) {
-      alert('Please select doctor and date first')
+    if (!selectedClinic || !slotDate || (!isLabClinic && clinicDoctors.length > 0 && !slotDoctorId)) {
+      alert(isLabClinic || clinicDoctors.length === 0 ? 'Please select date first' : 'Please select doctor and date first')
       return
     }
     setPublishingSlot(true)
     try {
+      const targetDoctorId = isLabClinic ? undefined : (slotDoctorId || undefined)
       const slotsToCreate: Partial<Slot>[] = []
       for (let h = startH; h < endH; h++) {
         for (let m = 0; m < 60; m += intervalMinutes) {
@@ -2914,11 +2963,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
           slotsToCreate.push({
             clinicId: selectedClinic.id,
-            doctorId: slotDoctorId,
+            doctorId: targetDoctorId,
             slotDate: slotDate,
             startTime: sTime,
             endTime: eTime,
-            maxCapacity: Number(slotCapacity) || 5,
+            maxCapacity: Number(slotCapacity) || (isLabClinic ? 25 : 5),
             bookedCount: 0,
             isPublished: true,
           })
@@ -6644,6 +6693,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     </span>
                   </div>
                 </div>
+              ) : clinicDoctors.length === 0 ? (
+                /* General / Facility Clinic Card (No Doctors Listed) */
+                <div className="p-3.5 bg-blue-50/75 backdrop-blur-md border border-blue-200/80 rounded-2xl flex items-center justify-between text-xs">
+                  <div>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-blue-800 block">
+                      Clinic Reception Counter
+                    </span>
+                    <strong className="text-slate-900 text-sm">General Consultation Queue</strong>
+                  </div>
+                  <span className="font-black text-blue-900 text-sm bg-white/85 px-2.5 py-1 rounded-lg border border-blue-200">
+                    Rs. 500
+                  </span>
+                </div>
               ) : (
                 /* Polyclinic Doctor Dropdown */
                 <div>
@@ -6680,134 +6742,148 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 />
               </div>
 
-              {/* Published OPD Slots Section */}
-              {!isLabClinic && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-slate-700 block">
-                      Select Published OPD Slot <span className="text-rose-500">*</span>
-                    </label>
-                    {walkinAvailableSlots.length > 0 && (() => {
-                      const totalAvail = walkinAvailableSlots.reduce((acc, s) => acc + Math.max(0, (s.maxCapacity || 5) - (s.bookedCount || 0)), 0)
-                      return (
-                        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${totalAvail === 0 ? 'text-amber-700 bg-amber-100 border border-amber-300' : 'text-emerald-700 bg-emerald-50 border border-emerald-300'}`}>
-                          {totalAvail === 0 ? 'All Full • Overbooking Active' : `${totalAvail} available • ${walkinAvailableSlots.length} slots`}
-                        </span>
-                      )
-                    })()}
-                  </div>
-
-                  {walkinAvailableSlots.length === 0 ? (
-                    <div className="p-4 rounded-xl border border-amber-300 bg-amber-50/80 backdrop-blur-md flex items-start space-x-3 text-amber-900 shadow-glass-sm">
-                      <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                      <div>
-                        <h4 className="text-xs font-bold">No Published OPD Slots Found</h4>
-                        <p className="text-[11px] text-amber-800 mt-0.5">
-                          No OPD time slots have been published for this doctor on {walkinDate}. Please create and publish time slots in the Schedule & Slots manager before issuing walk-in tokens.
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      {walkinAvailableSlots.map((s) => {
-                        const isFull = (s.bookedCount || 0) >= (s.maxCapacity || 5)
-                        const isSelected = walkinSlotId === s.id
-                        const timeInterval = `${s.startTime} - ${s.endTime}`
-                        return (
-                          <div
-                            key={s.id}
-                            onClick={() => {
-                              setWalkinSlotId(s.id)
-                              setWalkinSlotTime(timeInterval)
-                              if (walkinErrors.slot) {
-                                setWalkinErrors({ ...walkinErrors, slot: '' })
-                              }
-                            }}
-                            className={`p-3 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
-                              isSelected
-                                ? 'border-brand-600 bg-brand-50/80 ring-2 ring-brand-500/30 shadow-glass-sm'
-                                : isFull
-                                ? 'border-amber-300 bg-amber-50/40 hover:bg-amber-50/60'
-                                : 'border-white/70 bg-white/75 hover:bg-white/95'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className={`text-xs font-bold ${isSelected ? 'text-brand-900' : 'text-slate-900'}`}>
-                                {timeInterval}
-                              </span>
-                              <div
-                                className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
-                                  isSelected ? 'border-brand-600 bg-brand-600' : 'border-slate-300 bg-white'
-                                }`}
-                              >
-                                {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
-                              </div>
-                            </div>
-
-                            <div className="mt-2 flex items-center justify-between">
-                              {isFull ? (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                                  Full ({s.bookedCount || 0}/{s.maxCapacity || 5}) • Overbooking Available
-                                </span>
-                              ) : (
-                                <div className="flex items-center space-x-1.5">
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                    {Math.max(0, (s.maxCapacity || 5) - (s.bookedCount || 0))} available
-                                  </span>
-                                  <span className="text-[11px] font-medium text-slate-500">
-                                    ({s.bookedCount || 0} / {s.maxCapacity || 5} booked)
-                                  </span>
-                                </div>
-                              )}
-                              <span className="text-[10px] font-semibold text-slate-400">
-                                Cap: {s.maxCapacity || 5}
-                              </span>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-
-                  {/* Contextual Overbooking vs Availability Banner */}
-                  {(() => {
-                    const selectedSlotObj = walkinAvailableSlots.find(s => s.id === walkinSlotId)
-                    if (!selectedSlotObj) return null
-                    const isFull = (selectedSlotObj.bookedCount || 0) >= (selectedSlotObj.maxCapacity || 5)
-                    if (isFull) {
-                      return (
-                        <div className="p-3 rounded-xl border border-amber-300 bg-amber-50/80 backdrop-blur-md flex items-start space-x-2.5 text-amber-900 shadow-glass-sm mt-2">
-                          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                          <div className="text-[11.5px]">
-                            <strong className="block text-amber-800">Reception Desk Overbooking Active</strong>
-                            <span>This OPD slot ({selectedSlotObj.startTime} - {selectedSlotObj.endTime}) has reached capacity ({selectedSlotObj.bookedCount || 0}/{selectedSlotObj.maxCapacity || 5}). Submitting will overbook this walk-in patient into today's queue.</span>
-                          </div>
-                        </div>
-                      )
-                    } else {
-                      const spots = Math.max(0, (selectedSlotObj.maxCapacity || 5) - (selectedSlotObj.bookedCount || 0))
-                      return (
-                        <div className="p-2.5 rounded-xl border border-emerald-200 bg-emerald-50/80 backdrop-blur-md flex items-center space-x-2 text-emerald-900 shadow-glass-sm mt-2 text-[11.5px]">
-                          <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                          <span>Slot available: <strong>{spots} spots remaining</strong> in {selectedSlotObj.startTime} - {selectedSlotObj.endTime}.</span>
-                        </div>
-                      )
-                    }
+              {/* Published Slots Section (All clinic types: OPD, General & Diagnostic Lab) */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    {isLabClinic ? 'Select Published Lab Collection Slot' : 'Select Published OPD Slot'}{' '}
+                    <span className="text-rose-500">*</span>
+                  </label>
+                  {walkinAvailableSlots.length > 0 && (() => {
+                    const totalAvail = walkinAvailableSlots.reduce((acc, s) => acc + Math.max(0, (s.maxCapacity || 5) - (s.bookedCount || 0)), 0)
+                    return (
+                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${totalAvail === 0 ? 'text-amber-700 bg-amber-100 border border-amber-300' : 'text-emerald-700 bg-emerald-50 border border-emerald-300'}`}>
+                        {totalAvail === 0 ? 'All Full • Overbooking Active' : `${totalAvail} available • ${walkinAvailableSlots.length} slots`}
+                      </span>
+                    )
                   })()}
-
-                  {walkinErrors.slot && (
-                    <p className="text-[11px] text-rose-600 font-bold">{walkinErrors.slot}</p>
-                  )}
-
-                  <p className="text-[11px] text-slate-500 mt-1 font-medium">
-                    Walk-in patient will be placed at the last position of the selected time slot, and all subsequent time slot patients will automatically shift down (+1).
-                  </p>
                 </div>
-              )}
+
+                {walkinAvailableSlots.length === 0 ? (
+                  <div className="p-4 rounded-xl border border-amber-300 bg-amber-50/80 backdrop-blur-md flex items-start space-x-3 text-amber-900 shadow-glass-sm">
+                    <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <h4 className="text-xs font-bold">
+                        {isLabClinic ? 'No Published Lab Collection Slots Found' : 'No Published OPD Slots Found'}
+                      </h4>
+                      <p className="text-[11px] text-amber-800 mt-0.5">
+                        {isLabClinic
+                          ? `No lab collection time slots have been published on ${walkinDate}. Please create and publish time slots in the Timed Slots Publisher before issuing walk-in tokens.`
+                          : `No OPD time slots have been published for this clinic on ${walkinDate}. Please create and publish time slots in the Timed Slots Publisher before issuing walk-in tokens.`}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSlotDate(walkinDate || todayStr)
+                          setDeskTab('slots')
+                        }}
+                        className="mt-2 inline-flex items-center space-x-1 text-[11px] font-bold text-amber-900 underline hover:text-brand-700 cursor-pointer"
+                      >
+                        <span>Open Timed Slots Publisher</span>
+                        <ChevronRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {walkinAvailableSlots.map((s) => {
+                      const isFull = (s.bookedCount || 0) >= (s.maxCapacity || 5)
+                      const isSelected = walkinSlotId === s.id
+                      const timeInterval = `${s.startTime} - ${s.endTime}`
+                      return (
+                        <div
+                          key={s.id}
+                          onClick={() => {
+                            setWalkinSlotId(s.id)
+                            setWalkinSlotTime(timeInterval)
+                            if (walkinErrors.slot) {
+                              setWalkinErrors({ ...walkinErrors, slot: '' })
+                            }
+                          }}
+                          className={`p-3 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
+                            isSelected
+                              ? 'border-brand-600 bg-brand-50/80 ring-2 ring-brand-500/30 shadow-glass-sm'
+                              : isFull
+                              ? 'border-amber-300 bg-amber-50/40 hover:bg-amber-50/60'
+                              : 'border-white/70 bg-white/75 hover:bg-white/95'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className={`text-xs font-bold ${isSelected ? 'text-brand-900' : 'text-slate-900'}`}>
+                              {timeInterval}
+                            </span>
+                            <div
+                              className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                                isSelected ? 'border-brand-600 bg-brand-600' : 'border-slate-300 bg-white'
+                              }`}
+                            >
+                              {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
+                            </div>
+                          </div>
+
+                          <div className="mt-2 flex items-center justify-between">
+                            {isFull ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                Full ({s.bookedCount || 0}/{s.maxCapacity || 5}) • Overbooking Available
+                              </span>
+                            ) : (
+                              <div className="flex items-center space-x-1.5">
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  {Math.max(0, (s.maxCapacity || 5) - (s.bookedCount || 0))} available
+                                </span>
+                                <span className="text-[11px] font-medium text-slate-500">
+                                  ({s.bookedCount || 0} / {s.maxCapacity || 5} booked)
+                                </span>
+                              </div>
+                            )}
+                            <span className="text-[10px] font-semibold text-slate-400">
+                              Cap: {s.maxCapacity || 5}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {/* Contextual Overbooking vs Availability Banner */}
+                {(() => {
+                  const selectedSlotObj = walkinAvailableSlots.find(s => s.id === walkinSlotId)
+                  if (!selectedSlotObj) return null
+                  const isFull = (selectedSlotObj.bookedCount || 0) >= (selectedSlotObj.maxCapacity || 5)
+                  if (isFull) {
+                    return (
+                      <div className="p-3 rounded-xl border border-amber-300 bg-amber-50/80 backdrop-blur-md flex items-start space-x-2.5 text-amber-900 shadow-glass-sm mt-2">
+                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div className="text-[11.5px]">
+                          <strong className="block text-amber-800">Reception Desk Overbooking Active</strong>
+                          <span>This {isLabClinic ? 'lab collection' : 'OPD'} slot ({selectedSlotObj.startTime} - {selectedSlotObj.endTime}) has reached capacity ({selectedSlotObj.bookedCount || 0}/{selectedSlotObj.maxCapacity || 5}). Submitting will overbook this walk-in patient into today's queue.</span>
+                        </div>
+                      </div>
+                    )
+                  } else {
+                    const spots = Math.max(0, (selectedSlotObj.maxCapacity || 5) - (selectedSlotObj.bookedCount || 0))
+                    return (
+                      <div className="p-2.5 rounded-xl border border-emerald-200 bg-emerald-50/80 backdrop-blur-md flex items-center space-x-2 text-emerald-900 shadow-glass-sm mt-2 text-[11.5px]">
+                        <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>Slot available: <strong>{spots} spots remaining</strong> in {selectedSlotObj.startTime} - {selectedSlotObj.endTime}.</span>
+                      </div>
+                    )
+                  }
+                })()}
+
+                {walkinErrors.slot && (
+                  <p className="text-[11px] text-rose-600 font-bold">{walkinErrors.slot}</p>
+                )}
+
+                <p className="text-[11px] text-slate-500 mt-1 font-medium">
+                  Walk-in patient will be placed at the last position of the selected time slot, and all subsequent time slot patients will automatically shift down (+1).
+                </p>
+              </div>
 
               {/* Submit Button */}
               {(() => {
-                const isOverbookingSlot = !isLabClinic && walkinAvailableSlots.some(s => s.id === walkinSlotId && (s.bookedCount || 0) >= (s.maxCapacity || 5))
+                const isOverbookingSlot = walkinAvailableSlots.some(s => s.id === walkinSlotId && (s.bookedCount || 0) >= (s.maxCapacity || 5))
                 return (
                   <GlassButton
                     type="submit"
@@ -6817,7 +6893,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     rightIcon={<ChevronRight className="w-4 h-4" />}
                   >
                     {isLabClinic
-                      ? `Issue Diagnostic Lab Token (Rs. ${walkinSelectedTests.reduce((acc, t) => acc + (t.price || 0), 0)})`
+                      ? isOverbookingSlot
+                        ? `Confirm & Overbook Lab Token (Rs. ${walkinSelectedTests.reduce((acc, t) => acc + (t.price || 0), 0)})`
+                        : `Issue Diagnostic Lab Token (Rs. ${walkinSelectedTests.reduce((acc, t) => acc + (t.price || 0), 0)})`
                       : walkinIsFollowup && walkinRetainedAppt
                       ? 'Issue Live OPD Token (100% FREE Follow-Up)'
                       : isOverbookingSlot
@@ -6846,9 +6924,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           >
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-xl font-black text-slate-900">Doctor Timed Slots Publisher</h2>
+                <h2 className="text-xl font-black text-slate-900">
+                  {isLabClinic ? 'Lab Collection Slots Publisher' : 'Doctor Timed Slots Publisher'}
+                </h2>
                 <p className="text-xs text-slate-500 font-medium mt-0.5">
-                  Publish timed consultation slots (e.g. 09:00 - 09:15, with patient capacity limit). Available slots appear live on the patient booking app.
+                  {isLabClinic
+                    ? 'Publish timed diagnostic sample collection windows (e.g. 09:00 - 09:15, with patient capacity limit). Available slots appear live for walk-in and online lab booking.'
+                    : 'Publish timed consultation slots (e.g. 09:00 - 09:15, with patient capacity limit). Available slots appear live on the patient booking app.'}
                 </p>
               </div>
               <div className="flex items-center space-x-2">
@@ -6888,24 +6970,35 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               </div>
             </GlassCard>
 
-            {/* Quick Doctor & Date Selector Bar */}
+            {/* Quick Doctor / Facility & Date Selector Bar */}
             <GlassCard variant="base" padding="md" radius="xl" className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Select Attending Doctor <span className="text-rose-500">*</span>
-                </label>
-                <select
-                  value={slotDoctorId}
-                  onChange={(e) => setSlotDoctorId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl text-xs font-bold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
-                >
-                  {clinicDoctors.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.fullName} ({d.specialty || 'General'})
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {isLabClinic || clinicDoctors.length === 0 ? (
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    {isLabClinic ? 'Publishing Facility Counter' : 'Clinic Counter'}
+                  </label>
+                  <div className="w-full px-3.5 py-2.5 rounded-xl text-xs font-bold bg-purple-50/70 border border-purple-200 text-purple-900">
+                    {isLabClinic ? 'Diagnostic Lab Phlebotomy Counter (Facility-Wide)' : 'General Facility Schedule Counter'}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    Select Attending Doctor <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={slotDoctorId}
+                    onChange={(e) => setSlotDoctorId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl text-xs font-bold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  >
+                    {clinicDoctors.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.fullName} ({d.specialty || 'General'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">

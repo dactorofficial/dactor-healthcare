@@ -88,7 +88,23 @@ fun PayAtDeskRequestsScreen(
                 val effectiveCid = target.clinicId.trim().ifEmpty { clinicId.trim() }
                 val result = appointmentRepository?.approvePayAtDeskAppointment(target.id, effectiveCid)
                 if (result?.isSuccess == true) {
-                    snackbarHostState.showSnackbar("✓ Appointment #${target.trackingCode10Digit} Confirmed!")
+                    val approveRes = result.getOrNull()
+                    when {
+                        approveRes?.expired == true -> {
+                            snackbarHostState.showSnackbar("⚠️ Appointment #${target.trackingCode10Digit} date has passed. Request expired and cancelled.")
+                        }
+                        approveRes?.isFutureDate == true -> {
+                            snackbarHostState.showSnackbar("✓ Appointment #${target.trackingCode10Digit} Confirmed for ${target.appointmentDate}!")
+                        }
+                        approveRes?.slotPassed == true -> {
+                            val tokenMsg = if (approveRes.queuePosition != null && approveRes.queuePosition > 0) " (Token #${approveRes.queuePosition})" else ""
+                            snackbarHostState.showSnackbar("✓ Appointment #${target.trackingCode10Digit} Confirmed! Moved to Top of Queue$tokenMsg")
+                        }
+                        else -> {
+                            val tokenMsg = if (approveRes?.queuePosition != null && approveRes.queuePosition > 0) " (Token #${approveRes.queuePosition})" else ""
+                            snackbarHostState.showSnackbar("✓ Appointment #${target.trackingCode10Digit} Confirmed! Added to Slot Queue$tokenMsg")
+                        }
+                    }
                     loadData()
                 } else {
                     val rawErr = result?.exceptionOrNull()?.message ?: "Failed to confirm appointment"
@@ -420,10 +436,27 @@ fun PayAtDeskRequestCard(
     isProcessing: Boolean,
     isConfirming: Boolean = false
 ) {
+    val isPastDate = remember(appointment.appointmentDate) {
+        val cleanDate = appointment.appointmentDate.trim().take(10)
+        if (cleanDate.length != 10) false
+        else {
+            val todayKtm = try {
+                java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kathmandu")).toString()
+            } catch (_: Exception) {
+                java.time.LocalDate.now().toString()
+            }
+            cleanDate < todayKtm
+        }
+    }
+
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = if (isOldest) BorderStroke(2.dp, Color(0xFFF59E0B)) else BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        border = when {
+            isPastDate -> BorderStroke(2.dp, Color(0xFFFCA5A5))
+            isOldest -> BorderStroke(2.dp, Color(0xFFF59E0B))
+            else -> BorderStroke(1.dp, Color(0xFFE2E8F0))
+        },
         elevation = CardDefaults.cardElevation(defaultElevation = if (isOldest) 4.dp else 2.dp),
         modifier = Modifier
             .fillMaxWidth()
@@ -435,8 +468,36 @@ fun PayAtDeskRequestCard(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            if (isPastDate) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFFEF2F2),
+                    border = BorderStroke(1.dp, Color(0xFFFECACA)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = Color(0xFFDC2626),
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            "PAST SLOT DATE \u2022 CONFIRMING WILL EXPIRE & CANCEL",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 11.sp,
+                            color = Color(0xFFB91C1C),
+                            letterSpacing = 0.4.sp
+                        )
+                    }
+                }
+            }
             // Prominent banner for the oldest request
-            if (isOldest) {
+            if (isOldest && !isPastDate) {
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = Color(0xFFFEF3C7),

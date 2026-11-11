@@ -1326,20 +1326,24 @@ export async function getSlots(clinicId: string, date: string): Promise<Slot[]> 
         .order('start_time', { ascending: true }),
       supabase
         .from('appointments')
-        .select('id, slot_id, checkin_status')
+        .select('id, slot_id, checkin_status, payment_mode, status')
         .eq('clinic_id', clinicId)
         .eq('appointment_date', date)
     ])
 
     if (slotsRes.error) throw slotsRes.error
-    const activeAppts = (apptsRes.data || []).filter((a: any) => a.checkin_status !== 'cancelled')
+    const activeAppts = (apptsRes.data || []).filter(
+      (a: any) =>
+        a.checkin_status !== 'cancelled' &&
+        !(a.payment_mode === 'PAY_AT_DESK' && a.status === 'WAITING_FOR_APPROVAL')
+    )
 
     return (slotsRes.data || []).map((raw) => {
       const slot = mapSlot(raw)
       const actualCount = activeAppts.filter((a: any) => a.slot_id === slot.id).length
       return {
         ...slot,
-        bookedCount: Math.max(slot.bookedCount, actualCount),
+        bookedCount: actualCount,
       }
     })
   } catch (err) {
@@ -1548,7 +1552,8 @@ export async function reorderQueuePosition(
 
 export async function reindexActiveQueue(
   clinicId: string,
-  doctorId?: string | null
+  doctorId?: string | null,
+  sortBySlotTime: boolean = false
 ): Promise<boolean> {
   try {
     let query = supabase
@@ -1574,16 +1579,18 @@ export async function reindexActiveQueue(
 
     for (const key of Object.keys(groups)) {
       const group = groups[key]
-      // Sort: inside (0) vs waiting (1), then chronological appointment_time, then existing queue_position
+      // Sort: inside (0) vs waiting (1), preserving queue_position priority unless chronological slot sort requested
       group.sort((a, b) => {
         const aInside = a.status === 'inside' ? 0 : 1
         const bInside = b.status === 'inside' ? 0 : 1
         if (aInside !== bInside) return aInside - bInside
 
-        const aTime = (a.appointments as any)?.appointment_time || ''
-        const bTime = (b.appointments as any)?.appointment_time || ''
-        if (aTime && bTime && aTime !== bTime) {
-          return aTime.localeCompare(bTime)
+        if (sortBySlotTime) {
+          const aTime = (a.appointments as any)?.appointment_time || ''
+          const bTime = (b.appointments as any)?.appointment_time || ''
+          if (aTime && bTime && aTime !== bTime) {
+            return aTime.localeCompare(bTime)
+          }
         }
         return (a.queue_position || 0) - (b.queue_position || 0)
       })
@@ -6161,7 +6168,7 @@ export async function getPendingPayAtDeskCount(clinicId: string): Promise<number
   }
 }
 
-export async function approvePayAtDeskAppointment(appointmentId: string, clinicId: string): Promise<{ success: boolean; error?: string }> {
+export async function approvePayAtDeskAppointment(appointmentId: string, clinicId: string): Promise<{ success: boolean; error?: string; expired?: boolean; isFutureDate?: boolean; queuePosition?: number; slotPassed?: boolean; message?: string }> {
   try {
     const { data, error } = await supabase.rpc('approve_pay_at_desk_appointment', {
       p_appointment_id: appointmentId,
@@ -6171,7 +6178,14 @@ export async function approvePayAtDeskAppointment(appointmentId: string, clinicI
     if (error) {
       return { success: false, error: error.message }
     }
-    return { success: true }
+    return {
+      success: true,
+      expired: data?.expired === true || data?.status === 'EXPIRED' || data?.status === 'CANCELLED',
+      isFutureDate: data?.is_future_date === true,
+      queuePosition: typeof data?.queue_position === 'number' ? data.queue_position : undefined,
+      slotPassed: data?.slot_passed === true,
+      message: data?.message,
+    }
   } catch (err: any) {
     console.error('Error approving pay at desk appointment:', err)
     return { success: false, error: err.message || 'Failed to approve request' }

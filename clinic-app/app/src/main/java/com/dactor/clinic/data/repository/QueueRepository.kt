@@ -175,6 +175,7 @@ class QueueRepository @Inject constructor(
                 }
 
                 if (addedAny) {
+                    reindexActiveQueue(clinicId, null, sortBySlotTime = true)
                     currentEntries = supabaseClient.postgrest["queue_entries"]
                         .select {
                             filter {
@@ -271,7 +272,11 @@ class QueueRepository @Inject constructor(
                     }.decodeList<com.dactor.clinic.data.model.Appointment>()
                     .filter {
                         it.checkinStatus != "completed" &&
+                            it.checkinStatus != "done" &&
                             it.checkinStatus != "cancelled" &&
+                            it.checkinStatus != "no_show" &&
+                            it.checkinStatus != "processing" &&
+                            it.checkinStatus != "report_prepared" &&
                             it.status.equals("APPROVED", ignoreCase = true) &&
                             it.status != "WAITING_FOR_APPROVAL" &&
                             it.status != "pending_payment" &&
@@ -309,6 +314,10 @@ class QueueRepository @Inject constructor(
                 }
 
                 if (addedAny) {
+                    val docClinic = todayAppts.firstOrNull()?.clinicId
+                    if (!docClinic.isNullOrBlank()) {
+                        reindexActiveQueue(docClinic, doctorId, sortBySlotTime = true)
+                    }
                     currentEntries = supabaseClient.postgrest["queue_entries"]
                         .select {
                             filter {
@@ -459,6 +468,8 @@ class QueueRepository @Inject constructor(
                         val newCheckin = when (status) {
                             "inside" -> "inside"
                             "processing" -> "processing"
+                            "sample_collected" -> "sample_collected"
+                            "report_prepared" -> "report_prepared"
                             "no_show" -> "no_show"
                             else -> "completed"
                         }
@@ -512,8 +523,10 @@ class QueueRepository @Inject constructor(
             val newCheckin = when (status) {
                 "inside" -> "inside"
                 "processing" -> "processing"
+                "sample_collected" -> "sample_collected"
+                "report_prepared" -> "report_prepared"
                 "no_show" -> "no_show"
-                "done", "sample_collected", "report_prepared" -> "completed"
+                "done" -> "completed"
                 else -> null
             }
             if (newCheckin != null) {
@@ -604,9 +617,11 @@ class QueueRepository @Inject constructor(
             // 1. Process all uncompleted appointments whose scheduled day has passed
             val pastMissedAppts = allAppts.filter { appt ->
                 val isPastDate = appt.appointmentDate.isNotBlank() && appt.appointmentDate < todayStr
-                val isUnfinished = appt.checkinStatus != "completed" && 
-                        appt.checkinStatus != "done" && 
-                        appt.checkinStatus != "no_show" && 
+                val isUnfinished = appt.checkinStatus != "completed" &&
+                        appt.checkinStatus != "done" &&
+                        appt.checkinStatus != "processing" &&
+                        appt.checkinStatus != "report_prepared" &&
+                        appt.checkinStatus != "no_show" &&
                         appt.checkinStatus != "cancelled"
 
                 val isTodayExpired = if (includeTodayExpired && appt.appointmentDate == todayStr && isUnfinished) {
@@ -651,7 +666,12 @@ class QueueRepository @Inject constructor(
 
                 if (appt != null) {
                     val isPastDate = appt.appointmentDate.isNotBlank() && appt.appointmentDate < todayStr
-                    val isUnfinished = appt.checkinStatus != "completed" && appt.checkinStatus != "done"
+                    val isUnfinished = appt.checkinStatus != "completed" &&
+                        appt.checkinStatus != "done" &&
+                        appt.checkinStatus != "processing" &&
+                        appt.checkinStatus != "report_prepared" &&
+                        appt.checkinStatus != "no_show" &&
+                        appt.checkinStatus != "cancelled"
                     val isTodayExpired = if (includeTodayExpired && appt.appointmentDate == todayStr && isUnfinished) {
                         val endMin = AppointmentRepository.parseAppointmentEndTimeToMinutes(appt.appointmentTime)
                         (currentMinutesToday >= endMin + todayCutoffMinutes)
@@ -868,7 +888,11 @@ class QueueRepository @Inject constructor(
         updateClinicAverageTimePreference(clinicId, minutes, "manual")
     }
 
-    suspend fun reindexActiveQueue(clinicId: String, doctorId: String? = null): Boolean = withContext(Dispatchers.IO) {
+    suspend fun reindexActiveQueue(
+        clinicId: String,
+        doctorId: String? = null,
+        sortBySlotTime: Boolean = false
+    ): Boolean = withContext(Dispatchers.IO) {
         try {
             val activeEntries = supabaseClient.postgrest["queue_entries"]
                 .select {
@@ -886,20 +910,24 @@ class QueueRepository @Inject constructor(
 
             if (activeEntries.isEmpty()) return@withContext true
 
-            val appointments = try {
-                supabaseClient.postgrest["appointments"]
-                    .select {
-                        filter {
-                            eq("clinic_id", clinicId)
-                            if (!doctorId.isNullOrBlank()) {
-                                eq("doctor_id", doctorId)
+            val apptMap = if (sortBySlotTime) {
+                try {
+                    supabaseClient.postgrest["appointments"]
+                        .select {
+                            filter {
+                                eq("clinic_id", clinicId)
+                                if (!doctorId.isNullOrBlank()) {
+                                    eq("doctor_id", doctorId)
+                                }
                             }
-                        }
-                    }.decodeList<com.dactor.clinic.data.model.Appointment>()
-            } catch (e: Exception) {
-                emptyList()
+                        }.decodeList<com.dactor.clinic.data.model.Appointment>()
+                        .associateBy { it.id }
+                } catch (e: Exception) {
+                    emptyMap()
+                }
+            } else {
+                emptyMap()
             }
-            val apptMap = appointments.associateBy { it.id }
 
             // Group by doctorId to partition queues per cabin/doctor
             val groupedEntries = if (!doctorId.isNullOrBlank()) {
@@ -909,15 +937,22 @@ class QueueRepository @Inject constructor(
             }
 
             for ((_, group) in groupedEntries) {
-                // Patients currently inside consultation room strictly maintain position #1
-                // Remaining waiting patients are sorted chronologically by slot time and queue position
-                val sortedEntries = group.sortedWith(
-                    compareBy<QueueEntry> { if (it.status == "inside") 0 else 1 }
-                        .thenBy { entry ->
-                            val appt = apptMap[entry.appointmentId]
-                            AppointmentRepository.parseTimeToMinutes(appt?.appointmentTime)
-                        }.thenBy { it.queuePosition }
-                )
+                // Patients currently inside consultation room maintain #1.
+                // Waiting entries keep existing queuePosition priority unless chronological slot sort is explicitly requested.
+                val sortedEntries = if (sortBySlotTime) {
+                    group.sortedWith(
+                        compareBy<QueueEntry> { if (it.status == "inside") 0 else 1 }
+                            .thenBy { entry ->
+                                val appt = apptMap[entry.appointmentId]
+                                AppointmentRepository.parseTimeToMinutes(appt?.appointmentTime)
+                            }.thenBy { it.queuePosition }
+                    )
+                } else {
+                    group.sortedWith(
+                        compareBy<QueueEntry> { if (it.status == "inside") 0 else 1 }
+                            .thenBy { it.queuePosition }
+                    )
+                }
 
                 // Two-pass update with negative offsets to prevent unique key violation
                 for (entry in sortedEntries) {

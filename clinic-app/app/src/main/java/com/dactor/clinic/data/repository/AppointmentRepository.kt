@@ -5,6 +5,7 @@ import com.dactor.clinic.data.local.dao.AppointmentDao
 import com.dactor.clinic.data.local.entity.AppointmentEntity
 import com.dactor.clinic.data.model.Appointment
 import com.dactor.clinic.data.model.QueueEntry
+import com.dactor.clinic.data.model.Slot
 import com.dactor.clinic.domain.util.TrackingCodeGenerator
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
@@ -16,6 +17,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.UUID
@@ -81,6 +84,17 @@ data class RejectRpcParams(
 @Serializable
 data class CancelPendingRpcParams(
     @SerialName("p_appointment_id") val appointmentId: String
+)
+@Serializable
+data class ApproveAppointmentResult(
+    @SerialName("success") val success: Boolean = true,
+    @SerialName("appointment_id") val appointmentId: String? = null,
+    @SerialName("status") val status: String? = null,
+    @SerialName("queue_position") val queuePosition: Int? = null,
+    @SerialName("slot_passed") val slotPassed: Boolean = false,
+    @SerialName("expired") val expired: Boolean = false,
+    @SerialName("is_future_date") val isFutureDate: Boolean = false,
+    @SerialName("message") val message: String? = null
 )
 
 @Singleton
@@ -610,8 +624,8 @@ class AppointmentRepository @Inject constructor(
                             }
                         }
 
-                        // Reindex active queue chronologically to ensure clean contiguous numbering
-                        reindexActiveQueueChronologically(created.clinicId)
+                        // Compact active queue contiguously without overwriting priority placements
+                        reindexActiveQueueChronologically(created.clinicId, sortBySlotTime = false)
                     }
                 } catch (qEx: Exception) {
                     qEx.printStackTrace()
@@ -1002,7 +1016,7 @@ class AppointmentRepository @Inject constructor(
         }
     }
 
-    private suspend fun reindexActiveQueueChronologically(clinicId: String) {
+    private suspend fun reindexActiveQueueChronologically(clinicId: String, sortBySlotTime: Boolean = true) {
         try {
             val activeEntries = supabaseClient.postgrest["queue_entries"]
                 .select {
@@ -1016,26 +1030,35 @@ class AppointmentRepository @Inject constructor(
                 }.decodeList<QueueEntry>()
             if (activeEntries.isEmpty()) return
 
-            val appointments = try {
-                supabaseClient.postgrest["appointments"]
-                    .select { filter { eq("clinic_id", clinicId) } }
-                    .decodeList<Appointment>()
-            } catch (e: Exception) {
-                emptyList()
-            }
-            val apptMap = appointments.associateBy { it.id }
+            val apptMap = if (sortBySlotTime) {
+                try {
+                    supabaseClient.postgrest["appointments"]
+                        .select { filter { eq("clinic_id", clinicId) } }
+                        .decodeList<Appointment>()
+                        .associateBy { it.id }
+                } catch (e: Exception) {
+                    emptyMap()
+                }
+            } else emptyMap()
 
-            // Chronological slot sort:
-            // 1. Patient inside consultation cabin strictly maintains position #1
-            // 2. Patients in earlier time slots (e.g. 2-3 PM) precede later time slots (3-4 PM).
-            // 3. Within the same time slot, preserve relative queue position.
-            val sortedEntries = activeEntries.sortedWith(
-                compareBy<QueueEntry> { if (it.status == "inside") 0 else 1 }
-                    .thenBy { entry ->
-                        val appt = apptMap[entry.appointmentId]
-                        parseTimeToMinutes(appt?.appointmentTime)
-                    }.thenBy { it.queuePosition }
-            )
+            // Sort order:
+            // 1. Patient inside consultation cabin maintains #1
+            // 2. If sortBySlotTime: earlier time slots precede later time slots, preserving queuePosition ties
+            // 3. Otherwise: preserve exact priority/slot queuePosition order
+            val sortedEntries = if (sortBySlotTime) {
+                activeEntries.sortedWith(
+                    compareBy<QueueEntry> { if (it.status == "inside") 0 else 1 }
+                        .thenBy { entry ->
+                            val appt = apptMap[entry.appointmentId]
+                            parseTimeToMinutes(appt?.appointmentTime)
+                        }.thenBy { it.queuePosition }
+                )
+            } else {
+                activeEntries.sortedWith(
+                    compareBy<QueueEntry> { if (it.status == "inside") 0 else 1 }
+                        .thenBy { it.queuePosition }
+                )
+            }
 
             // Safe two-pass update to eliminate duplicate key collision
             for (entry in sortedEntries) {
@@ -1100,7 +1123,7 @@ class AppointmentRepository @Inject constructor(
         }
     }
 
-    suspend fun approvePayAtDeskAppointment(appointmentId: String, clinicId: String): Result<Boolean> = withContext(Dispatchers.IO) {
+    suspend fun approvePayAtDeskAppointment(appointmentId: String, clinicId: String): Result<ApproveAppointmentResult> = withContext(Dispatchers.IO) {
         if (!isValidUuid(appointmentId)) return@withContext Result.failure(IllegalArgumentException("Invalid appointment ID"))
         val safeClinicId = clinicId.takeIf { isValidUuid(it) }
 
@@ -1112,14 +1135,41 @@ class AppointmentRepository @Inject constructor(
                 ApproveRpcParams(appointmentId, safeClinicId)
             )
             val dataStr = response.data?.trim()
-            val isSuccess = if (!dataStr.isNullOrBlank()) {
-                val parsed = try { Json.parseToJsonElement(dataStr).jsonObject } catch (_: Exception) { null }
-                parsed?.get("success")?.jsonPrimitive?.booleanOrNull ?: (dataStr == "true")
-            } else {
-                true
-            }
+            val parsed = if (!dataStr.isNullOrBlank()) {
+                try { Json.parseToJsonElement(dataStr).jsonObject } catch (_: Exception) { null }
+            } else null
+
+            val isSuccess = parsed?.get("success")?.jsonPrimitive?.booleanOrNull ?: (dataStr == "true")
+            val isExpired = parsed?.get("expired")?.jsonPrimitive?.booleanOrNull == true
+            val isFutureDate = parsed?.get("is_future_date")?.jsonPrimitive?.booleanOrNull == true
+            val resStatus = parsed?.get("status")?.jsonPrimitive?.contentOrNull
+            val queuePos = parsed?.get("queue_position")?.jsonPrimitive?.intOrNull
+            val slotPassed = parsed?.get("slot_passed")?.jsonPrimitive?.booleanOrNull ?: false
+            val msg = parsed?.get("message")?.jsonPrimitive?.contentOrNull
+
             if (isSuccess) {
-                // Synchronize local Room database safely without failing cloud operation
+                if (isExpired || resStatus == "EXPIRED" || resStatus == "CANCELLED") {
+                    val finalExpiredStatus = if (resStatus == "CANCELLED") "CANCELLED" else "EXPIRED"
+                    // Synchronize local Room database safely as expired/cancelled
+                    try {
+                        appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
+                            appointmentDao.upsert(local.copy(status = finalExpiredStatus, checkinStatus = "cancelled", syncStatus = "synced"))
+                        }
+                    } catch (roomErr: Exception) {
+                        android.util.Log.w("AppointmentRepository", "Non-fatal Room cache sync ignored: ${roomErr.message}")
+                    }
+                    return@withContext Result.success(
+                        ApproveAppointmentResult(
+                            success = true,
+                            appointmentId = appointmentId,
+                            status = finalExpiredStatus,
+                            expired = true,
+                            message = msg ?: "Appointment request expired because the slot date has already passed."
+                        )
+                    )
+                }
+
+                // Normal approval: Synchronize local Room database safely
                 try {
                     appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
                         appointmentDao.upsert(local.copy(status = "APPROVED", checkinStatus = "checked_in", syncStatus = "synced"))
@@ -1127,7 +1177,18 @@ class AppointmentRepository @Inject constructor(
                 } catch (roomErr: Exception) {
                     android.util.Log.w("AppointmentRepository", "Non-fatal Room cache sync ignored: ${roomErr.message}")
                 }
-                return@withContext Result.success(true)
+                return@withContext Result.success(
+                    ApproveAppointmentResult(
+                        success = true,
+                        appointmentId = appointmentId,
+                        status = "APPROVED",
+                        queuePosition = queuePos,
+                        slotPassed = slotPassed,
+                        expired = false,
+                        isFutureDate = isFutureDate,
+                        message = msg
+                    )
+                )
             } else {
                 primaryRpcError = Exception("Approval returned unsuccessful response: $dataStr")
             }
@@ -1139,10 +1200,76 @@ class AppointmentRepository @Inject constructor(
         // 2. Resilient Tier-2 Fallback: Direct Supabase Update
         try {
             val nowIso = java.time.Instant.now().toString()
+            val zoneKtm = try { java.time.ZoneId.of("Asia/Kathmandu") } catch (_: Exception) { java.time.ZoneId.systemDefault() }
+            val todayKtm = java.time.LocalDate.now(zoneKtm).toString()
+            val nowKtmTime = java.time.LocalTime.now(zoneKtm)
+            val nowMin = nowKtmTime.hour * 60 + nowKtmTime.minute
+
+            // Fetch appointment & linked slot to check authoritative date and timing
+            val appt = try {
+                supabaseClient.postgrest["appointments"].select {
+                    filter { eq("id", appointmentId) }
+                }.decodeSingleOrNull<Appointment>()
+            } catch (_: Exception) { null }
+
+            val linkedSlot = try {
+                val sid = appt?.slotId
+                if (!sid.isNullOrBlank() && isValidUuid(sid)) {
+                    supabaseClient.postgrest["slots"].select {
+                        filter { eq("id", sid) }
+                    }.decodeSingleOrNull<Slot>()
+                } else null
+            } catch (_: Exception) { null }
+
+            val effectiveCid = appt?.clinicId ?: safeClinicId
+            val effectiveDocId = appt?.doctorId ?: linkedSlot?.doctorId
+            val effectiveDate = linkedSlot?.slotDate?.trim()?.take(10)?.ifBlank { null }
+                ?: appt?.appointmentDate?.trim()?.take(10)
+                ?: todayKtm
+
+            // Rule 1: Chosen slot date has already passed -> Expire & Cancel itself
+            if (effectiveDate < todayKtm) {
+                supabaseClient.postgrest["appointments"].update({
+                    set("status", "EXPIRED")
+                    set("checkin_status", "cancelled")
+                    set("cancelled_at", nowIso)
+                    set("cancellation_reason", "Slot date has already passed")
+                    set("expires_at", null as String?)
+                    set("updated_at", nowIso)
+                }) {
+                    filter { eq("id", appointmentId) }
+                }
+                try {
+                    supabaseClient.postgrest["queue_entries"].delete {
+                        filter { eq("appointment_id", appointmentId) }
+                    }
+                } catch (_: Exception) {}
+
+                try {
+                    appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
+                        appointmentDao.upsert(local.copy(status = "EXPIRED", checkinStatus = "cancelled", syncStatus = "synced"))
+                    }
+                } catch (roomErr: Exception) {
+                    android.util.Log.w("AppointmentRepository", "Non-fatal Room cache sync ignored: ${roomErr.message}")
+                }
+
+                return@withContext Result.success(
+                    ApproveAppointmentResult(
+                        success = true,
+                        appointmentId = appointmentId,
+                        status = "EXPIRED",
+                        expired = true,
+                        message = "Chosen slot date has already passed. Request has been expired and cancelled."
+                    )
+                )
+            }
+
+            // Approve appointment in DB (resolving doctor_id from slot if missing)
             supabaseClient.postgrest["appointments"].update({
                 set("status", "APPROVED")
                 set("checkin_status", "checked_in")
                 set("approved_at", nowIso)
+                if (effectiveDocId != null && isValidUuid(effectiveDocId)) set("doctor_id", effectiveDocId)
                 set("expires_at", null as String?)
                 set("updated_at", nowIso)
             }) {
@@ -1151,27 +1278,138 @@ class AppointmentRepository @Inject constructor(
                 }
             }
 
-            // Fetch appointment to get clinic_id and doctor_id for queue placement
-            val appt = try {
-                supabaseClient.postgrest["appointments"].select {
-                    filter { eq("id", appointmentId) }
-                }.decodeSingleOrNull<Appointment>()
-            } catch (_: Exception) { null }
+            // Reconcile slot booked_count (Overbooking explicitly allowed)
+            if (linkedSlot != null) {
+                try {
+                    val slotAppts = supabaseClient.postgrest["appointments"].select {
+                        filter { eq("slot_id", linkedSlot.id) }
+                    }.decodeList<Appointment>()
+                    val approvedCount = slotAppts.count {
+                        it.checkinStatus != "cancelled" && it.status.equals("APPROVED", ignoreCase = true)
+                    }
+                    supabaseClient.postgrest["slots"].update({
+                        set("booked_count", approvedCount)
+                        set("updated_at", nowIso)
+                    }) {
+                        filter { eq("id", linkedSlot.id) }
+                    }
+                } catch (_: Exception) {}
+            }
 
-            val effectiveCid = appt?.clinicId ?: safeClinicId
-            val effectiveDocId = appt?.doctorId
+            // Future date: do not add prematurely into today's live queue_entries
+            if (effectiveDate > todayKtm) {
+                try {
+                    appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
+                        appointmentDao.upsert(local.copy(status = "APPROVED", checkinStatus = "checked_in", syncStatus = "synced"))
+                    }
+                } catch (roomErr: Exception) {
+                    android.util.Log.w("AppointmentRepository", "Non-fatal Room cache sync ignored: ${roomErr.message}")
+                }
+
+                return@withContext Result.success(
+                    ApproveAppointmentResult(
+                        success = true,
+                        appointmentId = appointmentId,
+                        status = "APPROVED",
+                        queuePosition = 1,
+                        slotPassed = false,
+                        expired = false,
+                        isFutureDate = true
+                    )
+                )
+            }
+
+            // Same-day (today) queue placement
+            var assignedQueuePos = 1
+            var slotPassedFlag = false
 
             if (!effectiveCid.isNullOrBlank() && isValidUuid(effectiveCid)) {
                 try {
-                    val maxPos = try {
-                        val existing = supabaseClient.postgrest["queue_entries"].select {
+                    val targetStartMin = parseTimeToMinutes(linkedSlot?.startTime ?: appt?.appointmentTime)
+                    val targetEndMin = if (linkedSlot != null && linkedSlot.endTime.isNotBlank()) {
+                        parseTimeToMinutes(linkedSlot.endTime)
+                    } else {
+                        parseAppointmentEndTimeToMinutes(appt?.appointmentTime)
+                    }
+                    slotPassedFlag = targetEndMin < nowMin
+
+                    val allClinicAppts = try {
+                        supabaseClient.postgrest["appointments"].select {
                             filter {
                                 eq("clinic_id", effectiveCid)
-                                isIn("status", listOf("waiting", "inside"))
+                                eq("appointment_date", todayKtm)
+                            }
+                        }.decodeList<Appointment>()
+                    } catch (_: Exception) { emptyList() }
+                    val todayApptMap = allClinicAppts.associateBy { it.id }
+
+                    val allActiveQueue = try {
+                        supabaseClient.postgrest["queue_entries"].select {
+                            filter {
+                                eq("clinic_id", effectiveCid)
+                                or {
+                                    eq("status", "waiting")
+                                    eq("status", "inside")
+                                }
                             }
                         }.decodeList<QueueEntry>()
-                        (existing.maxOfOrNull { it.queuePosition } ?: 0) + 1
-                    } catch (_: Exception) { 1 }
+                    } catch (_: Exception) { emptyList() }
+
+                    // Restrict to same appointment date and doctor queue partition
+                    val partitionEntries = allActiveQueue.filter { entry ->
+                        val entryAppt = todayApptMap[entry.appointmentId] ?: return@filter false
+                        if (entry.appointmentId == appointmentId) return@filter false
+                        val matchesDoc = if (!effectiveDocId.isNullOrBlank()) {
+                            entry.doctorId == effectiveDocId || entry.doctorId.isNullOrBlank()
+                        } else {
+                            entry.doctorId.isNullOrBlank()
+                        }
+                        matchesDoc
+                    }.sortedWith(
+                        compareBy<QueueEntry> { if (it.status == "inside") 0 else 1 }
+                            .thenBy { it.queuePosition }
+                    )
+
+                    val insideCount = partitionEntries.count { it.status == "inside" }
+
+                    if (slotPassedFlag) {
+                        // Rule 2: Slot time has passed -> Put at TOP of waiting queue (after any inside entry)
+                        assignedQueuePos = insideCount + 1
+                    } else {
+                        // Rule 3: Slot time has NOT passed -> Put at END of the same exact slot
+                        var lastMatchIdx = 0
+                        partitionEntries.forEachIndexed { idx, entry ->
+                            val itemIdx = idx + 1
+                            if (entry.status == "inside") {
+                                lastMatchIdx = itemIdx
+                            } else {
+                                val entryAppt = todayApptMap[entry.appointmentId]
+                                val sameSlot = linkedSlot != null && entryAppt?.slotId == linkedSlot.id
+                                val entryStartMin = parseTimeToMinutes(entryAppt?.appointmentTime)
+                                if (sameSlot || entryStartMin <= targetStartMin) {
+                                    lastMatchIdx = itemIdx
+                                }
+                            }
+                        }
+                        assignedQueuePos = lastMatchIdx + 1
+                    }
+
+                    // Shift entries at or after assignedQueuePos down by +1 in descending order
+                    val toShift = partitionEntries
+                        .mapIndexed { idx, entry -> (idx + 1) to entry }
+                        .filter { (itemIdx, _) -> itemIdx >= assignedQueuePos }
+                        .sortedByDescending { (itemIdx, _) -> itemIdx }
+
+                    for ((itemIdx, entry) in toShift) {
+                        try {
+                            supabaseClient.postgrest["queue_entries"].update({
+                                set("queue_position", itemIdx + 1)
+                                set("updated_at", nowIso)
+                            }) {
+                                filter { eq("id", entry.id) }
+                            }
+                        } catch (_: Exception) {}
+                    }
 
                     @Serializable
                     data class DirectQueueInsert(
@@ -1190,7 +1428,7 @@ class AppointmentRepository @Inject constructor(
                             appointment_id = appointmentId,
                             clinic_id = effectiveCid,
                             doctor_id = effectiveDocId,
-                            queue_position = maxPos,
+                            queue_position = assignedQueuePos,
                             status = "waiting",
                             created_at = nowIso,
                             updated_at = nowIso
@@ -1210,7 +1448,17 @@ class AppointmentRepository @Inject constructor(
                 android.util.Log.w("AppointmentRepository", "Non-fatal Room cache sync ignored: ${roomErr.message}")
             }
 
-            return@withContext Result.success(true)
+            return@withContext Result.success(
+                ApproveAppointmentResult(
+                    success = true,
+                    appointmentId = appointmentId,
+                    status = "APPROVED",
+                    queuePosition = assignedQueuePos,
+                    slotPassed = slotPassedFlag,
+                    expired = false,
+                    isFutureDate = false
+                )
+            )
         } catch (fallbackErr: Exception) {
             fallbackErr.printStackTrace()
             return@withContext Result.failure(primaryRpcError ?: fallbackErr)
