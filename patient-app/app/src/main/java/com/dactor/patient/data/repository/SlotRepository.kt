@@ -192,7 +192,11 @@ class SlotRepository @Inject constructor(
         val allAppts = apptsDeferred.await()
 
         val activeCountBySlotId = allAppts
-            .filter { it.checkinStatus != "cancelled" && !it.slotId.isNullOrBlank() }
+            .filter {
+                it.checkinStatus != "cancelled" &&
+                    !it.slotId.isNullOrBlank() &&
+                    !(it.paymentMode.equals("PAY_AT_DESK", ignoreCase = true) && it.status.equals("WAITING_FOR_APPROVAL", ignoreCase = true))
+            }
             .groupingBy { it.slotId!! }
             .eachCount()
 
@@ -427,7 +431,11 @@ class SlotRepository @Inject constructor(
         val appointments = apptsDeferred.await()
 
         val activeCountBySlotId = appointments
-            .filter { it.checkinStatus != "cancelled" && !it.slotId.isNullOrBlank() }
+            .filter {
+                it.checkinStatus != "cancelled" &&
+                    !it.slotId.isNullOrBlank() &&
+                    !(it.paymentMode.equals("PAY_AT_DESK", ignoreCase = true) && it.status.equals("WAITING_FOR_APPROVAL", ignoreCase = true))
+            }
             .groupingBy { it.slotId!! }
             .eachCount()
 
@@ -488,7 +496,11 @@ class SlotRepository @Inject constructor(
         val appointments = apptsDeferred.await()
 
         val activeCountBySlotId = appointments
-            .filter { it.checkinStatus != "cancelled" && !it.slotId.isNullOrBlank() }
+            .filter {
+                it.checkinStatus != "cancelled" &&
+                    !it.slotId.isNullOrBlank() &&
+                    !(it.paymentMode.equals("PAY_AT_DESK", ignoreCase = true) && it.status.equals("WAITING_FOR_APPROVAL", ignoreCase = true))
+            }
             .groupingBy { it.slotId!! }
             .eachCount()
 

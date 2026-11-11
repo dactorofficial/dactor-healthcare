@@ -132,7 +132,11 @@ class SlotRepository @Inject constructor(
             }
 
             slots.map { slot ->
-                val registeredCount = appointments.count { it.slotId == slot.id && it.checkinStatus != "cancelled" }
+                val registeredCount = appointments.count {
+                    it.slotId == slot.id &&
+                        it.checkinStatus != "cancelled" &&
+                        !(it.paymentMode.equals("PAY_AT_DESK", ignoreCase = true) && it.status.equals("WAITING_FOR_APPROVAL", ignoreCase = true))
+                }
                 if (slot.bookedCount != registeredCount) {
                     try {
                         supabaseClient.postgrest["slots"].update({

@@ -7,6 +7,27 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-11
 
 ### Prompt:
+> "So basically after the person has put pay at desk for a specific slot and date the patient, if the slot is passed still put that person in the live queue at the first position. Right now after confirming it wasn't transferred to the live queue. Before confirming don't reserve the slot i mean when user is asking for pay at desk it's already showing one less available slot but it shouldnot be reserved before it is confirmed by the clinic and also don't forget the over booking allowed . / plan"
+
+#### Changes Applied:
+1. **Supabase Database RPCs — Passed Slot Live Queue Priority & Slot Reservation Decoupling ([`supabase/migration_pay_at_desk_slot_decoupling_and_priority_queue.sql`](file:///g:/My%20Drive/New%20folder/supabase/migration_pay_at_desk_slot_decoupling_and_priority_queue.sql))**:
+   - Updated `create_patient_appointment`: Decoupled slot reservation for Pay at Desk (`v_is_pad = true`), preventing `slots.booked_count` from being incremented/reserved before clinic approval.
+   - Updated `approve_pay_at_desk_appointment`:
+     - Compares appointment slot date and end time against Nepal local time (`Asia/Kathmandu` / UTC + 05:45).
+     - If slot has passed, shifts existing waiting queue entries down (`queue_position = queue_position + 1`) and assigns the patient to Position 1 (`queue_position = 1`) in the live waiting queue so they are called next.
+     - Allows overbooking without capacity validation caps when updating `slots.booked_count`.
+     - Automatically resolves missing `doctor_id` from the associated slot so diagnostic lab and general visits are correctly assigned.
+2. **Patient App — Available Slot Count Decoupling ([`SlotRepository.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/data/repository/SlotRepository.kt))**:
+   - Filtered out unapproved Pay at Desk appointments (`paymentMode == "PAY_AT_DESK" && status == "WAITING_FOR_APPROVAL"`) when computing `activeCountBySlotId` in `getSlots()`, `getSlotsForDiagnosticLab()`, and `getSlotsForGeneralClinic()`, ensuring slots are not marked as taken before clinic confirmation.
+3. **Clinic App — Slot Count Decoupling ([`SlotRepository.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/SlotRepository.kt))**:
+   - Excluded `WAITING_FOR_APPROVAL` Pay at Desk requests from `registeredCount` synchronization in `getSlotsByDate()`.
+4. **Clinic App — Queue Board Visibility for Single-Doctor Clinics & Lab Services ([`QueueBoardScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/QueueBoardScreen.kt))**:
+   - Updated live and past queue filtering to include entries with `doctorId.isNullOrBlank()` when the clinic has 1 doctor or is a diagnostic lab, preventing visits from disappearing when a single doctor is auto-selected.
+   - Enabled the "All Doctors / All Services" filter chip whenever doctors are present so staff can switch between individual doctor queues and general clinic queues.
+
+---
+
+### Prompt:
 > "When patient taps on retry it shows this /plan"
 
 #### Changes Applied:

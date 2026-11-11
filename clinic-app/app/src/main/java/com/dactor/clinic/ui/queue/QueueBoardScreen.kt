@@ -485,7 +485,7 @@ fun QueueBoardScreen(
     val liveQueue = queueItems.filter {
         (it.status == "waiting" || it.status == "inside") &&
         (it.appointmentDate.isBlank() || it.appointmentDate == selectedQueueDate) &&
-        (selectedDoctorFilterId == null || it.doctorId == selectedDoctorFilterId)
+        (selectedDoctorFilterId == null || it.doctorId == selectedDoctorFilterId || (it.doctorId.isNullOrBlank() && (isLabClinic || clinicDoctors.size <= 1)))
     }.sortedWith(
         compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }
             .thenBy { it.queuePosition }
@@ -493,7 +493,7 @@ fun QueueBoardScreen(
     val pastQueue = queueItems.filter {
         it.status in pastStatuses &&
         (it.appointmentDate.isBlank() || it.appointmentDate == selectedQueueDate) &&
-        (selectedDoctorFilterId == null || it.doctorId == selectedDoctorFilterId)
+        (selectedDoctorFilterId == null || it.doctorId == selectedDoctorFilterId || (it.doctorId.isNullOrBlank() && (isLabClinic || clinicDoctors.size <= 1)))
     }
     val insideCount = liveQueue.count { it.status == "inside" }
     val waitingCount = liveQueue.count { it.status == "waiting" }
@@ -924,8 +924,8 @@ fun QueueBoardScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // If more than 1 doctor, show All Doctors chip
-                            if (clinicDoctors.size > 1) {
+                            // Show All Doctors / All Services chip whenever doctors exist
+                            if (clinicDoctors.isNotEmpty()) {
                                 val isAllSelected = selectedDoctorFilterId == null
                                 Surface(
                                     shape = RoundedCornerShape(20.dp),
@@ -946,7 +946,7 @@ fun QueueBoardScreen(
                                             modifier = Modifier.size(16.dp)
                                         )
                                         Text(
-                                            text = "All Doctors",
+                                            text = if (isLabClinic) "All Services" else "All Doctors",
                                             fontWeight = if (isAllSelected) FontWeight.Bold else FontWeight.Medium,
                                             fontSize = 12.sp,
                                             color = if (isAllSelected) Color.White else Color(0xFF334155)
