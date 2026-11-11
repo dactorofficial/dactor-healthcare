@@ -73,6 +73,25 @@ data class Clinic(
         return declaredHolidays.any { it.trim() == dateStr.trim() }
     }
 
+    /** Returns true when this clinic operates as a diagnostic / pathology lab facility. */
+    fun isDiagnosticLab(): Boolean {
+        val t = type?.lowercase() ?: ""
+        val n = name.lowercase()
+        return t == "diagnostic_lab" ||
+            t.contains("diagnostic") ||
+            t.contains("lab") ||
+            n.contains("diagnostic") ||
+            n.contains("lab") ||
+            specialties.any {
+                val s = it.lowercase()
+                s.contains("lab") ||
+                    s.contains("patholog") ||
+                    s.contains("diagnostic") ||
+                    s.contains("radiolog") ||
+                    s.contains("scan")
+            }
+    }
+
     fun getEffectiveAvgMinutes(): Int {
         val manual = (manualAvgConsultationTimeMinutes ?: avgConsultationTimeMinutes ?: 10).coerceAtLeast(1)
         val calc = calculatedAvgConsultationTimeMinutes

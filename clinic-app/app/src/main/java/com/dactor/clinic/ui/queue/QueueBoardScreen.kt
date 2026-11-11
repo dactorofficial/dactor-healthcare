@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -123,12 +124,7 @@ fun QueueBoardScreen(
     }
 
     fun isDiagnosticClinic(c: com.dactor.clinic.data.model.Clinic?, item: QueueItemUi? = null): Boolean {
-        val t = c?.type?.lowercase() ?: ""
-        val n = c?.name?.lowercase() ?: ""
-        val specs = c?.specialties?.map { it.lowercase() } ?: emptyList()
-        val isClinicMatch = t == "diagnostic_lab" || t.contains("diagnostic") || t.contains("lab") ||
-                n.contains("diagnostic") || n.contains("lab") ||
-                specs.any { it.contains("lab") || it.contains("patholog") || it.contains("diagnostic") || it.contains("radiolog") || it.contains("scan") }
+        val isClinicMatch = c?.isDiagnosticLab() == true
         val isItemMatch = item?.selectedLabTests?.isNotBlank() == true || (item != null && item.doctorId == null && isClinicMatch)
         return isClinicMatch || isItemMatch
     }
@@ -288,8 +284,10 @@ fun QueueBoardScreen(
     }
 
     val coroutineScope = rememberCoroutineScope()
-    val completedStatuses = remember { setOf("done", "processing", "sample_collected", "report_prepared") }
-    val pastStatuses = remember { setOf("done", "processing", "sample_collected", "report_prepared", "no_show") }
+    val processingStatuses = remember { setOf("processing", "sample_collected") }
+    val completedStatuses = remember { setOf("done", "report_prepared") }
+    val pastStatuses = remember { setOf("done", "report_prepared", "no_show") }
+    val allFinishedStatuses = remember { processingStatuses + pastStatuses }
 
     fun optimisticallyUpdateStatus(itemId: String, newStatus: String) {
         val nowIso = java.time.Instant.now().toString()
@@ -318,9 +316,9 @@ fun QueueBoardScreen(
             .filter { it.status == "waiting" || it.status == "inside" }
             .sortedWith(compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }.thenBy { it.queuePosition })
             .mapIndexed { idx, itm -> itm.copy(queuePosition = idx + 1) }
-        val past = updated.filter { it.status in pastStatuses }
+        val past = updated.filter { it.status in allFinishedStatuses }
         queueItems = active + past
-        if (expandedItemId == itemId && newStatus in pastStatuses) {
+        if (expandedItemId == itemId && newStatus in allFinishedStatuses) {
             expandedItemId = null
         }
     }
@@ -342,7 +340,7 @@ fun QueueBoardScreen(
                     testName = item.selectedLabTests?.takeIf { it.isNotBlank() } ?: "Diagnostic Lab Analysis",
                     stage = "processing"
                 )
-                notificationSentMessage = "✓ Sample collected for ${item.patientName}! Patient transferred to Processing section in Operational Management."
+                notificationSentMessage = "✓ ${item.patientName} added to Processing section! Mark report prepared in Processing."
                 loadQueue()
             }
         } else {
@@ -370,7 +368,7 @@ fun QueueBoardScreen(
         val updatedQueue = activeItems.mapIndexed { idx, itm ->
             itm.copy(queuePosition = idx + 1)
         }
-        val pastItems = queueItems.filter { it.status in pastStatuses }
+        val pastItems = queueItems.filter { it.status in allFinishedStatuses }
         queueItems = updatedQueue + pastItems
 
         coroutineScope.launch {
@@ -516,7 +514,7 @@ fun QueueBoardScreen(
 
                 isQueueLoading = false
 
-                val pastApptIds = entries.filter { it.status in pastStatuses }.map { it.appointmentId }
+                val pastApptIds = entries.filter { it.status in allFinishedStatuses }.map { it.appointmentId }
                 if (billingRepository != null && pastApptIds.isNotEmpty()) {
                     try {
                         val map = billingRepository.getRemarksForAppointments(pastApptIds)
@@ -544,6 +542,11 @@ fun QueueBoardScreen(
         compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }
             .thenBy { it.queuePosition }
     )
+    val processingQueue = queueItems.filter {
+        it.status in processingStatuses &&
+        (it.appointmentDate.isBlank() || it.appointmentDate == selectedQueueDate) &&
+        (selectedDoctorFilterId == null || it.doctorId == selectedDoctorFilterId || (it.doctorId.isNullOrBlank() && (isLabClinic || clinicDoctors.size <= 1)))
+    }
     val pastQueue = queueItems.filter {
         it.status in pastStatuses &&
         (it.appointmentDate.isBlank() || it.appointmentDate == selectedQueueDate) &&
@@ -562,60 +565,38 @@ fun QueueBoardScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    if (selectedQueueTab == 1) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    val topBarTitle = when (selectedQueueTab) {
+                        2 -> "Processing"
+                        1 -> "Completed"
+                        else -> "Live Patient Queue Board"
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color.White,
+                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                            modifier = Modifier.size(30.dp)
                         ) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color.White,
-                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                                modifier = Modifier.size(34.dp)
-                            ) {
-                                Image(
-                                    painter = painterResource(id = R.drawable.app_logo),
-                                    contentDescription = "Dactor Official Logo",
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(2.dp),
-                                    contentScale = ContentScale.Fit
-                                )
-                            }
-                            Text(
-                                "Completed",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 20.sp,
-                                color = Color(0xFF0F172A)
+                            Image(
+                                painter = painterResource(id = R.drawable.app_logo),
+                                contentDescription = "Dactor Official Logo",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(2.dp),
+                                contentScale = ContentScale.Fit
                             )
                         }
-                    } else {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color.White,
-                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                                modifier = Modifier.size(34.dp)
-                            ) {
-                                Image(
-                                    painter = painterResource(id = R.drawable.app_logo),
-                                    contentDescription = "Dactor Official Logo",
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(2.dp),
-                                    contentScale = ContentScale.Fit
-                                )
-                            }
-                            Text(
-                                "Live Patient Queue Board",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp,
-                                color = Color(0xFF0F172A)
-                            )
-                        }
+                        Text(
+                            text = topBarTitle,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = if (selectedQueueTab == 0) 16.sp else 19.sp,
+                            color = Color(0xFF0F172A),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 },
                 navigationIcon = {
@@ -1090,7 +1071,9 @@ fun QueueBoardScreen(
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -1119,6 +1102,36 @@ fun QueueBoardScreen(
                                         fontSize = 12.5.sp,
                                         color = if (selectedQueueTab == 0) Color.White else Color(0xFF334155)
                                     )
+                                }
+                            }
+
+                            // Processing Tab (Diagnostic / Lab Clinics)
+                            if (isLabClinic || processingQueue.isNotEmpty()) {
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = if (selectedQueueTab == 2) Color(0xFF0F4C81) else Color.White,
+                                    border = BorderStroke(1.dp, if (selectedQueueTab == 2) Color(0xFF0F4C81) else Color(0xFFCBD5E1)),
+                                    shadowElevation = if (selectedQueueTab == 2) 2.dp else 0.dp,
+                                    modifier = Modifier.clickable { selectedQueueTab = 2 }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Biotech,
+                                            contentDescription = null,
+                                            tint = if (selectedQueueTab == 2) Color.White else Color(0xFF0F4C81),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            "Processing (${processingQueue.size})",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.5.sp,
+                                            color = if (selectedQueueTab == 2) Color.White else Color(0xFF334155)
+                                        )
+                                    }
                                 }
                             }
 
@@ -1283,7 +1296,56 @@ fun QueueBoardScreen(
         }
     }
 
-    val currentQueueList = if (selectedQueueTab == 0) liveQueue else pastQueue
+    val currentQueueList = when (selectedQueueTab) {
+        2 -> processingQueue
+        1 -> pastQueue
+        else -> liveQueue
+    }
+
+    if (selectedQueueTab == 2 && (isLabClinic || processingQueue.isNotEmpty())) {
+        item(key = "processing_section_banner") {
+            Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color(0xFFE0F2FE),
+                    border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Samples in Processing",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = Color(0xFF0F4C81)
+                            )
+                            Text(
+                                text = "Open Lab Workflow to upload PDF/image reports and mark Prepared.",
+                                fontSize = 11.5.sp,
+                                color = Color(0xFF0369A1)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                val target = if (effectiveClinicId.isNotBlank()) "${NavRoutes.LabWorkflow}/$effectiveClinicId" else NavRoutes.LabWorkflow
+                                navController.navigate(target)
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F4C81)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text("Open Lab", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     if (isQueueLoading && currentQueueList.isEmpty()) {
         items(3, key = { index -> "loading_queue_skeleton_$index" }) {
@@ -1353,30 +1415,39 @@ fun QueueBoardScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(
-                        if (selectedQueueTab == 0) Icons.Default.Schedule else Icons.Default.DoneAll,
+                        when (selectedQueueTab) {
+                            2 -> Icons.Default.Biotech
+                            1 -> Icons.Default.DoneAll
+                            else -> Icons.Default.Schedule
+                        },
                         contentDescription = null,
                         tint = Color(0xFF94A3B8),
                         modifier = Modifier.size(48.dp)
                     )
                     Text(
-                        text = if (selectedQueueTab == 0) "No Active Patients in Live Queue" else "No Completed Appointments",
+                        text = when (selectedQueueTab) {
+                            2 -> "No Patients Currently in Processing"
+                            1 -> "No Completed Appointments"
+                            else -> "No Active Patients in Live Queue"
+                        },
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp,
                         color = Color(0xFF0F172A)
                     )
                     Text(
-                        text = if (selectedQueueTab == 0)
-                            "Patients will appear here when appointments are checked in."
-                        else
-                            "Completed patient consultations for this date will be listed here.",
+                        text = when (selectedQueueTab) {
+                            2 -> "Diagnostic patients marked Done are added here until their lab report is prepared."
+                            1 -> "Completed patient consultations for this date will be listed here."
+                            else -> "Patients will appear here when appointments are checked in."
+                        },
                         fontSize = 12.sp,
                         color = Color(0xFF64748B)
                     )
                 }
             }
         }
-    } else if (selectedQueueTab == 1) {
-        itemsIndexed(pastQueue, key = { _, item -> item.id }) { index, item ->
+    } else if (selectedQueueTab == 1 || selectedQueueTab == 2) {
+        itemsIndexed(currentQueueList, key = { _, item -> item.id }) { index, item ->
             Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                 Card(
                             shape = RoundedCornerShape(18.dp),
@@ -1395,7 +1466,9 @@ fun QueueBoardScreen(
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                        modifier = Modifier.weight(1f)
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(end = 8.dp)
                                     ) {
                                         // Circular Initials Avatar (matching screenshot RS, PP, AK)
                                         Surface(
@@ -1600,6 +1673,42 @@ fun QueueBoardScreen(
                                         }
                                     }
                                 }
+
+                                if (selectedQueueTab == 2 && item.status in processingStatuses) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        if (!item.selectedLabTests.isNullOrBlank()) {
+                                            Text(
+                                                text = item.selectedLabTests,
+                                                fontSize = 11.5.sp,
+                                                color = Color(0xFF0F4C81),
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        } else {
+                                            Spacer(modifier = Modifier.weight(1f))
+                                        }
+                                        Button(
+                                            onClick = {
+                                                val target = if (effectiveClinicId.isNotBlank()) "${NavRoutes.LabWorkflow}/$effectiveClinicId" else NavRoutes.LabWorkflow
+                                                navController.navigate(target)
+                                            },
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F4C81)),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(Icons.Default.Biotech, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Prepare Report", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1726,7 +1835,9 @@ fun QueueBoardScreen(
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                        modifier = Modifier.weight(1f)
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(end = 8.dp)
                                     ) {
                                         // Blue Circle Avatar with Person Icon
                                         Surface(
@@ -1825,44 +1936,65 @@ fun QueueBoardScreen(
                                         }
                                     }
 
-                                    // Right Pill: #1 / #Position (Soft Light Blue Pill with Bold Blue Text)
-                                    Surface(
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = when (item.status) {
-                                            "inside" -> Color(0xFFDCFCE7)
-                                            "done" -> Color(0xFFF1F5F9)
-                                            "no_show" -> Color(0xFFFEE2E2)
-                                            else -> Color(0xFFEBF3FE)
-                                        },
-                                        modifier = Modifier
-                                            .clickable {
-                                                if (selectedQueueTab == 0) {
-                                                    reorderItemDialog = item
-                                                    newPositionInput = (index + 1).toString()
-                                                }
-                                            }
+                                    // Right Pill: #1 / #Position + Expand Chevron
+                                    val isCardExpanded = expandedItemId == item.id
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        val activeInside = queueItems.firstOrNull { it.status == "inside" }
-                                        val isPassedOver = item.status == "waiting" && activeInside != null && activeInside.queuePosition > item.queuePosition
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = when (item.status) {
+                                                "inside" -> Color(0xFFDCFCE7)
+                                                "processing", "sample_collected" -> Color(0xFFE0F2FE)
+                                                "report_prepared" -> Color(0xFFFEF3C7)
+                                                "done" -> Color(0xFFF1F5F9)
+                                                "no_show" -> Color(0xFFFEE2E2)
+                                                else -> Color(0xFFEBF3FE)
+                                            },
+                                            modifier = Modifier
+                                                .clickable {
+                                                    if (selectedQueueTab == 0) {
+                                                        reorderItemDialog = item
+                                                        newPositionInput = (index + 1).toString()
+                                                    }
+                                                }
+                                        ) {
+                                            val activeInside = queueItems.firstOrNull { it.status == "inside" }
+                                            val isPassedOver = item.status == "waiting" && activeInside != null && activeInside.queuePosition > item.queuePosition
 
-                                        Text(
-                                            text = when {
-                                                item.status == "inside" -> "Inside"
-                                                item.status == "done" -> "Done"
-                                                item.status == "no_show" -> "No Show"
-                                                isPassedOver -> "Late"
-                                                else -> "#${index + 1}"
-                                            },
-                                            color = when {
-                                                item.status == "inside" -> Color(0xFF15803D)
-                                                item.status == "done" -> Color(0xFF475569)
-                                                item.status == "no_show" -> Color(0xFFDC2626)
-                                                isPassedOver -> Color(0xFFD97706)
-                                                else -> Color(0xFF1D68E2)
-                                            },
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 15.sp,
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                            Text(
+                                                text = when {
+                                                    item.status == "inside" -> "Inside"
+                                                    item.status == "processing" -> "Processing"
+                                                    item.status == "sample_collected" -> "Collected"
+                                                    item.status == "report_prepared" -> "Prepared"
+                                                    item.status == "done" -> "Done"
+                                                    item.status == "no_show" -> "No Show"
+                                                    isPassedOver -> "Late"
+                                                    else -> "#${index + 1}"
+                                                },
+                                                color = when {
+                                                    item.status == "inside" -> Color(0xFF15803D)
+                                                    item.status == "processing" || item.status == "sample_collected" -> Color(0xFF0369A1)
+                                                    item.status == "report_prepared" -> Color(0xFFB45309)
+                                                    item.status == "done" -> Color(0xFF475569)
+                                                    item.status == "no_show" -> Color(0xFFDC2626)
+                                                    isPassedOver -> Color(0xFFD97706)
+                                                    else -> Color(0xFF1D68E2)
+                                                },
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontSize = 15.sp,
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                            )
+                                        }
+                                        Icon(
+                                            imageVector = if (isCardExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                            contentDescription = if (isCardExpanded) "Collapse actions" else "Expand actions",
+                                            tint = Color(0xFF94A3B8),
+                                            modifier = Modifier.size(20.dp)
                                         )
                                     }
                                 }
@@ -1871,45 +2003,49 @@ fun QueueBoardScreen(
                                 Divider(color = Color(0xFFF1F5F9), thickness = 1.dp)
                                 Spacer(modifier = Modifier.height(12.dp))
 
-                                // Bottom Row: Slot / Inside elapsed time + Action Button (ONLY primary action directly visible)
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    // Left Slot Window
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.AccessTime,
-                                            contentDescription = null,
-                                            tint = if (item.status == "inside") Color(0xFF15803D) else Color(0xFF64748B),
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Text(
-                                            text = if (item.status == "inside") {
-                                                val elapsedSec = if (!item.insideAt.isNullOrBlank()) {
-                                                    try {
-                                                        (currentEpochSecond - java.time.Instant.parse(item.insideAt).epochSecond).coerceAtLeast(0)
-                                                    } catch (e: Exception) { 0L }
-                                                } else 0L
-                                                "Inside: ${elapsedSec / 60}m ${elapsedSec % 60}s"
-                                            } else {
-                                                item.appointmentTime.ifBlank { "Turn #${index + 1}" }
-                                            },
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = if (item.status == "inside") Color(0xFF15803D) else Color(0xFF475569)
-                                        )
-                                    }
+                                // Bottom Section: Slot / Inside elapsed time + Primary Action Button(s)
+                                val isDiagItem = isLabClinic || isDiagnosticClinic(currentClinic, item)
+                                val timeDisplayText = if (item.status == "inside") {
+                                    val elapsedSec = if (!item.insideAt.isNullOrBlank()) {
+                                        try {
+                                            (currentEpochSecond - java.time.Instant.parse(item.insideAt).epochSecond).coerceAtLeast(0)
+                                        } catch (e: Exception) { 0L }
+                                    } else 0L
+                                    "Inside: ${elapsedSec / 60}m ${elapsedSec % 60}s"
+                                } else {
+                                    item.appointmentTime.ifBlank { "Turn #${index + 1}" }
+                                }
 
-                                    // Right Action Button
-                                    if (isLabClinic && (item.status == "waiting" || item.status == "inside")) {
+                                if (isDiagItem && (item.status == "waiting" || item.status == "inside")) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.AccessTime,
+                                                contentDescription = null,
+                                                tint = if (item.status == "inside") Color(0xFF15803D) else Color(0xFF64748B),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Text(
+                                                text = timeDisplayText,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = if (item.status == "inside") Color(0xFF15803D) else Color(0xFF475569),
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
                                             if (item.status == "waiting") {
                                                 OutlinedButton(
@@ -1920,16 +2056,29 @@ fun QueueBoardScreen(
                                                             loadQueue()
                                                         }
                                                     },
+                                                    modifier = Modifier
+                                                        .weight(0.38f)
+                                                        .heightIn(min = 38.dp),
                                                     shape = RoundedCornerShape(10.dp),
                                                     border = BorderStroke(1.dp, Color(0xFF00838F)),
                                                     colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent),
-                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
                                                 ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.NearMe,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFF00838F),
+                                                        modifier = Modifier.size(15.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
                                                     Text(
-                                                        "Call",
+                                                        text = "Call In",
                                                         color = Color(0xFF00838F),
                                                         fontWeight = FontWeight.Bold,
-                                                        fontSize = 12.sp
+                                                        fontSize = 12.sp,
+                                                        maxLines = 1,
+                                                        softWrap = false,
+                                                        overflow = TextOverflow.Ellipsis
                                                     )
                                                 }
                                             }
@@ -1937,9 +2086,12 @@ fun QueueBoardScreen(
                                                 onClick = {
                                                     handleMarkDoneAction(item)
                                                 },
+                                                modifier = Modifier
+                                                    .weight(if (item.status == "waiting") 0.62f else 1f)
+                                                    .heightIn(min = 38.dp),
                                                 shape = RoundedCornerShape(10.dp),
                                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F4C81)),
-                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Default.Biotech,
@@ -1952,102 +2104,154 @@ fun QueueBoardScreen(
                                                     text = "Mark Done (Processing)",
                                                     color = Color.White,
                                                     fontWeight = FontWeight.Bold,
-                                                    fontSize = 12.sp
+                                                    fontSize = 12.sp,
+                                                    maxLines = 1,
+                                                    softWrap = false,
+                                                    overflow = TextOverflow.Ellipsis
                                                 )
                                             }
                                         }
-                                    } else if (item.status == "waiting") {
-                                        val activeInside = queueItems.firstOrNull { it.status == "inside" }
-                                        val isPassedOver = activeInside != null && activeInside.queuePosition > item.queuePosition
+                                    }
+                                } else {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        // Left Slot Window
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .padding(end = 8.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.AccessTime,
+                                                contentDescription = null,
+                                                tint = if (item.status == "inside") Color(0xFF15803D) else Color(0xFF64748B),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Text(
+                                                text = timeDisplayText,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = if (item.status == "inside") Color(0xFF15803D) else Color(0xFF475569),
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
 
-                                        OutlinedButton(
-                                            onClick = {
-                                                optimisticallyUpdateStatus(item.id, "inside")
-                                                coroutineScope.launch {
-                                                    queueRepository?.updateQueueStatus(item.id, "inside", effectiveClinicId)
-                                                    loadQueue()
-                                                }
-                                            },
-                                            shape = RoundedCornerShape(10.dp),
-                                            border = BorderStroke(1.dp, if (isPassedOver) Color(0xFFD97706) else Color(0xFF00838F)),
-                                            colors = ButtonDefaults.outlinedButtonColors(
-                                                containerColor = if (isPassedOver) Color(0xFFFFFBEB) else Color.Transparent
-                                            ),
-                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
-                                        ) {
-                                            Icon(
-                                                if (isPassedOver) Icons.Default.PriorityHigh else Icons.Default.NearMe,
-                                                contentDescription = null,
-                                                tint = if (isPassedOver) Color(0xFFD97706) else Color(0xFF00838F),
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                if (isPassedOver) "Arrived (Take Next)" else if (index == 0) "Next to enter" else "Call Inside",
-                                                color = if (isPassedOver) Color(0xFFD97706) else Color(0xFF00838F),
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 12.5.sp
-                                            )
-                                        }
-                                    } else if (item.status == "inside") {
-                                        val isDiag = isDiagnosticClinic(currentClinic, item)
-                                        Button(
-                                            onClick = {
-                                                handleMarkDoneAction(item)
-                                            },
-                                            shape = RoundedCornerShape(10.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = if (isDiag) Color(0xFF0F4C81) else Color(0xFF059669)),
-                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = if (isDiag) Icons.Default.Biotech else Icons.Default.Check,
-                                                contentDescription = null,
-                                                tint = Color.White,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = if (isDiag) "Mark Done (Processing)" else "Mark Done",
-                                                color = Color.White,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 12.5.sp
-                                            )
-                                        }
-                                    } else {
-                                        OutlinedButton(
-                                            onClick = {
-                                                navController.navigate("${NavRoutes.PatientDetail}/${item.appointmentId}")
-                                            },
-                                            shape = RoundedCornerShape(10.dp),
-                                            border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                                        ) {
-                                            Text(
-                                                "View Details",
-                                                color = Color(0xFF475569),
-                                                fontWeight = FontWeight.Medium,
-                                                fontSize = 12.sp
-                                            )
+                                        // Right Action Button
+                                        if (item.status == "waiting") {
+                                            val activeInside = queueItems.firstOrNull { it.status == "inside" }
+                                            val isPassedOver = activeInside != null && activeInside.queuePosition > item.queuePosition
+
+                                            OutlinedButton(
+                                                onClick = {
+                                                    optimisticallyUpdateStatus(item.id, "inside")
+                                                    coroutineScope.launch {
+                                                        queueRepository?.updateQueueStatus(item.id, "inside", effectiveClinicId)
+                                                        loadQueue()
+                                                    }
+                                                },
+                                                modifier = Modifier.heightIn(min = 38.dp),
+                                                shape = RoundedCornerShape(10.dp),
+                                                border = BorderStroke(1.dp, if (isPassedOver) Color(0xFFD97706) else Color(0xFF00838F)),
+                                                colors = ButtonDefaults.outlinedButtonColors(
+                                                    containerColor = if (isPassedOver) Color(0xFFFFFBEB) else Color.Transparent
+                                                ),
+                                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                                            ) {
+                                                Icon(
+                                                    if (isPassedOver) Icons.Default.PriorityHigh else Icons.Default.NearMe,
+                                                    contentDescription = null,
+                                                    tint = if (isPassedOver) Color(0xFFD97706) else Color(0xFF00838F),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = if (isPassedOver) "Arrived (Take Next)" else if (index == 0) "Next to enter" else "Call Inside",
+                                                    color = if (isPassedOver) Color(0xFFD97706) else Color(0xFF00838F),
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.5.sp,
+                                                    maxLines = 1,
+                                                    softWrap = false,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        } else if (item.status == "inside") {
+                                            Button(
+                                                onClick = {
+                                                    handleMarkDoneAction(item)
+                                                },
+                                                modifier = Modifier.heightIn(min = 38.dp),
+                                                shape = RoundedCornerShape(10.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = null,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "Mark Done",
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.5.sp,
+                                                    maxLines = 1,
+                                                    softWrap = false
+                                                )
+                                            }
+                                        } else {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    navController.navigate("${NavRoutes.PatientDetail}/${item.appointmentId}")
+                                                },
+                                                modifier = Modifier.heightIn(min = 38.dp),
+                                                shape = RoundedCornerShape(10.dp),
+                                                border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                            ) {
+                                                Text(
+                                                    text = "View Details",
+                                                    color = Color(0xFF475569),
+                                                    fontWeight = FontWeight.Medium,
+                                                    fontSize = 12.sp,
+                                                    maxLines = 1,
+                                                    softWrap = false
+                                                )
+                                            }
                                         }
                                     }
                                 }
 
                                 // Expanded Drawer for Call Inside / Mark Done, Send Alert, Chart / Bill, and No-Show
                                 AnimatedVisibility(visible = expandedItemId == item.id) {
-                                    Column(
+                                    Surface(
+                                        color = Color(0xFFF8FAFC),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(top = 12.dp)
-                                            .background(Color(0xFFF8FAFC), RoundedCornerShape(12.dp))
-                                            .padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
-                                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            // Token Badge + Direct Phone Dialer Button (no duplicate demographic text)
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
                                                 Surface(
                                                     color = Color(0xFFDBEAFE),
                                                     shape = RoundedCornerShape(6.dp)
@@ -2057,273 +2261,353 @@ fun QueueBoardScreen(
                                                         fontSize = 12.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = Color(0xFF1D4ED8),
-                                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                                        maxLines = 1,
+                                                        softWrap = false,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                                     )
                                                 }
-                                                Text(
-                                                    text = "Phone: ${cleanPhoneNumber(item.patientMobile)}",
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = Color(0xFF0F172A)
-                                                )
-                                                Text(
-                                                    text = "Age: ${if (item.patientAge > 0) "${item.patientAge} yrs" else "N/A"} \u2022 Gender: ${item.patientGender.ifBlank { "N/A" }}",
-                                                    fontSize = 11.5.sp,
-                                                    color = Color(0xFF64748B)
-                                                )
-                                            }
 
-                                            // Direct Phone Call Button
-                                            if (item.patientMobile.isNotBlank()) {
-                                                Button(
-                                                    onClick = {
-                                                        try {
-                                                            val cleanDigits = item.patientMobile.filter { it.isDigit() || it == '+' }
-                                                            val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$cleanDigits"))
-                                                            context.startActivity(dialIntent)
-                                                        } catch (e: Exception) {
-                                                            e.printStackTrace()
-                                                        }
-                                                    },
-                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                                                ) {
-                                                    Icon(Icons.Default.Phone, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text("Call Patient", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                                if (item.patientMobile.isNotBlank()) {
+                                                    Button(
+                                                        onClick = {
+                                                            try {
+                                                                val cleanDigits = item.patientMobile.filter { it.isDigit() || it == '+' }
+                                                                val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$cleanDigits"))
+                                                                context.startActivity(dialIntent)
+                                                            } catch (e: Exception) {
+                                                                e.printStackTrace()
+                                                            }
+                                                        },
+                                                        modifier = Modifier.heightIn(min = 36.dp),
+                                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.Phone, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                                                        Spacer(modifier = Modifier.width(5.dp))
+                                                        Text(
+                                                            text = "Call Patient",
+                                                            color = Color.White,
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            maxLines = 1,
+                                                            softWrap = false
+                                                        )
+                                                    }
                                                 }
                                             }
-                                        }
 
-                                        Divider(color = Color(0xFFE2E8F0), thickness = 1.dp)
+                                            Divider(color = Color(0xFFE2E8F0), thickness = 1.dp)
 
-                                        // Position Reorder Controls (Move Up, Move Down, Emergency #1)
-                                        if (selectedQueueTab == 0 && item.status == "waiting") {
+                                            // Position Reorder Controls (Move Up, Move Down, Emergency #1)
+                                            if (selectedQueueTab == 0 && item.status == "waiting") {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    OutlinedButton(
+                                                        onClick = { moveItemOneStep(item, -1) },
+                                                        enabled = index > 0,
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .heightIn(min = 36.dp),
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.ArrowUpward, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                        Spacer(modifier = Modifier.width(3.dp))
+                                                        Text(
+                                                            text = "Move Up",
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            maxLines = 1,
+                                                            softWrap = false,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+
+                                                    OutlinedButton(
+                                                        onClick = { moveItemOneStep(item, 1) },
+                                                        enabled = index < liveQueue.size - 1,
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .heightIn(min = 36.dp),
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.ArrowDownward, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                        Spacer(modifier = Modifier.width(3.dp))
+                                                        Text(
+                                                            text = "Move Down",
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            maxLines = 1,
+                                                            softWrap = false,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+
+                                                    OutlinedButton(
+                                                        onClick = { moveItemToPosition(item, 1) },
+                                                        enabled = index > 0,
+                                                        modifier = Modifier
+                                                            .weight(1.15f)
+                                                            .heightIn(min = 36.dp),
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFDC2626)),
+                                                        border = BorderStroke(1.dp, Color(0xFFFCA5A5)),
+                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
+                                                    ) {
+                                                        Icon(Icons.Default.PriorityHigh, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                        Spacer(modifier = Modifier.width(2.dp))
+                                                        Text(
+                                                            text = "Emergency #1",
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            maxLines = 1,
+                                                            softWrap = false,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            // Primary Workflow & Desk Payment Actions
+                                            val showMarkPaid = item.paymentMode == "PAY_AT_DESK" && item.paymentStatus != "paid"
+                                            val showMarkPaidInline = showMarkPaid && !(item.status == "inside" && isDiagItem)
+                                            val onCollectDeskPayment: () -> Unit = {
+                                                coroutineScope.launch {
+                                                    val res = appointmentRepository?.markPaymentCollectedAtDesk(item.appointmentId)
+                                                    if (res?.isSuccess == true) {
+                                                        notificationSentMessage = "✓ Collected NPR ${item.totalAmount.toInt()} at desk for ${item.patientName}!"
+                                                        loadQueue()
+                                                    }
+                                                }
+                                            }
+
+                                            if (item.status == "waiting" || item.status == "inside") {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    if (item.status == "waiting") {
+                                                        Button(
+                                                            onClick = {
+                                                                optimisticallyUpdateStatus(item.id, "inside")
+                                                                coroutineScope.launch {
+                                                                    queueRepository?.updateQueueStatus(item.id, "inside", effectiveClinicId)
+                                                                    val docName = item.doctorName?.takeIf { it.isNotBlank() } ?: "Attending Physician"
+                                                                    queueRepository?.notifyCallInside(
+                                                                        appointmentId = item.appointmentId,
+                                                                        patientName = item.patientName,
+                                                                        doctorName = docName,
+                                                                        trackingCode = item.trackingCode
+                                                                    )
+                                                                    notificationSentMessage = "🔔 Called ${item.patientName} inside (push alert dispatched)."
+                                                                    loadQueue()
+                                                                }
+                                                            },
+                                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00838F)),
+                                                            modifier = Modifier
+                                                                .weight(1f)
+                                                                .heightIn(min = 40.dp),
+                                                            shape = RoundedCornerShape(8.dp),
+                                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                                        ) {
+                                                            Icon(Icons.Default.NearMe, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                                                            Spacer(modifier = Modifier.width(5.dp))
+                                                            Text(
+                                                                text = "Call Inside",
+                                                                fontSize = 12.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = Color.White,
+                                                                maxLines = 1,
+                                                                softWrap = false
+                                                            )
+                                                        }
+                                                    } else {
+                                                        Button(
+                                                            onClick = {
+                                                                handleMarkDoneAction(item)
+                                                            },
+                                                            colors = ButtonDefaults.buttonColors(containerColor = if (isDiagItem) Color(0xFF0F4C81) else Color(0xFF059669)),
+                                                            modifier = Modifier
+                                                                .weight(1f)
+                                                                .heightIn(min = 40.dp),
+                                                            shape = RoundedCornerShape(8.dp),
+                                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                                        ) {
+                                                            Icon(if (isDiagItem) Icons.Default.Biotech else Icons.Default.Check, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                            Spacer(modifier = Modifier.width(5.dp))
+                                                            Text(
+                                                                text = if (isDiagItem) "Mark Done (Processing)" else "Mark Done",
+                                                                fontSize = 12.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                maxLines = 1,
+                                                                softWrap = false,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                        }
+                                                    }
+
+                                                    if (showMarkPaidInline) {
+                                                        Button(
+                                                            onClick = onCollectDeskPayment,
+                                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                                                            modifier = Modifier
+                                                                .weight(1f)
+                                                                .heightIn(min = 40.dp),
+                                                            shape = RoundedCornerShape(8.dp),
+                                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                                        ) {
+                                                            Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(15.dp), tint = Color.White)
+                                                            Spacer(modifier = Modifier.width(5.dp))
+                                                            Text(
+                                                                text = "Mark Paid",
+                                                                fontSize = 12.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = Color.White,
+                                                                maxLines = 1,
+                                                                softWrap = false
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            if (showMarkPaid && !showMarkPaidInline) {
+                                                Button(
+                                                    onClick = onCollectDeskPayment,
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .heightIn(min = 38.dp),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(15.dp), tint = Color.White)
+                                                    Spacer(modifier = Modifier.width(5.dp))
+                                                    Text(
+                                                        text = "Mark Paid (NPR ${item.totalAmount.toInt()})",
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.White,
+                                                        maxLines = 1,
+                                                        softWrap = false
+                                                    )
+                                                }
+                                            }
+
+                                            // Secondary Actions Row 1: Bill + Chart
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                verticalAlignment = Alignment.CenterVertically
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
-                                                OutlinedButton(
-                                                    onClick = { moveItemOneStep(item, -1) },
-                                                    enabled = index > 0,
-                                                    modifier = Modifier.weight(1f),
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
-                                                ) {
-                                                    Icon(Icons.Default.ArrowUpward, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                    Spacer(modifier = Modifier.width(3.dp))
-                                                    Text("Move Up", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                                                }
-
-                                                OutlinedButton(
-                                                    onClick = { moveItemOneStep(item, 1) },
-                                                    enabled = index < liveQueue.size - 1,
-                                                    modifier = Modifier.weight(1f),
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
-                                                ) {
-                                                    Icon(Icons.Default.ArrowDownward, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                    Spacer(modifier = Modifier.width(3.dp))
-                                                    Text("Move Down", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                                                }
-
-                                                OutlinedButton(
-                                                    onClick = { moveItemToPosition(item, 1) },
-                                                    enabled = index > 0,
-                                                    modifier = Modifier.weight(1.1f),
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFDC2626)),
-                                                    border = BorderStroke(1.dp, Color(0xFFFCA5A5)),
-                                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
-                                                ) {
-                                                    Icon(Icons.Default.PriorityHigh, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                    Spacer(modifier = Modifier.width(2.dp))
-                                                    Text("Emergency #1", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                }
-                                            }
-                                        }
-
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            // Primary status action inside expanded drawer ("Call Inside" or "Mark Done")
-                                            if (item.status == "waiting") {
-                                                Button(
+                                                QueueDrawerActionButton(
+                                                    label = "Bill",
+                                                    icon = Icons.Default.Receipt,
                                                     onClick = {
-                                                        optimisticallyUpdateStatus(item.id, "inside")
-                                                        coroutineScope.launch {
-                                                            queueRepository?.updateQueueStatus(item.id, "inside", effectiveClinicId)
-                                                            val docName = item.doctorName?.takeIf { it.isNotBlank() } ?: "Attending Physician"
-                                                            queueRepository?.notifyCallInside(
-                                                                appointmentId = item.appointmentId,
-                                                                patientName = item.patientName,
-                                                                doctorName = docName,
-                                                                trackingCode = item.trackingCode
-                                                            )
-                                                            notificationSentMessage = "🔔 Called ${item.patientName} inside (push alert dispatched)."
-                                                            loadQueue()
-                                                        }
-                                                    },
-                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00838F)),
-                                                    modifier = Modifier.weight(1.1f),
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
-                                                ) {
-                                                    Text("Call Inside", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                                                }
-                                            } else if (item.status == "inside") {
-                                                val isDiag = isDiagnosticClinic(currentClinic, item)
-                                                Button(
-                                                    onClick = {
-                                                        handleMarkDoneAction(item)
-                                                    },
-                                                    colors = ButtonDefaults.buttonColors(containerColor = if (isDiag) Color(0xFF0F4C81) else Color(0xFF059669)),
-                                                    modifier = Modifier.weight(1.1f),
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
-                                                ) {
-                                                    Icon(if (isDiag) Icons.Default.Biotech else Icons.Default.Check, contentDescription = null, modifier = Modifier.size(15.dp))
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text(if (isDiag) "Mark Done (Processing)" else "Mark Done", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                                                }
-                                            }
-
-                                            // Pay at Desk Counter Collection Action
-                                            if (item.paymentMode == "PAY_AT_DESK" && item.paymentStatus != "paid") {
-                                                Button(
-                                                    onClick = {
-                                                        coroutineScope.launch {
-                                                            val res = appointmentRepository?.markPaymentCollectedAtDesk(item.appointmentId)
-                                                            if (res?.isSuccess == true) {
-                                                                notificationSentMessage = "✓ Collected NPR ${item.totalAmount.toInt()} at desk for ${item.patientName}!"
-                                                                loadQueue()
-                                                            }
-                                                        }
-                                                    },
-                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
-                                                    modifier = Modifier.weight(1.1f),
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
-                                                ) {
-                                                    Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.White)
-                                                    Spacer(modifier = Modifier.width(3.dp))
-                                                    Text("Mark Paid", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                                                }
-                                            }
-
-                                            // Direct Billing Shortcut
-                                            OutlinedButton(
-                                                onClick = {
-                                                    navController.navigate("${NavRoutes.BillingScreen}/${item.appointmentId}")
-                                                },
-                                                modifier = Modifier.weight(0.9f),
-                                                shape = RoundedCornerShape(8.dp),
-                                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF00796B)),
-                                                border = BorderStroke(1.dp, Color(0xFF80CBC4)),
-                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
-                                            ) {
-                                                Icon(Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFF00796B))
-                                                Spacer(modifier = Modifier.width(3.dp))
-                                                Text("Bill", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF00796B))
-                                            }
-
-                                            // Patient Chart Shortcut
-                                            OutlinedButton(
-                                                onClick = {
-                                                    navController.navigate("${NavRoutes.PatientDetail}/${item.appointmentId}")
-                                                },
-                                                modifier = Modifier.weight(0.9f),
-                                                shape = RoundedCornerShape(8.dp),
-                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
-                                            ) {
-                                                Icon(Icons.Default.MedicalInformation, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                Spacer(modifier = Modifier.width(3.dp))
-                                                Text("Chart", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                                            }
-
-                                            // Send Alert Notification Button
-                                            if (item.status !in completedStatuses) {
-                                                OutlinedButton(
-                                                    onClick = {
-                                                        coroutineScope.launch {
-                                                            val pos = index + 1
-                                                            val peopleAheadCount = liveQueue.take(index).count { it.status == "inside" || it.status == "waiting" }
-                                                            val targetRaw = rawQueueEntries.find { it.id == item.id }
-                                                            val timing = QueueRepository.calculateLiveQueueTimingEstimate(
-                                                                clinic = currentClinic?.copy(isOnBreak = isClinicOnBreak),
-                                                                isDoctorInClinic = true,
-                                                                allClinicQueueEntries = rawQueueEntries,
-                                                                targetEntry = targetRaw,
-                                                                fallbackPatientsAhead = peopleAheadCount,
-                                                                appointmentTime = item.appointmentTime,
-                                                                optInEarlyCall = item.optInEarlyCall
-                                                            )
-                                                            val isFirstPos = (pos == 1) || (peopleAheadCount == 0)
-                                                            val alertTitle = "Your Turn is Coming Soon!"
-                                                            val alertBody = when {
-                                                                item.status == "inside" -> "You are currently called inside (Position 1). Please proceed to the consultation room."
-                                                                isFirstPos -> "You are at position 1. You are next in line \u2014 please be ready at the consultation room!"
-                                                                peopleAheadCount == 1 -> "You are at position $pos. Only 1 person is ahead of you in the queue."
-                                                                else -> "You are at position $pos. Only $peopleAheadCount people are ahead of you in the queue."
-                                                            }
-                                                            val rightTimeText = when {
-                                                                isFirstPos -> "Your turn, arrive fast"
-                                                                timing.expectedExactTimeText.isNotBlank() &&
-                                                                timing.expectedExactTimeText != "Wait a few moments" -> timing.expectedExactTimeText
-                                                                else -> item.appointmentTime.ifBlank { "Soon, be ready" }
-                                                            }
-                                                            val leftTimeText = when {
-                                                                isFirstPos -> "Arrive Fast"
-                                                                else -> timing.estimatedTimeLeftText.ifBlank { "Soon, be ready" }
-                                                            }
-                                                            val sentOk = queueRepository?.sendManualNotification(
-                                                                appointmentId = item.appointmentId,
-                                                                title = alertTitle,
-                                                                message = alertBody,
-                                                                trackingCode = item.trackingCode,
-                                                                estimatedTimeLeft = leftTimeText,
-                                                                expectedTime = rightTimeText,
-                                                                leftLabel = "Estimated Time",
-                                                                rightLabel = if (isFirstPos) "Turn Status" else "Your Appointment"
-                                                            ) ?: false
-                                                            notificationSentMessage = if (sentOk) {
-                                                                "✓ Push alert sent to ${item.patientName} (Pos #$pos)."
-                                                            } else {
-                                                                "⚠ Could not deliver push alert for ${item.patientName}. Please retry."
-                                                            }
-                                                        }
+                                                        navController.navigate("${NavRoutes.BillingScreen}/${item.appointmentId}")
                                                     },
                                                     modifier = Modifier.weight(1f),
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
-                                                ) {
-                                                    Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(15.dp))
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text("Send Alert", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
-                                                }
+                                                    contentColor = Color(0xFF00796B),
+                                                    borderColor = Color(0xFF80CBC4)
+                                                )
+                                                QueueDrawerActionButton(
+                                                    label = "Chart",
+                                                    icon = Icons.Default.MedicalInformation,
+                                                    onClick = {
+                                                        navController.navigate("${NavRoutes.PatientDetail}/${item.appointmentId}")
+                                                    },
+                                                    modifier = Modifier.weight(1f)
+                                                )
                                             }
 
-
-                                            // No Show Button
-                                            if (item.status == "waiting") {
-                                                OutlinedButton(
-                                                    onClick = {
-                                                        optimisticallyUpdateStatus(item.id, "no_show")
-                                                        coroutineScope.launch {
-                                                            queueRepository?.updateQueueStatus(item.id, "no_show", effectiveClinicId)
-                                                            loadQueue()
-                                                        }
-                                                    },
-                                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFDC2626)),
-                                                    border = BorderStroke(1.dp, Color(0xFFFCA5A5)),
-                                                    modifier = Modifier.weight(0.9f),
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp)
+                                            // Secondary Actions Row 2: Send Alert + No Show
+                                            val canSendAlert = item.status !in allFinishedStatuses
+                                            val canMarkNoShow = item.status == "waiting"
+                                            if (canSendAlert || canMarkNoShow) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                                 ) {
-                                                    Text("No Show", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                                                    if (canSendAlert) {
+                                                        QueueDrawerActionButton(
+                                                            label = "Send Alert",
+                                                            icon = Icons.Default.Notifications,
+                                                            onClick = {
+                                                                coroutineScope.launch {
+                                                                    val pos = index + 1
+                                                                    val peopleAheadCount = liveQueue.take(index).count { it.status == "inside" || it.status == "waiting" }
+                                                                    val targetRaw = rawQueueEntries.find { it.id == item.id }
+                                                                    val timing = QueueRepository.calculateLiveQueueTimingEstimate(
+                                                                        clinic = currentClinic?.copy(isOnBreak = isClinicOnBreak),
+                                                                        isDoctorInClinic = true,
+                                                                        allClinicQueueEntries = rawQueueEntries,
+                                                                        targetEntry = targetRaw,
+                                                                        fallbackPatientsAhead = peopleAheadCount,
+                                                                        appointmentTime = item.appointmentTime,
+                                                                        optInEarlyCall = item.optInEarlyCall
+                                                                    )
+                                                                    val isFirstPos = (pos == 1) || (peopleAheadCount == 0)
+                                                                    val alertTitle = "Your Turn is Coming Soon!"
+                                                                    val alertBody = when {
+                                                                        item.status == "inside" -> "You are currently called inside (Position 1). Please proceed to the consultation room."
+                                                                        isFirstPos -> "You are at position 1. You are next in line \u2014 please be ready at the consultation room!"
+                                                                        peopleAheadCount == 1 -> "You are at position $pos. Only 1 person is ahead of you in the queue."
+                                                                        else -> "You are at position $pos. Only $peopleAheadCount people are ahead of you in the queue."
+                                                                    }
+                                                                    val rightTimeText = when {
+                                                                        isFirstPos -> "Your turn, arrive fast"
+                                                                        timing.expectedExactTimeText.isNotBlank() &&
+                                                                        timing.expectedExactTimeText != "Wait a few moments" -> timing.expectedExactTimeText
+                                                                        else -> item.appointmentTime.ifBlank { "Soon, be ready" }
+                                                                    }
+                                                                    val leftTimeText = when {
+                                                                        isFirstPos -> "Arrive Fast"
+                                                                        else -> timing.estimatedTimeLeftText.ifBlank { "Soon, be ready" }
+                                                                    }
+                                                                    val sentOk = queueRepository?.sendManualNotification(
+                                                                        appointmentId = item.appointmentId,
+                                                                        title = alertTitle,
+                                                                        message = alertBody,
+                                                                        trackingCode = item.trackingCode,
+                                                                        estimatedTimeLeft = leftTimeText,
+                                                                        expectedTime = rightTimeText,
+                                                                        leftLabel = "Estimated Time",
+                                                                        rightLabel = if (isFirstPos) "Turn Status" else "Your Appointment"
+                                                                    ) ?: false
+                                                                    notificationSentMessage = if (sentOk) {
+                                                                        "✓ Push alert sent to ${item.patientName} (Pos #$pos)."
+                                                                    } else {
+                                                                        "⚠ Could not deliver push alert for ${item.patientName}. Please retry."
+                                                                    }
+                                                                }
+                                                            },
+                                                            modifier = Modifier.weight(1f),
+                                                            contentColor = Color(0xFF1D4ED8),
+                                                            borderColor = Color(0xFFBFDBFE)
+                                                        )
+                                                    }
+
+                                                    if (canMarkNoShow) {
+                                                        QueueDrawerActionButton(
+                                                            label = "No Show",
+                                                            icon = Icons.Default.PersonOff,
+                                                            onClick = {
+                                                                optimisticallyUpdateStatus(item.id, "no_show")
+                                                                coroutineScope.launch {
+                                                                    queueRepository?.updateQueueStatus(item.id, "no_show", effectiveClinicId)
+                                                                    loadQueue()
+                                                                }
+                                                            },
+                                                            modifier = Modifier.weight(1f),
+                                                            contentColor = Color(0xFFDC2626),
+                                                            borderColor = Color(0xFFFCA5A5)
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
@@ -2569,4 +2853,43 @@ fun QueueBoardScreen(
     }
 
 }
+}
+
+/**
+ * Uniform single-line secondary action button for the expanded queue card drawer.
+ */
+@Composable
+private fun QueueDrawerActionButton(
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    contentColor: Color = Color(0xFF334155),
+    borderColor: Color = Color(0xFFCBD5E1)
+) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier.heightIn(min = 38.dp),
+        shape = RoundedCornerShape(8.dp),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = contentColor),
+        border = BorderStroke(1.dp, borderColor),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = contentColor,
+            modifier = Modifier.size(15.dp)
+        )
+        Spacer(modifier = Modifier.width(5.dp))
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = contentColor,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
 }
