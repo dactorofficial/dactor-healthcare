@@ -1448,3 +1448,24 @@ This file tracks user prompts and the exact changes applied across the codebase,
    - Added `Asia/Kathmandu` `todayStr`, `parseSlotTimeMinutes`, and `classifyActiveAppointment`.
    - Updated `filteredAppointments` (`appointmentFilter === 'active'`) to exclude completed and cancelled appointments (keeping them in Records / Past & History), retain missed appointments within 7 days, and sort active appointments as: **(1) Today's active / in-progress lab (by time)** -> **(2) Missed appointments (by date & time)** -> **(3) Upcoming appointments (by date & time)**.
    - Updated active appointment card status badge in `PatientPortal.tsx` to display `"Missed Appointment"` for missed slots.
+
+
+---
+
+### Prompt:
+> "Generate aab for patient"
+
+#### Changes Applied:
+1. **Patient App Version Increment ([`build.gradle.kts`](file:///g:/My%20Drive/New%20folder/patient-app/app/build.gradle.kts))**:
+   - Incremented `versionCode` from `137` to `138` (+1).
+   - Incremented `versionName` from `"1.0.37"` to `"1.0.38"`.
+
+2. **Kotlin Release Compilation Fix ([`PaymentScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/booking/PaymentScreen.kt))**:
+   - Moved `serviceCharge` and `totalAtDesk` declarations above `handleCancelOrExpireTransaction` so `totalAtDesk` is in scope for Pay at Desk failed/cancelled transaction logging.
+
+3. **Production Signed AAB Generation & Multi-Destination Staging ([`build_patient_bundle_ssd.ps1`](file:///g:/My%20Drive/New%20folder/build_patient_bundle_ssd.ps1))**:
+   - Built and signed `Dactor-PatientApp-v1.0.38.aab` (`16.73 MB` / `17,540,750 bytes`) using release upload key `dactor-upload.jks`.
+   - Staged bundle across `AABs/Dactor-PatientApp-v1.0.38.aab`, `AABs/Dactor-PatientApp-v138.aab`, `AABs/Dactor-PatientApp-release.aab`, `APKs/Dactor-PatientApp-v1.0.38.aab`, `APKs/Dactor-PatientApp-release.aab`, `PlayStore/patient-app/Dactor-PatientApp-v1.0.38.aab`, and `C:\Users\nitup\Dactor-APKs\Dactor-PatientApp-v1.0.38.aab`.
+
+4. **Version Registry Update ([`HANDOFF.md`](file:///g:/My%20Drive/New%20folder/HANDOFF.md))**:
+   - Updated Executive Summary and Version Registry table with Patient App `v1.0.38` (`Code 138`) release metadata and bundle path.

@@ -66,6 +66,8 @@ fun PaymentScreen(
     var clinicGatewaysConfig by remember { mutableStateOf(PaymentGatewaysConfig()) }
     var serverPaymentMethods by remember { mutableStateOf<List<PublicPaymentMethod>>(emptyList()) }
     var effectiveFee by remember { mutableDoubleStateOf(feeAmount) }
+    val serviceCharge = Math.round(effectiveFee * (com.dactor.patient.data.repository.PAY_AT_DESK_SERVICE_CHARGE_PERCENT / 100.0) * 100.0) / 100.0
+    val totalAtDesk = effectiveFee + serviceCharge
 
     // 2-Phase Reservation Setup
     var activeSession by remember { mutableStateOf(sessionManager?.getActivePaymentSession()) }
@@ -317,8 +319,6 @@ fun PaymentScreen(
         }
     }
 
-    val serviceCharge = Math.round(effectiveFee * (com.dactor.patient.data.repository.PAY_AT_DESK_SERVICE_CHARGE_PERCENT / 100.0) * 100.0) / 100.0
-    val totalAtDesk = effectiveFee + serviceCharge
 
     fun handleConfirmPayAtDesk() {
         if (isProcessing || isCancelling) return
