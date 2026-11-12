@@ -13,6 +13,7 @@ This file tracks user prompts and the exact changes applied across the codebase,
 1. **Live Supabase Verification & Trigger Wildcard Fix ([`migration_fix_patient_bills_and_payment_logs_5pct.sql`](file:///g:/My%20Drive/New%20folder/supabase/migration_fix_patient_bills_and_payment_logs_5pct.sql))**:
    - Verified against live Supabase (`ojfoofojcpabqegxmsab.supabase.co`): `invoice_transactions.reference_id` and `category` columns exist (`HTTP 200`), `mark_pay_at_desk_collected` RPC executes cleanly, `29/29` `PAY_AT_DESK` appointments have consistent `fee + 5%` totals, and `billing_invoices` row `8dbb6fe6-fb1c-4889-98d7-2e02a23a8bc6` (`fee=450`) had `total_amount` upgraded to `472.5`.
    - Caught and fixed a PostgreSQL `LIKE '%5%%'` unescaped-wildcard bug inside `enforce_pay_at_desk_invoice_totals()` where any digit `5` in UUIDs or prices matched `'5%%'` and skipped splitting single combined items (`472.5`) into `OPD Consultation Fee` (`450`) + `Pay at Desk Service Charge (5%)` (`22.5`). Scoped the check strictly to item name fields and escaped literal `%` (`LIKE '%5\%%' ESCAPE '\'`).
+   - Re-verified live Supabase after re-running the migration (`2026-11-12T07:31:50Z`): `8dbb6fe6-fb1c-4889-98d7-2e02a23a8bc6` now stores `total_amount = 472.5` with itemized lines `OPD Consultation Fee` (`450`) and `Pay at Desk Service Charge (5%)` (`22.5`), `29/29` `PAY_AT_DESK` appointments have consistent totals, `invoice_transactions` exposes `reference_id` and `category` (`HTTP 200`), and `mark_pay_at_desk_collected` RPC executes cleanly.
 
 ---
 
