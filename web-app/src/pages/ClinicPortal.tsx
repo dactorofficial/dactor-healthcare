@@ -104,6 +104,8 @@ import {
   OnlineGatewayId,
   ClinicGatewaySetupStatus,
   getEffectiveAppointmentTotal,
+  getEffectiveInvoiceItems,
+  getEffectiveInvoiceTotal,
   getEffectiveServiceCharge,
 } from '../types'
 import {
@@ -3170,10 +3172,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       const existing = await getInvoiceForAppointment(appt.id)
       if (existing) {
         if (existing.items && existing.items.length > 0) {
+          const normalizedItems = getEffectiveInvoiceItems(appt, existing.items)
           setBillItems(
-            existing.items.map((it, idx) => ({
-              id: it.id || `item_${idx}`,
-              name: it.name || it.itemName || 'Clinical Service',
+            normalizedItems.map((it, idx) => ({
+              id: `item_${idx}`,
+              name: it.name,
               price: Number(it.price || 0),
               quantity: Number(it.quantity || 1),
             }))
@@ -3210,11 +3213,20 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           }
         }
 
-        const parsedLogs = parsePaymentRecords(existing.remarks, existing.paidAmount, existing.paidAt)
+        const calcTotal = Math.max(getEffectiveInvoiceTotal(appt, existing), 500)
+        const calcPaid =
+          existing.paymentStatus === 'paid' || appt.paymentStatus === 'paid'
+            ? Math.max(Number(existing.paidAmount || 0), calcTotal)
+            : Number(existing.paidAmount || 0)
+        const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
+        const rawLogs = parsePaymentRecords(existing.remarks, calcPaid, existing.paidAt)
+        const parsedLogs =
+          isPad && rawLogs.length === 1 && calcPaid >= calcTotal && rawLogs[0].amount < calcTotal
+            ? [{ ...rawLogs[0], amount: calcTotal }]
+            : rawLogs
         setBillPaymentRecords(parsedLogs)
-        const calcTotal = Math.max(Number(existing.totalAmount || 0), getEffectiveAppointmentTotal(appt) || 500)
         setBillTotalAmount(String(calcTotal))
-        setBillPaidAmount(String(existing.paidAmount || 0))
+        setBillPaidAmount(String(calcPaid))
         setBillRemarks(extractCleanClinicalRemarks(existing.remarks) || appt.notes || '')
       } else {
         const baseFee = Number(appt.feeAmount) || 500

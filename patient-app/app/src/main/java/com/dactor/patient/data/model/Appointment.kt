@@ -54,4 +54,79 @@ data class Appointment(
             totalAmount > 0.0 -> totalAmount
             else -> feeAmount
         }
+
+    fun effectiveTotalForInvoice(inv: BillingInvoice?, fallbackFee: Double = 0.0): Double {
+        val apptTotal = if (effectiveTotalAmount > 0.0) effectiveTotalAmount else fallbackFee
+        val invTotal = inv?.totalAmount ?: 0.0
+        return when {
+            isPayAtDesk -> maxOf(invTotal, apptTotal)
+            invTotal > 0.0 -> invTotal
+            else -> apptTotal
+        }
+    }
+
+    fun effectivePaidForInvoice(inv: BillingInvoice?, totalBill: Double = effectiveTotalForInvoice(inv)): Double {
+        val invPaid = inv?.effectivePaidAmount ?: 0.0
+        val isPaid = inv?.paymentStatus.equals("paid", ignoreCase = true) ||
+            paymentStatus.equals("paid", ignoreCase = true)
+        return when {
+            isPaid -> maxOf(invPaid, totalBill)
+            inv != null -> invPaid
+            else -> 0.0
+        }
+    }
+
+    fun effectiveItemsForInvoice(
+        inv: BillingInvoice?,
+        fallbackDate: String = appointmentDate,
+        fallbackTotal: Double = effectiveTotalForInvoice(inv)
+    ): List<InvoiceItem> {
+        val existing = (inv?.items ?: emptyList()).filterNot {
+            it.itemName.lowercase().startsWith("payment received")
+        }
+        val deskCharge = effectiveServiceCharge
+        val dateLabel = appointmentDate.ifBlank { fallbackDate }
+        if (existing.isNotEmpty()) {
+            if (isPayAtDesk && deskCharge > 0.0) {
+                val hasServiceCharge = existing.any {
+                    val lower = it.itemName.lowercase()
+                    lower.contains("service charge") || lower.contains("5%") || lower.contains("+5%")
+                }
+                if (!hasServiceCharge) {
+                    return existing + InvoiceItem(
+                        itemName = "Pay at Desk Service Charge (5%)",
+                        quantity = 1,
+                        price = deskCharge,
+                        total = deskCharge
+                    )
+                }
+            }
+            return existing
+        }
+        return if (isPayAtDesk && deskCharge > 0.0) {
+            listOf(
+                InvoiceItem(
+                    itemName = if (dateLabel.isNotBlank()) "OPD Consultation Fee ($dateLabel)" else "OPD Consultation Fee",
+                    quantity = 1,
+                    price = feeAmount,
+                    total = feeAmount
+                ),
+                InvoiceItem(
+                    itemName = "Pay at Desk Service Charge (5%)",
+                    quantity = 1,
+                    price = deskCharge,
+                    total = deskCharge
+                )
+            )
+        } else {
+            listOf(
+                InvoiceItem(
+                    itemName = if (dateLabel.isNotBlank()) "Consultation Fee ($dateLabel)" else "Consultation Fee",
+                    quantity = 1,
+                    price = fallbackTotal,
+                    total = fallbackTotal
+                )
+            )
+        }
+    }
 }

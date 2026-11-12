@@ -1,4 +1,9 @@
-import { Appointment, BillingInvoice, getEffectiveAppointmentTotal, getEffectiveServiceCharge } from '../types'
+import {
+  Appointment,
+  BillingInvoice,
+  getEffectiveInvoiceItems,
+  getEffectiveInvoiceTotal,
+} from '../types'
 import { parsePaymentRecords, extractCleanClinicalRemarks } from './paymentLedger'
 import { getInvoiceForAppointment } from '../services/db'
 import { escapeHtml } from './html'
@@ -24,49 +29,24 @@ export async function printAppointmentBill(appt: Appointment, invoice?: BillingI
       console.warn('Could not load invoice for printAppointmentBill', e)
     }
   }
-  const apptTotalWithFee = getEffectiveAppointmentTotal(appt)
-  const effectiveTotal = inv?.totalAmount && inv.totalAmount > 0 ? Math.max(inv.totalAmount, apptTotalWithFee) : apptTotalWithFee
-  const effectivePaid = inv ? (inv.paidAmount ?? (inv.paymentStatus === 'paid' ? effectiveTotal : 0)) : (appt.paymentStatus === 'paid' ? effectiveTotal : 0)
+  const effectiveTotal = getEffectiveInvoiceTotal(appt, inv)
+  const rawPaid = inv ? Number(inv.paidAmount || 0) : 0
+  const effectivePaid =
+    inv?.paymentStatus === 'paid' || appt.paymentStatus === 'paid'
+      ? Math.max(rawPaid, effectiveTotal)
+      : rawPaid
   const effectiveBalance = Math.max(0, effectiveTotal - effectivePaid)
   const isPaid = effectiveBalance <= 0 && effectiveTotal > 0
 
-  const paymentLogs = parsePaymentRecords(inv?.remarks, effectivePaid, inv?.paidAt)
+  const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
+  const rawPaymentLogs = parsePaymentRecords(inv?.remarks, effectivePaid, inv?.paidAt)
+  const paymentLogs =
+    isPad && rawPaymentLogs.length === 1 && effectivePaid >= effectiveTotal && rawPaymentLogs[0].amount < effectiveTotal
+      ? [{ ...rawPaymentLogs[0], amount: effectiveTotal }]
+      : rawPaymentLogs
   const cleanRemarks = extractCleanClinicalRemarks(inv?.remarks)
 
-  const rawItems = (inv?.items && inv.items.length > 0 ? inv.items : []).filter(
-    (it: any) => !(it.itemName || it.name || it.item_name || '').toLowerCase().startsWith('payment received')
-  )
-  const deskCharge = getEffectiveServiceCharge(appt)
-  const items = rawItems.length > 0
-    ? rawItems.map((it: any) => ({
-        name: it.itemName || it.name || it.item_name || 'Clinical Service',
-        quantity: it.quantity || 1,
-        price: Number(it.price || 0),
-        total: Number(it.total || ((it.price || 0) * (it.quantity || 1))),
-      }))
-    : (String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK' && deskCharge > 0)
-    ? [
-        {
-          name: `OPD Doctor Consultation (${appt.appointmentDate || 'OPD'})`,
-          quantity: 1,
-          price: Number(appt.feeAmount || 0),
-          total: Number(appt.feeAmount || 0),
-        },
-        {
-          name: 'Pay at Desk Service Charge (5%)',
-          quantity: 1,
-          price: deskCharge,
-          total: deskCharge,
-        },
-      ]
-    : [
-        {
-          name: `Doctor Consultation & OPD Entry (${appt.appointmentDate})`,
-          quantity: 1,
-          price: effectiveTotal,
-          total: effectiveTotal,
-        },
-      ]
+  const items = getEffectiveInvoiceItems(appt, inv?.items)
 
   const itemsRowsHtml = items
     .map(

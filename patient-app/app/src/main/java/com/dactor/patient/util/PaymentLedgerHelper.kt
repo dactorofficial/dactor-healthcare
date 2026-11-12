@@ -1,5 +1,7 @@
 package com.dactor.patient.util
 
+import com.dactor.patient.data.model.Appointment
+import com.dactor.patient.data.model.BillingInvoice
 import com.dactor.patient.data.model.PaymentRecord
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -94,6 +96,36 @@ object PaymentLedgerHelper {
             }
         } catch (_: Exception) {
             trimmed.replace("T", " ").take(19)
+        }
+    }
+
+    fun reconcilePaymentRecordsForAppointment(
+        appt: Appointment?,
+        inv: BillingInvoice?,
+        rawRemarks: String?,
+        paidAmount: Double = 0.0,
+        paidAt: String? = null
+    ): List<PaymentRecord> {
+        val parsed = parsePaymentRecords(rawRemarks, paidAmount, paidAt)
+        if (appt == null || !appt.isPayAtDesk || parsed.size != 1) return parsed
+        val expectedTotal = appt.effectiveTotalForInvoice(inv)
+        val isPaid = inv?.paymentStatus.equals("paid", ignoreCase = true) ||
+            appt.paymentStatus.equals("paid", ignoreCase = true) ||
+            paidAmount >= expectedTotal
+        val first = parsed[0]
+        return if (isPaid && expectedTotal > 0.0 && first.amount > 0.0 && first.amount < expectedTotal) {
+            listOf(first.copy(amount = maxOf(first.amount, paidAmount, expectedTotal)))
+        } else {
+            parsed
+        }
+    }
+
+    fun formatRsAmount(amount: Double): String {
+        val rounded = kotlin.math.round(amount * 100.0) / 100.0
+        return if (rounded % 1.0 == 0.0) {
+            rounded.toInt().toString()
+        } else {
+            String.format(java.util.Locale.US, "%.2f", rounded).trimEnd('0').trimEnd('.')
         }
     }
 }

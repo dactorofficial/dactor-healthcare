@@ -1,3 +1,5 @@
+import { getEffectiveAppointmentTotal, getEffectiveInvoiceItems, getEffectiveInvoiceTotal } from '../types'
+
 export interface WebPaymentRecord {
   id?: string
   amount: number
@@ -251,6 +253,18 @@ export function buildUnifiedClinicPaymentLogs(
     if (recordedTxnKeys.has(uniqueKey)) continue
     recordedTxnKeys.add(uniqueKey)
 
+    const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
+    const expectedPadTotal = isPad ? getEffectiveAppointmentTotal(appt) : 0
+    const isConsultationTx = String(tx.category || 'CONSULTATION').toUpperCase() === 'CONSULTATION'
+    const rawTxAmount = Number(tx.amount || 0)
+    const effectiveTxAmount =
+      isPad && isConsultationTx && expectedPadTotal > 0 && rawTxAmount > 0 && rawTxAmount < expectedPadTotal
+        ? expectedPadTotal
+        : rawTxAmount
+    const effInvTotal = isPad
+      ? Math.max(Number(appt.totalAmount || 0), expectedPadTotal, effectiveTxAmount)
+      : Number(appt.totalAmount || appt.feeAmount || effectiveTxAmount || 0)
+
     entries.push({
       id: tx.id || uniqueKey,
       invoiceId: tx.invoice_id,
@@ -267,12 +281,12 @@ export function buildUnifiedClinicPaymentLogs(
       specialty: doc.specialty,
       isNewPatientForDoctor: isNew,
       type: (tx.transaction_type as any) || 'PAYMENT',
-      amount: Number(tx.amount || 0),
-      paymentMethod: (tx.payment_method || 'CASH').toUpperCase(),
+      amount: effectiveTxAmount,
+      paymentMethod: (tx.payment_method || (isPad ? 'PAY_AT_DESK' : 'CASH')).toUpperCase(),
       referenceId: tx.reference_id || undefined,
       category: tx.category || 'CONSULTATION',
       note: tx.notes || 'Payment Received',
-      invoiceTotal: appt.totalAmount || appt.feeAmount || 0,
+      invoiceTotal: effInvTotal,
       balanceDue: 0,
       paymentStatus: 'paid',
     })
@@ -285,8 +299,15 @@ export function buildUnifiedClinicPaymentLogs(
     const doc = docMap.get(appt.doctorId || '') || {}
     const pKey = derivePatientKey(appt)
     const isNew = Boolean(appt.doctorId && earliestVisitsByDoctor.get(`${appt.doctorId}::${pKey}`) === appt.id)
+    const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
+    const effInvTotal = getEffectiveInvoiceTotal(appt, inv)
+    const effItems = getEffectiveInvoiceItems(appt, inv.items)
+    const effectivePaidAmt =
+      inv.paymentStatus === 'paid' || appt.paymentStatus === 'paid'
+        ? Math.max(Number(inv.paidAmount || 0), effInvTotal)
+        : Number(inv.paidAmount || 0)
 
-    const parsedRecords = parsePaymentRecords(inv.remarks, inv.paidAmount, inv.paidAt || inv.updatedAt)
+    const parsedRecords = parsePaymentRecords(inv.remarks, effectivePaidAmt, inv.paidAt || inv.updatedAt)
 
     if (parsedRecords.length > 0) {
       for (const pr of parsedRecords) {
@@ -295,6 +316,17 @@ export function buildUnifiedClinicPaymentLogs(
         const uniqueKey = `inv_${inv.id}_${pr.id || pr.amount}_${dStr}`
         if (recordedTxnKeys.has(uniqueKey)) continue
         recordedTxnKeys.add(uniqueKey)
+
+        const rawPrAmt = Number(pr.amount || 0)
+        const isConsultationPr = String(pr.category || 'CONSULTATION').toUpperCase() === 'CONSULTATION'
+        const effPrAmt =
+          isPad && isConsultationPr && parsedRecords.length === 1 && effInvTotal > 0 && rawPrAmt > 0 && rawPrAmt < effInvTotal
+            ? effInvTotal
+            : rawPrAmt
+        const effBalance =
+          inv.paymentStatus === 'paid'
+            ? 0
+            : Math.max(0, effInvTotal - effectivePaidAmt)
 
         entries.push({
           id: pr.id || uniqueKey,
@@ -312,23 +344,27 @@ export function buildUnifiedClinicPaymentLogs(
           specialty: doc.specialty,
           isNewPatientForDoctor: isNew,
           type: 'PAYMENT',
-          amount: Number(pr.amount || 0),
-          paymentMethod: (pr.paymentMethod || (appt.paymentMode === 'PAY_AT_DESK' ? 'PAY_AT_DESK' : 'CASH')).toUpperCase(),
+          amount: effPrAmt,
+          paymentMethod: (pr.paymentMethod || (isPad ? 'PAY_AT_DESK' : 'CASH')).toUpperCase(),
           referenceId: pr.referenceId,
           category: pr.category || 'CONSULTATION',
           note: pr.note || 'Payment Received',
-          invoiceTotal: Number(inv.totalAmount || 0),
-          balanceDue: Number(inv.balanceDue || 0),
+          invoiceTotal: effInvTotal,
+          balanceDue: effBalance,
           paymentStatus: inv.paymentStatus || 'paid',
-          items: Array.isArray(inv.items) ? inv.items : [],
+          items: effItems,
         })
       }
-    } else if (Number(inv.paidAmount || 0) > 0) {
+    } else if (effectivePaidAmt > 0) {
       const rawTime = inv.paidAt || inv.updatedAt || new Date().toISOString()
       const dStr = rawTime.slice(0, 10)
       const uniqueKey = `inv_flat_${inv.id}`
       if (!recordedTxnKeys.has(uniqueKey)) {
         recordedTxnKeys.add(uniqueKey)
+        const effBalance =
+          inv.paymentStatus === 'paid'
+            ? 0
+            : Math.max(0, effInvTotal - effectivePaidAmt)
         entries.push({
           id: uniqueKey,
           invoiceId: inv.id,
@@ -345,14 +381,14 @@ export function buildUnifiedClinicPaymentLogs(
           specialty: doc.specialty,
           isNewPatientForDoctor: isNew,
           type: 'PAYMENT',
-          amount: Number(inv.paidAmount || 0),
-          paymentMethod: (appt.paymentMode === 'PAY_AT_DESK' ? 'PAY_AT_DESK' : 'CASH').toUpperCase(),
+          amount: effectivePaidAmt,
+          paymentMethod: (isPad ? 'PAY_AT_DESK' : 'CASH').toUpperCase(),
           category: 'CONSULTATION',
           note: 'Full Bill Payment',
-          invoiceTotal: Number(inv.totalAmount || 0),
-          balanceDue: Number(inv.balanceDue || 0),
+          invoiceTotal: effInvTotal,
+          balanceDue: effBalance,
           paymentStatus: inv.paymentStatus || 'paid',
-          items: Array.isArray(inv.items) ? inv.items : [],
+          items: effItems,
         })
       }
     }

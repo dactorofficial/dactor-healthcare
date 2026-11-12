@@ -7,6 +7,27 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-12
 
 ### Prompt:
+> "it's showing the orginal amount in the bill and payment log of the patient as well not with the added 5% , resolve this /plan continue without my approval"
+
+#### Changes Applied:
+1. **Supabase Schema, Trigger & Historical Backfill ([`migration_fix_patient_bills_and_payment_logs_5pct.sql`](file:///g:/My%20Drive/New%20folder/supabase/migration_fix_patient_bills_and_payment_logs_5pct.sql), [`test_patient_bills_and_payment_logs_5pct.cjs`](file:///g:/My%20Drive/New%20folder/supabase/test_patient_bills_and_payment_logs_5pct.cjs))**:
+   - Added missing `reference_id` and `category` columns to `public.invoice_transactions`.
+   - Added `BEFORE INSERT OR UPDATE` trigger `billing_invoices_z_enforce_pay_at_desk_totals` (`enforce_pay_at_desk_invoice_totals()`) ensuring `PAY_AT_DESK` invoices always include the 5% service charge line (`"Pay at Desk Service Charge (5%)"`), `total_amount`, `balance_due`, and `paid_amount` (when paid).
+   - Added idempotent historical backfills for existing `PAY_AT_DESK` `billing_invoices` and `invoice_transactions` rows missing the 5% charge, and updated `mark_pay_at_desk_collected()` so existing base-fee rows upgrade cleanly.
+2. **Web Portal & Clinic/Patient Portals ([`types/index.ts`](file:///g:/My%20Drive/New%20folder/web-app/src/types/index.ts), [`db.ts`](file:///g:/My%20Drive/New%20folder/web-app/src/services/db.ts), [`ClinicDetail.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/ClinicDetail.tsx), [`PatientPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/PatientPortal.tsx), [`ClinicPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/ClinicPortal.tsx), [`paymentLedger.ts`](file:///g:/My%20Drive/New%20folder/web-app/src/utils/paymentLedger.ts), [`medicalDocPrinter.ts`](file:///g:/My%20Drive/New%20folder/web-app/src/utils/medicalDocPrinter.ts))**:
+   - Added `getEffectiveInvoiceTotal` and `getEffectiveInvoiceItems` helpers so `PAY_AT_DESK` bills and printed invoices append `"Pay at Desk Service Charge (5%)"` whenever legacy invoice items only contain the base fee.
+   - Updated `recordPaymentTransaction` (and callers in `ClinicDetail.tsx` and `PatientPortal.tsx`) to persist the 5%-inclusive total and split Consultation Fee + 5% Service Charge line items.
+   - Updated `getPatientTransactions` and `buildUnifiedClinicPaymentLogs` so both patient transaction receipts and clinic payment logs clamp `PAY_AT_DESK` amounts to include the 5% charge and label `"Pay at Desk (+5%)"`.
+   - Updated `PatientPortal.tsx` bill modals/printers and `ClinicPortal.tsx` billing modal loader to use the unified invoice/payment-log helpers.
+3. **Android Patient App ([`Appointment.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/data/model/Appointment.kt), [`PaymentLedgerHelper.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/util/PaymentLedgerHelper.kt), [`AppointmentRepository.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt), [`PaymentScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/booking/PaymentScreen.kt), [`PatientMainScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt), [`QueueStatusScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt), [`BillPdfDownloader.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/util/BillPdfDownloader.kt))**:
+   - Added `effectiveTotalForInvoice`, `effectivePaidForInvoice`, and `effectiveItemsForInvoice` on `Appointment` plus `reconcilePaymentRecordsForAppointment` and decimal-safe `formatRsAmount` in `PaymentLedgerHelper`.
+   - Updated `AppointmentRepository.getAllPatientTransactions` and `failOrCancelPaymentTransaction`, `PaymentScreen`, `PatientMainScreen` (Records cards, detail dialog, Home bills summary & cards), `QueueStatusScreen` (Official Bill card, payment receipts, itemized list, prescription/bill dialog, PDF export), and `BillPdfDownloader` to consistently show the 5%-inclusive total, paid amount, itemized 5% charge, and un-truncated decimals.
+4. **Android Clinic App ([`PaymentLedgerHelper.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/PaymentLedgerHelper.kt), [`BillPdfDownloader.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/BillPdfDownloader.kt), [`BillingScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/BillingScreen.kt))**:
+   - Updated unified payment log builder, clinic PDF generator, and live invoice printer so `PAY_AT_DESK` invoices, receipts, and payment logs always reflect `fee + 5%` cleanly without decimal truncation.
+
+---
+
+### Prompt:
 > "Set a global rule to always deploy the updates of website live"
 
 #### Changes Applied:

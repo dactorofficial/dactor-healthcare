@@ -2200,42 +2200,20 @@ fun QueueStatusScreen(
                                             onClick = {
                                                 val targetAppt = appointment
                                                 if (targetAppt != null) {
-                                                    val invTotal = billingInvoice?.totalAmount?.takeIf { it > 0.0 }?.let { maxOf(it, targetAppt.effectiveTotalAmount) }
-                                                        ?: targetAppt.effectiveTotalAmount.takeIf { it > 0.0 } ?: 500.0
-                                                    val invPaid = billingInvoice?.effectivePaidAmount
-                                                        ?: (if (targetAppt.paymentStatus.equals("paid", ignoreCase = true)) invTotal else 0.0)
+                                                    val invTotal = targetAppt.effectiveTotalForInvoice(billingInvoice, 500.0).takeIf { it > 0.0 } ?: 500.0
+                                                    val invPaid = targetAppt.effectivePaidForInvoice(billingInvoice, invTotal)
                                                     val invLeft = (invTotal - invPaid).coerceAtLeast(0.0)
-                                                    val invItems = if (billingInvoice != null && billingInvoice!!.items.isNotEmpty()) {
-                                                        billingInvoice!!.items
-                                                    } else if (targetAppt.isPayAtDesk && targetAppt.effectiveServiceCharge > 0.0) {
-                                                        listOf(
-                                                            InvoiceItem(
-                                                                itemName = "Consultation Fee (${targetAppt.appointmentDate})",
-                                                                quantity = 1,
-                                                                price = targetAppt.feeAmount,
-                                                                total = targetAppt.feeAmount
-                                                            ),
-                                                            InvoiceItem(
-                                                                itemName = "Pay at Desk Service Charge (5%)",
-                                                                quantity = 1,
-                                                                price = targetAppt.effectiveServiceCharge,
-                                                                total = targetAppt.effectiveServiceCharge
-                                                            )
-                                                        )
-                                                    } else {
-                                                        listOf(
-                                                            InvoiceItem(
-                                                                itemName = "Consultation Fee (${targetAppt.appointmentDate})",
-                                                                quantity = 1,
-                                                                price = invTotal,
-                                                                total = invTotal
-                                                            )
-                                                        )
-                                                    }
+                                                    val invItems = targetAppt.effectiveItemsForInvoice(billingInvoice, today, invTotal)
                                                     com.dactor.patient.util.BillPdfDownloader.downloadBillPdf(
                                                         context = context,
                                                         appointment = targetAppt,
-                                                        invoice = billingInvoice ?: BillingInvoice(
+                                                        invoice = (billingInvoice?.copy(
+                                                            items = invItems,
+                                                            totalAmount = invTotal,
+                                                            paidAmount = invPaid,
+                                                            balanceDue = invLeft,
+                                                            paymentStatus = if (invLeft <= 0.0) "paid" else billingInvoice!!.paymentStatus
+                                                        )) ?: BillingInvoice(
                                                             id = targetAppt.id,
                                                             appointmentId = targetAppt.id,
                                                             clinicId = targetAppt.clinicId,
@@ -2293,41 +2271,21 @@ fun QueueStatusScreen(
                 val hasBillOrCompleted = !isPayAtDeskPendingCard && (isConsultancyCompleted || queueStatus == "done" ||
                     billingInvoice != null || (appointment?.feeAmount ?: 0.0) > 0.0)
                 if (hasBillOrCompleted) {
-                    val apptTotal = appointment?.effectiveTotalAmount ?: 0.0
-                    val invTotal = billingInvoice?.totalAmount?.takeIf { it > 0.0 }?.let { maxOf(it, apptTotal) }
-                        ?: apptTotal.takeIf { it > 0.0 }
-                        ?: 500.0
-                    val invPaid = billingInvoice?.effectivePaidAmount
-                        ?: (if (appointment?.paymentStatus.equals("paid", ignoreCase = true)) invTotal else 0.0)
+                    val invTotal = appointment?.effectiveTotalForInvoice(billingInvoice, 500.0)?.takeIf { it > 0.0 }
+                        ?: (billingInvoice?.totalAmount?.takeIf { it > 0.0 } ?: 500.0)
+                    val invPaid = appointment?.effectivePaidForInvoice(billingInvoice, invTotal)
+                        ?: (billingInvoice?.effectivePaidAmount ?: 0.0)
                     val invLeft = (invTotal - invPaid).coerceAtLeast(0.0)
-                    val invoiceItems = if (billingInvoice != null && billingInvoice!!.items.isNotEmpty()) {
-                        billingInvoice!!.items
-                    } else if (appointment?.isPayAtDesk == true && (appointment?.effectiveServiceCharge ?: 0.0) > 0.0) {
-                        val deskAppt = appointment!!
-                        listOf(
+                    val invoiceItems = appointment?.effectiveItemsForInvoice(billingInvoice, today, invTotal)
+                        ?: billingInvoice?.items?.takeIf { it.isNotEmpty() }
+                        ?: listOf(
                             InvoiceItem(
-                                itemName = "Consultation Fee (${deskAppt.appointmentDate.ifBlank { today }})",
-                                quantity = 1,
-                                price = deskAppt.feeAmount,
-                                total = deskAppt.feeAmount
-                            ),
-                            InvoiceItem(
-                                itemName = "Pay at Desk Service Charge (5%)",
-                                quantity = 1,
-                                price = deskAppt.effectiveServiceCharge,
-                                total = deskAppt.effectiveServiceCharge
-                            )
-                        )
-                    } else {
-                        listOf(
-                            InvoiceItem(
-                                itemName = "Consultation Fee (${appointment?.appointmentDate ?: today})",
+                                itemName = "Consultation Fee ($today)",
                                 quantity = 1,
                                 price = invTotal,
                                 total = invTotal
                             )
                         )
-                    }
 
                     Card(
                         shape = RoundedCornerShape(20.dp),
@@ -2433,16 +2391,16 @@ fun QueueStatusScreen(
                                 ) {
                                     Column {
                                         Text("Total Bill", fontSize = 10.5.sp, color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
-                                        Text("Rs. ${invTotal.toInt()}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                                        Text("Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(invTotal)}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
                                     }
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         Text("Amount Paid", fontSize = 10.5.sp, color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
-                                        Text("Rs. ${invPaid.toInt()}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF059669))
+                                        Text("Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(invPaid)}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF059669))
                                     }
                                     Column(horizontalAlignment = Alignment.End) {
                                         Text("Remaining Left", fontSize = 10.5.sp, color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
                                         Text(
-                                            "Rs. ${invLeft.toInt()}",
+                                            "Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(invLeft)}",
                                             fontSize = 15.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = if (invLeft > 0.0) Color(0xFFDC2626) else Color(0xFF059669)
@@ -2484,7 +2442,7 @@ fun QueueStatusScreen(
                                             )
                                             val itemPrice = if (item.total > 0.0) item.total else item.price * item.quantity
                                             Text(
-                                                text = "Rs. ${itemPrice.toInt()}",
+                                                text = "Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(itemPrice)}",
                                                 fontSize = 11.5.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = Color(0xFF0F172A)
@@ -2498,7 +2456,7 @@ fun QueueStatusScreen(
                             val rawRemarks = clinicalRemarks?.trim()?.takeIf { it.isNotBlank() }
                                 ?: billingInvoice?.remarks?.trim()?.takeIf { it.isNotBlank() }
                             val cleanRemarks = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(rawRemarks)
-                            val paymentLogs = com.dactor.patient.util.PaymentLedgerHelper.parsePaymentRecords(rawRemarks, invPaid, billingInvoice?.paidAt)
+                            val paymentLogs = com.dactor.patient.util.PaymentLedgerHelper.reconcilePaymentRecordsForAppointment(appointment, billingInvoice, rawRemarks, invPaid, billingInvoice?.paidAt)
 
                             // Payment Receipts & Time Log
                             if (paymentLogs.isNotEmpty()) {
@@ -2540,7 +2498,7 @@ fun QueueStatusScreen(
                                                     }
                                                 }
                                                 Text(
-                                                    text = "Rs. ${p.amount.toInt()}",
+                                                    text = "Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(p.amount)}",
                                                     fontSize = 11.5.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     color = Color(0xFF15803D)
@@ -4238,40 +4196,22 @@ fun QueueStatusScreen(
     // =========================================================================
     if (showPrescriptionDialog) {
         val dialogAppt = appointment
-        val dialogApptTotal = dialogAppt?.effectiveTotalAmount ?: 0.0
-        val invTotal = billingInvoice?.totalAmount?.takeIf { it > 0.0 }?.let { maxOf(it, dialogApptTotal) }
-            ?: dialogApptTotal.takeIf { it > 0.0 } ?: 500.0
-        val invPaid = billingInvoice?.effectivePaidAmount
-            ?: (if (dialogAppt?.paymentStatus.equals("paid", ignoreCase = true)) invTotal else 0.0)
+        val invTotal = dialogAppt?.effectiveTotalForInvoice(billingInvoice, 500.0)?.takeIf { it > 0.0 }
+            ?: (billingInvoice?.totalAmount?.takeIf { it > 0.0 } ?: 500.0)
+        val invPaid = dialogAppt?.effectivePaidForInvoice(billingInvoice, invTotal)
+            ?: (billingInvoice?.effectivePaidAmount ?: 0.0)
         val invLeft = (invTotal - invPaid).coerceAtLeast(0.0)
         val isPaidInFull = invLeft <= 0.0 || dialogAppt?.paymentStatus.equals("paid", ignoreCase = true)
-        val dialogItems = if (billingInvoice != null && billingInvoice!!.items.isNotEmpty()) {
-            billingInvoice!!.items
-        } else if (dialogAppt?.isPayAtDesk == true && dialogAppt.effectiveServiceCharge > 0.0) {
-            listOf(
+        val dialogItems = dialogAppt?.effectiveItemsForInvoice(billingInvoice, today, invTotal)
+            ?: billingInvoice?.items?.takeIf { it.isNotEmpty() }
+            ?: listOf(
                 InvoiceItem(
-                    itemName = "Consultation Fee (${dialogAppt.appointmentDate.ifBlank { today }})",
-                    quantity = 1,
-                    price = dialogAppt.feeAmount,
-                    total = dialogAppt.feeAmount
-                ),
-                InvoiceItem(
-                    itemName = "Pay at Desk Service Charge (5%)",
-                    quantity = 1,
-                    price = dialogAppt.effectiveServiceCharge,
-                    total = dialogAppt.effectiveServiceCharge
-                )
-            )
-        } else {
-            listOf(
-                InvoiceItem(
-                    itemName = "Consultation Fee (${dialogAppt?.appointmentDate ?: today})",
+                    itemName = "Consultation Fee ($today)",
                     quantity = 1,
                     price = invTotal,
                     total = invTotal
                 )
             )
-        }
         val cleanRemarksText = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(
             clinicalRemarks ?: billingInvoice?.remarks
         )
@@ -4405,16 +4345,16 @@ fun QueueStatusScreen(
                         ) {
                             Column {
                                 Text("Total Bill", fontSize = 10.sp, color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
-                                Text("Rs. ${invTotal.toInt()}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                                Text("Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(invTotal)}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
                             }
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text("Amount Paid", fontSize = 10.sp, color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
-                                Text("Rs. ${invPaid.toInt()}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF059669))
+                                Text("Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(invPaid)}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF059669))
                             }
                             Column(horizontalAlignment = Alignment.End) {
                                 Text("Remaining Left", fontSize = 10.sp, color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    "Rs. ${invLeft.toInt()}",
+                                    "Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(invLeft)}",
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = if (invLeft > 0.0) Color(0xFFDC2626) else Color(0xFF059669)
@@ -4456,7 +4396,7 @@ fun QueueStatusScreen(
                                     )
                                     val itemPrice = if (item.total > 0.0) item.total else item.price * item.quantity
                                     Text(
-                                        text = "Rs. ${itemPrice.toInt()}",
+                                        text = "Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(itemPrice)}",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF0F172A)

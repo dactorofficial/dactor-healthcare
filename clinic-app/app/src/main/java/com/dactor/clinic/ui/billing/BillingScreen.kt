@@ -677,7 +677,20 @@ fun BillingScreen(
                                         if (!clean.isNullOrEmpty()) clean else emptyList()
                                     }
                                     val liveItems = if (baseLiveItems.isNotEmpty()) {
-                                        baseLiveItems
+                                        val hasServiceCharge = baseLiveItems.any {
+                                            val lower = it.itemName.lowercase()
+                                            lower.contains("service charge") || lower.contains("5%") || lower.contains("+5%")
+                                        }
+                                        if (appt.isPayAtDesk && appt.effectiveServiceCharge > 0.0 && !hasServiceCharge) {
+                                            baseLiveItems + InvoiceItem(
+                                                itemName = "Pay at Desk Service Charge (5%)",
+                                                quantity = 1,
+                                                price = appt.effectiveServiceCharge,
+                                                total = appt.effectiveServiceCharge
+                                            )
+                                        } else {
+                                            baseLiveItems
+                                        }
                                     } else if (opdFee > 0.0 && appt.isPayAtDesk && appt.effectiveServiceCharge > 0.0) {
                                         listOf(
                                             InvoiceItem(itemName = "OPD Doctor Consultation (${appt.appointmentDate})", quantity = 1, price = opdFee, total = opdFee),

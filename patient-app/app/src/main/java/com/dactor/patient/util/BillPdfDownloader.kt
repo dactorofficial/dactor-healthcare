@@ -151,26 +151,32 @@ object BillPdfDownloader {
             val deskCharge = appointment.effectiveServiceCharge
 
             val effectiveItems: List<InvoiceItem> = when {
-                cleanItems.isNotEmpty() -> cleanItems
+                cleanItems.isNotEmpty() -> {
+                    val hasServiceCharge = cleanItems.any {
+                        val lower = it.itemName.lowercase()
+                        lower.contains("service charge") || lower.contains("5%") || lower.contains("+5%")
+                    }
+                    if (appointment.isPayAtDesk && deskCharge > 0.0 && !hasServiceCharge) {
+                        cleanItems + InvoiceItem(
+                            itemName = "Pay at Desk Service Charge (5%)",
+                            quantity = 1,
+                            price = deskCharge,
+                            total = deskCharge
+                        )
+                    } else {
+                        cleanItems
+                    }
+                }
                 opdFee > 0.0 && appointment.isPayAtDesk && deskCharge > 0.0 -> listOf(
                     InvoiceItem(itemName = "OPD Doctor Consultation (${appointment.appointmentDate})", quantity = 1, price = opdFee, total = opdFee),
                     InvoiceItem(itemName = "Pay at Desk Service Charge (5%)", quantity = 1, price = deskCharge, total = deskCharge)
                 )
                 opdFee > 0.0 -> listOf(InvoiceItem(itemName = "OPD Doctor Consultation (${appointment.appointmentDate})", quantity = 1, price = opdFee, total = opdFee))
-                !invoice?.items.isNullOrEmpty() -> invoice!!.items
+                !invoice?.items.isNullOrEmpty() -> appointment.effectiveItemsForInvoice(invoice)
                 else -> {
-                    val fallbackTotal = invoice?.totalAmount?.takeIf { it > 0.0 }?.let { maxOf(it, appointment.effectiveTotalAmount) }
-                        ?: appointment.effectiveTotalAmount.takeIf { it > 0.0 }
-                        ?: (invoice?.paidAmount?.takeIf { it > 0.0 } ?: 0.0)
+                    val fallbackTotal = appointment.effectiveTotalForInvoice(invoice)
                     if (fallbackTotal > 0.0) {
-                        listOf(
-                            InvoiceItem(
-                                itemName = "OPD Doctor Consultation (${appointment.appointmentDate})",
-                                quantity = 1,
-                                price = fallbackTotal,
-                                total = fallbackTotal
-                            )
-                        )
+                        appointment.effectiveItemsForInvoice(invoice, appointment.appointmentDate, fallbackTotal)
                     } else {
                         emptyList()
                     }
@@ -207,12 +213,12 @@ object BillPdfDownloader {
                 canvas.drawText("${idx + 1}", 48f, currentY + 15f, textPaint)
                 canvas.drawText(item.itemName.take(44), 74f, currentY + 15f, textPaint)
                 canvas.drawText("${item.quantity}", 365f, currentY + 15f, textPaint)
-                canvas.drawText("Rs. ${item.price.toInt()}", 415f, currentY + 15f, textPaint)
+                canvas.drawText("Rs. ${PaymentLedgerHelper.formatRsAmount(item.price)}", 415f, currentY + 15f, textPaint)
 
                 textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 textPaint.textAlign = Paint.Align.RIGHT
                 val rowTotal = if (item.total > 0) item.total else (item.price * item.quantity)
-                canvas.drawText("Rs. ${rowTotal.toInt()}", (pageWidth - 48).toFloat(), currentY + 15f, textPaint)
+                canvas.drawText("Rs. ${PaymentLedgerHelper.formatRsAmount(rowTotal)}", (pageWidth - 48).toFloat(), currentY + 15f, textPaint)
                 textPaint.textAlign = Paint.Align.LEFT
 
                 currentY += 22f
@@ -224,11 +230,16 @@ object BillPdfDownloader {
 
             // ── 4. PAYMENT RECEIPTS & TIME LOG TABLE ─────────────────────────
             val calculatedItemsTotal = effectiveItems.sumOf { if (it.total > 0) it.total else (it.price * it.quantity) }
-            val totalBill = calculatedItemsTotal.takeIf { it > 0.0 } ?: (invoice?.totalAmount?.takeIf { it > 0.0 } ?: (invoice?.paidAmount ?: 0.0))
-            val paidAmt = invoice?.effectivePaidAmount ?: (if (appointment.paymentStatus.equals("paid", ignoreCase = true)) totalBill else 0.0)
+            val totalBill = maxOf(
+                calculatedItemsTotal,
+                appointment.effectiveTotalForInvoice(invoice)
+            )
+            val paidAmt = appointment.effectivePaidForInvoice(invoice, totalBill)
             val leftAmt = (totalBill - paidAmt).coerceAtLeast(0.0)
 
-            val paymentLogs = PaymentLedgerHelper.parsePaymentRecords(logSource, paidAmt, invoice?.paidAt)
+            val paymentLogs = PaymentLedgerHelper.reconcilePaymentRecordsForAppointment(
+                appointment, invoice, logSource, paidAmt, invoice?.paidAt
+            )
             if (paymentLogs.isNotEmpty()) {
                 paint.color = Color.parseColor("#DCFCE7") // Light green header for payment receipts
                 val payHeaderRect = RectF(36f, currentY, (pageWidth - 36).toFloat(), currentY + 24f)
@@ -263,7 +274,7 @@ object BillPdfDownloader {
                     textPaint.color = greenPaid
                     textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                     textPaint.textAlign = Paint.Align.RIGHT
-                    canvas.drawText("Rs. ${p.amount.toInt()}", (pageWidth - 48).toFloat(), currentY + 15f, textPaint)
+                    canvas.drawText("Rs. ${PaymentLedgerHelper.formatRsAmount(p.amount)}", (pageWidth - 48).toFloat(), currentY + 15f, textPaint)
                     textPaint.textAlign = Paint.Align.LEFT
 
                     currentY += 22f
@@ -295,7 +306,7 @@ object BillPdfDownloader {
             textPaint.color = slateDark
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             textPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText("Rs. ${totalBill.toInt()}", summaryBoxRight - 16f, currentY + 24f, textPaint)
+            canvas.drawText("Rs. ${PaymentLedgerHelper.formatRsAmount(totalBill)}", summaryBoxRight - 16f, currentY + 24f, textPaint)
             textPaint.textAlign = Paint.Align.LEFT
 
             // Row B: Total Amount Paid
@@ -305,7 +316,7 @@ object BillPdfDownloader {
             textPaint.color = greenPaid
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             textPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText("Rs. ${paidAmt.toInt()}", summaryBoxRight - 16f, currentY + 48f, textPaint)
+            canvas.drawText("Rs. ${PaymentLedgerHelper.formatRsAmount(paidAmt)}", summaryBoxRight - 16f, currentY + 48f, textPaint)
             textPaint.textAlign = Paint.Align.LEFT
 
             // Divider inside summary box
@@ -319,7 +330,7 @@ object BillPdfDownloader {
             canvas.drawText("Remaining Left / Due:", summaryBoxLeft + 16f, currentY + 78f, textPaint)
             textPaint.color = if (leftAmt > 0.0) redDue else greenPaid
             textPaint.textAlign = Paint.Align.RIGHT
-            val leftLabel = if (leftAmt > 0.0) "Rs. ${leftAmt.toInt()} (DUE)" else "Rs. 0 (PAID)"
+            val leftLabel = if (leftAmt > 0.0) "Rs. ${PaymentLedgerHelper.formatRsAmount(leftAmt)} (DUE)" else "Rs. 0 (PAID)"
             canvas.drawText(leftLabel, summaryBoxRight - 16f, currentY + 78f, textPaint)
             textPaint.textAlign = Paint.Align.LEFT
 

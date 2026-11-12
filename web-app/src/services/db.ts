@@ -22,6 +22,8 @@ import {
   MultiSlotPositionResult,
   DoctorHomeItem,
   CityLocation,
+  PAY_AT_DESK_SERVICE_CHARGE_PERCENT,
+  getEffectiveAppointmentTotal,
 } from '../types'
 import { calculateDistanceKm } from '../utils/geohash'
 import {
@@ -5181,28 +5183,97 @@ export async function recordPaymentTransaction(record: {
       })
       .eq('id', record.appointmentId)
 
-    // 2. Create or update billing invoice in Supabase (preserving existing line items)
-    const { data: existingInv } = await supabase
-      .from('billing_invoices')
-      .select('id, items, remarks, total_amount')
-      .eq('appointment_id', record.appointmentId)
-      .maybeSingle()
+    // 2. Fetch appointment payment_mode/totals & existing billing_invoices row
+    const [{ data: apptRow }, { data: existingInv }] = await Promise.all([
+      supabase
+        .from('appointments')
+        .select('payment_mode, fee_amount, service_charge_amount, total_amount')
+        .eq('id', record.appointmentId)
+        .maybeSingle(),
+      supabase
+        .from('billing_invoices')
+        .select('id, items, remarks, total_amount')
+        .eq('appointment_id', record.appointmentId)
+        .maybeSingle(),
+    ])
 
-    const existingItems = Array.isArray(existingInv?.items) && existingInv.items.length > 0
-      ? existingInv.items
-      : [
-          {
-            id: crypto.randomUUID(),
-            item_name: 'Consultation & Clinical Services',
-            itemName: 'Consultation & Clinical Services',
-            name: 'Consultation & Clinical Services',
-            quantity: 1,
-            price: record.amount,
-            total: record.amount,
-          },
-        ]
+    const isPayAtDesk =
+      String(apptRow?.payment_mode || '').toUpperCase() === 'PAY_AT_DESK' ||
+      record.paymentMethod.toLowerCase().includes('desk')
+    const baseFee = Number(apptRow?.fee_amount) > 0 ? Number(apptRow?.fee_amount) : Number(record.amount || 0)
+    const serviceCharge =
+      isPayAtDesk && baseFee > 0
+        ? Number(apptRow?.service_charge_amount) > 0
+          ? Number(apptRow?.service_charge_amount)
+          : Math.round(baseFee * (PAY_AT_DESK_SERVICE_CHARGE_PERCENT / 100) * 100) / 100
+        : 0
+    const expectedApptTotal =
+      isPayAtDesk && baseFee > 0
+        ? Math.max(Number(apptRow?.total_amount || 0), Math.round((baseFee + serviceCharge) * 100) / 100)
+        : Number(record.amount || 0)
 
-    const effectiveTotal = Math.max(record.amount, Number(existingInv?.total_amount || 0))
+    const existingItemsRaw: any[] = Array.isArray(existingInv?.items) ? existingInv.items : []
+    let existingItems: any[]
+    if (existingItemsRaw.length > 0) {
+      const hasServiceCharge = existingItemsRaw.some((it: any) => {
+        const lower = String(it?.item_name || it?.itemName || it?.name || '').toLowerCase()
+        return lower.includes('service charge') || lower.includes('5%') || lower.includes('+5%')
+      })
+      existingItems =
+        isPayAtDesk && serviceCharge > 0 && !hasServiceCharge
+          ? [
+              ...existingItemsRaw,
+              {
+                id: crypto.randomUUID(),
+                item_name: 'Pay at Desk Service Charge (5%)',
+                itemName: 'Pay at Desk Service Charge (5%)',
+                name: 'Pay at Desk Service Charge (5%)',
+                quantity: 1,
+                price: serviceCharge,
+                total: serviceCharge,
+              },
+            ]
+          : existingItemsRaw
+    } else if (isPayAtDesk && serviceCharge > 0) {
+      existingItems = [
+        {
+          id: crypto.randomUUID(),
+          item_name: 'OPD Consultation Fee',
+          itemName: 'OPD Consultation Fee',
+          name: 'OPD Consultation Fee',
+          quantity: 1,
+          price: baseFee,
+          total: baseFee,
+        },
+        {
+          id: crypto.randomUUID(),
+          item_name: 'Pay at Desk Service Charge (5%)',
+          itemName: 'Pay at Desk Service Charge (5%)',
+          name: 'Pay at Desk Service Charge (5%)',
+          quantity: 1,
+          price: serviceCharge,
+          total: serviceCharge,
+        },
+      ]
+    } else {
+      existingItems = [
+        {
+          id: crypto.randomUUID(),
+          item_name: 'Consultation & Clinical Services',
+          itemName: 'Consultation & Clinical Services',
+          name: 'Consultation & Clinical Services',
+          quantity: 1,
+          price: record.amount,
+          total: record.amount,
+        },
+      ]
+    }
+
+    const effectiveTotal = Math.max(
+      Number(record.amount || 0),
+      expectedApptTotal,
+      Number(existingInv?.total_amount || 0)
+    )
     const paidAmt = dbPayStatus === 'paid' ? effectiveTotal : 0
     const invoicePayload = {
       id: existingInv?.id || crypto.randomUUID(),
@@ -5254,23 +5325,27 @@ export async function getPatientTransactions(criteria: {
 
     return appts.map((appt) => {
       const inv = invoicesMap.get(appt.id)
-      const amt = (inv?.paid_amount && inv.paid_amount > 0)
-        ? inv.paid_amount
+      const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
+      const effApptTotal = getEffectiveAppointmentTotal(appt)
+      const rawAmt = (inv?.paid_amount && inv.paid_amount > 0)
+        ? Number(inv.paid_amount)
         : (inv?.total_amount && inv.total_amount > 0)
-          ? inv.total_amount
-          : appt.feeAmount || 0
+          ? Number(inv.total_amount)
+          : effApptTotal
+      const amt = isPad ? Math.max(rawAmt, effApptTotal) : rawAmt
 
       let status = appt.paymentStatus || 'unpaid'
       if (inv?.payment_status) status = inv.payment_status
 
-      let method = 'eSewa'
+      let method = isPad ? 'Pay at Desk (+5%)' : 'eSewa'
       if (inv?.remarks) {
         const rem = inv.remarks.toLowerCase()
         if (rem.includes('bypass')) method = 'Bypass Test'
         else if (rem.includes('khalti')) method = 'Khalti'
         else if (rem.includes('fonepay')) method = 'Fonepay'
         else if (rem.includes('connectips')) method = 'ConnectIPS'
-        else if (rem.includes('cash')) method = 'Cash'
+        else if (rem.includes('desk')) method = 'Pay at Desk (+5%)'
+        else if (rem.includes('cash')) method = isPad ? 'Pay at Desk (+5%)' : 'Cash'
       }
 
       let txnId = `TXN-${appt.trackingCode10Digit}`

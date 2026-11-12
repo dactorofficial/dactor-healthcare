@@ -137,6 +137,8 @@ import {
   SupportTicket,
   BillingInvoice,
   getEffectiveAppointmentTotal,
+  getEffectiveInvoiceItems,
+  getEffectiveInvoiceTotal,
   getEffectiveServiceCharge,
 } from '../types'
 import {
@@ -1896,8 +1898,16 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         : isBypass
         ? 'Bypass Test'
         : isCash
-        ? 'Pay at Desk'
+        ? 'Pay at Desk (+5%)'
         : selectedPaymentMethod.toUpperCase()
+      const padCharge =
+        isCash && !isFreeFollowup && !isRescheduleMode && calculatedFee > 0
+          ? Math.round(calculatedFee * (PAY_AT_DESK_SERVICE_CHARGE_PERCENT / 100) * 100) / 100
+          : 0
+      const txnAmount =
+        isRescheduleMode || isFreeFollowup
+          ? 0
+          : Math.round((calculatedFee + padCharge) * 100) / 100
 
       await recordPaymentTransaction({
         appointmentId: finalAppt.id,
@@ -1907,7 +1917,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         patientName: targetPatientName,
         appointmentDate: bookingDate,
         appointmentTime: slotTimeStr,
-        amount: calculatedFee,
+        amount: txnAmount,
         paymentMethod: methodLabel,
         paymentStatus: isFreeFollowup ? 'paid' : (isCash ? 'pending' : 'paid'),
         notes: isRescheduleMode
@@ -1917,7 +1927,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           : isBypass
           ? 'Confirmed via Testing Bypass button'
           : isCash
-          ? 'Cash settlement at clinic reception'
+          ? 'Pay at Desk settlement at clinic reception (Includes 5% platform service charge)'
           : `Digital Wallet (${methodLabel})`,
       })
 
@@ -2740,33 +2750,24 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     const docSpec = appt.doctor?.specialty || 'General Medicine'
 
     const inv = invoice || viewingInvoice
-    const apptEffTotal = getEffectiveAppointmentTotal(appt)
-    const effectiveTotal = inv?.totalAmount && inv.totalAmount > 0 ? Math.max(inv.totalAmount, apptEffTotal) : apptEffTotal
-    const effectivePaid = inv ? (inv.paidAmount ?? (inv.paymentStatus === 'paid' ? effectiveTotal : 0)) : (appt.paymentStatus === 'paid' ? effectiveTotal : 0)
+    const effectiveTotal = getEffectiveInvoiceTotal(appt, inv)
+    const rawPaid = inv ? Number(inv.paidAmount || 0) : 0
+    const effectivePaid =
+      inv?.paymentStatus === 'paid' || appt.paymentStatus === 'paid'
+        ? Math.max(rawPaid, effectiveTotal)
+        : rawPaid
     const effectiveBalance = Math.max(0, effectiveTotal - effectivePaid)
     const isPaid = effectiveBalance <= 0 && effectiveTotal > 0
 
-    const paymentLogs = parsePaymentRecords(inv?.remarks, effectivePaid, inv?.paidAt)
+    const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
+    const rawPaymentLogs = parsePaymentRecords(inv?.remarks, effectivePaid, inv?.paidAt)
+    const paymentLogs =
+      isPad && rawPaymentLogs.length === 1 && effectivePaid >= effectiveTotal && rawPaymentLogs[0].amount < effectiveTotal
+        ? [{ ...rawPaymentLogs[0], amount: effectiveTotal }]
+        : rawPaymentLogs
     const cleanRemarks = extractCleanClinicalRemarks(inv?.remarks)
 
-    const rawItems = (inv?.items && inv.items.length > 0 ? inv.items : []).filter(
-      (it: any) => !(it.itemName || it.name || it.item_name || '').toLowerCase().startsWith('payment received')
-    )
-    const items = rawItems.length > 0
-      ? rawItems.map((it: any) => ({
-          name: it.itemName || it.name || it.item_name || 'Clinical Service',
-          quantity: it.quantity || 1,
-          price: Number(it.price || 0),
-          total: Number(it.total || ((it.price || 0) * (it.quantity || 1))),
-        }))
-      : [
-          {
-            name: `Doctor Consultation & OPD Entry (${appt.appointmentDate})`,
-            quantity: 1,
-            price: effectiveTotal,
-            total: effectiveTotal,
-          },
-        ]
+    const items = getEffectiveInvoiceItems(appt, inv?.items)
 
     const itemsRowsHtml = items
       .map(
@@ -7710,35 +7711,16 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/40 dark:divide-white/10 font-medium">
-                    {viewingInvoice?.items && viewingInvoice.items.length > 0 ? (
-                      viewingInvoice.items.map((it, idx) => (
-                        <tr key={idx}>
-                          <td className="p-2 text-slate-800 dark:text-slate-100">{it.itemName || it.name || (it as any).item_name || 'Clinical Service'}</td>
-                          <td className="p-2 text-center font-mono text-slate-500">{it.quantity || 1}</td>
-                          <td className="p-2 text-right font-mono text-slate-600 dark:text-slate-300">Rs. {it.price}</td>
-                          <td className="p-2 text-right font-mono font-bold text-slate-900 dark:text-white">
-                            Rs. {it.total || (it.price * (it.quantity || 1))}
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <>
-                        <tr>
-                          <td className="p-2 text-slate-800 dark:text-slate-100">Doctor Consultation & OPD Entry</td>
-                          <td className="p-2 text-center font-mono text-slate-500">1</td>
-                          <td className="p-2 text-right font-mono text-slate-600 dark:text-slate-300">Rs. {viewingBillAppt.feeAmount || 0}</td>
-                          <td className="p-2 text-right font-mono font-bold text-slate-900 dark:text-white">Rs. {viewingBillAppt.feeAmount || 0}</td>
-                        </tr>
-                        {String(viewingBillAppt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK' && getEffectiveServiceCharge(viewingBillAppt) > 0 && (
-                          <tr>
-                            <td className="p-2 text-slate-800 dark:text-slate-100">Pay at Desk Service Charge (5%)</td>
-                            <td className="p-2 text-center font-mono text-slate-500">1</td>
-                            <td className="p-2 text-right font-mono text-slate-600 dark:text-slate-300">Rs. {getEffectiveServiceCharge(viewingBillAppt)}</td>
-                            <td className="p-2 text-right font-mono font-bold text-slate-900 dark:text-white">Rs. {getEffectiveServiceCharge(viewingBillAppt)}</td>
-                          </tr>
-                        )}
-                      </>
-                    )}
+                    {getEffectiveInvoiceItems(viewingBillAppt, viewingInvoice?.items).map((it, idx) => (
+                      <tr key={idx}>
+                        <td className="p-2 text-slate-800 dark:text-slate-100">{it.name}</td>
+                        <td className="p-2 text-center font-mono text-slate-500">{it.quantity}</td>
+                        <td className="p-2 text-right font-mono text-slate-600 dark:text-slate-300">Rs. {it.price}</td>
+                        <td className="p-2 text-right font-mono font-bold text-slate-900 dark:text-white">
+                          Rs. {it.total}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -7746,12 +7728,17 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
             {/* Payment Receipts & Time Log Table */}
             {(() => {
-              const effBillTotal = getEffectiveAppointmentTotal(viewingBillAppt)
-              const logs = parsePaymentRecords(
-                viewingInvoice?.remarks,
-                viewingInvoice ? viewingInvoice.paidAmount : (viewingBillAppt.paymentStatus === 'paid' ? effBillTotal : 0),
-                viewingInvoice?.paidAt
-              )
+              const effBillTotal = getEffectiveInvoiceTotal(viewingBillAppt, viewingInvoice)
+              const effPaidAmt =
+                viewingInvoice?.paymentStatus === 'paid' || viewingBillAppt.paymentStatus === 'paid'
+                  ? Math.max(Number(viewingInvoice?.paidAmount || 0), effBillTotal)
+                  : Number(viewingInvoice?.paidAmount || 0)
+              const isPad = String(viewingBillAppt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
+              const rawLogs = parsePaymentRecords(viewingInvoice?.remarks, effPaidAmt, viewingInvoice?.paidAt)
+              const logs =
+                isPad && rawLogs.length === 1 && effPaidAmt >= effBillTotal && rawLogs[0].amount < effBillTotal
+                  ? [{ ...rawLogs[0], amount: effBillTotal }]
+                  : rawLogs
               if (logs.length === 0) return null
               return (
                 <div className="space-y-1.5 text-xs">
@@ -7786,13 +7773,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
             {/* Financial Summary Box */}
             {(() => {
-              const effBillTotal = getEffectiveAppointmentTotal(viewingBillAppt)
-              const totalB = viewingInvoice?.totalAmount && viewingInvoice.totalAmount > 0
-                ? Math.max(viewingInvoice.totalAmount, effBillTotal)
-                : effBillTotal
-              const totalP = viewingInvoice
-                ? (viewingInvoice.paidAmount ?? (viewingInvoice.paymentStatus === 'paid' ? totalB : 0))
-                : (viewingBillAppt.paymentStatus === 'paid' ? totalB : 0)
+              const totalB = getEffectiveInvoiceTotal(viewingBillAppt, viewingInvoice)
+              const totalP =
+                viewingInvoice?.paymentStatus === 'paid' || viewingBillAppt.paymentStatus === 'paid'
+                  ? Math.max(Number(viewingInvoice?.paidAmount || 0), totalB)
+                  : Number(viewingInvoice?.paidAmount || 0)
               const bal = Math.max(0, totalB - totalP)
               const cleanRem = extractCleanClinicalRemarks(viewingInvoice?.remarks)
 

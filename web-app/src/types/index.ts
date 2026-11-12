@@ -215,6 +215,93 @@ export function getEffectiveAppointmentTotal(appt: Partial<Appointment> | null |
   return storedTotal > 0 ? storedTotal : fee
 }
 
+export function getEffectiveInvoiceTotal(
+  appt: Partial<Appointment> | null | undefined,
+  inv?: { totalAmount?: number | null; total_amount?: number | null } | null
+): number {
+  const rawInvTotal = Number(inv?.totalAmount ?? inv?.total_amount ?? 0) || 0
+  if (!appt) return rawInvTotal
+  const apptTotal = getEffectiveAppointmentTotal(appt)
+  const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
+  if (isPad) {
+    return Math.max(rawInvTotal, apptTotal)
+  }
+  return rawInvTotal > 0 ? rawInvTotal : apptTotal
+}
+
+export function getEffectiveInvoiceItems(
+  appt: Partial<Appointment> | null | undefined,
+  rawItems?: any[] | null
+): Array<{ name: string; itemName: string; quantity: number; price: number; total: number }> {
+  const filtered = (Array.isArray(rawItems) ? rawItems : [])
+    .filter((it: any) => !(it?.itemName || it?.name || it?.item_name || '').toLowerCase().startsWith('payment received'))
+    .map((it: any) => {
+      const name = String(it?.itemName || it?.name || it?.item_name || 'Clinical Service')
+      const qty = Math.max(1, Number(it?.quantity || 1))
+      const price = Number(it?.price || 0)
+      const total = Number(it?.total || price * qty)
+      return { name, itemName: name, quantity: qty, price, total }
+    })
+
+  if (!appt) return filtered
+
+  const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
+  const deskCharge = getEffectiveServiceCharge(appt)
+  const baseFee = Number(appt.feeAmount) || 0
+  const effTotal = getEffectiveAppointmentTotal(appt)
+
+  if (filtered.length > 0) {
+    if (isPad && deskCharge > 0) {
+      const hasServiceCharge = filtered.some((it) => {
+        const lower = it.name.toLowerCase()
+        return lower.includes('service charge') || lower.includes('5%') || lower.includes('+5%')
+      })
+      if (!hasServiceCharge) {
+        return [
+          ...filtered,
+          {
+            name: 'Pay at Desk Service Charge (5%)',
+            itemName: 'Pay at Desk Service Charge (5%)',
+            quantity: 1,
+            price: deskCharge,
+            total: deskCharge,
+          },
+        ]
+      }
+    }
+    return filtered
+  }
+
+  if (isPad && deskCharge > 0) {
+    return [
+      {
+        name: `OPD Consultation Fee (${appt.appointmentDate || 'OPD'})`,
+        itemName: `OPD Consultation Fee (${appt.appointmentDate || 'OPD'})`,
+        quantity: 1,
+        price: baseFee,
+        total: baseFee,
+      },
+      {
+        name: 'Pay at Desk Service Charge (5%)',
+        itemName: 'Pay at Desk Service Charge (5%)',
+        quantity: 1,
+        price: deskCharge,
+        total: deskCharge,
+      },
+    ]
+  }
+
+  return [
+    {
+      name: `Doctor Consultation & OPD Entry (${appt.appointmentDate || 'OPD'})`,
+      itemName: `Doctor Consultation & OPD Entry (${appt.appointmentDate || 'OPD'})`,
+      quantity: 1,
+      price: effTotal,
+      total: effTotal,
+    },
+  ]
+}
+
 
 export interface LabReport {
   id: string

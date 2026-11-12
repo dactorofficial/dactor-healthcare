@@ -168,7 +168,22 @@ object BillPdfDownloader {
             val deskCharge = appointment.effectiveServiceCharge
 
             val items: List<InvoiceItem> = when {
-                cleanItems.isNotEmpty() -> cleanItems
+                cleanItems.isNotEmpty() -> {
+                    val hasServiceCharge = cleanItems.any {
+                        val lower = it.itemName.lowercase()
+                        lower.contains("service charge") || lower.contains("5%") || lower.contains("+5%")
+                    }
+                    if (appointment.isPayAtDesk && deskCharge > 0.0 && !hasServiceCharge) {
+                        cleanItems + InvoiceItem(
+                            itemName = "Pay at Desk Service Charge (5%)",
+                            quantity = 1,
+                            price = deskCharge,
+                            total = deskCharge
+                        )
+                    } else {
+                        cleanItems
+                    }
+                }
                 opdFee > 0.0 && appointment.isPayAtDesk && deskCharge > 0.0 -> listOf(
                     InvoiceItem(itemName = "OPD Doctor Consultation (${appointment.appointmentDate})", quantity = 1, price = opdFee, total = opdFee),
                     InvoiceItem(itemName = "Pay at Desk Service Charge (5%)", quantity = 1, price = deskCharge, total = deskCharge)
@@ -186,16 +201,37 @@ object BillPdfDownloader {
             }
 
             val calculatedItemsTotal = items.sumOf { if (it.total > 0) it.total else (it.price * it.quantity) }
-            val finalTotal = calculatedItemsTotal.takeIf { it > 0.0 } ?: effectiveTotal
-            val balanceLeft = (finalTotal - effectivePaid).coerceAtLeast(0.0)
+            val finalTotal = maxOf(calculatedItemsTotal.takeIf { it > 0.0 } ?: 0.0, effectiveTotal)
+            val reconciledPaid = if (appointment.isPayAtDesk && (invoice?.paymentStatus.equals("paid", true) || appointment.paymentStatus.equals("paid", true))) {
+                maxOf(effectivePaid, finalTotal)
+            } else {
+                effectivePaid
+            }
+            val balanceLeft = (finalTotal - reconciledPaid).coerceAtLeast(0.0)
+            val fmtRs: (Double) -> String = { amt ->
+                val r = kotlin.math.round(amt * 100.0) / 100.0
+                if (r % 1.0 == 0.0) r.toInt().toString()
+                else String.format(java.util.Locale.US, "%.2f", r).trimEnd('0').trimEnd('.')
+            }
+            val displayPaymentLogs = if (
+                appointment.isPayAtDesk &&
+                reconciledPaid >= finalTotal &&
+                paymentLogs.size == 1 &&
+                paymentLogs[0].amount > 0.0 &&
+                paymentLogs[0].amount < finalTotal
+            ) {
+                listOf(paymentLogs[0].copy(amount = maxOf(paymentLogs[0].amount, reconciledPaid, finalTotal)))
+            } else {
+                paymentLogs
+            }
 
             for (item in items) {
                 val rowTotal = if (item.total > 0) item.total else (item.price * item.quantity)
                 val unitRate = if (item.price > 0) item.price else if (rowTotal > 0 && item.quantity > 0) rowTotal / item.quantity else 0.0
                 canvas.drawText(item.itemName.take(48), 46f, y, regularPaint)
                 canvas.drawText(item.quantity.toString(), 365f, y, regularPaint)
-                canvas.drawText("Rs. ${unitRate.toInt()}", 415f, y, regularPaint)
-                canvas.drawText("Rs. ${rowTotal.toInt()}", 490f, y, valuePaint)
+                canvas.drawText("Rs. ${fmtRs(unitRate)}", 415f, y, regularPaint)
+                canvas.drawText("Rs. ${fmtRs(rowTotal)}", 490f, y, valuePaint)
                 y += 16f
                 canvas.drawLine(36f, y - 8f, 559f, y - 8f, linePaint)
             }
@@ -203,7 +239,7 @@ object BillPdfDownloader {
             y += 12f
 
             // 4. Payment Receipts & Time Log Table
-            if (paymentLogs.isNotEmpty()) {
+            if (displayPaymentLogs.isNotEmpty()) {
                 canvas.drawText("PAYMENT RECEIPTS & TIME LOG", 36f, y, sectionPaint)
                 y += 14f
                 val logHeaderBg = Paint().apply {
@@ -216,12 +252,12 @@ object BillPdfDownloader {
                 canvas.drawText("Paid (NPR)", 490f, y + 15f, valuePaint)
                 y += 34f
 
-                for (p in paymentLogs) {
+                for (p in displayPaymentLogs) {
                     val formattedDateTime = PaymentLedgerHelper.formatDisplayDateTime(p.dateTime)
                     canvas.drawText(formattedDateTime, 46f, y, regularPaint)
                     canvas.drawText((p.note ?: "Payment Received").take(32), 260f, y, regularPaint)
                     val paidTextPaint = Paint(valuePaint).apply { color = Color.rgb(21, 128, 61) }
-                    canvas.drawText("Rs. ${p.amount.toInt()}", 490f, y, paidTextPaint)
+                    canvas.drawText("Rs. ${fmtRs(p.amount)}", 490f, y, paidTextPaint)
                     y += 16f
                     canvas.drawLine(36f, y - 8f, 559f, y - 8f, linePaint)
                 }
@@ -236,17 +272,17 @@ object BillPdfDownloader {
             canvas.drawRect(310f, y, 559f, y + 76f, summaryBoxPaint)
 
             canvas.drawText("Total Bill Amount:", 324f, y + 20f, labelPaint)
-            canvas.drawText("Rs. ${finalTotal.toInt()}", 475f, y + 20f, valuePaint)
+            canvas.drawText("Rs. ${fmtRs(finalTotal)}", 475f, y + 20f, valuePaint)
 
             val paidPaint = Paint(valuePaint).apply { color = Color.rgb(21, 128, 61) }
             canvas.drawText("Total Paid by Patient:", 324f, y + 42f, labelPaint)
-            canvas.drawText("Rs. ${effectivePaid.toInt()}", 475f, y + 42f, paidPaint)
+            canvas.drawText("Rs. ${fmtRs(reconciledPaid)}", 475f, y + 42f, paidPaint)
 
             val leftPaint = Paint(valuePaint).apply {
                 color = if (balanceLeft > 0.0) Color.rgb(185, 28, 28) else Color.rgb(21, 128, 61)
             }
             canvas.drawText("Remaining Balance:", 324f, y + 64f, labelPaint)
-            canvas.drawText("Rs. ${balanceLeft.toInt()}", 475f, y + 64f, leftPaint)
+            canvas.drawText("Rs. ${fmtRs(balanceLeft)}", 475f, y + 64f, leftPaint)
 
             y += 92f
 

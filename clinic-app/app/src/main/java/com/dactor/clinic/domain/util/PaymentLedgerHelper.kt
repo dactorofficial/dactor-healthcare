@@ -145,7 +145,21 @@ object PaymentLedgerHelper {
             val isNew = appt?.let { firstVisitSet.contains(it.id) } ?: false
             val isFollowUp = !isNew || (appt?.feeAmount ?: 1.0) == 0.0
             val isConsultation = tx.category == null || tx.category.equals("CONSULTATION", ignoreCase = true)
-            val effectiveAmount = if (isFollowUp && isConsultation) 0.0 else tx.amount
+            val isPad = appt?.isPayAtDesk == true
+            val expectedPadTotal = if (isPad && !isFollowUp) (appt?.effectiveTotalAmount ?: 0.0) else 0.0
+            val baseTxAmount = if (isFollowUp && isConsultation) 0.0 else tx.amount
+            val effectiveAmount = if (isPad && !isFollowUp && isConsultation && expectedPadTotal > 0.0 && baseTxAmount > 0.0 && baseTxAmount < expectedPadTotal) {
+                expectedPadTotal
+            } else {
+                baseTxAmount
+            }
+            val effTotalBill = if (isFollowUp && isConsultation) {
+                0.0
+            } else if (isPad && expectedPadTotal > 0.0) {
+                maxOf(inv?.totalAmount ?: 0.0, effectiveAmount, expectedPadTotal)
+            } else {
+                inv?.totalAmount ?: tx.amount
+            }
 
             entries.add(
                 UnifiedPaymentLogEntry(
@@ -164,8 +178,8 @@ object PaymentLedgerHelper {
                     referenceId = if (effectiveAmount == 0.0) (tx.referenceId ?: "FOLLOWUP-WAIVED") else tx.referenceId,
                     note = tx.notes ?: (if (isFollowUp) "Follow-up Consultation (Free)" else "OPD Consultation"),
                     invoiceStatus = inv?.paymentStatus ?: "paid",
-                    totalBill = if (isFollowUp && isConsultation) 0.0 else (inv?.totalAmount ?: tx.amount),
-                    balanceDue = if (isFollowUp && isConsultation) 0.0 else (inv?.balanceDue ?: 0.0),
+                    totalBill = effTotalBill,
+                    balanceDue = if (isFollowUp && isConsultation) 0.0 else (if (effTotalBill > effectiveAmount) (inv?.balanceDue ?: 0.0) else 0.0),
                     receiptUrl = null,
                     isNewPatientForDoctor = !isFollowUp,
                     category = if (isFollowUp && isConsultation) "FREE_FOLLOWUP" else (tx.category ?: "CONSULTATION")
@@ -184,6 +198,14 @@ object PaymentLedgerHelper {
             val doc = appt?.doctorId?.let { doctorMap[it] }
             val isNew = appt?.let { firstVisitSet.contains(it.id) } ?: false
             val isFollowUp = !isNew || (appt?.feeAmount ?: 1.0) == 0.0
+            val isPad = appt?.isPayAtDesk == true
+            val expectedPadTotal = if (isPad && !isFollowUp) (appt?.effectiveTotalAmount ?: 0.0) else 0.0
+            val effInvTotal = if (isPad && !isFollowUp && expectedPadTotal > 0.0) maxOf(inv.totalAmount, expectedPadTotal) else inv.totalAmount
+            val effInvPaid = if (!isFollowUp && inv.paymentStatus.equals("paid", ignoreCase = true) && isPad && expectedPadTotal > 0.0) {
+                maxOf(inv.effectivePaidAmount, effInvTotal)
+            } else {
+                inv.effectivePaidAmount
+            }
 
             val fallbackAmt = if (isFollowUp) {
                 val nonConsultTotal = inv.items.filterNot {
@@ -192,7 +214,7 @@ object PaymentLedgerHelper {
                 }.sumOf { it.total }
                 nonConsultTotal
             } else {
-                inv.effectivePaidAmount
+                effInvPaid
             }
 
             val records = parsePaymentRecords(inv.remarks, fallbackAmt, inv.createdAt)
@@ -204,12 +226,17 @@ object PaymentLedgerHelper {
                     r.note?.contains("Fonepay", ignoreCase = true) == true -> "FONEPAY"
                     r.note?.contains("ConnectIPS", ignoreCase = true) == true -> "CONNECTIPS"
                     r.note?.contains("QR", ignoreCase = true) == true || r.note?.contains("Bank", ignoreCase = true) == true -> "BANK_TRANSFER"
+                    isPad -> "PAY_AT_DESK"
                     else -> if (isFollowUp && fallbackAmt == 0.0) "FREE" else "CASH"
                 }
 
                 val isConsultation = r.category == null || r.category.equals("CONSULTATION", ignoreCase = true) ||
                     r.note?.contains("consultation", ignoreCase = true) == true
-                val effectiveAmount = if (isFollowUp && isConsultation) 0.0 else r.amount
+                val effectiveAmount = when {
+                    isFollowUp && isConsultation -> 0.0
+                    isPad && !isFollowUp && isConsultation && records.size == 1 && expectedPadTotal > 0.0 && r.amount > 0.0 && r.amount < expectedPadTotal -> expectedPadTotal
+                    else -> r.amount
+                }
 
                 entries.add(
                     UnifiedPaymentLogEntry(
@@ -228,8 +255,8 @@ object PaymentLedgerHelper {
                         referenceId = if (effectiveAmount == 0.0) (r.referenceId ?: "FOLLOWUP-WAIVED") else r.referenceId,
                         note = r.note ?: (if (isFollowUp) "Follow-up Consultation (Free)" else "OPD Consultation"),
                         invoiceStatus = inv.paymentStatus,
-                        totalBill = if (isFollowUp && isConsultation) 0.0 else inv.totalAmount,
-                        balanceDue = if (isFollowUp && isConsultation) 0.0 else inv.balanceDue,
+                        totalBill = if (isFollowUp && isConsultation) 0.0 else effInvTotal,
+                        balanceDue = if (isFollowUp && isConsultation) 0.0 else (effInvTotal - effInvPaid).coerceAtLeast(0.0),
                         receiptUrl = null,
                         isNewPatientForDoctor = !isFollowUp,
                         category = if (isFollowUp && isConsultation) "FREE_FOLLOWUP" else (r.category ?: "CONSULTATION")

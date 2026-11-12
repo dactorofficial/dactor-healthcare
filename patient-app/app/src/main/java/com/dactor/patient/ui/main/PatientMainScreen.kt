@@ -3926,14 +3926,14 @@ fun RecordsTab(
                     val doctorAvatar = doctor?.resolvedProfilePictureUrl
 
                     val totalBill = when {
-                        invoice != null && invoice.totalAmount > 0.0 -> invoice.totalAmount
-                        (appt.feeAmount ?: 0.0) > 0.0 -> appt.feeAmount ?: 0.0
+                        invoice != null && invoice.totalAmount > 0.0 -> appt.effectiveTotalForInvoice(invoice)
+                        appt.effectiveTotalAmount > 0.0 -> appt.effectiveTotalAmount
                         (doctor?.consultationFee ?: 0.0) > 0.0 -> doctor?.consultationFee ?: 500.0
                         else -> 0.0
                     }
                     val paidAmount = when {
-                        invoice != null && (invoice.paidAmount != null || invoice.totalAmount > 0.0) -> invoice.effectivePaidAmount
-                        appt.paymentStatus.equals("paid", ignoreCase = true) -> totalBill
+                        invoice != null || appt.paymentStatus.equals("paid", ignoreCase = true) ->
+                            appt.effectivePaidForInvoice(invoice, totalBill)
                         else -> 0.0
                     }
                     val balanceLeft = (totalBill - paidAmount).coerceAtLeast(0.0)
@@ -4460,7 +4460,7 @@ fun RecordsTab(
                                             Column {
                                                 Text("Total Bill", fontSize = 10.sp, color = Color(0xFF64748B))
                                                 Text(
-                                                    "Rs. ${totalBill.toInt()}",
+                                                    "Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(totalBill)}",
                                                     fontWeight = FontWeight.ExtraBold,
                                                     fontSize = 14.sp,
                                                     color = Color(0xFF0F172A)
@@ -4469,7 +4469,7 @@ fun RecordsTab(
                                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                                 Text("Amount Paid", fontSize = 10.sp, color = Color(0xFF64748B))
                                                 Text(
-                                                    "Rs. ${paidAmount.toInt()}",
+                                                    "Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(paidAmount)}",
                                                     fontWeight = FontWeight.ExtraBold,
                                                     fontSize = 14.sp,
                                                     color = Color(0xFF15803D)
@@ -4478,7 +4478,7 @@ fun RecordsTab(
                                             Column(horizontalAlignment = Alignment.End) {
                                                 Text("Remaining Left", fontSize = 10.sp, color = Color(0xFF64748B))
                                                 Text(
-                                                    "Rs. ${balanceLeft.toInt()}",
+                                                    "Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(balanceLeft)}",
                                                     fontWeight = FontWeight.ExtraBold,
                                                     fontSize = 14.sp,
                                                     color = if (balanceLeft > 0.0) Color(0xFFDC2626) else Color(0xFF15803D)
@@ -4487,7 +4487,11 @@ fun RecordsTab(
                                         }
 
                                         // Date-Wise Bill & Payment Entries Ledger
-                                        val invoiceItems = invoice?.items ?: emptyList()
+                                        val invoiceItems = if (invoice != null || appt.isPayAtDesk) {
+                                            appt.effectiveItemsForInvoice(invoice, appt.appointmentDate, totalBill)
+                                        } else {
+                                            emptyList()
+                                        }
                                         if (invoiceItems.isNotEmpty()) {
                                             Surface(
                                                 color = Color(0xFFF8FAFC),
@@ -4516,7 +4520,7 @@ fun RecordsTab(
                                                                 modifier = Modifier.weight(1f)
                                                             )
                                                             Text(
-                                                                text = "Rs. ${item.effectiveTotal.toInt()}",
+                                                                text = "Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(item.effectiveTotal)}",
                                                                 fontSize = 11.sp,
                                                                 fontWeight = FontWeight.Bold,
                                                                 color = Color(0xFF0F172A)
@@ -4527,7 +4531,7 @@ fun RecordsTab(
                                             }
                                         }
                                         // Payment Receipts & Time Log
-                                        val paymentLogs = com.dactor.patient.util.PaymentLedgerHelper.parsePaymentRecords(remarks, paidAmount, invoice?.paidAt)
+                                        val paymentLogs = com.dactor.patient.util.PaymentLedgerHelper.reconcilePaymentRecordsForAppointment(appt, invoice, remarks, paidAmount, invoice?.paidAt)
                                         if (paymentLogs.isNotEmpty()) {
                                             Surface(
                                                 color = Color(0xFFF0FDF4),
@@ -4564,7 +4568,7 @@ fun RecordsTab(
                                                                 }
                                                             }
                                                             Text(
-                                                                text = "Rs. ${p.amount.toInt()}",
+                                                                text = "Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(p.amount)}",
                                                                 fontSize = 11.sp,
                                                                 fontWeight = FontWeight.Bold,
                                                                 color = Color(0xFF15803D)
@@ -7228,14 +7232,14 @@ fun PatientRecordDetailDialog(
     val doctorAvatar = dDoctor?.resolvedProfilePictureUrl
 
     val totalBill = when {
-        dInvoice != null && dInvoice.totalAmount > 0.0 -> dInvoice.totalAmount
-        (targetAppt.feeAmount ?: 0.0) > 0.0 -> targetAppt.feeAmount ?: 0.0
+        dInvoice != null && dInvoice.totalAmount > 0.0 -> targetAppt.effectiveTotalForInvoice(dInvoice)
+        targetAppt.effectiveTotalAmount > 0.0 -> targetAppt.effectiveTotalAmount
         (dDoctor?.consultationFee ?: 0.0) > 0.0 -> dDoctor?.consultationFee ?: 500.0
         else -> 0.0
     }
     val paidAmount = when {
-        dInvoice != null && (dInvoice.paidAmount != null || dInvoice.totalAmount > 0.0) -> dInvoice.effectivePaidAmount
-        targetAppt.paymentStatus.equals("paid", ignoreCase = true) -> totalBill
+        dInvoice != null || targetAppt.paymentStatus.equals("paid", ignoreCase = true) ->
+            targetAppt.effectivePaidForInvoice(dInvoice, totalBill)
         else -> 0.0
     }
     val balanceLeft = (totalBill - paidAmount).coerceAtLeast(0.0)
@@ -7713,20 +7717,24 @@ fun PatientRecordDetailDialog(
                                     ) {
                                         Column {
                                             Text("Total Bill", fontSize = 10.5.sp, color = Color(0xFF64748B))
-                                            Text("Rs. ${totalBill.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = Color(0xFF0F172A))
+                                            Text("Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(totalBill)}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = Color(0xFF0F172A))
                                         }
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                             Text("Paid", fontSize = 10.5.sp, color = Color(0xFF64748B))
-                                            Text("Rs. ${paidAmount.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = Color(0xFF15803D))
+                                            Text("Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(paidAmount)}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = Color(0xFF15803D))
                                         }
                                         Column(horizontalAlignment = Alignment.End) {
                                             Text("Remaining", fontSize = 10.5.sp, color = Color(0xFF64748B))
-                                            Text("Rs. ${balanceLeft.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = if (balanceLeft > 0.0) Color(0xFFDC2626) else Color(0xFF15803D))
+                                            Text("Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(balanceLeft)}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = if (balanceLeft > 0.0) Color(0xFFDC2626) else Color(0xFF15803D))
                                         }
                                     }
 
                                     // Itemized Entries
-                                    val dInvoiceItems = dInvoice?.items ?: emptyList()
+                                    val dInvoiceItems = if (dInvoice != null || targetAppt.isPayAtDesk) {
+                                        targetAppt.effectiveItemsForInvoice(dInvoice, targetAppt.appointmentDate, totalBill)
+                                    } else {
+                                        emptyList()
+                                    }
                                     if (dInvoiceItems.isNotEmpty()) {
                                         Surface(
                                             color = Color(0xFFF8FAFC),
@@ -7742,7 +7750,7 @@ fun PatientRecordDetailDialog(
                                                         horizontalArrangement = Arrangement.SpaceBetween
                                                     ) {
                                                         Text(itm.itemName, fontSize = 11.sp, color = Color(0xFF334155))
-                                                        Text("Rs. ${itm.effectiveTotal.toInt()}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                                                        Text("Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(itm.effectiveTotal)}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
                                                     }
                                                 }
                                             }
@@ -7750,7 +7758,7 @@ fun PatientRecordDetailDialog(
                                     }
 
                                     // Payment Receipts Time Log
-                                    val pLogs = com.dactor.patient.util.PaymentLedgerHelper.parsePaymentRecords(dRemarks, paidAmount, dInvoice?.paidAt)
+                                    val pLogs = com.dactor.patient.util.PaymentLedgerHelper.reconcilePaymentRecordsForAppointment(targetAppt, dInvoice, dRemarks, paidAmount, dInvoice?.paidAt)
                                     if (pLogs.isNotEmpty()) {
                                         Surface(
                                             color = Color(0xFFF0FDF4),
@@ -7772,7 +7780,7 @@ fun PatientRecordDetailDialog(
                                                                 Text(p.note, fontSize = 9.5.sp, color = Color(0xFF64748B))
                                                             }
                                                         }
-                                                        Text("Rs. ${p.amount.toInt()}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
+                                                        Text("Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(p.amount)}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
                                                     }
                                                     if (pIdx < pLogs.size - 1) {
                                                         HorizontalDivider(color = Color(0xFFDCFCE7), thickness = 0.5.dp)
@@ -8846,13 +8854,13 @@ fun ProfileTab(
                     val inv = profileInvoiceMap[appt.id]
                     val doc = appt.doctorId?.let { profileDoctorMap[it] }
                     val t = when {
-                        inv != null && inv.totalAmount > 0.0 -> maxOf(inv.totalAmount, appt.effectiveTotalAmount)
+                        inv != null && inv.totalAmount > 0.0 -> appt.effectiveTotalForInvoice(inv)
                         appt.effectiveTotalAmount > 0.0 -> appt.effectiveTotalAmount
                         else -> doc?.consultationFee ?: 500.0
                     }
                     val p = when {
-                        inv != null && (inv.paidAmount != null || inv.totalAmount > 0.0) -> inv.effectivePaidAmount
-                        appt.paymentStatus.equals("paid", ignoreCase = true) -> t
+                        inv != null || appt.paymentStatus.equals("paid", ignoreCase = true) ->
+                            appt.effectivePaidForInvoice(inv, t)
                         else -> 0.0
                     }
                     grandTotalBilled += t
@@ -8933,7 +8941,7 @@ fun ProfileTab(
                                 Column {
                                     Text("Total Billed", fontSize = 10.sp, color = Color(0xFF64748B))
                                     Text(
-                                        "Rs. ${grandTotalBilled.toInt()}",
+                                        "Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(grandTotalBilled)}",
                                         fontWeight = FontWeight.ExtraBold,
                                         fontSize = 15.sp,
                                         color = Color(0xFF0F172A)
@@ -8942,7 +8950,7 @@ fun ProfileTab(
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text("Total Paid", fontSize = 10.sp, color = Color(0xFF64748B))
                                     Text(
-                                        "Rs. ${grandTotalPaid.toInt()}",
+                                        "Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(grandTotalPaid)}",
                                         fontWeight = FontWeight.ExtraBold,
                                         fontSize = 15.sp,
                                         color = Color(0xFF15803D)
@@ -8951,7 +8959,7 @@ fun ProfileTab(
                                 Column(horizontalAlignment = Alignment.End) {
                                     Text("Remaining Left", fontSize = 10.sp, color = Color(0xFF64748B))
                                     Text(
-                                        "Rs. ${grandTotalLeft.toInt()}",
+                                        "Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(grandTotalLeft)}",
                                         fontWeight = FontWeight.ExtraBold,
                                         fontSize = 15.sp,
                                         color = if (grandTotalLeft > 0.0) Color(0xFFDC2626) else Color(0xFF15803D)
@@ -8982,13 +8990,13 @@ fun ProfileTab(
                                 val dSpec = doc?.allSpecialties?.firstOrNull() ?: doc?.specialty ?: "General Physician"
 
                                 val totalBill = when {
-                                    inv != null && inv.totalAmount > 0.0 -> maxOf(inv.totalAmount, appt.effectiveTotalAmount)
+                                    inv != null && inv.totalAmount > 0.0 -> appt.effectiveTotalForInvoice(inv)
                                     appt.effectiveTotalAmount > 0.0 -> appt.effectiveTotalAmount
                                     else -> doc?.consultationFee ?: 500.0
                                 }
                                 val paidAmt = when {
-                                    inv != null && (inv.paidAmount != null || inv.totalAmount > 0.0) -> inv.effectivePaidAmount
-                                    appt.paymentStatus.equals("paid", ignoreCase = true) -> totalBill
+                                    inv != null || appt.paymentStatus.equals("paid", ignoreCase = true) ->
+                                        appt.effectivePaidForInvoice(inv, totalBill)
                                     else -> 0.0
                                 }
                                 val leftAmt = (totalBill - paidAmt).coerceAtLeast(0.0)
@@ -9083,19 +9091,19 @@ fun ProfileTab(
                                             horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
                                             Text(
-                                                "Total: Rs. ${totalBill.toInt()}",
+                                                "Total: Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(totalBill)}",
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 12.sp,
                                                 color = Color(0xFF0F172A)
                                             )
                                             Text(
-                                                "Paid: Rs. ${paidAmt.toInt()}",
+                                                "Paid: Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(paidAmt)}",
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 12.sp,
                                                 color = Color(0xFF15803D)
                                             )
                                             Text(
-                                                "Left: Rs. ${leftAmt.toInt()}",
+                                                "Left: Rs. ${com.dactor.patient.util.PaymentLedgerHelper.formatRsAmount(leftAmt)}",
                                                 fontWeight = FontWeight.ExtraBold,
                                                 fontSize = 12.sp,
                                                 color = if (leftAmt > 0.0) Color(0xFFDC2626) else Color(0xFF15803D)

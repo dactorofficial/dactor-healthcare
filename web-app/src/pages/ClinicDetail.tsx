@@ -1178,10 +1178,17 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         const methodLabel = isFreeBooking
           ? 'Free Follow-Up (Retained 10-Digit ID)'
           : isPayAtDesk
-          ? 'Pay at Desk'
+          ? 'Pay at Desk (+5%)'
           : selectedPaymentMethod === 'pay_at_clinic'
           ? 'Pay at Clinic Counter'
           : selectedPaymentMethod.toUpperCase()
+        const padServiceCharge =
+          isPayAtDesk && !isFreeBooking && totalBookingFee > 0
+            ? Math.round(totalBookingFee * 0.05 * 100) / 100
+            : 0
+        const txnTotalAmount = isFreeBooking
+          ? 0
+          : Math.round((totalBookingFee + padServiceCharge) * 100) / 100
 
         await recordPaymentTransaction({
           appointmentId: created.id,
@@ -1191,7 +1198,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
           patientName: patientName.trim(),
           appointmentDate: selectedDate,
           appointmentTime: selectedSlotTime || '10:00 AM',
-          amount: totalBookingFee,
+          amount: txnTotalAmount,
           paymentMethod: methodLabel,
           paymentStatus: isFreeBooking ? 'paid' : 'pending',
           transactionId: txnId,

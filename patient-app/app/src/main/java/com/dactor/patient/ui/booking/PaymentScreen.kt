@@ -163,7 +163,7 @@ fun PaymentScreen(
                                 patientName = appt.patientName,
                                 appointmentDate = appt.appointmentDate,
                                 appointmentTime = appt.appointmentTime,
-                                amount = effectiveFee,
+                                amount = if (selectedPaymentMethod == "pay_at_desk" || appt.isPayAtDesk) maxOf(totalAtDesk, appt.effectiveTotalAmount) else effectiveFee,
                                 paymentStatus = "failed",
                                 paymentMethod = selectedPaymentMethod,
                                 transactionId = "CANCELLED",

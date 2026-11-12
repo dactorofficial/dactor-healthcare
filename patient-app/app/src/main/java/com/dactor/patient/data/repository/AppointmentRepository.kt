@@ -1578,13 +1578,14 @@ class AppointmentRepository @Inject constructor(
             if (appt != null) {
                 try {
                     val invoiceId = java.util.UUID.randomUUID().toString()
+                    val failTotal = appt.effectiveTotalAmount.takeIf { it > 0.0 } ?: appt.feeAmount
                     val failDto = BillingInvoiceInsertDto(
                         id = invoiceId,
                         appointmentId = appointmentId,
                         clinicId = appt.clinicId,
-                        totalAmount = appt.feeAmount,
+                        totalAmount = failTotal,
                         paidAmount = 0.0,
-                        balanceDue = appt.feeAmount,
+                        balanceDue = failTotal,
                         paymentStatus = "pending",
                         remarks = "Transaction failed / cancelled: $reason"
                     )
@@ -1640,10 +1641,12 @@ class AppointmentRepository @Inject constructor(
 
             appts.map { appt ->
                 val inv = invoices[appt.id]
-                val amt = inv?.paidAmount?.takeIf { it > 0 }
+                val effApptTotal = appt.effectiveTotalAmount
+                val rawAmt = inv?.paidAmount?.takeIf { it > 0 }
                     ?: inv?.totalAmount?.takeIf { it > 0 }
-                    ?: appt.feeAmount.takeIf { it > 0 }
+                    ?: effApptTotal.takeIf { it > 0 }
                     ?: 0.0
+                val amt = if (appt.isPayAtDesk) maxOf(rawAmt, effApptTotal) else rawAmt
 
                 val status = when {
                     appt.paymentStatus == "failed" || inv?.paymentStatus == "failed" -> "failed"
@@ -1658,7 +1661,7 @@ class AppointmentRepository @Inject constructor(
                     inv?.remarks?.contains("fonepay", ignoreCase = true) == true -> "Fonepay"
                     inv?.remarks?.contains("connectips", ignoreCase = true) == true -> "ConnectIPS"
                     inv?.remarks?.contains("esewa", ignoreCase = true) == true -> "eSewa"
-                    appt.paymentMode.equals("PAY_AT_DESK", ignoreCase = true) || inv?.remarks?.contains("desk", ignoreCase = true) == true -> "Pay at Desk"
+                    appt.isPayAtDesk || inv?.remarks?.contains("desk", ignoreCase = true) == true -> "Pay at Desk (+5%)"
                     else -> "Online Payment"
                 }
 
