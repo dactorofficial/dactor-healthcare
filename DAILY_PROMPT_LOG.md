@@ -7,6 +7,19 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-12
 
 ### Prompt:
+> "deploy"
+
+#### Changes Applied:
+1. **Production Web Build (`web-app`)**:
+   - Executed `npm run build` (`node scripts/generate-seo.js && tsc && vite build`), generating sitemap (`92 URLs`), `llms.txt` / `llms-full.txt`, and production bundle (`dist/assets/index-D_zqpx4K.js`, `dist/assets/index-CMKrqZea.css`).
+2. **GitHub Pages Live Deployment ([`deploy_ghpages.ps1`](file:///g:/My%20Drive/New%20folder/scripts/deploy_ghpages.ps1))**:
+   - Published `web-app/dist/` to both live targets:
+     - Root domain `dactorofficial/dactorofficial.github.io` (`main` -> `7293352`): `https://dactorofficial.github.io/`
+     - Project mirror `dactorofficial/dactor` (`gh-pages` -> `f9ef5f7`): `https://dactorofficial.github.io/dactor/`
+
+---
+
+### Prompt:
 > "I ran the sql check it's integrated properly or not"
 
 #### Changes Applied:
