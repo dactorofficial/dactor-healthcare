@@ -23,7 +23,17 @@
 - Always use descriptive, conventional commit messages (e.g., `feat: ...`, `fix: ...`, `docs: ...`, `chore: ...`, `build: ...`).
 - Always execute `git push origin <branch>` to keep the remote GitHub repository 100% synchronized with the local workspace.
 
-## ⚠️ MANDATORY GLOBAL RULE 5: APK Versioning & Naming Convention (When Commanded by User)
+## ⚠️ MANDATORY GLOBAL RULE 5: ALWAYS DEPLOY WEBSITE UPDATES LIVE
+- Whenever you modify, fix, or add any website or web portal code, styles, SEO files, or static site assets (e.g., `web-app/`, static `.html` pages, etc.), you **MUST ALWAYS** build and deploy the updated website live before finishing the task — do not wait for a separate "deploy it" command from the user.
+- Note on Rules 1 & 2: Rules 1 and 2 apply strictly to native Android apps (`patient-app`, `clinic-app`, APKs, AABs). Running `npm run build` in `web-app/` to generate `web-app/dist/` for live deployment is **explicitly required** whenever website updates are made.
+- Live deployment workflow for DACTOR website updates:
+  1. Run `npm run build` inside `web-app/` (`node scripts/generate-seo.js && tsc && vite build`).
+  2. Run `powershell -ExecutionPolicy Bypass -File scripts/deploy_ghpages.ps1` from the workspace root to publish `web-app/dist/` to both live GitHub Pages destinations:
+     - Root domain (`dactorofficial/dactorofficial.github.io`, `main` branch): `https://dactorofficial.github.io/`
+     - Project mirror (`dactorofficial/dactor`, `gh-pages` branch): `https://dactorofficial.github.io/dactor/`
+  3. Verify the deployment succeeded and report the live URL(s) in your final response (in addition to updating [`DAILY_PROMPT_LOG.md`](file:///g:/My%20Drive/New%20folder/DAILY_PROMPT_LOG.md) and committing/pushing to `origin/main` per Rules 3 & 4).
+
+## ⚠️ MANDATORY GLOBAL RULE 6: APK Versioning & Naming Convention (When Commanded by User)
 
 Whenever an APK is generated or commanded by the user to be built/generated, you **MUST** strictly follow this procedure:
 

@@ -7,6 +7,17 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-12
 
 ### Prompt:
+> "Set a global rule to always deploy the updates of website live"
+
+#### Changes Applied:
+1. **Global User Rules (`C:\Users\nitup\.gemini\GEMINI.md`)**:
+   - Added **MANDATORY GLOBAL RULE 5: ALWAYS DEPLOY WEBSITE UPDATES LIVE** requiring any website/web portal updates to be built and deployed live automatically before finishing a task (clarifying that web production builds such as `npm run build` are explicitly required and distinct from Rules 1 & 2 for native apps/APKs).
+2. **Workspace Rules ([`GEMINI.md`](file:///g:/My%20Drive/New%20folder/GEMINI.md))**:
+   - Added **MANDATORY GLOBAL RULE 5: ALWAYS DEPLOY WEBSITE UPDATES LIVE** with the DACTOR web deployment workflow (`npm run build` in `web-app/` followed by [`scripts/deploy_ghpages.ps1`](file:///g:/My%20Drive/New%20folder/scripts/deploy_ghpages.ps1) to `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/`), and renumbered the APK Versioning rule to **MANDATORY GLOBAL RULE 6**.
+
+---
+
+### Prompt:
 > "deploy it"
 
 #### Changes Applied:
