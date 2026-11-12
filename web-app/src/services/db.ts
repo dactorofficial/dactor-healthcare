@@ -2165,11 +2165,22 @@ export async function saveLabReport(report: Partial<LabReport>): Promise<LabRepo
       updated_at: new Date().toISOString(),
     }
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('lab_reports')
       .upsert(dbPayload, { onConflict: 'appointment_id' })
       .select('*, appointment:appointments(*)')
       .single()
+
+    if (error && String(error.message || '').includes('updated_at')) {
+      const { updated_at: _omit, ...withoutUpdatedAt } = dbPayload
+      const retryRes = await supabase
+        .from('lab_reports')
+        .upsert(withoutUpdatedAt, { onConflict: 'appointment_id' })
+        .select('*, appointment:appointments(*)')
+        .single()
+      data = retryRes.data
+      error = retryRes.error
+    }
 
     if (error) throw error
     return data ? mapLabReport(data) : null
@@ -3757,8 +3768,19 @@ function mapAppointment(a: any): Appointment {
 
   const todayIso = new Date().toISOString().split('T')[0]
   const isFutureOrToday = (a.appointment_date || '') >= todayIso
+  const rawCheckinLower = (a.checkin_status || '').toLowerCase()
+  const isProgressedCheckin = [
+    'processing',
+    'sample_collected',
+    'report_prepared',
+    'completed',
+    'done',
+  ].includes(rawCheckinLower)
 
-  if (isFutureOrToday && a.checkin_status === 'waiting') {
+  if (isProgressedCheckin && (!qe?.status || qe.status === 'waiting' || qe.status === 'inside')) {
+    // Do not let a lagging/stale 'waiting' or 'inside' queue_entries row revert a progressed diagnostic/completed status
+    derivedStatus = rawCheckinLower === 'done' ? 'completed' : rawCheckinLower
+  } else if (isFutureOrToday && a.checkin_status === 'waiting') {
     // If appointment is booked/rescheduled for today or future and checkin_status is waiting,
     // do not let a stale 'done' queue entry from a previous date override it to completed!
     if (qe?.status && qe.status !== 'done' && qe.status !== 'no_show') {

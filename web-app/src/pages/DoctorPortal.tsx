@@ -72,6 +72,7 @@ import {
   uploadDoctorPhoto,
   getSupportUrl,
   saveLabReport,
+  transitionDiagnosticToProcessing,
   isDiagnosticLabClinic,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
@@ -807,11 +808,11 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     const apptClinic = affiliatedClinics.find((c) => c.id === appt.clinicId) || selectedClinic
     const isDiag = isDiagnosticLabClinic(apptClinic, currentDoctor, appt)
     if (isDiag) {
-      await updateAppointmentStatus(appt.id, 'processing')
       const testNameStr =
         appt.selectedTests?.join(', ') ||
         (typeof appt.selectedLabTests === 'string' ? appt.selectedLabTests : '') ||
         'Diagnostic Lab Analysis'
+      await transitionDiagnosticToProcessing(appt.id, testNameStr)
       await saveLabReport({
         appointmentId: appt.id,
         clinicId: appt.clinicId,

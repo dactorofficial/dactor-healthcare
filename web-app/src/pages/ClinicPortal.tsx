@@ -116,6 +116,7 @@ import {
   getDoctorsByClinic,
   getAppointmentsByClinic,
   updateAppointmentStatus,
+  transitionDiagnosticToProcessing,
   autoTransferUncompletedQueueToNoShow,
   updateAppointmentNotes,
   createAppointment,
@@ -253,6 +254,15 @@ function formatPayAtDeskRelativeTime(isoString?: string): string {
   } catch {
     return ''
   }
+}
+
+function formatMinutesTo12h(totalMins: number): string {
+  const clamped = Math.max(0, Math.min(23 * 60 + 59, Math.round(totalMins)))
+  const h24 = Math.floor(clamped / 60)
+  const m = clamped % 60
+  const ampm = h24 >= 12 ? 'PM' : 'AM'
+  const h12 = h24 % 12 || 12
+  return `${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`
 }
 
 function parseSlotStartTime(slotStr?: string): Date | null {
@@ -854,8 +864,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [slotDoctorId, setSlotDoctorId] = useState<string>('')
   const [slotDate, setSlotDate] = useState<string>(() => new Date().toISOString().split('T')[0])
   const [slotStartTime, setSlotStartTime] = useState<string>('09:00 AM')
-  const [slotEndTime, setSlotEndTime] = useState<string>('09:15 AM')
-  const [slotCapacity, setSlotCapacity] = useState<number>(5)
+  const [slotEndTime, setSlotEndTime] = useState<string>('11:00 AM')
+  const [slotCapacity, setSlotCapacity] = useState<number>(10)
   const [publishedSlots, setPublishedSlots] = useState<Slot[]>([])
   const [loadingSlots, setLoadingSlots] = useState(false)
   const [publishingSlot, setPublishingSlot] = useState(false)
@@ -993,6 +1003,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const isPolyclinic = useMemo(() => {
     return !isLabClinic && !isSingleDoctorClinic
   }, [isLabClinic, isSingleDoctorClinic])
+
+  // Align slot defaults with SlotManagerScreen.kt (lab: 25 capacity & facility-wide; OPD: 10 capacity)
+  useEffect(() => {
+    setSlotCapacity(isLabClinic ? 25 : 10)
+    if (isLabClinic) {
+      setSlotDoctorId('')
+    }
+  }, [isLabClinic])
 
   // Walk-in 10-digit follow-up code lookup
   useEffect(() => {
@@ -1352,7 +1370,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           const doc = docs[0]
           setSelectedDoctor(doc)
           setWalkinDoctorId((prev) => prev || doc.id)
-          setSlotDoctorId((prev) => prev || doc.id)
+          if (!isDiagnosticLabClinic(selectedClinic)) {
+            setSlotDoctorId((prev) => prev || doc.id)
+          }
           setDoctorInClinic(doc.isInClinic ?? true)
         }
         setAppointments(appts)
@@ -1485,9 +1505,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         setAppointments(appts)
         setPublishedSlots(
           isLabClinic
-            ? liveSlots.filter((s) => !s.doctorId).length > 0
-              ? liveSlots.filter((s) => !s.doctorId)
-              : liveSlots
+            ? liveSlots
             : slotDoctorId
             ? liveSlots.filter((s) => s.doctorId === slotDoctorId || !s.doctorId)
             : liveSlots
@@ -1535,10 +1553,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       try {
         const allSlots = await getSlots(selectedClinic!.id, slotDate)
         const scoped = isLabClinic
-          ? (() => {
-              const labOnly = allSlots.filter((s) => !s.doctorId)
-              return labOnly.length > 0 ? labOnly : allSlots
-            })()
+          ? allSlots
           : slotDoctorId
           ? (() => {
               const docOnly = allSlots.filter((s) => s.doctorId === slotDoctorId)
@@ -1572,10 +1587,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         if (!active) return
         const publishedOnly = (slots || []).filter((s) => s.isPublished !== false)
         const scopedSlots = isLabClinic
-          ? (() => {
-              const labOnly = publishedOnly.filter((s) => !s.doctorId)
-              return labOnly.length > 0 ? labOnly : publishedOnly
-            })()
+          ? publishedOnly
           : docId
           ? (() => {
               const docOnly = publishedOnly.filter((s) => s.doctorId === docId)
@@ -2158,31 +2170,25 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
   }
 
-  // Slot -30m & Capacity Update Handlers (SlotManagerScreen.kt)
-  const handleSubtract30MinsFromSlot = async (slot: Slot) => {
-    // Parse endTime and subtract 30 mins
+  // Slot -30m / +30m & Capacity Update Handlers (SlotManagerScreen.kt)
+  const adjustSlotEndTimeByMinutes = async (slot: Slot, deltaMinutes: number) => {
     try {
-      const clean = slot.endTime.trim().toUpperCase()
-      const isPM = clean.includes('PM')
-      const isAM = clean.includes('AM')
-      const parts = clean.replace(/[^0-9:]/g, '').split(':')
-      let h = parseInt(parts[0] || '10', 10)
-      let m = parseInt(parts[1] || '0', 10)
-      if (isPM && h < 12) h += 12
-      if (isAM && h === 12) h = 0
-      let totalMins = h * 60 + m - 30
-      if (totalMins < 0) totalMins = 0
-      const newH24 = Math.floor(totalMins / 60)
-      const newM = totalMins % 60
-      const newAmpm = newH24 >= 12 ? 'PM' : 'AM'
-      const newH12 = newH24 % 12 || 12
-      const newEndStr = `${String(newH12).padStart(2, '0')}:${String(newM).padStart(2, '0')} ${newAmpm}`
+      const startMins = parseTimeToMinutes(slot.startTime)
+      const endMins = parseTimeToMinutes(slot.endTime || slot.startTime)
+      if (deltaMinutes < 0 && endMins - startMins <= Math.abs(deltaMinutes)) {
+        await handleDeleteSlot(slot.id)
+        return
+      }
+      const newEndStr = formatMinutesTo12h(endMins + deltaMinutes)
       const ok = await updateSlot(slot.id, { endTime: newEndStr })
       if (ok) {
         setPublishedSlots((prev) => prev.map((s) => (s.id === slot.id ? { ...s, endTime: newEndStr } : s)))
       }
     } catch {}
   }
+
+  const handleSubtract30MinsFromSlot = (slot: Slot) => adjustSlotEndTimeByMinutes(slot, -30)
+  const handleAdd30MinsToSlot = (slot: Slot) => adjustSlotEndTimeByMinutes(slot, 30)
 
   const handleSaveSlotCapacityUpdate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -2764,13 +2770,38 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   // Diagnostic Lab Processing Transfer Handler
   const handleMarkDiagnosticProcessing = async (appt: Appointment) => {
     try {
-      await handleStatusChange(appt.id, 'processing')
+      const testNameStr =
+        appt.selectedTests?.join(', ') ||
+        (typeof appt.selectedLabTests === 'string' ? appt.selectedLabTests : '') ||
+        'Diagnostic Report'
+
+      // Optimistic React + IndexedDB state update
+      const nowIso = new Date().toISOString()
+      setAppointments((prev) =>
+        prev.map((a) =>
+          a.id === appt.id
+            ? { ...a, checkinStatus: 'processing' as any, updatedAt: nowIso }
+            : a
+        )
+      )
+      try {
+        const existing = await getRecord<any>('appointments', appt.id)
+        if (existing) {
+          await putRecord('appointments', { ...existing, checkin_status: 'processing', updated_at: nowIso })
+        }
+        const qEntries = await getStore<any>('opd_queue')
+        const matchedQ = qEntries.find((q: any) => q.appointment_id === appt.id || q.id === appt.id)
+        if (matchedQ) {
+          await putRecord('opd_queue', { ...matchedQ, status: 'processing', updated_at: nowIso })
+        }
+      } catch (idbErr) {
+        console.warn('Local IndexedDB processing update warning:', idbErr)
+      }
+
+      const ok = await transitionDiagnosticToProcessing(appt.id, testNameStr)
+      let saved: LabReport | null = null
       if (selectedClinic) {
-        const testNameStr =
-          appt.selectedTests?.join(', ') ||
-          (typeof appt.selectedLabTests === 'string' ? appt.selectedLabTests : '') ||
-          'Diagnostic Report'
-        const saved = await saveLabReport({
+        saved = await saveLabReport({
           appointmentId: appt.id,
           clinicId: selectedClinic.id,
           trackingCode10Digit: appt.trackingCode10Digit,
@@ -2780,13 +2811,18 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         })
         if (saved) {
           setLabReports((prev) => [
-            saved,
-            ...prev.filter((r) => r.appointmentId !== appt.id && r.id !== saved.id),
+            saved!,
+            ...prev.filter((r) => r.appointmentId !== appt.id && r.id !== saved!.id),
           ])
         }
       }
-      setRefreshKey((k) => k + 1)
-      alert(`✓ ${appt.patientName} added to Processing section! Mark report prepared in Processing / Diagnostic Lab Pipeline.`)
+      if (ok || saved) {
+        setRefreshKey((k) => k + 1)
+        alert(`✓ ${appt.patientName} added to Processing section! Mark report prepared in Processing / Diagnostic Lab Pipeline.`)
+      } else {
+        setRefreshKey((k) => k + 1)
+        alert(`Unable to transfer ${appt.patientName} to Processing. Please check your connection/permissions and try again.`)
+      }
     } catch (err) {
       console.error('Error transitioning to processing:', err)
     }

@@ -7,6 +7,24 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-12
 
 ### Prompt:
+> "For diagnostic type clinic Mark done is not transferring the patient to processing/ plan"
+
+#### Changes Applied:
+1. **Supabase Schema, Enum & Atomic RPC Fix ([`supabase/migration_fix_diagnostic_mark_done_processing.sql`](file:///g:/My%20Drive/New%20folder/supabase/migration_fix_diagnostic_mark_done_processing.sql))**:
+   - Idempotently added `'processing'`, `'sample_collected'`, and `'report_prepared'` to `public.queue_status_enum`, extended `public.checkin_status_enum` and `public.lab_stage_enum`, and ensured optional timestamp columns (`updated_at`, `completed_at`, `inside_at`, `called_at`, `sample_collected_at`, `prepared_at`) exist on `queue_entries` and `lab_reports`.
+   - Added `public.transition_diagnostic_to_processing(p_appointment_id, p_queue_entry_id, p_test_name)` (`SECURITY DEFINER` with staff/doctor/admin authorization) to atomically move `appointments`, `queue_entries`, and `lab_reports` to `'processing'` and reindex remaining live queue entries.
+   - Added backfill statements to heal existing `processing` / `report_prepared` appointments whose `queue_entries.status` remained `'waiting'` or `'inside'`.
+2. **Clinic Android App ([`QueueRepository.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/QueueRepository.kt), [`QueueBoardScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/QueueBoardScreen.kt), [`AppointmentRepository.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt), [`LabWorkflowScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/lab/LabWorkflowScreen.kt), [`DoctorDashboardScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/dashboard/DoctorDashboardScreen.kt))**:
+   - Added `QueueRepository.transitionDiagnosticToProcessing(...)`, switched `decodeSingleOrNull()` lookups to `.decodeList().firstOrNull()`, decoupled `queue_entries` vs `appointments` updates so a missing DB enum/column never blocks appointment transition or returns false success, and synced Room `queueDao` cache immediately.
+   - Updated `QueueBoardScreen.kt` with `pendingStatusOverrides` to prevent 4-second background polling from reverting optimistic transitions, reconciled `entry.status` with `appt.checkinStatus` in `loadQueue()`, unified diagnostic item detection in `handleMarkDoneAction`, and added a quick `"View"` action on the Processing confirmation banner.
+   - Fixed `AppointmentRepository.attachQueueStatus` so `sample_collected` and `report_prepared` are preserved instead of overwritten to `completed`, updated `LabWorkflowScreen.kt` to treat `sample_collected` as Processing, and updated `DoctorDashboardScreen.kt` to invoke `transitionDiagnosticToProcessing`.
+3. **Web Portal ([`web-app/src/services/db.ts`](file:///g:/My%20Drive/New%20folder/web-app/src/services/db.ts), [`web-app/src/pages/ClinicPortal.tsx`](file:///g:/My Drive/New%20folder/web-app/src/pages/ClinicPortal.tsx), [`web-app/src/pages/DoctorPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/DoctorPortal.tsx))**:
+   - Added `transitionDiagnosticToProcessing(...)` in `db.ts`, checked Supabase `{ error }` responses in `updateAppointmentStatus()` with minimal-column fallback, added `updated_at` retry fallback in `saveLabReport()`, and fixed `mapAppointment()` so stale `waiting`/`inside` `queue_entries` rows never revert progressed diagnostic statuses.
+   - Updated `ClinicPortal.tsx` (`handleMarkDiagnosticProcessing`) and `DoctorPortal.tsx` (`finalizeConsultationOrSendToProcessing`) to use `transitionDiagnosticToProcessing` and verify persistence.
+
+---
+
+### Prompt:
 > "The commission is not being added to the superadmin with the commission to be collected. It's also showing the actual amount when it should show the amount with 5% commission for pay at desk / plan"
 
 #### Changes Applied:
