@@ -7,6 +7,18 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-12
 
 ### Prompt:
+> "I ran the sql check it's integrated properly or not"
+
+#### Changes Applied:
+1. **Live Supabase Verification (`ojfoofojcpabqegxmsab.supabase.co`)**:
+   - Verified `queue_entries`, `appointments`, and `lab_reports` enum labels (`processing`, `sample_collected`, `report_prepared`, `prepared`), timestamp columns (`updated_at`, `completed_at`, `inside_at`, `called_at`, `sample_collected_at`, `prepared_at`), and `transition_diagnostic_to_processing(p_appointment_id, p_queue_entry_id, p_test_name)` registration in PostgREST, with `0` mismatched stuck processing rows.
+   - Caught a runtime SQL defect when `transition_diagnostic_to_processing` executed against a real appointment: PostgreSQL threw `42883: function public.is_authorized_doctor(uuid) does not exist` on the live DB (`is_authorized_clinic_staff` and `is_admin_portal_user` exist, while `is_authorized_doctor` does not).
+2. **SQL Migration Fix ([`supabase/migration_fix_diagnostic_mark_done_processing.sql`](file:///g:/My%20Drive/New%20folder/supabase/migration_fix_diagnostic_mark_done_processing.sql))**:
+   - Replaced the missing `public.is_authorized_doctor(v_appt.doctor_id)` call inside `transition_diagnostic_to_processing` with an inline `public.doctors` / `public.profiles` authorization check alongside `is_admin_portal_user()`, `is_authorized_clinic_staff(v_appt.clinic_id)`, and `service_role`.
+
+---
+
+### Prompt:
 > "For diagnostic lab In website it shows to add slot as per the doctor fix this . Allign the logic of slot publishing for diagnostic lab with the logic of app . Strictly don't change any files of app . /plan"
 
 #### Changes Applied:

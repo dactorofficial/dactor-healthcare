@@ -140,11 +140,24 @@ BEGIN
         RAISE EXCEPTION 'Appointment % not found', COALESCE(v_resolved_appt_id::TEXT, p_queue_entry_id::TEXT);
     END IF;
 
-    -- Authorization: clinic staff, assigned doctor, or admin portal user
+    -- Authorization: clinic staff, assigned doctor, service_role, or admin portal user
     IF NOT (
-        public.is_admin_portal_user()
+        (auth.jwt() ->> 'role') = 'service_role'
+        OR public.is_admin_portal_user()
         OR public.is_authorized_clinic_staff(v_appt.clinic_id)
-        OR (v_appt.doctor_id IS NOT NULL AND public.is_authorized_doctor(v_appt.doctor_id))
+        OR (
+            v_appt.doctor_id IS NOT NULL
+            AND EXISTS (
+                SELECT 1
+                FROM public.doctors d
+                LEFT JOIN public.profiles p ON p.id = d.user_id
+                WHERE d.id = v_appt.doctor_id
+                  AND (
+                      (COALESCE(auth.jwt() ->> 'email', '') <> '' AND LOWER(d.email) = LOWER(auth.jwt() ->> 'email'))
+                      OR (auth.uid() IS NOT NULL AND (p.id = auth.uid() OR p.auth_uid = auth.uid()))
+                  )
+            )
+        )
     ) THEN
         RAISE EXCEPTION 'Not authorized to transition appointment % to processing', v_appt.id;
     END IF;
