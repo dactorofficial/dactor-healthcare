@@ -288,8 +288,11 @@ fun QueueBoardScreen(
     val completedStatuses = remember { setOf("done", "report_prepared") }
     val pastStatuses = remember { setOf("done", "report_prepared", "no_show") }
     val allFinishedStatuses = remember { processingStatuses + pastStatuses }
+    var pendingStatusOverrides by remember(effectiveClinicId) { mutableStateOf<Map<String, Pair<String, Long>>>(emptyMap()) }
 
     fun optimisticallyUpdateStatus(itemId: String, newStatus: String) {
+        val nowMs = System.currentTimeMillis()
+        pendingStatusOverrides = pendingStatusOverrides + (itemId to (newStatus to (nowMs + 15_000L)))
         val nowIso = java.time.Instant.now().toString()
         val updated = queueItems.map { current ->
             if (current.id == itemId) {
@@ -324,31 +327,52 @@ fun QueueBoardScreen(
     }
 
     fun handleMarkDoneAction(item: QueueItemUi) {
-        val isDiag = isDiagnosticClinic(currentClinic, item)
+        val isDiag = isLabClinic || isDiagnosticClinic(currentClinic, item)
         if (isDiag) {
             optimisticallyUpdateStatus(item.id, "processing")
             coroutineScope.launch {
-                // 1. Move queue entry to processing
-                queueRepository?.updateQueueStatus(item.id, "processing", effectiveClinicId)
-                // 2. Update appointment checkin status to processing
-                appointmentRepository?.updateCheckinStatus(item.appointmentId, "processing")
+                // 1. Atomic RPC or fallback queue update -> processing
+                var qOk = queueRepository?.transitionDiagnosticToProcessing(
+                    appointmentId = item.appointmentId,
+                    queueEntryId = item.id,
+                    testName = item.selectedLabTests
+                ) ?: false
+                if (!qOk && queueRepository != null) {
+                    qOk = queueRepository.updateQueueStatus(item.id, "processing", effectiveClinicId) ||
+                        queueRepository.updateQueueStatusByAppointmentId(item.appointmentId, "processing")
+                }
+                // 2. Ensure appointment checkin status is processing
+                val apptOk = appointmentRepository?.updateCheckinStatus(item.appointmentId, "processing") ?: false
                 // 3. Upsert lab report into Processing stage
-                labReportRepository?.upsertLabReportForAppointment(
+                val reportSaved = labReportRepository?.upsertLabReportForAppointment(
                     appointmentId = item.appointmentId,
                     clinicId = effectiveClinicId,
                     patientName = item.patientName,
                     testName = item.selectedLabTests?.takeIf { it.isNotBlank() } ?: "Diagnostic Lab Analysis",
                     stage = "processing"
                 )
-                notificationSentMessage = "✓ ${item.patientName} added to Processing section! Mark report prepared in Processing."
+                if (qOk || apptOk || reportSaved != null) {
+                    notificationSentMessage = "✓ ${item.patientName} moved to Processing! Mark report prepared in Processing."
+                } else {
+                    pendingStatusOverrides = pendingStatusOverrides - item.id
+                    notificationSentMessage = "⚠ Unable to move ${item.patientName} to Processing. Please check connection and retry."
+                }
                 loadQueue()
             }
         } else {
             optimisticallyUpdateStatus(item.id, "done")
             coroutineScope.launch {
-                queueRepository?.updateQueueStatus(item.id, "done", effectiveClinicId)
-                appointmentRepository?.updateCheckinStatus(item.appointmentId, "completed")
-                notificationSentMessage = "✓ Consultation completed for ${item.patientName}!"
+                var qOk = queueRepository?.updateQueueStatus(item.id, "done", effectiveClinicId) ?: false
+                if (!qOk && queueRepository != null) {
+                    qOk = queueRepository.updateQueueStatusByAppointmentId(item.appointmentId, "done")
+                }
+                val apptOk = appointmentRepository?.updateCheckinStatus(item.appointmentId, "completed") ?: false
+                if (qOk || apptOk) {
+                    notificationSentMessage = "✓ Consultation completed for ${item.patientName}!"
+                } else {
+                    pendingStatusOverrides = pendingStatusOverrides - item.id
+                    notificationSentMessage = "⚠ Unable to complete consultation for ${item.patientName}. Please retry."
+                }
                 loadQueue()
             }
         }
@@ -463,20 +487,37 @@ fun QueueBoardScreen(
                 val appts = apptsDeferred.await()
                 val apptMap = appts.associateBy { it.id }
 
+                val nowMs = System.currentTimeMillis()
+                val activeOverrides = pendingStatusOverrides.filterValues { it.second > nowMs }
+                val resolvedOverridesToKeep = activeOverrides.toMutableMap()
+
                 // Strict FIFO system: inside consultation room is position 1, waiting patients sorted chronologically (unapproved excluded)
-                queueItems = entries
+                val mappedItems = entries
                     .filter { entry ->
                         val appt = apptMap[entry.appointmentId]
                         appt != null &&
                             appt.status.equals("APPROVED", ignoreCase = true) &&
                             appt.checkinStatus != "cancelled"
                     }
-                    .sortedWith(
-                        compareBy<QueueEntry> { if (it.status == "inside") 0 else 1 }
-                            .thenBy { it.queuePosition }
-                    )
                     .map { entry ->
                         val appt = apptMap[entry.appointmentId]
+                        val apptCheckinLower = appt?.checkinStatus?.lowercase() ?: ""
+                        val serverResolvedStatus = when {
+                            entry.status in listOf("waiting", "inside") && apptCheckinLower == "processing" -> "processing"
+                            entry.status in listOf("waiting", "inside") && apptCheckinLower == "sample_collected" -> "sample_collected"
+                            entry.status in listOf("waiting", "inside", "processing", "sample_collected") && apptCheckinLower == "report_prepared" -> "report_prepared"
+                            entry.status in listOf("waiting", "inside") && apptCheckinLower in listOf("completed", "done") -> "done"
+                            else -> entry.status
+                        }
+                        val pendingOverride = activeOverrides[entry.id]
+                        val effectiveStatus = if (pendingOverride != null && serverResolvedStatus != pendingOverride.first) {
+                            pendingOverride.first
+                        } else {
+                            if (pendingOverride != null && serverResolvedStatus == pendingOverride.first) {
+                                resolvedOverridesToKeep.remove(entry.id)
+                            }
+                            serverResolvedStatus
+                        }
                         val durationSec = entry.consultationDurationSeconds ?: run {
                             if (!entry.insideAt.isNullOrBlank() && !entry.completedAt.isNullOrBlank()) {
                                 try {
@@ -495,7 +536,7 @@ fun QueueBoardScreen(
                             patientMobile = appt?.patientMobile ?: "",
                             trackingCode = appt?.trackingCode10Digit ?: entry.appointmentId.take(8),
                             queuePosition = entry.queuePosition,
-                            status = entry.status,
+                            status = effectiveStatus,
                             appointmentDate = appt?.appointmentDate ?: "",
                             appointmentTime = appt?.appointmentTime ?: "",
                             insideAt = entry.insideAt,
@@ -508,13 +549,20 @@ fun QueueBoardScreen(
                             doctorName = docMap[entry.doctorId ?: appt?.doctorId]?.fullName,
                             paymentMode = appt?.paymentMode,
                             paymentStatus = appt?.paymentStatus,
-                            totalAmount = appt?.totalAmount ?: appt?.feeAmount ?: 0.0
+                            totalAmount = appt?.effectiveTotalAmount ?: 0.0
                         )
                     }
+                    .sortedWith(
+                        compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }
+                            .thenBy { it.queuePosition }
+                    )
+
+                pendingStatusOverrides = resolvedOverridesToKeep
+                queueItems = mappedItems
 
                 isQueueLoading = false
 
-                val pastApptIds = entries.filter { it.status in allFinishedStatuses }.map { it.appointmentId }
+                val pastApptIds = mappedItems.filter { it.status in allFinishedStatuses }.map { it.appointmentId }
                 if (billingRepository != null && pastApptIds.isNotEmpty()) {
                     try {
                         val map = billingRepository.getRemarksForAppointments(pastApptIds)
@@ -1277,19 +1325,40 @@ fun QueueBoardScreen(
 
     if (notificationSentMessage != null) {
         item(key = "notification_sent_banner") {
+            val msg = notificationSentMessage ?: ""
+            val isWarning = msg.startsWith("⚠")
+            val isProcessingMove = !isWarning && msg.contains("Processing", ignoreCase = true) && selectedQueueTab != 2
             Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                 Surface(
-                    color = Color(0xFFDCFCE7),
+                    color = if (isWarning) Color(0xFFFEF2F2) else Color(0xFFDCFCE7),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
                         modifier = Modifier.padding(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = Color(0xFF16A34A))
-                        Text(notificationSentMessage ?: "", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Color(0xFF166534))
+                        Icon(
+                            if (isWarning) Icons.Default.Warning else Icons.Default.NotificationsActive,
+                            contentDescription = null,
+                            tint = if (isWarning) Color(0xFFDC2626) else Color(0xFF16A34A)
+                        )
+                        Text(
+                            msg,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (isWarning) Color(0xFF991B1B) else Color(0xFF166534),
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (isProcessingMove) {
+                            TextButton(
+                                onClick = { selectedQueueTab = 2 },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("View", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F4C81))
+                            }
+                        }
                     }
                 }
             }
@@ -1901,8 +1970,9 @@ fun QueueBoardScreen(
                                                     border = BorderStroke(0.5.dp, if (item.paymentStatus == "paid") Color(0xFF86EFAC) else Color(0xFFFDE68A)),
                                                     modifier = Modifier.padding(top = 2.dp)
                                                 ) {
+                                                    val dueLabel = if (item.totalAmount % 1.0 == 0.0) item.totalAmount.toInt().toString() else String.format(java.util.Locale.US, "%.2f", item.totalAmount)
                                                     Text(
-                                                        text = if (item.paymentStatus == "paid") "✓ Paid at Desk" else "💵 Pay at Desk (Due Rs. ${item.totalAmount.toInt()})",
+                                                        text = if (item.paymentStatus == "paid") "✓ Paid at Desk" else "💵 Pay at Desk (Due Rs. $dueLabel)",
                                                         fontSize = 11.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = if (item.paymentStatus == "paid") Color(0xFF166534) else Color(0xFF92400E),
@@ -2381,7 +2451,8 @@ fun QueueBoardScreen(
                                                 coroutineScope.launch {
                                                     val res = appointmentRepository?.markPaymentCollectedAtDesk(item.appointmentId)
                                                     if (res?.isSuccess == true) {
-                                                        notificationSentMessage = "✓ Collected NPR ${item.totalAmount.toInt()} at desk for ${item.patientName}!"
+                                                        val paidLabel = if (item.totalAmount % 1.0 == 0.0) item.totalAmount.toInt().toString() else String.format(java.util.Locale.US, "%.2f", item.totalAmount)
+                                                        notificationSentMessage = "✓ Collected NPR $paidLabel at desk for ${item.patientName}!"
                                                         loadQueue()
                                                     }
                                                 }
@@ -2489,8 +2560,9 @@ fun QueueBoardScreen(
                                                 ) {
                                                     Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(15.dp), tint = Color.White)
                                                     Spacer(modifier = Modifier.width(5.dp))
+                                                    val btnAmtLabel = if (item.totalAmount % 1.0 == 0.0) item.totalAmount.toInt().toString() else String.format(java.util.Locale.US, "%.2f", item.totalAmount)
                                                     Text(
-                                                        text = "Mark Paid (NPR ${item.totalAmount.toInt()})",
+                                                        text = "Mark Paid (NPR $btnAmtLabel)",
                                                         fontSize = 12.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = Color.White,

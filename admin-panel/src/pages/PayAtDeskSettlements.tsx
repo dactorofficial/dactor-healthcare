@@ -142,25 +142,37 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
     try {
       setLoading(true)
 
-      // 1. Fetch clinics
+      // 1. Fetch clinics (matching PostgreSQL schema columns)
       const { data: clinicsData, error: clinicErr } = await supabase
         .from('clinics')
-        .select('id, name, city, address, phone, contact_email, email, clinic_type, is_activated, code')
-        .eq('is_archived', false)
+        .select('id, name, type, contact_phone, contact_email, address_text, is_activated')
+        .or('is_archived.is.null,is_archived.eq.false')
         .order('name', { ascending: true })
 
       if (clinicErr) throw clinicErr
-      setClinics(clinicsData || [])
+      const normalizedClinics: Clinic[] = (clinicsData || []).map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        city: c.address_text ? String(c.address_text).split(',')[0].trim() : 'Nepal',
+        address: c.address_text || '',
+        phone: c.contact_phone || '',
+        contact_email: c.contact_email || '',
+        email: c.contact_email || '',
+        clinic_type: c.type || 'single_visit',
+        is_activated: c.is_activated,
+        code: c.id ? String(c.id).substring(0, 8).toUpperCase() : '',
+      }))
+      setClinics(normalizedClinics)
 
       // 2. Fetch doctors for quick lookup
       const { data: docsData } = await supabase
         .from('doctors')
-        .select('id, name, full_name, specialty')
+        .select('id, full_name, specialty')
       const docLookup = new Map<string, { name: string; specialty: string }>()
       if (docsData) {
         docsData.forEach((d: any) => {
           docLookup.set(d.id, {
-            name: d.full_name || d.name || 'Doctor',
+            name: d.full_name || 'Doctor',
             specialty: d.specialty || 'General',
           })
         })
@@ -187,21 +199,22 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
           checkin_status,
           created_at
         `)
-        .eq('payment_mode', 'PAY_AT_DESK')
+        .ilike('payment_mode', 'PAY_AT_DESK')
         .order('appointment_date', { ascending: false })
 
       if (apptErr) throw apptErr
 
       const mappedAppts: DeskAppointment[] = (apptsData || []).map((a: any) => {
         const doc = a.doctor_id ? docLookup.get(a.doctor_id) : undefined
-        const cln = clinicsData?.find((c) => c.id === a.clinic_id)
+        const cln = normalizedClinics.find((c) => c.id === a.clinic_id)
         const fee = Number(a.fee_amount) || 0
-        // Service charge is 5% platform fee
+        // Service charge is strictly 5% platform fee
         let sCharge = Number(a.service_charge_amount) || 0
-        if (sCharge === 0 && fee > 0) {
+        if (sCharge <= 0 && fee > 0) {
           sCharge = Math.round(fee * 0.05 * 100) / 100
         }
-        const tot = Number(a.total_amount) || (fee + sCharge)
+        const rawTotal = Number(a.total_amount) || 0
+        const tot = rawTotal > fee ? rawTotal : Math.round((fee + sCharge) * 100) / 100
 
         return {
           id: a.id,
@@ -245,14 +258,23 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
           recorded_by_email,
           settled_at,
           created_at,
-          clinic:clinics(name, city, phone, email, contact_email)
+          clinic:clinics(name, contact_phone, contact_email, address_text)
         `)
         .order('settled_at', { ascending: false })
 
       if (setsErr) {
         console.warn('Could not fetch settlements:', setsErr.message)
       } else {
-        setSettlements((setsData as any[]) || [])
+        const normalizedSets = ((setsData as any[]) || []).map((st: any) => ({
+          ...st,
+          clinic: st.clinic ? {
+            ...st.clinic,
+            phone: st.clinic.contact_phone || '',
+            email: st.clinic.contact_email || '',
+            city: st.clinic.address_text ? String(st.clinic.address_text).split(',')[0].trim() : 'Nepal',
+          } : undefined,
+        }))
+        setSettlements(normalizedSets)
       }
     } catch (err) {
       console.error('Error loading Pay at Desk settlements data:', err)
@@ -292,7 +314,16 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
     return clinics.map((clinic) => {
       // Find appointments for this clinic in the active date filter
       const appts = dateFilteredAppointments.filter((a) => a.clinic_id === clinic.id)
-      const validAppts = appts.filter((a) => a.status !== 'CANCELLED' && a.status !== 'REJECTED')
+      const validAppts = appts.filter((a) => {
+        const st = String(a.status || '').toUpperCase()
+        const ck = String(a.checkin_status || '').toLowerCase()
+        const ps = String(a.payment_status || '').toLowerCase()
+        if (ck === 'cancelled' || st === 'CANCELLED' || st === 'REJECTED' || st === 'EXPIRED' || st === 'UNAPPROVED') {
+          return false
+        }
+        // Count confirmed/completed/paid desk appointments as commission-accruing revenue
+        return st === 'APPROVED' || st === 'COMPLETED' || ps === 'paid'
+      })
 
       const totalDeskAppointments = validAppts.length
       const grossDeskRevenue = validAppts.reduce((sum, a) => sum + (a.total_amount || (a.fee_amount + a.service_charge_amount)), 0)
@@ -300,7 +331,7 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
 
       // Settlements for this clinic
       const clinicSettlements = settlements.filter(
-        (s) => s.clinic_id === clinic.id && (s.status === 'settled' || s.status === 'SETTLED')
+        (s) => s.clinic_id === clinic.id && ['settled', 'waived'].includes(String(s.status || '').toLowerCase())
       )
       const settledCommission = clinicSettlements.reduce(
         (sum, s) => sum + (Number(s.commission_amount_npr) || 0),
@@ -477,13 +508,23 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
           recorded_by_email,
           settled_at,
           created_at,
-          clinic:clinics(name, city, phone, email, contact_email)
+          clinic:clinics(name, contact_phone, contact_email, address_text)
         `)
         .single()
 
       if (error) throw error
 
-      setSettlements((prev) => [data as any, ...prev])
+      const normalizedInsert = data ? {
+        ...(data as any),
+        clinic: (data as any).clinic ? {
+          ...(data as any).clinic,
+          phone: (data as any).clinic.contact_phone || '',
+          email: (data as any).clinic.contact_email || '',
+          city: (data as any).clinic.address_text ? String((data as any).clinic.address_text).split(',')[0].trim() : 'Nepal',
+        } : undefined,
+      } : data
+
+      setSettlements((prev) => [normalizedInsert as any, ...prev])
       setShowSettleModal(false)
       alert(`Settlement of NPR ${commAmt.toLocaleString()} successfully recorded for ${targetClinic?.name || 'Clinic'}! Voucher Ref: ${generatedRef}`)
       loadAllData()
@@ -635,7 +676,7 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
             {loading ? '...' : formatNPR(executiveMetrics.totalCommissionSettled)}
           </div>
           <div className="mt-2 text-[11px] text-emerald-500 font-medium flex items-center gap-1">
-            <span>{settlements.filter((s) => s.status === 'settled').length} vouchers settled</span>
+            <span>{settlements.filter((s) => String(s.status || '').toLowerCase() === 'settled').length} vouchers settled</span>
           </div>
         </div>
 

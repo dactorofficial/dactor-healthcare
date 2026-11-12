@@ -245,7 +245,7 @@ object PaymentLedgerHelper {
             val doc = appt.doctorId?.let { doctorMap[it] }
             val isNew = firstVisitSet.contains(appt.id)
             val isFollowUp = !isNew || appt.feeAmount == 0.0
-            val effectiveAmount = if (isFollowUp) 0.0 else appt.feeAmount
+            val effectiveAmount = if (isFollowUp) 0.0 else appt.effectiveTotalAmount
             val apptDateTime = "${appt.appointmentDate} ${appt.appointmentTime.ifBlank { "10:00 AM" }}"
 
             entries.add(

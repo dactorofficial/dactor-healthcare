@@ -8822,8 +8822,8 @@ fun ProfileTab(
                     val inv = profileInvoiceMap[appt.id]
                     val doc = appt.doctorId?.let { profileDoctorMap[it] }
                     val t = when {
-                        inv != null && inv.totalAmount > 0.0 -> inv.totalAmount
-                        (appt.feeAmount ?: 0.0) > 0.0 -> appt.feeAmount ?: 0.0
+                        inv != null && inv.totalAmount > 0.0 -> maxOf(inv.totalAmount, appt.effectiveTotalAmount)
+                        appt.effectiveTotalAmount > 0.0 -> appt.effectiveTotalAmount
                         else -> doc?.consultationFee ?: 500.0
                     }
                     val p = when {
@@ -8958,8 +8958,8 @@ fun ProfileTab(
                                 val dSpec = doc?.allSpecialties?.firstOrNull() ?: doc?.specialty ?: "General Physician"
 
                                 val totalBill = when {
-                                    inv != null && inv.totalAmount > 0.0 -> inv.totalAmount
-                                    (appt.feeAmount ?: 0.0) > 0.0 -> appt.feeAmount ?: 0.0
+                                    inv != null && inv.totalAmount > 0.0 -> maxOf(inv.totalAmount, appt.effectiveTotalAmount)
+                                    appt.effectiveTotalAmount > 0.0 -> appt.effectiveTotalAmount
                                     else -> doc?.consultationFee ?: 500.0
                                 }
                                 val paidAmt = when {

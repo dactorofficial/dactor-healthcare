@@ -1068,8 +1068,8 @@ fun QueueStatusScreen(
                     val status = appt.status
                     val attempts = appt.attemptNumber.coerceAtLeast(1)
                     val fee = appt.feeAmount
-                    val serviceCharge = appt.serviceChargeAmount ?: (fee * 0.05)
-                    val total = appt.totalAmount ?: (fee + serviceCharge)
+                    val serviceCharge = appt.effectiveServiceCharge
+                    val total = appt.effectiveTotalAmount
 
                     LaunchedEffect(status) {
                         if (status != "UNAPPROVED") {
@@ -2200,13 +2200,28 @@ fun QueueStatusScreen(
                                             onClick = {
                                                 val targetAppt = appointment
                                                 if (targetAppt != null) {
-                                                    val invTotal = billingInvoice?.totalAmount?.takeIf { it > 0.0 }
-                                                        ?: targetAppt.feeAmount.takeIf { it > 0.0 } ?: 500.0
+                                                    val invTotal = billingInvoice?.totalAmount?.takeIf { it > 0.0 }?.let { maxOf(it, targetAppt.effectiveTotalAmount) }
+                                                        ?: targetAppt.effectiveTotalAmount.takeIf { it > 0.0 } ?: 500.0
                                                     val invPaid = billingInvoice?.effectivePaidAmount
                                                         ?: (if (targetAppt.paymentStatus.equals("paid", ignoreCase = true)) invTotal else 0.0)
                                                     val invLeft = (invTotal - invPaid).coerceAtLeast(0.0)
                                                     val invItems = if (billingInvoice != null && billingInvoice!!.items.isNotEmpty()) {
                                                         billingInvoice!!.items
+                                                    } else if (targetAppt.isPayAtDesk && targetAppt.effectiveServiceCharge > 0.0) {
+                                                        listOf(
+                                                            InvoiceItem(
+                                                                itemName = "Consultation Fee (${targetAppt.appointmentDate})",
+                                                                quantity = 1,
+                                                                price = targetAppt.feeAmount,
+                                                                total = targetAppt.feeAmount
+                                                            ),
+                                                            InvoiceItem(
+                                                                itemName = "Pay at Desk Service Charge (5%)",
+                                                                quantity = 1,
+                                                                price = targetAppt.effectiveServiceCharge,
+                                                                total = targetAppt.effectiveServiceCharge
+                                                            )
+                                                        )
                                                     } else {
                                                         listOf(
                                                             InvoiceItem(
@@ -2278,14 +2293,31 @@ fun QueueStatusScreen(
                 val hasBillOrCompleted = !isPayAtDeskPendingCard && (isConsultancyCompleted || queueStatus == "done" ||
                     billingInvoice != null || (appointment?.feeAmount ?: 0.0) > 0.0)
                 if (hasBillOrCompleted) {
-                    val invTotal = billingInvoice?.totalAmount?.takeIf { it > 0.0 }
-                        ?: appointment?.feeAmount?.takeIf { it > 0.0 }
+                    val apptTotal = appointment?.effectiveTotalAmount ?: 0.0
+                    val invTotal = billingInvoice?.totalAmount?.takeIf { it > 0.0 }?.let { maxOf(it, apptTotal) }
+                        ?: apptTotal.takeIf { it > 0.0 }
                         ?: 500.0
                     val invPaid = billingInvoice?.effectivePaidAmount
                         ?: (if (appointment?.paymentStatus.equals("paid", ignoreCase = true)) invTotal else 0.0)
                     val invLeft = (invTotal - invPaid).coerceAtLeast(0.0)
                     val invoiceItems = if (billingInvoice != null && billingInvoice!!.items.isNotEmpty()) {
                         billingInvoice!!.items
+                    } else if (appointment?.isPayAtDesk == true && (appointment?.effectiveServiceCharge ?: 0.0) > 0.0) {
+                        val deskAppt = appointment!!
+                        listOf(
+                            InvoiceItem(
+                                itemName = "Consultation Fee (${deskAppt.appointmentDate.ifBlank { today }})",
+                                quantity = 1,
+                                price = deskAppt.feeAmount,
+                                total = deskAppt.feeAmount
+                            ),
+                            InvoiceItem(
+                                itemName = "Pay at Desk Service Charge (5%)",
+                                quantity = 1,
+                                price = deskAppt.effectiveServiceCharge,
+                                total = deskAppt.effectiveServiceCharge
+                            )
+                        )
                     } else {
                         listOf(
                             InvoiceItem(
@@ -3527,8 +3559,10 @@ fun QueueStatusScreen(
                                                     }
                                                     Column(horizontalAlignment = Alignment.End) {
                                                         Text("Fee & Payment", fontSize = 10.5.sp, color = Color(0xFF64748B))
+                                                        val itemTotal = apptItem.effectiveTotalAmount
+                                                        val itemAmtLabel = if (itemTotal % 1.0 == 0.0) itemTotal.toInt().toString() else String.format(java.util.Locale.US, "%.2f", itemTotal)
                                                         Text(
-                                                            "Rs. ${apptItem.feeAmount.toInt()} (${apptItem.paymentStatus.uppercase()})",
+                                                            "Rs. $itemAmtLabel (${apptItem.paymentStatus.uppercase()})",
                                                             fontSize = 12.sp,
                                                             fontWeight = FontWeight.Bold,
                                                             color = Color(0xFF0F172A)
@@ -4204,14 +4238,30 @@ fun QueueStatusScreen(
     // =========================================================================
     if (showPrescriptionDialog) {
         val dialogAppt = appointment
-        val invTotal = billingInvoice?.totalAmount?.takeIf { it > 0.0 }
-            ?: dialogAppt?.feeAmount?.takeIf { it > 0.0 } ?: 500.0
+        val dialogApptTotal = dialogAppt?.effectiveTotalAmount ?: 0.0
+        val invTotal = billingInvoice?.totalAmount?.takeIf { it > 0.0 }?.let { maxOf(it, dialogApptTotal) }
+            ?: dialogApptTotal.takeIf { it > 0.0 } ?: 500.0
         val invPaid = billingInvoice?.effectivePaidAmount
             ?: (if (dialogAppt?.paymentStatus.equals("paid", ignoreCase = true)) invTotal else 0.0)
         val invLeft = (invTotal - invPaid).coerceAtLeast(0.0)
         val isPaidInFull = invLeft <= 0.0 || dialogAppt?.paymentStatus.equals("paid", ignoreCase = true)
         val dialogItems = if (billingInvoice != null && billingInvoice!!.items.isNotEmpty()) {
             billingInvoice!!.items
+        } else if (dialogAppt?.isPayAtDesk == true && dialogAppt.effectiveServiceCharge > 0.0) {
+            listOf(
+                InvoiceItem(
+                    itemName = "Consultation Fee (${dialogAppt.appointmentDate.ifBlank { today }})",
+                    quantity = 1,
+                    price = dialogAppt.feeAmount,
+                    total = dialogAppt.feeAmount
+                ),
+                InvoiceItem(
+                    itemName = "Pay at Desk Service Charge (5%)",
+                    quantity = 1,
+                    price = dialogAppt.effectiveServiceCharge,
+                    total = dialogAppt.effectiveServiceCharge
+                )
+            )
         } else {
             listOf(
                 InvoiceItem(

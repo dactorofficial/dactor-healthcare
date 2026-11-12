@@ -343,6 +343,57 @@ class QueueRepository @Inject constructor(
         }
     }
 
+    /**
+     * Atomically transitions a diagnostic visit from the live queue into `processing`
+     * via the authoritative `transition_diagnostic_to_processing` RPC when available,
+     * falling back cleanly to resilient table updates if the RPC has not been deployed.
+     */
+    suspend fun transitionDiagnosticToProcessing(
+        appointmentId: String,
+        queueEntryId: String? = null,
+        testName: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (appointmentId.isBlank() && queueEntryId.isNullOrBlank()) return@withContext false
+
+        try {
+            val rpcParams = buildJsonObject {
+                if (appointmentId.isNotBlank()) put("p_appointment_id", appointmentId)
+                if (!queueEntryId.isNullOrBlank()) put("p_queue_entry_id", queueEntryId)
+                if (!testName.isNullOrBlank()) put("p_test_name", testName)
+            }
+            supabaseClient.postgrest.rpc("transition_diagnostic_to_processing", rpcParams)
+            val cachedTarget = try {
+                queueEntryId?.takeIf { it.isNotBlank() }?.let { queueDao?.getQueueEntryById(it) }
+                    ?: appointmentId.takeIf { it.isNotBlank() }?.let { queueDao?.getQueueEntryByAppointmentId(it) }
+            } catch (_: Exception) { null }
+            if (cachedTarget != null) {
+                try {
+                    queueDao?.upsert(cachedTarget.copy(status = "processing", syncStatus = "synced"))
+                } catch (_: Exception) {}
+            }
+            return@withContext true
+        } catch (rpcErr: Exception) {
+            Log.w("QueueRepository", "transition_diagnostic_to_processing RPC unavailable/failed, using fallback: ${rpcErr.message}")
+        }
+
+        val targetId = queueEntryId?.takeIf { it.isNotBlank() } ?: appointmentId
+        val queueOk = updateQueueStatus(targetId, "processing")
+        val apptOk = if (appointmentId.isNotBlank()) {
+            try {
+                supabaseClient.postgrest["appointments"]
+                    .update({ set("checkin_status", "processing") }) {
+                        filter { eq("id", appointmentId) }
+                    }
+                true
+            } catch (e: Exception) {
+                e.printStackTrace()
+                false
+            }
+        } else false
+
+        queueOk || apptOk
+    }
+
     suspend fun updateQueueStatus(id: String, status: String, clinicId: String? = null): Boolean = withContext(Dispatchers.IO) {
         try {
             val now = Instant.now().toString()
@@ -356,10 +407,14 @@ class QueueRepository @Inject constructor(
                             }
                         }
                     }
-                    .decodeSingleOrNull<QueueEntry>()
+                    .decodeList<QueueEntry>()
+                    .firstOrNull()
             } catch (e: Exception) { null }
 
             val targetEntryId = existingEntry?.id ?: id
+            val resolvedApptId = existingEntry?.appointmentId ?: id
+            var queueUpdated = false
+            var apptUpdated = false
 
             val startTs = existingEntry?.insideAt ?: existingEntry?.calledAt
             val durationSeconds = if ((status == "done" || status == "processing") && !startTs.isNullOrBlank()) {
@@ -374,7 +429,8 @@ class QueueRepository @Inject constructor(
                 val appt = try {
                     supabaseClient.postgrest["appointments"]
                         .select { filter { eq("id", id) } }
-                        .decodeSingleOrNull<com.dactor.clinic.data.model.Appointment>()
+                        .decodeList<com.dactor.clinic.data.model.Appointment>()
+                        .firstOrNull()
                 } catch (e: Exception) { null }
 
                 if (appt == null || !appt.status.equals("APPROVED", ignoreCase = true) ||
@@ -385,9 +441,9 @@ class QueueRepository @Inject constructor(
                     return@withContext false
                 }
 
-                val targetClinic = clinicId ?: appt?.clinicId
+                val targetClinic = clinicId ?: appt.clinicId
                 if (!targetClinic.isNullOrBlank()) {
-                    val cleanDocId = appt?.doctorId?.takeIf { com.dactor.clinic.domain.util.PatientIdentitySync.isValidUuid(it) }
+                    val cleanDocId = appt.doctorId?.takeIf { com.dactor.clinic.domain.util.PatientIdentitySync.isValidUuid(it) }
                     val newEntry = QueueEntryInsertDto(
                         id = java.util.UUID.randomUUID().toString(),
                         appointmentId = id,
@@ -401,9 +457,11 @@ class QueueRepository @Inject constructor(
                     )
                     try {
                         supabaseClient.postgrest["queue_entries"].insert(newEntry)
+                        queueUpdated = true
                     } catch (e: Exception) {
                         try {
                             supabaseClient.postgrest["queue_entries"].insert(newEntry.copy(doctorId = null))
+                            queueUpdated = true
                         } catch (e2: Exception) {
                             e2.printStackTrace()
                         }
@@ -411,25 +469,30 @@ class QueueRepository @Inject constructor(
                 }
             } else {
                 // Primary update: only guaranteed schema columns so missing optional columns never fail the status transition
-                supabaseClient.postgrest["queue_entries"]
-                    .update({
-                        set("status", status)
-                        when (status) {
-                            "inside" -> set("called_at", now)
-                            "done", "processing", "no_show", "sample_collected", "report_prepared" -> {
-                                set("completed_at", now)
+                try {
+                    supabaseClient.postgrest["queue_entries"]
+                        .update({
+                            set("status", status)
+                            when (status) {
+                                "inside" -> set("called_at", now)
+                                "done", "processing", "no_show", "sample_collected", "report_prepared" -> {
+                                    set("completed_at", now)
+                                }
+                            }
+                        }) {
+                            filter {
+                                or {
+                                    eq("id", targetEntryId)
+                                    eq("appointment_id", id)
+                                }
                             }
                         }
-                    }) {
-                        filter {
-                            or {
-                                eq("id", targetEntryId)
-                                eq("appointment_id", id)
-                            }
-                        }
-                    }
+                    queueUpdated = true
+                } catch (qErr: Exception) {
+                    qErr.printStackTrace()
+                }
 
-                if (status == "inside") {
+                if (queueUpdated && status == "inside") {
                     try {
                         supabaseClient.postgrest["queue_entries"]
                             .update({ set("inside_at", now) }) {
@@ -444,7 +507,7 @@ class QueueRepository @Inject constructor(
                 }
 
                 // Optional column update: persist consultation_duration_seconds if column exists in DB
-                if (durationSeconds != null) {
+                if (queueUpdated && durationSeconds != null) {
                     try {
                         supabaseClient.postgrest["queue_entries"]
                             .update({
@@ -462,8 +525,7 @@ class QueueRepository @Inject constructor(
             }
 
             if (status in listOf("inside", "done", "processing", "no_show", "sample_collected", "report_prepared")) {
-                val apptId = existingEntry?.appointmentId ?: id
-                if (apptId.isNotBlank()) {
+                if (resolvedApptId.isNotBlank()) {
                     try {
                         val newCheckin = when (status) {
                             "inside" -> "inside"
@@ -475,8 +537,9 @@ class QueueRepository @Inject constructor(
                         }
                         supabaseClient.postgrest["appointments"]
                             .update({ set("checkin_status", newCheckin) }) {
-                                filter { eq("id", apptId) }
+                                filter { eq("id", resolvedApptId) }
                             }
+                        apptUpdated = true
                     } catch (ignored: Exception) {}
                 }
 
@@ -489,7 +552,18 @@ class QueueRepository @Inject constructor(
                     }
                 }
             }
-            true
+
+            if (queueUpdated || apptUpdated) {
+                try {
+                    val cached = queueDao?.getQueueEntryById(targetEntryId)
+                        ?: queueDao?.getQueueEntryByAppointmentId(resolvedApptId)
+                    if (cached != null) {
+                        queueDao?.upsert(cached.copy(status = status, syncStatus = "synced"))
+                    }
+                } catch (_: Exception) {}
+            }
+
+            queueUpdated || apptUpdated
         } catch (e: Exception) {
             e.printStackTrace()
             false
@@ -502,23 +576,32 @@ class QueueRepository @Inject constructor(
             val existingEntry = try {
                 supabaseClient.postgrest["queue_entries"]
                     .select { filter { eq("appointment_id", appointmentId) } }
-                    .decodeSingleOrNull<QueueEntry>()
+                    .decodeList<QueueEntry>()
+                    .firstOrNull()
             } catch (e: Exception) { null }
 
-            supabaseClient.postgrest["queue_entries"]
-                .update({
-                    set("status", status)
-                    if (status == "inside") {
-                        set("inside_at", now)
-                        set("called_at", now)
-                    } else if (status in listOf("done", "report_prepared", "processing", "no_show", "sample_collected")) {
-                        set("completed_at", now)
+            var queueUpdated = false
+            var apptUpdated = false
+
+            try {
+                supabaseClient.postgrest["queue_entries"]
+                    .update({
+                        set("status", status)
+                        if (status == "inside") {
+                            set("inside_at", now)
+                            set("called_at", now)
+                        } else if (status in listOf("done", "report_prepared", "processing", "no_show", "sample_collected")) {
+                            set("completed_at", now)
+                        }
+                    }) {
+                        filter {
+                            eq("appointment_id", appointmentId)
+                        }
                     }
-                }) {
-                    filter {
-                        eq("appointment_id", appointmentId)
-                    }
-                }
+                queueUpdated = true
+            } catch (qErr: Exception) {
+                qErr.printStackTrace()
+            }
 
             val newCheckin = when (status) {
                 "inside" -> "inside"
@@ -535,6 +618,7 @@ class QueueRepository @Inject constructor(
                         .update({ set("checkin_status", newCheckin) }) {
                             filter { eq("id", appointmentId) }
                         }
+                    apptUpdated = true
                 } catch (ignored: Exception) {}
             }
 
@@ -545,7 +629,17 @@ class QueueRepository @Inject constructor(
                     recalculateAndUpdateClinicAverageTime(cId)
                 }
             }
-            true
+
+            if (queueUpdated || apptUpdated) {
+                try {
+                    val cached = queueDao?.getQueueEntryByAppointmentId(appointmentId)
+                    if (cached != null) {
+                        queueDao?.upsert(cached.copy(status = status, syncStatus = "synced"))
+                    }
+                } catch (_: Exception) {}
+            }
+
+            queueUpdated || apptUpdated
         } catch (e: Exception) {
             e.printStackTrace()
             false

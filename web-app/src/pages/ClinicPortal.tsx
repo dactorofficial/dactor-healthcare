@@ -103,6 +103,8 @@ import {
   CityLocation,
   OnlineGatewayId,
   ClinicGatewaySetupStatus,
+  getEffectiveAppointmentTotal,
+  getEffectiveServiceCharge,
 } from '../types'
 import {
   getClinics,
@@ -185,6 +187,7 @@ import {
   getPendingPayAtDeskCount,
   approvePayAtDeskAppointment,
   rejectPayAtDeskAppointment,
+  markPayAtDeskCollected,
   requestAuthorizedDocumentUrl,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
@@ -3103,42 +3106,83 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             }))
           )
         } else {
-          const initialFee = Number(existing.totalAmount || appt.feeAmount || 500)
-          setBillItems([
-            {
-              id: 'initial_consult',
-              name: `${appt.doctor?.fullName || selectedDoctor?.fullName || 'Doctor'} Consultation Fee`,
-              price: initialFee,
-              quantity: 1,
-            },
-          ])
+          const baseFee = Number(appt.feeAmount || 0)
+          const deskCharge = getEffectiveServiceCharge(appt)
+          const effectiveTotal = getEffectiveAppointmentTotal(appt)
+          const initialFee = Math.max(Number(existing.totalAmount || 0), effectiveTotal || 500)
+          if (String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK' && baseFee > 0 && deskCharge > 0) {
+            setBillItems([
+              {
+                id: 'initial_consult',
+                name: `${appt.doctor?.fullName || selectedDoctor?.fullName || 'Doctor'} Consultation Fee`,
+                price: baseFee,
+                quantity: 1,
+              },
+              {
+                id: 'pad_service_charge',
+                name: 'Pay at Desk Service Charge (5%)',
+                price: deskCharge,
+                quantity: 1,
+              },
+            ])
+          } else {
+            setBillItems([
+              {
+                id: 'initial_consult',
+                name: `${appt.doctor?.fullName || selectedDoctor?.fullName || 'Doctor'} Consultation Fee`,
+                price: initialFee,
+                quantity: 1,
+              },
+            ])
+          }
         }
 
         const parsedLogs = parsePaymentRecords(existing.remarks, existing.paidAmount, existing.paidAt)
         setBillPaymentRecords(parsedLogs)
-        const calcTotal = Number(existing.totalAmount || appt.feeAmount || 500)
+        const calcTotal = Math.max(Number(existing.totalAmount || 0), getEffectiveAppointmentTotal(appt) || 500)
         setBillTotalAmount(String(calcTotal))
         setBillPaidAmount(String(existing.paidAmount || 0))
         setBillRemarks(extractCleanClinicalRemarks(existing.remarks) || appt.notes || '')
       } else {
-        const initialFee = Number(appt.feeAmount) || 500
-        setBillItems([
-          {
-            id: 'initial_consult',
-            name: `${appt.doctor?.fullName || selectedDoctor?.fullName || 'Doctor'} Consultation Fee`,
-            price: initialFee,
-            quantity: 1,
-          },
-        ])
-        const initialPaid = appt.paymentStatus === 'paid' ? initialFee : 0
+        const baseFee = Number(appt.feeAmount) || 500
+        const deskCharge = getEffectiveServiceCharge(appt)
+        const initialTotal = getEffectiveAppointmentTotal(appt) || baseFee
+        if (String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK' && deskCharge > 0) {
+          setBillItems([
+            {
+              id: 'initial_consult',
+              name: `${appt.doctor?.fullName || selectedDoctor?.fullName || 'Doctor'} Consultation Fee`,
+              price: baseFee,
+              quantity: 1,
+            },
+            {
+              id: 'pad_service_charge',
+              name: 'Pay at Desk Service Charge (5%)',
+              price: deskCharge,
+              quantity: 1,
+            },
+          ])
+        } else {
+          setBillItems([
+            {
+              id: 'initial_consult',
+              name: `${appt.doctor?.fullName || selectedDoctor?.fullName || 'Doctor'} Consultation Fee`,
+              price: initialTotal,
+              quantity: 1,
+            },
+          ])
+        }
+        const initialPaid = appt.paymentStatus === 'paid' ? initialTotal : 0
         const initialLogs: WebPaymentRecord[] = initialPaid > 0 ? [{
           id: crypto.randomUUID(),
           amount: initialPaid,
           dateTime: `${appt.appointmentDate} ${appt.appointmentTime || '10:00 AM'}`,
-          note: 'Initial Consultation Fee'
+          note: String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
+            ? 'Pay at Desk Collection (Includes 5% Commission)'
+            : 'Initial Consultation Fee'
         }] : []
         setBillPaymentRecords(initialLogs)
-        setBillTotalAmount(String(initialFee))
+        setBillTotalAmount(String(initialTotal))
         setBillPaidAmount(String(initialPaid))
         setBillRemarks(appt.notes || '')
       }
@@ -5892,17 +5936,42 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
                               {/* Payment */}
                               <td className="py-3.5 px-4">
-                                <span
-                                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                    appt.paymentStatus === 'paid'
-                                      ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-400/40'
-                                      : appt.paymentStatus === 'partial'
-                                      ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-400/40'
-                                      : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 border border-white/40'
-                                  }`}
-                                >
-                                  Rs. {appt.feeAmount || 500} • {appt.paymentStatus.toUpperCase()}
-                                </span>
+                                <div className="flex flex-col items-start gap-1">
+                                  <span
+                                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                      appt.paymentStatus === 'paid'
+                                        ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-400/40'
+                                        : appt.paymentStatus === 'partial'
+                                        ? 'bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-400/40'
+                                        : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 border border-white/40'
+                                    }`}
+                                  >
+                                    Rs. {getEffectiveAppointmentTotal(appt) || 500} • {appt.paymentStatus.toUpperCase()}
+                                  </span>
+                                  {String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK' && appt.paymentStatus !== 'paid' && (
+                                    <button
+                                      type="button"
+                                      onClick={async (e) => {
+                                        e.stopPropagation()
+                                        const res = await markPayAtDeskCollected(appt.id, selectedClinic?.id)
+                                        if (res.success) {
+                                          const collectedAmt = res.totalAmount || getEffectiveAppointmentTotal(appt)
+                                          setAppointments((prev) =>
+                                            prev.map((a) =>
+                                              a.id === appt.id
+                                                ? { ...a, paymentStatus: 'paid', totalAmount: collectedAmt }
+                                                : a
+                                            )
+                                          )
+                                          setRefreshKey((k) => k + 1)
+                                        }
+                                      }}
+                                      className="px-2 py-0.5 bg-amber-500 hover:bg-amber-600 text-white rounded text-[10px] font-bold cursor-pointer shadow-xs"
+                                    >
+                                      Mark Paid (Rs. {getEffectiveAppointmentTotal(appt) || 500})
+                                    </button>
+                                  )}
+                                </div>
                               </td>
 
                               {/* Action Cell: ONLY Call Inside or Mark Done without tapping */}
@@ -7608,7 +7677,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           </span>
                         </td>
                         <td className="py-3.5 px-4 font-bold text-brand-700">
-                          Rs. {appt.feeAmount} ({appt.paymentStatus})
+                          Rs. {getEffectiveAppointmentTotal(appt)} ({appt.paymentStatus})
                         </td>
                         <td className="py-3.5 px-4 text-right space-x-1.5 whitespace-nowrap">
                           <button
@@ -9005,7 +9074,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           </span>
                         </td>
                         <td className="py-3.5 px-4 font-bold text-brand-700">
-                          Rs. {res.feeAmount} ({res.paymentStatus})
+                          Rs. {getEffectiveAppointmentTotal(res)} ({res.paymentStatus})
                         </td>
                         <td className="py-3.5 px-4 text-right">
                           <button
@@ -12229,8 +12298,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <span>{printSlipAppt.appointmentDate} ({printSlipAppt.appointmentTime})</span>
                 </div>
                 <div className="flex justify-between border-t border-slate-200 pt-1 font-bold">
-                  <span>Consultation Fee:</span>
-                  <span>Rs. {printSlipAppt.feeAmount || 500}</span>
+                  <span>{String(printSlipAppt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK' ? 'Total Payable (incl. 5%):' : 'Consultation Fee:'}</span>
+                  <span>Rs. {getEffectiveAppointmentTotal(printSlipAppt) || 500}</span>
                 </div>
               </div>
 

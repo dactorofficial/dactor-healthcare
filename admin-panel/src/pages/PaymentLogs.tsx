@@ -128,32 +128,84 @@ export default function PaymentLogs({ onNavigate: _onNavigate }: PaymentLogsProp
       // Fetch clinics
       const { data: clinicsData } = await supabase
         .from('clinics')
-        .select('id, name, email, phone, is_activated, activation_plan, activation_expires_at')
+        .select('id, name, contact_email, contact_phone, is_activated, activation_plan, activation_expires_at')
         .order('name', { ascending: true })
 
-      setClinics(clinicsData || [])
+      const normalizedClinics = (clinicsData || []).map((c: any) => ({
+        ...c,
+        email: c.contact_email || '',
+        phone: c.contact_phone || '',
+      }))
+      setClinics(normalizedClinics)
 
       // Fetch doctors
       const { data: doctorsData } = await supabase
         .from('doctors')
-        .select('id, name, specialty, consultation_fee, clinic_id')
-        .order('name', { ascending: true })
+        .select('id, full_name, specialty, consultation_fee, clinic_id')
+        .order('full_name', { ascending: true })
 
-      setDoctors(doctorsData || [])
+      const normalizedDoctors = (doctorsData || []).map((d: any) => ({
+        ...d,
+        name: d.full_name || 'Doctor',
+      }))
+      setDoctors(normalizedDoctors)
 
       // Fetch subscription payments
       const { data: subsData, error: subsErr } = await supabase
         .from('clinic_subscription_payments')
         .select(`
           *,
-          clinic:clinics(name, email, phone)
+          clinic:clinics(name, contact_email, contact_phone)
         `)
         .order('created_at', { ascending: false })
 
       if (subsErr) {
         console.warn('Could not fetch clinic_subscription_payments:', subsErr.message)
       } else {
-        setSubscriptions(subsData || [])
+        const mappedSubs: SubscriptionPayment[] = (subsData || []).map((s: any) => {
+          const rawSt = String(s.status || 'pending').toLowerCase()
+          const normSt: any = rawSt === 'verified' ? 'VERIFIED' : rawSt === 'rejected' ? 'REJECTED' : rawSt === 'refunded' ? 'REFUNDED' : 'PENDING'
+          const months = s.duration_months ? Number(s.duration_months) : (String(s.plan_type || '').includes('12') ? 12 : 1)
+          return {
+            ...s,
+            amount: Number(s.amount_npr ?? s.amount ?? 0),
+            reference_id: s.transaction_reference ?? s.reference_id ?? null,
+            receipt_url: s.payment_proof_url ?? s.receipt_url ?? null,
+            duration_months: months,
+            status: normSt,
+            clinic: s.clinic ? {
+              name: s.clinic.name,
+              email: s.clinic.contact_email || '',
+              phone: s.clinic.contact_phone || '',
+            } : undefined,
+          }
+        })
+        setSubscriptions(mappedSubs)
+      }
+
+      // Fetch appointments (for doctor analytics AND live Pay-at-Desk 5% commission accrual calculation)
+      const { data: apptsData, error: apptsErr } = await supabase
+        .from('appointments')
+        .select(`
+          id, clinic_id, doctor_id, patient_name, patient_mobile, user_id, appointment_date, appointment_time, status, checkin_status, payment_mode, payment_status, fee_amount, service_charge_amount, total_amount, created_at,
+          clinic:clinics(name),
+          doctor:doctors(full_name, specialty, consultation_fee)
+        `)
+        .order('appointment_date', { ascending: true })
+        .limit(2500)
+
+      const mappedAppts = ((apptsData as any[]) || []).map((a: any) => ({
+        ...a,
+        patient_phone: a.patient_mobile || '',
+        date: a.appointment_date || '',
+        time: a.appointment_time || '',
+        doctor: a.doctor ? { ...a.doctor, name: a.doctor.full_name || 'Doctor' } : undefined,
+      }))
+
+      if (apptsErr) {
+        console.warn('Could not fetch appointments:', apptsErr.message)
+      } else {
+        setAppointments(mappedAppts)
       }
 
       // Fetch commission settlements
@@ -161,32 +213,90 @@ export default function PaymentLogs({ onNavigate: _onNavigate }: PaymentLogsProp
         .from('platform_commission_settlements')
         .select(`
           *,
-          clinic:clinics(name, email, phone)
+          clinic:clinics(name, contact_email, contact_phone)
         `)
         .order('created_at', { ascending: false })
 
       if (setsErr) {
         console.warn('Could not fetch platform_commission_settlements:', setsErr.message)
-      } else {
-        setSettlements(setsData || [])
       }
 
-      // Fetch appointments for doctor visit analytics
-      const { data: apptsData, error: apptsErr } = await supabase
-        .from('appointments')
-        .select(`
-          id, clinic_id, doctor_id, patient_name, patient_phone, user_id, date, time, status, created_at,
-          clinic:clinics(name),
-          doctor:doctors(name, specialty, consultation_fee)
-        `)
-        .order('date', { ascending: true })
-        .limit(2500)
+      const dbSettlements: CommissionSettlement[] = (setsData || []).map((st: any) => {
+        const rawSt = String(st.status || 'settled').toLowerCase()
+        const normSt: any = (rawSt === 'settled' || rawSt === 'waived') ? 'SETTLED' : rawSt === 'invoiced' ? 'INVOICED' : 'PENDING'
+        return {
+          ...st,
+          total_pay_at_desk_amount: Number(st.gross_desk_amount_npr ?? st.total_pay_at_desk_amount ?? 0),
+          platform_fee_amount: Number(st.commission_amount_npr ?? st.platform_fee_amount ?? 0),
+          commission_rate: Number(st.commission_rate ?? 0.05),
+          settlement_reference: st.transaction_reference ?? st.settlement_reference ?? null,
+          status: normSt,
+          clinic: st.clinic ? {
+            name: st.clinic.name,
+            email: st.clinic.contact_email || '',
+            phone: st.clinic.contact_phone || '',
+          } : undefined,
+        }
+      })
 
-      if (apptsErr) {
-        console.warn('Could not fetch appointments:', apptsErr.message)
-      } else {
-        setAppointments((apptsData as any[]) || [])
+      // Compute unsettled live Pay-at-Desk commissions to be collected per clinic
+      const deskByClinic = new Map<string, { gross: number; comm: number; count: number; minDate: string; maxDate: string }>()
+      for (const a of mappedAppts) {
+        if (String(a.payment_mode || '').toUpperCase() !== 'PAY_AT_DESK') continue
+        const st = String(a.status || '').toUpperCase()
+        const ck = String(a.checkin_status || '').toLowerCase()
+        const ps = String(a.payment_status || '').toLowerCase()
+        if (ck === 'cancelled' || st === 'CANCELLED' || st === 'REJECTED' || st === 'EXPIRED' || st === 'UNAPPROVED') continue
+        if (st !== 'APPROVED' && st !== 'COMPLETED' && ps !== 'paid') continue
+
+        const fee = Number(a.fee_amount) || 0
+        let chg = Number(a.service_charge_amount) || 0
+        if (chg <= 0 && fee > 0) chg = Math.round(fee * 0.05 * 100) / 100
+        const rawTot = Number(a.total_amount) || 0
+        const tot = rawTot > fee ? rawTot : Math.round((fee + chg) * 100) / 100
+        const dStr = a.appointment_date || (a.created_at ? a.created_at.split('T')[0] : new Date().toISOString().split('T')[0])
+
+        const cur = deskByClinic.get(a.clinic_id) || { gross: 0, comm: 0, count: 0, minDate: dStr, maxDate: dStr }
+        cur.gross += tot
+        cur.comm += chg
+        cur.count += 1
+        if (dStr < cur.minDate) cur.minDate = dStr
+        if (dStr > cur.maxDate) cur.maxDate = dStr
+        deskByClinic.set(a.clinic_id, cur)
       }
+
+      const settledByClinic = new Map<string, number>()
+      for (const stRow of dbSettlements) {
+        if (stRow.status === 'SETTLED') {
+          settledByClinic.set(stRow.clinic_id, (settledByClinic.get(stRow.clinic_id) || 0) + stRow.platform_fee_amount)
+        }
+      }
+
+      const livePendingRows: CommissionSettlement[] = []
+      deskByClinic.forEach((info, cId) => {
+        const settledAmt = settledByClinic.get(cId) || 0
+        const pendingDue = Math.round(Math.max(0, info.comm - settledAmt) * 100) / 100
+        if (pendingDue > 0) {
+          const cln = normalizedClinics.find((c: any) => c.id === cId)
+          livePendingRows.push({
+            id: `accrued_${cId}`,
+            clinic_id: cId,
+            period_start: info.minDate,
+            period_end: info.maxDate,
+            total_pay_at_desk_amount: Math.round(info.gross * 100) / 100,
+            platform_fee_amount: pendingDue,
+            commission_rate: 0.05,
+            status: 'PENDING',
+            settled_at: null,
+            settlement_reference: null,
+            notes: `Pending 5% commission due across ${info.count} Pay-at-Desk appointment(s)`,
+            created_at: new Date().toISOString(),
+            clinic: cln ? { name: cln.name, email: cln.email, phone: cln.phone } : undefined,
+          })
+        }
+      })
+
+      setSettlements([...livePendingRows, ...dbSettlements])
     } catch (err) {
       console.error('Error fetching admin payment logs data:', err)
     } finally {
@@ -371,7 +481,7 @@ export default function PaymentLogs({ onNavigate: _onNavigate }: PaymentLogsProp
     try {
       const { error } = await supabase
         .from('clinic_subscription_payments')
-        .update({ status: 'VERIFIED', updated_at: new Date().toISOString() })
+        .update({ status: 'verified', verified_at: new Date().toISOString(), updated_at: new Date().toISOString() })
         .eq('id', sub.id)
 
       if (error) throw error
@@ -409,7 +519,7 @@ export default function PaymentLogs({ onNavigate: _onNavigate }: PaymentLogsProp
       const { error } = await supabase
         .from('clinic_subscription_payments')
         .update({
-          status: 'REJECTED',
+          status: 'rejected',
           notes: sub.notes ? `${sub.notes} | Rejected: ${reason}` : `Rejected: ${reason}`,
           updated_at: new Date().toISOString(),
         })
@@ -444,17 +554,16 @@ export default function PaymentLogs({ onNavigate: _onNavigate }: PaymentLogsProp
         .from('clinic_subscription_payments')
         .insert({
           clinic_id: manualClinicId,
-          amount,
-          duration_months: months,
+          amount_npr: amount,
+          plan_type: months === 12 ? '12_months' : '1_month',
           payment_method: manualMethod,
-          reference_id: manualRef.trim() || `MANUAL-${Date.now().toString(36).toUpperCase()}`,
-          status: 'VERIFIED',
+          transaction_reference: manualRef.trim() || `MANUAL-${Date.now().toString(36).toUpperCase()}`,
+          status: 'verified',
           notes: manualNotes.trim() || 'Super Admin manual license activation',
-          metadata: { admin_manual: true, recorded_at: new Date().toISOString() },
         })
         .select(`
           *,
-          clinic:clinics(name, email, phone)
+          clinic:clinics(name, contact_email, contact_phone)
         `)
         .single()
 
@@ -475,7 +584,15 @@ export default function PaymentLogs({ onNavigate: _onNavigate }: PaymentLogsProp
         })
         .eq('id', manualClinicId)
 
-      setSubscriptions((prev) => [data, ...prev])
+      const mappedInserted: SubscriptionPayment = {
+        ...data,
+        amount: Number(data.amount_npr ?? amount),
+        reference_id: data.transaction_reference ?? null,
+        duration_months: months,
+        status: 'VERIFIED',
+        clinic: data.clinic ? { name: data.clinic.name, email: data.clinic.contact_email || '', phone: data.clinic.contact_phone || '' } : undefined,
+      }
+      setSubscriptions((prev) => [mappedInserted, ...prev])
       setShowManualModal(false)
       setManualRef('')
       setManualNotes('')
@@ -495,35 +612,44 @@ export default function PaymentLogs({ onNavigate: _onNavigate }: PaymentLogsProp
 
     setSubmittingSettle(true)
     try {
-      const { error } = await supabase
-        .from('platform_commission_settlements')
-        .update({
-          status: 'SETTLED',
-          settled_at: new Date().toISOString(),
-          settlement_reference: settleRef.trim() || `SETTLE-${Date.now().toString(36).toUpperCase()}`,
-          notes: settleNotes.trim() || '5% Platform commission settled with clinic',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', settleTarget.id)
+      const refCode = settleRef.trim() || `SETTLE-${Date.now().toString(36).toUpperCase()}`
+      const noteText = settleNotes.trim() || '5% Platform commission settled with clinic'
+      const nowIso = new Date().toISOString()
 
-      if (error) throw error
-
-      setSettlements((prev) =>
-        prev.map((s) =>
-          s.id === settleTarget.id
-            ? {
-                ...s,
-                status: 'SETTLED',
-                settled_at: new Date().toISOString(),
-                settlement_reference: settleRef.trim(),
-              }
-            : s
-        )
-      )
+      if (String(settleTarget.id).startsWith('accrued_')) {
+        // Insert a real settlement voucher into platform_commission_settlements for live accrued dues
+        const { error } = await supabase
+          .from('platform_commission_settlements')
+          .insert({
+            clinic_id: settleTarget.clinic_id,
+            period_start: settleTarget.period_start,
+            period_end: settleTarget.period_end,
+            gross_desk_amount_npr: settleTarget.total_pay_at_desk_amount,
+            commission_amount_npr: settleTarget.platform_fee_amount,
+            payment_method: 'BANK_TRANSFER',
+            transaction_reference: refCode,
+            status: 'settled',
+            notes: noteText,
+            settled_at: nowIso,
+          })
+        if (error) throw error
+      } else {
+        const { error } = await supabase
+          .from('platform_commission_settlements')
+          .update({
+            status: 'settled',
+            settled_at: nowIso,
+            transaction_reference: refCode,
+            notes: noteText,
+          })
+          .eq('id', settleTarget.id)
+        if (error) throw error
+      }
 
       setSettleTarget(null)
       setSettleRef('')
       setSettleNotes('')
+      await fetchInitialData()
       alert('Commission settlement successfully recorded!')
     } catch (err: any) {
       console.error('Error settling commission:', err)

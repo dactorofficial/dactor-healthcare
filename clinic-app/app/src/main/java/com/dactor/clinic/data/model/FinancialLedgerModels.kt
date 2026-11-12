@@ -21,15 +21,18 @@ data class InvoiceTransaction(
 data class ClinicSubscriptionPayment(
     @SerialName("id") val id: String = java.util.UUID.randomUUID().toString(),
     @SerialName("clinic_id") val clinicId: String,
-    @SerialName("amount") val amount: Double = 0.0,
+    @SerialName("amount_npr") val amount: Double = 0.0,
     @SerialName("payment_method") val paymentMethod: String = "ESEWA",
-    @SerialName("reference_id") val referenceId: String? = null,
-    @SerialName("receipt_url") val receiptUrl: String? = null,
-    @SerialName("status") val status: String = "PENDING",
-    @SerialName("duration_months") val durationMonths: Int = 1,
+    @SerialName("transaction_reference") val referenceId: String? = null,
+    @SerialName("payment_proof_url") val receiptUrl: String? = null,
+    @SerialName("status") val status: String = "pending_verification",
+    @SerialName("plan_type") val planType: String = "1_month",
     @SerialName("notes") val notes: String? = null,
     @SerialName("created_at") val createdAt: String? = null
-)
+) {
+    val durationMonths: Int
+        get() = if (planType.contains("12")) 12 else 1
+}
 
 @Serializable
 data class PlatformCommissionSettlement(
@@ -37,15 +40,19 @@ data class PlatformCommissionSettlement(
     @SerialName("clinic_id") val clinicId: String,
     @SerialName("period_start") val periodStart: String,
     @SerialName("period_end") val periodEnd: String,
-    @SerialName("total_pay_at_desk_amount") val totalPayAtDeskAmount: Double = 0.0,
-    @SerialName("platform_fee_amount") val platformFeeAmount: Double = 0.0,
-    @SerialName("commission_rate") val commissionRate: Double = 0.05,
-    @SerialName("status") val status: String = "PENDING",
+    @SerialName("appointments_count") val appointmentsCount: Int = 0,
+    @SerialName("gross_desk_amount_npr") val totalPayAtDeskAmount: Double = 0.0,
+    @SerialName("commission_amount_npr") val platformFeeAmount: Double = 0.0,
+    @SerialName("payment_method") val paymentMethod: String = "BANK_TRANSFER",
+    @SerialName("status") val status: String = "settled",
     @SerialName("settled_at") val settledAt: String? = null,
-    @SerialName("settlement_reference") val settlementReference: String? = null,
+    @SerialName("transaction_reference") val settlementReference: String? = null,
     @SerialName("notes") val notes: String? = null,
     @SerialName("created_at") val createdAt: String? = null
-)
+) {
+    val commissionRate: Double
+        get() = 0.05
+}
 
 data class UnifiedPaymentLogEntry(
     val id: String,

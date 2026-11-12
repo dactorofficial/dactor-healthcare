@@ -136,6 +136,8 @@ import {
   PAY_AT_DESK_SERVICE_CHARGE_PERCENT,
   SupportTicket,
   BillingInvoice,
+  getEffectiveAppointmentTotal,
+  getEffectiveServiceCharge,
 } from '../types'
 import {
   getClinics,
@@ -2755,7 +2757,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     const docSpec = appt.doctor?.specialty || 'General Medicine'
 
     const inv = invoice || viewingInvoice
-    const effectiveTotal = inv?.totalAmount && inv.totalAmount > 0 ? inv.totalAmount : (appt.feeAmount || 0)
+    const apptEffTotal = getEffectiveAppointmentTotal(appt)
+    const effectiveTotal = inv?.totalAmount && inv.totalAmount > 0 ? Math.max(inv.totalAmount, apptEffTotal) : apptEffTotal
     const effectivePaid = inv ? (inv.paidAmount ?? (inv.paymentStatus === 'paid' ? effectiveTotal : 0)) : (appt.paymentStatus === 'paid' ? effectiveTotal : 0)
     const effectiveBalance = Math.max(0, effectiveTotal - effectivePaid)
     const isPaid = effectiveBalance <= 0 && effectiveTotal > 0
@@ -3347,7 +3350,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                           <div className="text-right">
                             <span className="text-xs font-bold text-slate-400 dark:text-slate-500 block">Consultation Fee</span>
                             <span className="text-sm font-black text-slate-900 dark:text-white">
-                              NPR {appt.feeAmount > 0 ? appt.feeAmount : 'Free'}
+                              NPR {getEffectiveAppointmentTotal(appt) > 0 ? getEffectiveAppointmentTotal(appt) : 'Free'}
                             </span>
                           </div>
                         </div>
@@ -7632,12 +7635,22 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                         </tr>
                       ))
                     ) : (
-                      <tr>
-                        <td className="p-2 text-slate-800 dark:text-slate-100">Doctor Consultation & OPD Entry</td>
-                        <td className="p-2 text-center font-mono text-slate-500">1</td>
-                        <td className="p-2 text-right font-mono text-slate-600 dark:text-slate-300">Rs. {viewingBillAppt.feeAmount || 0}</td>
-                        <td className="p-2 text-right font-mono font-bold text-slate-900 dark:text-white">Rs. {viewingBillAppt.feeAmount || 0}</td>
-                      </tr>
+                      <>
+                        <tr>
+                          <td className="p-2 text-slate-800 dark:text-slate-100">Doctor Consultation & OPD Entry</td>
+                          <td className="p-2 text-center font-mono text-slate-500">1</td>
+                          <td className="p-2 text-right font-mono text-slate-600 dark:text-slate-300">Rs. {viewingBillAppt.feeAmount || 0}</td>
+                          <td className="p-2 text-right font-mono font-bold text-slate-900 dark:text-white">Rs. {viewingBillAppt.feeAmount || 0}</td>
+                        </tr>
+                        {String(viewingBillAppt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK' && getEffectiveServiceCharge(viewingBillAppt) > 0 && (
+                          <tr>
+                            <td className="p-2 text-slate-800 dark:text-slate-100">Pay at Desk Service Charge (5%)</td>
+                            <td className="p-2 text-center font-mono text-slate-500">1</td>
+                            <td className="p-2 text-right font-mono text-slate-600 dark:text-slate-300">Rs. {getEffectiveServiceCharge(viewingBillAppt)}</td>
+                            <td className="p-2 text-right font-mono font-bold text-slate-900 dark:text-white">Rs. {getEffectiveServiceCharge(viewingBillAppt)}</td>
+                          </tr>
+                        )}
+                      </>
                     )}
                   </tbody>
                 </table>
@@ -7646,9 +7659,10 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
             {/* Payment Receipts & Time Log Table */}
             {(() => {
+              const effBillTotal = getEffectiveAppointmentTotal(viewingBillAppt)
               const logs = parsePaymentRecords(
                 viewingInvoice?.remarks,
-                viewingInvoice ? viewingInvoice.paidAmount : (viewingBillAppt.paymentStatus === 'paid' ? Number(viewingBillAppt.feeAmount || 0) : 0),
+                viewingInvoice ? viewingInvoice.paidAmount : (viewingBillAppt.paymentStatus === 'paid' ? effBillTotal : 0),
                 viewingInvoice?.paidAt
               )
               if (logs.length === 0) return null
@@ -7685,9 +7699,10 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
             {/* Financial Summary Box */}
             {(() => {
+              const effBillTotal = getEffectiveAppointmentTotal(viewingBillAppt)
               const totalB = viewingInvoice?.totalAmount && viewingInvoice.totalAmount > 0
-                ? viewingInvoice.totalAmount
-                : Number(viewingBillAppt.feeAmount || 0)
+                ? Math.max(viewingInvoice.totalAmount, effBillTotal)
+                : effBillTotal
               const totalP = viewingInvoice
                 ? (viewingInvoice.paidAmount ?? (viewingInvoice.paymentStatus === 'paid' ? totalB : 0))
                 : (viewingBillAppt.paymentStatus === 'paid' ? totalB : 0)
@@ -8222,9 +8237,10 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           .map((p) => p[0]?.toUpperCase())
           .join('') || 'DR'
 
+        const effTargetTotal = getEffectiveAppointmentTotal(target)
         const totalBill = dInvoice && dInvoice.totalAmount > 0
-          ? dInvoice.totalAmount
-          : (target.feeAmount || 0)
+          ? Math.max(dInvoice.totalAmount, effTargetTotal)
+          : effTargetTotal
         const paidAmount = dInvoice && (dInvoice.paidAmount !== undefined || dInvoice.totalAmount > 0)
           ? (dInvoice.paidAmount ?? (target.paymentStatus === 'paid' ? totalBill : 0))
           : (target.paymentStatus === 'paid' ? totalBill : 0)

@@ -201,7 +201,7 @@ fun LabWorkflowScreen(
         // 2. Also include any appointments whose checkinStatus is "processing" or "report_prepared"
         for (appt in appts) {
             val statusLower = appt.checkinStatus?.lowercase() ?: ""
-            if ((statusLower == "processing" || statusLower == "report_prepared") && !combinedOrders.containsKey(appt.id)) {
+            if ((statusLower == "processing" || statusLower == "sample_collected" || statusLower == "report_prepared") && !combinedOrders.containsKey(appt.id)) {
                 val stage = if (statusLower == "report_prepared") "prepared" else "processing"
                 combinedOrders[appt.id] = LabOrderUi(
                     id = "synthetic_${appt.id}",
@@ -272,6 +272,8 @@ fun LabWorkflowScreen(
                 appt.checkinStatus != "cancelled" &&
                 appt.checkinStatus != "completed" &&
                 appt.checkinStatus != "processing" &&
+                appt.checkinStatus != "sample_collected" &&
+                appt.checkinStatus != "no_show" &&
                 appt.checkinStatus != "report_prepared"
         }
         if (searchQuery.isBlank()) list
@@ -294,6 +296,8 @@ fun LabWorkflowScreen(
                 appt.checkinStatus != "cancelled" &&
                 appt.checkinStatus != "completed" &&
                 appt.checkinStatus != "processing" &&
+                appt.checkinStatus != "sample_collected" &&
+                appt.checkinStatus != "no_show" &&
                 appt.checkinStatus != "report_prepared"
         }
     }

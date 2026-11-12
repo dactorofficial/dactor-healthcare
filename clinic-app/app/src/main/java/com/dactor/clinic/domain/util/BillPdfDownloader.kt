@@ -127,13 +127,13 @@ object BillPdfDownloader {
 
             val effectivePaid = when {
                 invoice != null && (invoice.paidAmount != null || invoice.totalAmount > 0.0) -> invoice.effectivePaidAmount
-                appointment.paymentStatus.equals("paid", ignoreCase = true) -> (appointment.feeAmount ?: 0.0)
+                appointment.paymentStatus.equals("paid", ignoreCase = true) -> appointment.effectiveTotalAmount
                 else -> 0.0
             }
             val effectiveTotal = when {
-                invoice != null && invoice.totalAmount > 0.0 -> invoice.totalAmount
+                invoice != null && invoice.totalAmount > 0.0 -> maxOf(invoice.totalAmount, appointment.effectiveTotalAmount)
                 effectivePaid > 0.0 -> effectivePaid
-                (appointment.feeAmount ?: 0.0) > 0.0 -> appointment.feeAmount ?: 0.0
+                appointment.effectiveTotalAmount > 0.0 -> appointment.effectiveTotalAmount
                 else -> 0.0
             }
 
@@ -164,11 +164,15 @@ object BillPdfDownloader {
             y += 34f
 
             val cleanItems = invoice?.items?.filterNot { it.itemName.startsWith("Payment Received", ignoreCase = true) } ?: emptyList()
-            val opdFee = (appointment.feeAmount ?: 0.0).takeIf { it > 0.0 } ?: 0.0
-            val hasConsultation = cleanItems.any { it.itemName.contains("Consultation", ignoreCase = true) || it.itemName.contains("OPD", ignoreCase = true) }
+            val opdFee = appointment.feeAmount.takeIf { it > 0.0 } ?: 0.0
+            val deskCharge = appointment.effectiveServiceCharge
 
             val items: List<InvoiceItem> = when {
                 cleanItems.isNotEmpty() -> cleanItems
+                opdFee > 0.0 && appointment.isPayAtDesk && deskCharge > 0.0 -> listOf(
+                    InvoiceItem(itemName = "OPD Doctor Consultation (${appointment.appointmentDate})", quantity = 1, price = opdFee, total = opdFee),
+                    InvoiceItem(itemName = "Pay at Desk Service Charge (5%)", quantity = 1, price = deskCharge, total = deskCharge)
+                )
                 opdFee > 0.0 -> listOf(InvoiceItem(itemName = "OPD Doctor Consultation (${appointment.appointmentDate})", quantity = 1, price = opdFee, total = opdFee))
                 invoice != null && invoice.items.isNotEmpty() -> invoice.items
                 else -> listOf(

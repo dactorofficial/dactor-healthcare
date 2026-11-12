@@ -194,6 +194,27 @@ export interface Appointment {
 // Configurable constant for Pay at Desk service charge (Spec Rule 1)
 export const PAY_AT_DESK_SERVICE_CHARGE_PERCENT = 5
 
+export function getEffectiveServiceCharge(appt: Partial<Appointment> | null | undefined): number {
+  if (!appt) return 0
+  const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
+  const fee = Number(appt.feeAmount) || 0
+  if (!isPad || fee <= 0) return 0
+  const stored = Number(appt.serviceChargeAmount) || 0
+  return stored > 0 ? stored : Math.round(fee * (PAY_AT_DESK_SERVICE_CHARGE_PERCENT / 100) * 100) / 100
+}
+
+export function getEffectiveAppointmentTotal(appt: Partial<Appointment> | null | undefined): number {
+  if (!appt) return 0
+  const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
+  const fee = Number(appt.feeAmount) || 0
+  const storedTotal = Number(appt.totalAmount) || 0
+  if (isPad) {
+    if (storedTotal > fee) return storedTotal
+    return Math.round((fee + getEffectiveServiceCharge(appt)) * 100) / 100
+  }
+  return storedTotal > 0 ? storedTotal : fee
+}
+
 
 export interface LabReport {
   id: string

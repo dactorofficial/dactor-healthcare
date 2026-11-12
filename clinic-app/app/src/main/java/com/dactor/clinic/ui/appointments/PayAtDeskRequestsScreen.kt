@@ -386,8 +386,8 @@ fun PayAtDeskRequestsScreen(
                     }
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                     DetailRow("Consultation Fee", "NPR ${req.feeAmount}")
-                    DetailRow("5% Service Charge", "NPR ${req.serviceChargeAmount}")
-                    DetailRow("Total Due at Desk", "NPR ${req.totalAmount}", isBold = true, valueColor = Color(0xFF16A34A))
+                    DetailRow("5% Service Charge", "NPR ${req.effectiveServiceCharge}")
+                    DetailRow("Total Due at Desk", "NPR ${req.effectiveTotalAmount}", isBold = true, valueColor = Color(0xFF16A34A))
                 }
             },
             confirmButton = {
@@ -623,12 +623,12 @@ fun PayAtDeskRequestCard(
             ) {
                 Column {
                     Text(
-                        "Fee: NPR ${appointment.feeAmount} + 5% Chg: NPR ${appointment.serviceChargeAmount}",
+                        "Fee: NPR ${appointment.feeAmount} + 5% Chg: NPR ${appointment.effectiveServiceCharge}",
                         fontSize = 11.sp,
                         color = Color(0xFF64748B)
                     )
                     Text(
-                        "Total at Desk: NPR ${appointment.totalAmount}",
+                        "Total at Desk: NPR ${appointment.effectiveTotalAmount}",
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
                         color = Color(0xFF0F172A)

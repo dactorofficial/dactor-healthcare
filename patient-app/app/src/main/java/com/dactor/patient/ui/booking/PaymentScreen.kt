@@ -105,7 +105,9 @@ fun PaymentScreen(
             if (appt != null) {
                 appointment = appt
                 if (appt.feeAmount > 0.0) {
-                    effectiveFee = if (appt.totalAmount > 0.0) appt.totalAmount else appt.feeAmount
+                    effectiveFee = appt.feeAmount
+                } else if (appt.totalAmount > 0.0) {
+                    effectiveFee = appt.totalAmount
                 }
                 val pubMethods = try {
                     appointmentRepository.getClinicPublicPaymentMethods(appt.clinicId)

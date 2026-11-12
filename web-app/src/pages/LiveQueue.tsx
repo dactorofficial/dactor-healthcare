@@ -39,6 +39,7 @@ import {
   LabReport,
   BillingInvoice,
   MultiSlotPositionResult,
+  getEffectiveAppointmentTotal,
 } from '../types'
 import {
   getAppointmentByTrackingCode,
@@ -1861,7 +1862,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                 </div>
 
                 <p className="text-xs text-emerald-800 dark:text-emerald-300/90 font-medium">
-                  Total Bill: NPR {appointment.feeAmount || 500} • Status: {appointment.paymentStatus === 'paid' ? 'Paid' : 'Settled at Reception'}
+                  Total Bill: NPR {getEffectiveAppointmentTotal(appointment) || 500} • Status: {appointment.paymentStatus === 'paid' ? 'Paid' : 'Settled at Reception'}
                 </p>
 
                 <div className="flex items-center gap-3 pt-1">

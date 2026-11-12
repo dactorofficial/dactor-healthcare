@@ -941,7 +941,7 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
             appointment_id: data.id,
             user_id: appt.clinicId,
             title: `New Pay at Desk Request • ${code10}`,
-            message: `New Pay at Desk booking request from ${appt.patientName} for ${apptDate} (${appt.appointmentTime || apptTime}). Total: NPR ${appt.totalAmount || appt.feeAmount || 0}.`,
+            message: `New Pay at Desk booking request from ${appt.patientName} for ${apptDate} (${appt.appointmentTime || apptTime}). Total: NPR ${data.total_amount || totalAmt}.`,
             type: 'pay_at_desk_request',
             target_audience: 'specific',
             is_read: false,
@@ -1117,10 +1117,24 @@ export async function updateAppointmentStatus(id: string, status: string): Promi
     }
 
     // Keep appointment checkin_status synchronized with live workflow
-    await supabase
+    let apptOk = false
+    const { error: apptErr } = await supabase
       .from('appointments')
       .update({ checkin_status: apptCheckinStatus, updated_at: nowIso })
       .eq('id', id)
+
+    if (!apptErr) {
+      apptOk = true
+    } else if (String(apptErr.message || '').includes('updated_at')) {
+      const { error: retryErr } = await supabase
+        .from('appointments')
+        .update({ checkin_status: apptCheckinStatus })
+        .eq('id', id)
+      apptOk = !retryErr
+      if (retryErr) console.error('Error updating appointment checkin_status:', retryErr)
+    } else {
+      console.error('Error updating appointment checkin_status:', apptErr)
+    }
 
     // Update or create queue_entries row
     const { data: existingQ } = await supabase
@@ -1136,11 +1150,24 @@ export async function updateAppointmentStatus(id: string, status: string): Promi
       qUpdate.completed_at = nowIso
     }
 
+    let qOk = false
     if (existingQ?.id) {
-      await supabase
+      const { error: qErr } = await supabase
         .from('queue_entries')
         .update(qUpdate)
         .eq('id', existingQ.id)
+
+      if (!qErr) {
+        qOk = true
+      } else {
+        // Retry with minimal schema columns in case optional timestamp columns are absent
+        const { error: qRetryErr } = await supabase
+          .from('queue_entries')
+          .update({ status: qStatus })
+          .eq('id', existingQ.id)
+        qOk = !qRetryErr
+        if (qRetryErr) console.error('Error updating queue_entries status:', qRetryErr)
+      }
     } else {
       // Fetch appointment to get clinic_id & doctor_id
       const { data: appt } = await supabase
@@ -1150,7 +1177,7 @@ export async function updateAppointmentStatus(id: string, status: string): Promi
         .maybeSingle()
 
       if (appt?.clinic_id) {
-        await supabase.from('queue_entries').insert({
+        const { error: qInsErr } = await supabase.from('queue_entries').insert({
           id: crypto.randomUUID(),
           appointment_id: id,
           clinic_id: appt.clinic_id,
@@ -1158,7 +1185,25 @@ export async function updateAppointmentStatus(id: string, status: string): Promi
           queue_position: 1,
           ...qUpdate,
         })
+        if (!qInsErr) {
+          qOk = true
+        } else {
+          const { error: qInsRetryErr } = await supabase.from('queue_entries').insert({
+            id: crypto.randomUUID(),
+            appointment_id: id,
+            clinic_id: appt.clinic_id,
+            doctor_id: appt.doctor_id || null,
+            queue_position: 1,
+            status: qStatus,
+          })
+          qOk = !qInsRetryErr
+          if (qInsRetryErr) console.error('Error inserting queue_entries status:', qInsRetryErr)
+        }
       }
+    }
+
+    if (!apptOk && !qOk) {
+      return false
     }
 
     // Keep slot capacity accurately recounted on cancellation
@@ -1244,6 +1289,33 @@ export async function updateAppointmentStatus(id: string, status: string): Promi
     console.error('Error updating appointment status:', err)
     return false
   }
+}
+
+/**
+ * Atomically transitions a diagnostic appointment into `processing` via the
+ * authoritative `transition_diagnostic_to_processing` RPC when deployed, falling
+ * back cleanly to resilient direct table updates.
+ */
+export async function transitionDiagnosticToProcessing(
+  appointmentId: string,
+  testName?: string
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc('transition_diagnostic_to_processing', {
+      p_appointment_id: appointmentId,
+      p_test_name: testName || null,
+    })
+    if (!error && data?.success !== false) {
+      return true
+    }
+    if (error) {
+      console.warn('transition_diagnostic_to_processing RPC fallback:', error.message)
+    }
+  } catch (rpcErr) {
+    console.warn('transition_diagnostic_to_processing RPC unavailable, using fallback:', rpcErr)
+  }
+
+  return await updateAppointmentStatus(appointmentId, 'processing')
 }
 
 /**
@@ -3748,8 +3820,23 @@ function mapAppointment(a: any): Appointment {
     paymentMode: a.payment_mode || 'ONLINE',
     status: a.status || 'APPROVED',
     attemptNumber: a.attempt_number || 1,
-    serviceChargeAmount: Number(a.service_charge_amount || 0),
-    totalAmount: Number(a.total_amount || a.fee_amount || 0),
+    serviceChargeAmount: (() => {
+      const fee = Number(a.fee_amount || 0)
+      const isPad = String(a.payment_mode || '').toUpperCase() === 'PAY_AT_DESK'
+      const rawChg = Number(a.service_charge_amount || 0)
+      if (!isPad || fee <= 0) return rawChg
+      return rawChg > 0 ? rawChg : Math.round(fee * 0.05 * 100) / 100
+    })(),
+    totalAmount: (() => {
+      const fee = Number(a.fee_amount || 0)
+      const isPad = String(a.payment_mode || '').toUpperCase() === 'PAY_AT_DESK'
+      const rawTot = Number(a.total_amount || 0)
+      if (isPad) {
+        const chg = Number(a.service_charge_amount || 0) > 0 ? Number(a.service_charge_amount) : (fee > 0 ? Math.round(fee * 0.05 * 100) / 100 : 0)
+        return rawTot > fee ? rawTot : Math.round((fee + chg) * 100) / 100
+      }
+      return rawTot || fee
+    })(),
     expiresAt: a.expires_at || null,
     approvedAt: a.approved_at || null,
     rejectedAt: a.rejected_at || null,
@@ -6223,8 +6310,17 @@ export async function getPendingPayAtDeskRequests(clinicId: string): Promise<App
         checkinStatus: 'not_checked_in',
         paymentStatus: 'unpaid',
         feeAmount: Number(row.fee_amount || 0),
-        serviceChargeAmount: Number(row.service_charge_amount || 0),
-        totalAmount: Number(row.total_amount || 0),
+        serviceChargeAmount: (() => {
+          const fee = Number(row.fee_amount || 0)
+          const chg = Number(row.service_charge_amount || 0)
+          return chg > 0 ? chg : (fee > 0 ? Math.round(fee * 0.05 * 100) / 100 : 0)
+        })(),
+        totalAmount: (() => {
+          const fee = Number(row.fee_amount || 0)
+          const rawTot = Number(row.total_amount || 0)
+          const chg = Number(row.service_charge_amount || 0) > 0 ? Number(row.service_charge_amount) : (fee > 0 ? Math.round(fee * 0.05 * 100) / 100 : 0)
+          return rawTot > fee ? rawTot : Math.round((fee + chg) * 100) / 100
+        })(),
         paymentMode: 'PAY_AT_DESK',
         status: row.status || 'WAITING_FOR_APPROVAL',
         attemptNumber: row.attempt_number || 1,
@@ -6415,5 +6511,31 @@ export async function cancelPendingPayAtDeskAppointment(appointmentId: string): 
   } catch (err) {
     console.error('Error cancelling pending pay at desk appointment:', err)
     return false
+  }
+}
+
+export async function markPayAtDeskCollected(appointmentId: string, clinicId?: string): Promise<{ success: boolean; totalAmount?: number; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('mark_pay_at_desk_collected', {
+      p_appointment_id: appointmentId,
+      p_clinic_id: clinicId || null,
+    })
+    if (!error && data && (data.success || data === true)) {
+      return { success: true, totalAmount: Number(data.total_amount || 0) || undefined }
+    }
+  } catch {}
+
+  try {
+    const { error } = await supabase
+      .from('appointments')
+      .update({
+        payment_status: 'paid',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', appointmentId)
+    if (error) return { success: false, error: error.message }
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Failed to mark payment collected' }
   }
 }

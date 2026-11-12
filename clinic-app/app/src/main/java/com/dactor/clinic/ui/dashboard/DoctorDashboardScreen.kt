@@ -1134,7 +1134,14 @@ fun DoctorDashboardScreen(
                                         appointmentsQueue = appointmentsQueue.filter { it.id != completedApptId }
                                         if (isLabPractitionerOrClinic) {
                                             val targetClinicId = clinic?.id?.takeIf { it.isNotBlank() } ?: activeAppointment.clinicId
-                                            queueRepository?.updateQueueStatus(completedApptId, "processing", targetClinicId)
+                                            val rpcOk = queueRepository?.transitionDiagnosticToProcessing(
+                                                appointmentId = completedApptId,
+                                                queueEntryId = null,
+                                                testName = activeAppointment.selectedLabTests
+                                            ) ?: false
+                                            if (!rpcOk) {
+                                                queueRepository?.updateQueueStatusByAppointmentId(completedApptId, "processing")
+                                            }
                                             appointmentRepository?.updateCheckinStatus(completedApptId, "processing")
                                             labReportRepository?.upsertLabReportForAppointment(
                                                 appointmentId = completedApptId,
@@ -1489,7 +1496,16 @@ fun DoctorDashboardScreen(
                         modifier = Modifier.weight(1f).height(100.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        onClick = { navController.navigate(NavRoutes.LabWorkflow) }
+                        onClick = {
+                            val cid = clinic?.id?.takeIf { it.isNotBlank() }
+                                ?: com.dactor.clinic.data.local.UserSessionManager(context).getSavedActiveClinicIdForDoctor()
+                                ?: ""
+                            if (cid.isNotBlank()) {
+                                navController.navigate("${NavRoutes.LabWorkflow}/$cid")
+                            } else {
+                                navController.navigate(NavRoutes.LabWorkflow)
+                            }
+                        }
                     ) {
                         Column(
                             modifier = Modifier.padding(12.dp).fillMaxSize(),

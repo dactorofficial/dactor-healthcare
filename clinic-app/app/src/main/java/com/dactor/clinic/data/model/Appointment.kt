@@ -33,4 +33,24 @@ data class Appointment(
     @SerialName("approved_at") val approvedAt: String? = null,
     @SerialName("rejected_at") val rejectedAt: String? = null,
     @SerialName("created_at") val createdAt: String? = null
-)
+) {
+    val isPayAtDesk: Boolean
+        get() = paymentMode.equals("PAY_AT_DESK", ignoreCase = true)
+
+    val effectiveServiceCharge: Double
+        get() = when {
+            !isPayAtDesk || feeAmount <= 0.0 -> 0.0
+            serviceChargeAmount > 0.0 -> serviceChargeAmount
+            else -> kotlin.math.round(feeAmount * 5.0) / 100.0
+        }
+
+    val effectiveTotalAmount: Double
+        get() = when {
+            isPayAtDesk -> {
+                if (totalAmount > feeAmount) totalAmount
+                else kotlin.math.round((feeAmount + effectiveServiceCharge) * 100.0) / 100.0
+            }
+            totalAmount > 0.0 -> totalAmount
+            else -> feeAmount
+        }
+}

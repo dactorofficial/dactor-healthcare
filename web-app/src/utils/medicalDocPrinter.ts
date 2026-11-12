@@ -1,4 +1,4 @@
-import { Appointment, BillingInvoice } from '../types'
+import { Appointment, BillingInvoice, getEffectiveAppointmentTotal, getEffectiveServiceCharge } from '../types'
 import { parsePaymentRecords, extractCleanClinicalRemarks } from './paymentLedger'
 import { getInvoiceForAppointment } from '../services/db'
 import { escapeHtml } from './html'
@@ -24,7 +24,8 @@ export async function printAppointmentBill(appt: Appointment, invoice?: BillingI
       console.warn('Could not load invoice for printAppointmentBill', e)
     }
   }
-  const effectiveTotal = inv?.totalAmount && inv.totalAmount > 0 ? inv.totalAmount : (appt.feeAmount || 0)
+  const apptTotalWithFee = getEffectiveAppointmentTotal(appt)
+  const effectiveTotal = inv?.totalAmount && inv.totalAmount > 0 ? Math.max(inv.totalAmount, apptTotalWithFee) : apptTotalWithFee
   const effectivePaid = inv ? (inv.paidAmount ?? (inv.paymentStatus === 'paid' ? effectiveTotal : 0)) : (appt.paymentStatus === 'paid' ? effectiveTotal : 0)
   const effectiveBalance = Math.max(0, effectiveTotal - effectivePaid)
   const isPaid = effectiveBalance <= 0 && effectiveTotal > 0
@@ -35,6 +36,7 @@ export async function printAppointmentBill(appt: Appointment, invoice?: BillingI
   const rawItems = (inv?.items && inv.items.length > 0 ? inv.items : []).filter(
     (it: any) => !(it.itemName || it.name || it.item_name || '').toLowerCase().startsWith('payment received')
   )
+  const deskCharge = getEffectiveServiceCharge(appt)
   const items = rawItems.length > 0
     ? rawItems.map((it: any) => ({
         name: it.itemName || it.name || it.item_name || 'Clinical Service',
@@ -42,6 +44,21 @@ export async function printAppointmentBill(appt: Appointment, invoice?: BillingI
         price: Number(it.price || 0),
         total: Number(it.total || ((it.price || 0) * (it.quantity || 1))),
       }))
+    : (String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK' && deskCharge > 0)
+    ? [
+        {
+          name: `OPD Doctor Consultation (${appt.appointmentDate || 'OPD'})`,
+          quantity: 1,
+          price: Number(appt.feeAmount || 0),
+          total: Number(appt.feeAmount || 0),
+        },
+        {
+          name: 'Pay at Desk Service Charge (5%)',
+          quantity: 1,
+          price: deskCharge,
+          total: deskCharge,
+        },
+      ]
     : [
         {
           name: `Doctor Consultation & OPD Entry (${appt.appointmentDate})`,

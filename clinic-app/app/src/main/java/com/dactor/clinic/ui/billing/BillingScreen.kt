@@ -151,7 +151,18 @@ fun BillingScreen(
 
         if (billingRepository != null) {
             val isFollowUp = checkIsFollowUp(appt, clinicAppointments)
-            val opdFee = if (isFollowUp) 0.0 else (appt.feeAmount ?: 0.0)
+            val opdFee = if (isFollowUp) 0.0 else appt.feeAmount
+            val deskCharge = if (isFollowUp) 0.0 else appt.effectiveServiceCharge
+            val effectiveBillTotal = if (isFollowUp) 0.0 else appt.effectiveTotalAmount
+            val defaultOpdItems = when {
+                isFollowUp -> listOf(InvoiceLineItem(name = "OPD Doctor Consultation (Follow-up)", unitPrice = 0.0, quantity = 1))
+                opdFee > 0.0 && appt.isPayAtDesk && deskCharge > 0.0 -> listOf(
+                    InvoiceLineItem(name = "OPD Doctor Consultation", unitPrice = opdFee, quantity = 1),
+                    InvoiceLineItem(name = "Pay at Desk Service Charge (5%)", unitPrice = deskCharge, quantity = 1)
+                )
+                opdFee > 0.0 -> listOf(InvoiceLineItem(name = "OPD Doctor Consultation", unitPrice = opdFee, quantity = 1))
+                else -> emptyList()
+            }
             val existingInv = billingRepository.getInvoiceByAppointment(appt.id)
             if (existingInv != null) {
                 val cleanItems = existingInv.items.filterNot { it.itemName.startsWith("Payment Received", ignoreCase = true) }
@@ -161,14 +172,12 @@ fun BillingScreen(
                 }
                 lineItems = if (mapped.isNotEmpty()) {
                     mapped
-                } else if (!isFollowUp && opdFee > 0.0) {
-                    listOf(InvoiceLineItem(name = "OPD Doctor Consultation", unitPrice = opdFee, quantity = 1))
+                } else if (!isFollowUp && appt.isPayAtDesk && defaultOpdItems.isNotEmpty()) {
+                    defaultOpdItems
                 } else if (!isFollowUp && existingInv.totalAmount > 0.0) {
                     listOf(InvoiceLineItem(name = "OPD Consultation & Clinical Services", unitPrice = existingInv.totalAmount, quantity = 1))
-                } else if (isFollowUp) {
-                    listOf(InvoiceLineItem(name = "OPD Doctor Consultation (Follow-up)", unitPrice = 0.0, quantity = 1))
                 } else {
-                    emptyList()
+                    defaultOpdItems
                 }
                 val fallbackAmt = if (isFollowUp) {
                     val nonConsultTotal = existingInv.items.filterNot {
@@ -188,20 +197,14 @@ fun BillingScreen(
                 newPaymentAmountInput = ""
                 newPaymentNote = ""
             } else {
-                lineItems = if (!isFollowUp && opdFee > 0.0) {
-                    listOf(InvoiceLineItem(name = "OPD Doctor Consultation", unitPrice = opdFee, quantity = 1))
-                } else if (isFollowUp) {
-                    listOf(InvoiceLineItem(name = "OPD Doctor Consultation (Follow-up)", unitPrice = 0.0, quantity = 1))
-                } else {
-                    emptyList()
-                }
-                val existingApptFee = opdFee
+                lineItems = defaultOpdItems
+                val existingApptFee = effectiveBillTotal
                 if (!isFollowUp && appt.paymentStatus.equals("paid", ignoreCase = true) && existingApptFee > 0.0) {
                     paymentRecords = listOf(
                         PaymentRecord(
                             amount = existingApptFee,
                             dateTime = "${appt.appointmentDate} ${appt.appointmentTime ?: "10:00 AM"}",
-                            note = "OPD Consultation Fee"
+                            note = if (appt.isPayAtDesk) "Pay at Desk Collection (incl. 5% charge)" else "OPD Consultation Fee"
                         )
                     )
                 } else {
@@ -500,8 +503,8 @@ fun BillingScreen(
                                     val totalBilled = if (isSelected && (totalAmount > 0.0 || lineItems.isNotEmpty())) {
                                         totalAmount
                                     } else when {
-                                        apptInvoice != null && apptInvoice.totalAmount > 0.0 -> apptInvoice.totalAmount
-                                        (appt.feeAmount ?: 0.0) > 0.0 -> appt.feeAmount ?: 0.0
+                                        apptInvoice != null && apptInvoice.totalAmount > 0.0 -> maxOf(apptInvoice.totalAmount, appt.effectiveTotalAmount)
+                                        appt.effectiveTotalAmount > 0.0 -> appt.effectiveTotalAmount
                                         else -> 0.0
                                     }
                                     val rowPaid = if (isSelected && (totalPaid > 0.0 || lineItems.isNotEmpty())) {
@@ -605,8 +608,8 @@ fun BillingScreen(
             selectedAppointment?.let { appt ->
                 val apptInvoice = invoicesMap[appt.id]
                 val currentTotal = when {
-                    apptInvoice != null && apptInvoice.totalAmount > 0.0 -> apptInvoice.totalAmount
-                    (appt.feeAmount ?: 0.0) > 0.0 -> appt.feeAmount ?: 0.0
+                    apptInvoice != null && apptInvoice.totalAmount > 0.0 -> maxOf(apptInvoice.totalAmount, appt.effectiveTotalAmount)
+                    appt.effectiveTotalAmount > 0.0 -> appt.effectiveTotalAmount
                     else -> 0.0
                 }
                 val currentPaid = when {
@@ -675,6 +678,11 @@ fun BillingScreen(
                                     }
                                     val liveItems = if (baseLiveItems.isNotEmpty()) {
                                         baseLiveItems
+                                    } else if (opdFee > 0.0 && appt.isPayAtDesk && appt.effectiveServiceCharge > 0.0) {
+                                        listOf(
+                                            InvoiceItem(itemName = "OPD Doctor Consultation (${appt.appointmentDate})", quantity = 1, price = opdFee, total = opdFee),
+                                            InvoiceItem(itemName = "Pay at Desk Service Charge (5%)", quantity = 1, price = appt.effectiveServiceCharge, total = appt.effectiveServiceCharge)
+                                        )
                                     } else if (opdFee > 0.0) {
                                         listOf(InvoiceItem(itemName = "OPD Doctor Consultation (${appt.appointmentDate})", quantity = 1, price = opdFee, total = opdFee))
                                     } else {

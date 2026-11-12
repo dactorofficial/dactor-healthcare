@@ -182,11 +182,41 @@ function App() {
       }
 
       try {
-        const { count: dCount } = await supabase
-          .from('appointments')
-          .select('*', { count: 'exact', head: true })
-          .eq('payment_mode', 'PAY_AT_DESK')
-        if (dCount !== null) setPendingDeskSettlementsCount(dCount)
+        const [{ data: deskAppts }, { data: deskSets }] = await Promise.all([
+          supabase
+            .from('appointments')
+            .select('clinic_id, status, checkin_status, payment_status, fee_amount, service_charge_amount')
+            .ilike('payment_mode', 'PAY_AT_DESK'),
+          supabase
+            .from('platform_commission_settlements')
+            .select('clinic_id, commission_amount_npr, status')
+        ])
+
+        if (deskAppts) {
+          const accruedByClinic = new Map<string, number>()
+          for (const a of deskAppts as any[]) {
+            const st = String(a.status || '').toUpperCase()
+            const ck = String(a.checkin_status || '').toLowerCase()
+            const ps = String(a.payment_status || '').toLowerCase()
+            if (ck === 'cancelled' || st === 'CANCELLED' || st === 'REJECTED' || st === 'EXPIRED' || st === 'UNAPPROVED') continue
+            if (st !== 'APPROVED' && st !== 'COMPLETED' && ps !== 'paid') continue
+            const fee = Number(a.fee_amount) || 0
+            let chg = Number(a.service_charge_amount) || 0
+            if (chg <= 0 && fee > 0) chg = Math.round(fee * 0.05 * 100) / 100
+            accruedByClinic.set(a.clinic_id, (accruedByClinic.get(a.clinic_id) || 0) + chg)
+          }
+          const settledByClinic = new Map<string, number>()
+          for (const s of (deskSets as any[]) || []) {
+            if (['settled', 'waived'].includes(String(s.status || '').toLowerCase())) {
+              settledByClinic.set(s.clinic_id, (settledByClinic.get(s.clinic_id) || 0) + (Number(s.commission_amount_npr) || 0))
+            }
+          }
+          let clinicsDue = 0
+          accruedByClinic.forEach((accrued, cId) => {
+            if (accrued - (settledByClinic.get(cId) || 0) > 0.01) clinicsDue++
+          })
+          setPendingDeskSettlementsCount(clinicsDue)
+        }
       } catch (e) {
         console.warn('Error fetching desk settlements count:', e)
       }

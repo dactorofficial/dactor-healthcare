@@ -140,10 +140,22 @@ class AppointmentRepository @Inject constructor(
 
             appointments.map { appt ->
                 val q = queueMap[appt.id]
+                val apptStatusLower = appt.checkinStatus?.lowercase() ?: ""
+                val isApptAlreadyProgressed = apptStatusLower in listOf(
+                    "processing", "sample_collected", "report_prepared", "completed", "done"
+                )
                 when {
-                    q?.status in listOf("done", "sample_collected", "report_prepared") -> appt.copy(checkinStatus = "completed")
-                    q?.status == "processing" -> appt.copy(checkinStatus = if (appt.checkinStatus == "completed") "completed" else "processing")
-                    q?.status == "inside" -> appt.copy(checkinStatus = "inside_opd")
+                    q?.status == "done" -> appt.copy(checkinStatus = "completed")
+                    q?.status == "report_prepared" -> appt.copy(
+                        checkinStatus = if (apptStatusLower == "completed") "completed" else "report_prepared"
+                    )
+                    q?.status == "sample_collected" -> appt.copy(
+                        checkinStatus = if (apptStatusLower in listOf("completed", "report_prepared", "processing")) appt.checkinStatus else "sample_collected"
+                    )
+                    q?.status == "processing" -> appt.copy(
+                        checkinStatus = if (apptStatusLower in listOf("completed", "report_prepared")) appt.checkinStatus else "processing"
+                    )
+                    q?.status == "inside" && !isApptAlreadyProgressed -> appt.copy(checkinStatus = "inside_opd")
                     q?.status == "no_show" -> appt.copy(checkinStatus = "cancelled")
                     else -> appt
                 }
@@ -1538,16 +1550,30 @@ class AppointmentRepository @Inject constructor(
     suspend fun markPaymentCollectedAtDesk(appointmentId: String): Result<Boolean> = withContext(Dispatchers.IO) {
         if (!isValidUuid(appointmentId)) return@withContext Result.failure(IllegalArgumentException("Invalid appointment ID"))
         try {
-            val nowIso = java.time.Instant.now().toString()
-            supabaseClient.postgrest["appointments"].update({
-                set("payment_status", "paid")
-                set("updated_at", nowIso)
-            }) {
-                filter { eq("id", appointmentId) }
+            var rpcSucceeded = false
+            try {
+                val resp = supabaseClient.postgrest.rpc(
+                    "mark_pay_at_desk_collected",
+                    ApproveRpcParams(appointmentId, null)
+                )
+                val body = resp.data?.trim()
+                if (body.isNullOrBlank() || body.contains("\"success\":true") || body.contains("\"success\": true")) {
+                    rpcSucceeded = true
+                }
+            } catch (_: Exception) {}
+
+            if (!rpcSucceeded) {
+                val nowIso = java.time.Instant.now().toString()
+                supabaseClient.postgrest["appointments"].update({
+                    set("payment_status", "paid")
+                    set("updated_at", nowIso)
+                }) {
+                    filter { eq("id", appointmentId) }
+                }
             }
             try {
                 appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
-                appointmentDao.upsert(local.copy(paymentStatus = "paid", syncStatus = "synced"))
+                    appointmentDao.upsert(local.copy(paymentStatus = "paid", syncStatus = "synced"))
                 }
             } catch (roomErr: Exception) {
                 android.util.Log.w("AppointmentRepository", "Non-fatal Room cache sync ignored: ${roomErr.message}")

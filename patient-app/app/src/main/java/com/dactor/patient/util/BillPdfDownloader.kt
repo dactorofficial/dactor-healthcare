@@ -147,16 +147,20 @@ object BillPdfDownloader {
 
             // ── 3. ITEMIZED BILL TABLE ────────────────────────────────────────
             val cleanItems = invoice?.items?.filterNot { it.itemName.startsWith("Payment Received", ignoreCase = true) } ?: emptyList()
-            val opdFee = (appointment.feeAmount ?: 0.0).takeIf { it > 0.0 } ?: 0.0
-            val hasConsultation = cleanItems.any { it.itemName.contains("Consultation", ignoreCase = true) || it.itemName.contains("OPD", ignoreCase = true) }
+            val opdFee = appointment.feeAmount.takeIf { it > 0.0 } ?: 0.0
+            val deskCharge = appointment.effectiveServiceCharge
 
             val effectiveItems: List<InvoiceItem> = when {
                 cleanItems.isNotEmpty() -> cleanItems
+                opdFee > 0.0 && appointment.isPayAtDesk && deskCharge > 0.0 -> listOf(
+                    InvoiceItem(itemName = "OPD Doctor Consultation (${appointment.appointmentDate})", quantity = 1, price = opdFee, total = opdFee),
+                    InvoiceItem(itemName = "Pay at Desk Service Charge (5%)", quantity = 1, price = deskCharge, total = deskCharge)
+                )
                 opdFee > 0.0 -> listOf(InvoiceItem(itemName = "OPD Doctor Consultation (${appointment.appointmentDate})", quantity = 1, price = opdFee, total = opdFee))
                 !invoice?.items.isNullOrEmpty() -> invoice!!.items
                 else -> {
-                    val fallbackTotal = invoice?.totalAmount?.takeIf { it > 0.0 }
-                        ?: (appointment.feeAmount ?: 0.0).takeIf { it > 0.0 }
+                    val fallbackTotal = invoice?.totalAmount?.takeIf { it > 0.0 }?.let { maxOf(it, appointment.effectiveTotalAmount) }
+                        ?: appointment.effectiveTotalAmount.takeIf { it > 0.0 }
                         ?: (invoice?.paidAmount?.takeIf { it > 0.0 } ?: 0.0)
                     if (fallbackTotal > 0.0) {
                         listOf(

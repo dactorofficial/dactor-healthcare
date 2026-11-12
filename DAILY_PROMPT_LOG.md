@@ -4,6 +4,37 @@ This file tracks user prompts and the exact changes applied across the codebase,
 
 ---
 
+## 2026-11-12
+
+### Prompt:
+> "The commission is not being added to the superadmin with the commission to be collected. It's also showing the actual amount when it should show the amount with 5% commission for pay at desk / plan"
+
+#### Changes Applied:
+1. **Supabase 5% Commission Integrity & Collection Sync ([migration_fix_pay_at_desk_commission_and_totals.sql](file:///g:/My%20Drive/New%20folder/supabase/migration_fix_pay_at_desk_commission_and_totals.sql), [test_pay_at_desk_commission_and_totals.cjs](file:///g:/My%20Drive/New%20folder/supabase/test_pay_at_desk_commission_and_totals.cjs))**:
+   - Added `enforce_pay_at_desk_commission_totals()` trigger (`appointments_z_enforce_pay_at_desk_commission`) enforcing `service_charge_amount = ROUND(fee_amount * 5%, 2)` and `total_amount = fee_amount + service_charge_amount` on every `PAY_AT_DESK` insert/update.
+   - Added backfill for existing `PAY_AT_DESK` rows missing 5% commission totals.
+   - Created `mark_pay_at_desk_collected(p_appointment_id, p_clinic_id)` RPC to mark desk appointments paid with 5% commission totals and sync `billing_invoices` and `invoice_transactions`.
+
+2. **Super Admin Commission Tracking & Schema Fixes ([PayAtDeskSettlements.tsx](file:///g:/My%20Drive/New%20folder/admin-panel/src/pages/PayAtDeskSettlements.tsx), [PaymentLogs.tsx](file:///g:/My%20Drive/New%20folder/admin-panel/src/pages/PaymentLogs.tsx), [App.tsx](file:///g:/My%20Drive/New%20folder/admin-panel/src/App.tsx))**:
+   - Fixed non-existent SQL columns in Supabase queries (`clinics.type`, `contact_phone`, `contact_email`, `address_text`, `doctors.full_name`, `appointments.patient_mobile`, `appointment_date`, `appointment_time`, `clinic_subscription_payments`, and `platform_commission_settlements`) that previously caused HTTP 400 errors and `Rs. 0.00` totals.
+   - Filtered Pay at Desk accrued commission strictly to confirmed/completed/paid bookings (`APPROVED`, `COMPLETED`, `paid`) excluding `WAITING_FOR_APPROVAL`, `UNAPPROVED`, `EXPIRED`, and cancelled rows, with 5% fallback math.
+   - Added live unsettled 5% Pay-at-Desk commission aggregation (`Accrued Due`) and one-click settlement recording into `PaymentLogs.tsx`, and updated the sidebar badge counter in `App.tsx` to count clinics with pending commission dues.
+
+3. **Clinic App 5% Amount & Ledger Fixes (clinic-app/)**:
+   - Added `isPayAtDesk`, `effectiveServiceCharge`, and `effectiveTotalAmount` computed helpers on [Appointment.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/data/model/Appointment.kt) and fixed schema serial names in [FinancialLedgerModels.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/data/model/FinancialLedgerModels.kt).
+   - Updated [AppointmentRepository.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt) `markPaymentCollectedAtDesk` to call `mark_pay_at_desk_collected` RPC.
+   - Updated [QueueBoardScreen.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/QueueBoardScreen.kt), [PayAtDeskRequestsScreen.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/appointments/PayAtDeskRequestsScreen.kt), [BillingScreen.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/BillingScreen.kt), [PaymentLedgerHelper.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/PaymentLedgerHelper.kt), and [BillPdfDownloader.kt](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/BillPdfDownloader.kt) to display and bill the full `fee + 5%` amount cleanly without decimal truncation.
+
+4. **Patient App 5% Amount Fixes (patient-app/)**:
+   - Added `isPayAtDesk`, `effectiveServiceCharge`, and `effectiveTotalAmount` helpers on [Appointment.kt](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/data/model/Appointment.kt).
+   - Fixed double-charge risk in [PaymentScreen.kt](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/booking/PaymentScreen.kt) and fixed non-nullable `0.0 ?: ...` and `feeAmount` fallbacks in [QueueStatusScreen.kt](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt), [PatientMainScreen.kt](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt), and [BillPdfDownloader.kt](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/util/BillPdfDownloader.kt).
+
+5. **Web Portal 5% Amount & Collection Fixes (web-app/)**:
+   - Added `getEffectiveServiceCharge` and `getEffectiveAppointmentTotal` helpers in [types/index.ts](file:///g:/My%20Drive/New%20folder/web-app/src/types/index.ts), updated `mapAppointment`, `getPendingPayAtDeskRequests`, notification total, and added `markPayAtDeskCollected` in [db.ts](file:///g:/My%20Drive/New%20folder/web-app/src/services/db.ts).
+   - Updated [ClinicPortal.tsx](file:///g:/My%20Drive/New%20folder/web-app/src/pages/ClinicPortal.tsx), [PatientPortal.tsx](file:///g:/My%20Drive/New%20folder/web-app/src/pages/PatientPortal.tsx), [LiveQueue.tsx](file:///g:/My%20Drive/New%20folder/web-app/src/pages/LiveQueue.tsx), and [medicalDocPrinter.ts](file:///g:/My%20Drive/New%20folder/web-app/src/utils/medicalDocPrinter.ts) to display/bill the 5% commission total and itemize the 5% Pay at Desk service charge.
+
+---
+
 ## 2026-11-11
 
 ### Prompt:
