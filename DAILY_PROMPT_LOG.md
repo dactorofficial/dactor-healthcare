@@ -7,6 +7,16 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-12
 
 ### Prompt:
+> "Failed to run sql query: ERROR: 22P02: invalid input value for enum payment_status_enum: "" ... this the error it gave in sql editor of supabase"
+
+#### Changes Applied:
+1. **Supabase Enum Cast Fix ([`migration_fix_patient_bills_and_payment_logs_5pct.sql`](file:///g:/My%20Drive/New%20folder/supabase/migration_fix_patient_bills_and_payment_logs_5pct.sql))**:
+   - Cast `NEW.payment_status::TEXT`, `bi.payment_status::TEXT`, and `a.payment_status::TEXT` before `COALESCE(..., '')` / `LOWER(...)` comparisons in both `enforce_pay_at_desk_invoice_totals()` and the Section 3 `billing_invoices` backfill `DO $$` block, and explicitly typed `'paid'::public.payment_status_enum` and `'pending'::public.payment_status_enum` in the `CASE` assignment.
+   - Re-ran [`test_patient_bills_and_payment_logs_5pct.cjs`](file:///g:/My%20Drive/New%20folder/supabase/test_patient_bills_and_payment_logs_5pct.cjs) (`5/5` passed).
+
+---
+
+### Prompt:
 > "it's showing the orginal amount in the bill and payment log of the patient as well not with the added 5% , resolve this /plan continue without my approval"
 
 #### Changes Applied:

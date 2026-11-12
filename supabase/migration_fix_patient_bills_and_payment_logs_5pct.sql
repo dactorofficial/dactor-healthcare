@@ -131,7 +131,7 @@ BEGIN
         NEW.total_amount := GREATEST(COALESCE(NEW.total_amount, 0.00), v_expected_total);
     END IF;
 
-    IF LOWER(COALESCE(NEW.payment_status, '')) = 'paid' THEN
+    IF LOWER(COALESCE(NEW.payment_status::TEXT, '')) = 'paid' THEN
         NEW.paid_amount := GREATEST(COALESCE(NEW.paid_amount, 0.00), NEW.total_amount);
         NEW.balance_due := 0.00;
     ELSE
@@ -157,12 +157,12 @@ BEGIN
     -- Touching updated_at fires BEFORE UPDATE trigger billing_invoices_z_enforce_pay_at_desk_totals
     UPDATE public.billing_invoices bi
     SET payment_status = CASE
-            WHEN LOWER(COALESCE(bi.payment_status, '')) = 'paid'
-              OR LOWER(COALESCE(a.payment_status, '')) = 'paid' THEN 'paid'
-            ELSE COALESCE(bi.payment_status, a.payment_status, 'pending')
+            WHEN LOWER(COALESCE(bi.payment_status::TEXT, '')) = 'paid'
+              OR LOWER(COALESCE(a.payment_status::TEXT, '')) = 'paid' THEN 'paid'::public.payment_status_enum
+            ELSE COALESCE(bi.payment_status, a.payment_status, 'pending'::public.payment_status_enum)
         END,
         paid_at = CASE
-            WHEN (LOWER(COALESCE(bi.payment_status, '')) = 'paid' OR LOWER(COALESCE(a.payment_status, '')) = 'paid')
+            WHEN (LOWER(COALESCE(bi.payment_status::TEXT, '')) = 'paid' OR LOWER(COALESCE(a.payment_status::TEXT, '')) = 'paid')
             THEN COALESCE(bi.paid_at, a.updated_at, NOW())
             ELSE bi.paid_at
         END,
@@ -175,9 +175,9 @@ BEGIN
           COALESCE(bi.total_amount, 0.00) < COALESCE(a.total_amount, 0.00)
           OR NOT (LOWER(COALESCE(bi.items::TEXT, '')) LIKE '%service charge%')
           OR (
-              LOWER(COALESCE(a.payment_status, '')) = 'paid'
+              LOWER(COALESCE(a.payment_status::TEXT, '')) = 'paid'
               AND (
-                  LOWER(COALESCE(bi.payment_status, '')) <> 'paid'
+                  LOWER(COALESCE(bi.payment_status::TEXT, '')) <> 'paid'
                   OR COALESCE(bi.paid_amount, 0.00) < COALESCE(a.total_amount, 0.00)
               )
           )
