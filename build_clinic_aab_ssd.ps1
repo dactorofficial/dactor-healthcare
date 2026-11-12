@@ -1,6 +1,7 @@
-param(
+﻿param(
     [string]$VersionName = "1.0.81",
-    [int]$VersionCode = 81
+    [int]$VersionCode = 81,
+    [string]$SsdRoot = "C:\dactor-ssd-build\clinic-app"
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,7 +32,7 @@ if (-not $written) {
 }
 
 # 2. SSD Staging Directory
-$ssdRoot = "C:\dactor-ssd-build\clinic-app"
+$ssdRoot = $SsdRoot
 if (-not (Test-Path "$ssdRoot\app")) {
     New-Item -ItemType Directory -Path "$ssdRoot\app" -Force | Out-Null
 }
@@ -74,12 +75,18 @@ $env:ANDROID_SDK_ROOT = $sdkPath
 $escapedSdk = $sdkPath -replace '\\', '/'
 Set-Content -Path "$ssdRoot\local.properties" -Value "sdk.dir=$escapedSdk" -Force
 
-# 5. Clean prior build outputs and KSP caches on SSD to avoid stale bundle or incremental cache corruption
+# 5. Clean prior build outputs, generated KSP sources, intermediates, and KSP caches on SSD to avoid stale bundle or incremental cache corruption
 if (Test-Path "$ssdRoot\app\build\outputs\bundle") {
     Remove-Item -Path "$ssdRoot\app\build\outputs\bundle" -Recurse -Force -ErrorAction SilentlyContinue
 }
 if (Test-Path "$ssdRoot\app\build\kspCaches") {
     Remove-Item -Path "$ssdRoot\app\build\kspCaches" -Recurse -Force -ErrorAction SilentlyContinue
+}
+if (Test-Path "$ssdRoot\app\build\generated\ksp") {
+    Remove-Item -Path "$ssdRoot\app\build\generated\ksp" -Recurse -Force -ErrorAction SilentlyContinue
+}
+if (Test-Path "$ssdRoot\app\build\intermediates") {
+    Remove-Item -Path "$ssdRoot\app\build\intermediates" -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # 6. Build AAB on SSD

@@ -326,58 +326,6 @@ fun QueueBoardScreen(
         }
     }
 
-    fun handleMarkDoneAction(item: QueueItemUi) {
-        val isDiag = isLabClinic || isDiagnosticClinic(currentClinic, item)
-        if (isDiag) {
-            optimisticallyUpdateStatus(item.id, "processing")
-            coroutineScope.launch {
-                // 1. Atomic RPC or fallback queue update -> processing
-                var qOk = queueRepository?.transitionDiagnosticToProcessing(
-                    appointmentId = item.appointmentId,
-                    queueEntryId = item.id,
-                    testName = item.selectedLabTests
-                ) ?: false
-                if (!qOk && queueRepository != null) {
-                    qOk = queueRepository.updateQueueStatus(item.id, "processing", effectiveClinicId) ||
-                        queueRepository.updateQueueStatusByAppointmentId(item.appointmentId, "processing")
-                }
-                // 2. Ensure appointment checkin status is processing
-                val apptOk = appointmentRepository?.updateCheckinStatus(item.appointmentId, "processing") ?: false
-                // 3. Upsert lab report into Processing stage
-                val reportSaved = labReportRepository?.upsertLabReportForAppointment(
-                    appointmentId = item.appointmentId,
-                    clinicId = effectiveClinicId,
-                    patientName = item.patientName,
-                    testName = item.selectedLabTests?.takeIf { it.isNotBlank() } ?: "Diagnostic Lab Analysis",
-                    stage = "processing"
-                )
-                if (qOk || apptOk || reportSaved != null) {
-                    notificationSentMessage = "✓ ${item.patientName} moved to Processing! Mark report prepared in Processing."
-                } else {
-                    pendingStatusOverrides = pendingStatusOverrides - item.id
-                    notificationSentMessage = "⚠ Unable to move ${item.patientName} to Processing. Please check connection and retry."
-                }
-                loadQueue()
-            }
-        } else {
-            optimisticallyUpdateStatus(item.id, "done")
-            coroutineScope.launch {
-                var qOk = queueRepository?.updateQueueStatus(item.id, "done", effectiveClinicId) ?: false
-                if (!qOk && queueRepository != null) {
-                    qOk = queueRepository.updateQueueStatusByAppointmentId(item.appointmentId, "done")
-                }
-                val apptOk = appointmentRepository?.updateCheckinStatus(item.appointmentId, "completed") ?: false
-                if (qOk || apptOk) {
-                    notificationSentMessage = "✓ Consultation completed for ${item.patientName}!"
-                } else {
-                    pendingStatusOverrides = pendingStatusOverrides - item.id
-                    notificationSentMessage = "⚠ Unable to complete consultation for ${item.patientName}. Please retry."
-                }
-                loadQueue()
-            }
-        }
-    }
-
     fun moveItemToPosition(item: QueueItemUi, targetPosition1Based: Int) {
         val activeItems = queueItems.filter { it.status == "waiting" || it.status == "inside" }.toMutableList()
         val oldIndex = activeItems.indexOfFirst { it.id == item.id }
@@ -571,6 +519,58 @@ fun QueueBoardScreen(
                         }
                     } catch (ignored: Exception) {}
                 }
+            }
+        }
+    }
+
+    fun handleMarkDoneAction(item: QueueItemUi) {
+        val isDiag = isLabClinic || isDiagnosticClinic(currentClinic, item)
+        if (isDiag) {
+            optimisticallyUpdateStatus(item.id, "processing")
+            coroutineScope.launch {
+                // 1. Atomic RPC or fallback queue update -> processing
+                var qOk = queueRepository?.transitionDiagnosticToProcessing(
+                    appointmentId = item.appointmentId,
+                    queueEntryId = item.id,
+                    testName = item.selectedLabTests
+                ) ?: false
+                if (!qOk && queueRepository != null) {
+                    qOk = queueRepository.updateQueueStatus(item.id, "processing", effectiveClinicId) ||
+                        queueRepository.updateQueueStatusByAppointmentId(item.appointmentId, "processing")
+                }
+                // 2. Ensure appointment checkin status is processing
+                val apptOk = appointmentRepository?.updateCheckinStatus(item.appointmentId, "processing") ?: false
+                // 3. Upsert lab report into Processing stage
+                val reportSaved = labReportRepository?.upsertLabReportForAppointment(
+                    appointmentId = item.appointmentId,
+                    clinicId = effectiveClinicId,
+                    patientName = item.patientName,
+                    testName = item.selectedLabTests?.takeIf { it.isNotBlank() } ?: "Diagnostic Lab Analysis",
+                    stage = "processing"
+                )
+                if (qOk || apptOk || reportSaved != null) {
+                    notificationSentMessage = "✓ ${item.patientName} moved to Processing! Mark report prepared in Processing."
+                } else {
+                    pendingStatusOverrides = pendingStatusOverrides - item.id
+                    notificationSentMessage = "⚠ Unable to move ${item.patientName} to Processing. Please check connection and retry."
+                }
+                loadQueue()
+            }
+        } else {
+            optimisticallyUpdateStatus(item.id, "done")
+            coroutineScope.launch {
+                var qOk = queueRepository?.updateQueueStatus(item.id, "done", effectiveClinicId) ?: false
+                if (!qOk && queueRepository != null) {
+                    qOk = queueRepository.updateQueueStatusByAppointmentId(item.appointmentId, "done")
+                }
+                val apptOk = appointmentRepository?.updateCheckinStatus(item.appointmentId, "completed") ?: false
+                if (qOk || apptOk) {
+                    notificationSentMessage = "✓ Consultation completed for ${item.patientName}!"
+                } else {
+                    pendingStatusOverrides = pendingStatusOverrides - item.id
+                    notificationSentMessage = "⚠ Unable to complete consultation for ${item.patientName}. Please retry."
+                }
+                loadQueue()
             }
         }
     }

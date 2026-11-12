@@ -7,6 +7,21 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-12
 
 ### Prompt:
+> "Generate aab for clinic"
+
+#### Changes Applied:
+1. **Clinic App Version Bump & Release AAB Build (`v1.0.87` / Code `87`)**:
+   - Bumped `versionCode` to `87` and `versionName` to `"1.0.87"` in [`clinic-app/app/build.gradle.kts`](file:///g:/My%20Drive/New%20folder/clinic-app/app/build.gradle.kts) and built signed production bundle via [`build_clinic_aab_ssd.ps1`](file:///g:/My%20Drive/New%20folder/build_clinic_aab_ssd.ps1) (`23.28 MB` / `24,409,358 bytes`).
+   - Output staged to [`AABs/Dactor-ClinicApp-v1.0.87.aab`](file:///g:/My%20Drive/New%20folder/AABs/Dactor-ClinicApp-v1.0.87.aab), [`AABs/Dactor-ClinicApp-v87.aab`](file:///g:/My%20Drive/New%20folder/AABs/Dactor-ClinicApp-v87.aab), [`AABs/Dactor-ClinicApp-release.aab`](file:///g:/My%20Drive/New%20folder/AABs/Dactor-ClinicApp-release.aab), [`PlayStore/clinic-app/Dactor-ClinicApp-v1.0.87.aab`](file:///g:/My%20Drive/New%20folder/PlayStore/clinic-app/Dactor-ClinicApp-v1.0.87.aab), [`PlayStore/clinic-app/Dactor-ClinicApp-v87.aab`](file:///g:/My%20Drive/New%20folder/PlayStore/clinic-app/Dactor-ClinicApp-v87.aab), and `C:\Users\nitup\Dactor-APKs\Dactor-ClinicApp-v1.0.87.aab`.
+2. **Release Compilation & KSP Fixes ([`QueueBoardScreen.kt`](file:///g:/My%20Drive/New%20folder/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/QueueBoardScreen.kt), [`clinic-app/gradle.properties`](file:///g:/My%20Drive/New%20folder/clinic-app/gradle.properties))**:
+   - Moved local function `handleMarkDoneAction` below `suspend fun loadQueue()` in `QueueBoardScreen.kt` to resolve the Kotlin forward-reference error (`Unresolved reference 'loadQueue'`).
+   - Added `kotlin.incremental=false`, `ksp.incremental=false`, and `android.aapt2compiledaemons.max=1` to `clinic-app/gradle.properties` to prevent KSP `PagedFileStorage` `StorageLock` crashes.
+3. **Handoff Documentation ([`HANDOFF.md`](file:///g:/My%20Drive/New%20folder/HANDOFF.md))**:
+   - Updated the Clinic & Doctor App latest artifact and version log table with `v1.0.87` (`versionCode 87`).
+
+---
+
+### Prompt:
 > "deploy"
 
 #### Changes Applied:
