@@ -70,13 +70,17 @@ BEGIN
         ELSE ROUND(v_fee + v_charge, 2)
     END;
 
-    -- Inspect existing items JSONB array
+    -- Inspect existing items JSONB array (match item names only; escape literal '%')
     IF NEW.items IS NULL OR jsonb_typeof(NEW.items) <> 'array' THEN
         NEW.items := '[]'::jsonb;
     END IF;
 
-    v_has_service_charge := LOWER(COALESCE(NEW.items::TEXT, '')) LIKE '%service charge%'
-        OR LOWER(COALESCE(NEW.items::TEXT, '')) LIKE '%5%%';
+    SELECT EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(NEW.items) AS elem
+        WHERE LOWER(COALESCE(elem ->> 'item_name', elem ->> 'itemName', elem ->> 'name', '')) LIKE '%service charge%'
+           OR LOWER(COALESCE(elem ->> 'item_name', elem ->> 'itemName', elem ->> 'name', '')) LIKE '%5\%%' ESCAPE '\'
+    ) INTO v_has_service_charge;
 
     FOR v_elem IN SELECT * FROM jsonb_array_elements(NEW.items)
     LOOP
@@ -110,7 +114,30 @@ BEGIN
             )
         );
         NEW.total_amount := GREATEST(COALESCE(NEW.total_amount, 0.00), v_expected_total);
-    ELSIF NOT v_has_service_charge AND v_charge > 0.00 THEN
+    ELSIF NOT v_has_service_charge AND v_charge > 0.00 AND jsonb_array_length(NEW.items) = 1 AND ABS(v_items_sum - v_expected_total) < 0.05 THEN
+        -- Existing single line baked fee + 5% together (e.g., 472.5): split cleanly into Consultation Fee + 5% Service Charge
+        NEW.items := jsonb_build_array(
+            jsonb_build_object(
+                'id', COALESCE(NEW.items -> 0 ->> 'id', gen_random_uuid()::TEXT),
+                'item_name', 'OPD Consultation Fee',
+                'itemName', 'OPD Consultation Fee',
+                'name', 'OPD Consultation Fee',
+                'quantity', 1,
+                'price', v_fee,
+                'total', v_fee
+            ),
+            jsonb_build_object(
+                'id', gen_random_uuid()::TEXT,
+                'item_name', 'Pay at Desk Service Charge (5%)',
+                'itemName', 'Pay at Desk Service Charge (5%)',
+                'name', 'Pay at Desk Service Charge (5%)',
+                'quantity', 1,
+                'price', v_charge,
+                'total', v_charge
+            )
+        );
+        NEW.total_amount := GREATEST(COALESCE(NEW.total_amount, 0.00), v_expected_total);
+    ELSIF NOT v_has_service_charge AND v_charge > 0.00 AND (COALESCE(NEW.total_amount, 0.00) < v_expected_total OR ABS(v_items_sum - v_fee) < 0.05) THEN
         NEW.items := NEW.items || jsonb_build_array(
             jsonb_build_object(
                 'id', gen_random_uuid()::TEXT,
