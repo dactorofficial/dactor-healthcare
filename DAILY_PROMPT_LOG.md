@@ -7,6 +7,17 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-12
 
 ### Prompt:
+> "deploy it"
+
+#### Changes Applied:
+1. **GitHub Pages Production Deployment ([`deploy_ghpages.ps1`](file:///g:/My%20Drive/New%20folder/scripts/deploy_ghpages.ps1))**:
+   - Published the updated `web-app/dist/` bundle (`assets/index-6EwhKlgM.js`, `assets/index-CMKrqZea.css`) to both GitHub Pages targets:
+     - Root domain `dactorofficial/dactorofficial.github.io` (`main` -> `ac535a2`): `https://dactorofficial.github.io/`
+     - Project mirror `dactorofficial/dactor` (`gh-pages` -> `52f5778`): `https://dactorofficial.github.io/dactor/`
+
+---
+
+### Prompt:
 > "I ran the sql check it's integrated properly or not"
 
 #### Changes Applied:
