@@ -52,6 +52,7 @@ import {
   cancelPendingAppointment,
   findPendingPayAtDeskAppointment,
   cancelPendingPayAtDeskAppointment,
+  isDiagnosticLabClinic,
 } from '../services/db'
 import { supabase } from '../lib/supabase'
 import { updatePageSEO } from '../utils/seo'
@@ -369,19 +370,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   }, [clinic, selectedDoctor, doctors])
 
   // 3 Clinic Types Classification
-  const isLabClinic = useMemo(() => {
-    if (!clinic) return false
-    const t = (clinic.type || '').toLowerCase()
-    const n = (clinic.name || '').toLowerCase()
-    return (
-      t === 'diagnostic_lab' ||
-      t.includes('lab') ||
-      n.includes('lab') ||
-      (clinic.specialties?.some(
-        (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
-      ) ?? false)
-    )
-  }, [clinic])
+  const isLabClinic = useMemo(() => isDiagnosticLabClinic(clinic), [clinic])
 
   const isSingleDoctorClinic = useMemo(() => {
     if (isLabClinic) return false
@@ -697,17 +686,10 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       } catch {}
     }
 
-    const isLabClinic =
-      activeTab === 'lab' ||
-      clinic?.type === 'diagnostic_lab' ||
-      clinic?.type?.toLowerCase().includes('lab') ||
-      clinic?.name?.toLowerCase().includes('lab') ||
-      (clinic?.specialties?.some(
-        (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
-      ) ?? false)
+    const isLabMode = activeTab === 'lab' || isLabClinic
 
     const rawSlots = (monthSlotsMap[dateStr] || []).filter((s) => s.isAvailable !== false)
-    const relevantSlots = isLabClinic
+    const relevantSlots = isLabMode
       ? rawSlots
       : selectedDoctor
       ? rawSlots.filter((s) => !s.doctorId || s.doctorId === selectedDoctor.id)

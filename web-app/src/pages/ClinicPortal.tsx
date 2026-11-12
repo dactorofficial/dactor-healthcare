@@ -2980,6 +2980,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       alert(isLabClinic || clinicDoctors.length === 0 ? 'Please select date and start time' : 'Please select doctor, date, and start time')
       return
     }
+    const startMins = parseTimeToMinutes(slotStartTime)
+    const endMins = parseTimeToMinutes(slotEndTime || slotStartTime)
+    if (endMins <= startMins) {
+      alert('End time must be later than start time.')
+      return
+    }
     setPublishingSlot(true)
     try {
       const targetDoctorId = isLabClinic ? undefined : (slotDoctorId || undefined)
@@ -2987,9 +2993,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         clinicId: selectedClinic.id,
         doctorId: targetDoctorId,
         slotDate: slotDate,
-        startTime: slotStartTime,
-        endTime: slotEndTime || slotStartTime,
-        maxCapacity: Number(slotCapacity) || (isLabClinic ? 25 : 5),
+        startTime: slotStartTime.trim(),
+        endTime: (slotEndTime || slotStartTime).trim(),
+        maxCapacity: Math.max(1, Number(slotCapacity) || (isLabClinic ? 25 : 10)),
         bookedCount: 0,
         isPublished: true,
       })
@@ -3002,6 +3008,37 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       }
     } catch (err) {
       console.error('Error publishing slot:', err)
+    } finally {
+      setPublishingSlot(false)
+    }
+  }
+
+  const handlePublishLabCollectionWindow = async (startLabel: string, endLabel: string) => {
+    if (!selectedClinic || !slotDate) {
+      alert('Please select date first')
+      return
+    }
+    setPublishingSlot(true)
+    try {
+      const newSlot = await createSlot({
+        clinicId: selectedClinic.id,
+        doctorId: undefined,
+        slotDate: slotDate,
+        startTime: startLabel,
+        endTime: endLabel,
+        maxCapacity: Math.max(1, Number(slotCapacity) || 25),
+        bookedCount: 0,
+        isPublished: true,
+      })
+      if (newSlot) {
+        setPublishedSlots((prev) => [...prev, newSlot])
+        setRefreshKey((k) => k + 1)
+        alert(`Sample collection window ${startLabel} - ${endLabel} published for ${slotDate}!`)
+      } else {
+        alert('Failed to publish collection window.')
+      }
+    } catch (err) {
+      console.error('Error publishing collection window:', err)
     } finally {
       setPublishingSlot(false)
     }
@@ -3049,7 +3086,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             slotDate: slotDate,
             startTime: sTime,
             endTime: eTime,
-            maxCapacity: Number(slotCapacity) || (isLabClinic ? 25 : 5),
+            maxCapacity: Math.max(1, Number(slotCapacity) || (isLabClinic ? 25 : 10)),
             bookedCount: 0,
             isPublished: true,
           })
@@ -5176,7 +5213,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             <span>{clinicOnBreak ? 'On Break' : 'Take Break'}</span>
           </button>
 
-          {!(selectedClinic?.type === 'diagnostic_lab' || (selectedClinic as any)?.clinicType === 'diagnostic_lab') && (
+          {!isLabClinic && (
           <button
             onClick={() => setDeskTab('invitations')}
             className="flex items-center space-x-1 px-2.5 sm:px-3 py-2 bg-brand-500/15 hover:bg-brand-500/25 text-brand-800 dark:text-brand-300 border border-brand-400/40 rounded-xl text-xs font-bold transition-colors cursor-pointer"
@@ -5290,7 +5327,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           }`}
         >
           <CalendarClock className="w-4 h-4" />
-          <span>Timed Slots Publisher</span>
+          <span>{isLabClinic ? 'Lab Collection Slots' : 'Timed Slots Publisher'}</span>
         </button>
 
         <button
@@ -5469,7 +5506,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             }`}
           >
             {/* Enlisted Doctors & Presence Roster Bar with Master Switch */}
-          {clinicDoctors.length > 0 && !(selectedClinic?.type === 'diagnostic_lab' || (selectedClinic as any)?.clinicType === 'diagnostic_lab') && (
+          {clinicDoctors.length > 0 && !isLabClinic && (
             <div className="liquid-glass-card p-5 rounded-3xl border border-white/60 dark:border-white/15 shadow-glass-sm space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/40 dark:border-white/10 pb-3">
                 <div>
@@ -5541,7 +5578,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             </div>
           )}
 
-          {!loading && clinicDoctors.length === 0 && !(selectedClinic?.type === 'diagnostic_lab' || (selectedClinic as any)?.clinicType === 'diagnostic_lab') && (
+          {!loading && clinicDoctors.length === 0 && !isLabClinic && (
             <div className="liquid-glass-card p-6 rounded-3xl border border-blue-200/60 dark:border-blue-900/30 bg-blue-50/40 dark:bg-blue-950/20 text-center space-y-3">
               <div className="w-12 h-12 rounded-2xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto">
                 <UserPlus className="w-6 h-6" />
@@ -5562,7 +5599,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           )}
 
           {/* Top Banner Alert if Doctor is Away or Clinic is on Break */}
-          {!loading && clinicDoctors.length > 0 && !doctorInClinic && !(selectedClinic?.type === 'diagnostic_lab' || (selectedClinic as any)?.clinicType === 'diagnostic_lab') && (
+          {!loading && clinicDoctors.length > 0 && !doctorInClinic && !isLabClinic && (
             <div className="p-4 bg-rose-500/10 backdrop-blur-md border border-rose-300/60 dark:border-rose-500/30 rounded-2xl flex items-center space-x-3 text-rose-800 dark:text-rose-200 text-xs font-bold">
               <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
               <div>
@@ -7301,101 +7338,179 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               <GlassCard variant="base" padding="md" radius="xl" className="space-y-4">
                 <div className="flex items-center space-x-2 text-brand-700 font-black text-sm pb-2 border-b border-white/60">
                   <CalendarClock className="w-4 h-4" />
-                  <span>Add Timed Slot</span>
+                  <span>{isLabClinic ? `Add Sample Collection Slot (${slotDate})` : `Add Timed Slot (${slotDate})`}</span>
                 </div>
 
-                <form onSubmit={handlePublishSlot} className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
+                {isLabClinic && (
+                  <div className="p-3 rounded-xl bg-teal-50/85 border border-teal-200 flex items-center space-x-2.5 text-xs">
+                    <FlaskConical className="w-4 h-4 text-teal-700 shrink-0" />
                     <div>
-                      <label className="text-xs font-bold text-slate-700 block mb-1">Start Time</label>
-                      <input
-                        type="text"
-                        value={slotStartTime}
-                        onChange={(e) => setSlotStartTime(e.target.value)}
-                        placeholder="09:00 AM"
-                        className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-bold text-slate-700 block mb-1">End Time</label>
-                      <input
-                        type="text"
-                        value={slotEndTime}
-                        onChange={(e) => setSlotEndTime(e.target.value)}
-                        placeholder="09:15 AM"
-                        className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
-                        required
-                      />
+                      <div className="font-bold text-teal-950">Diagnostic Lab Mode</div>
+                      <div className="text-[11px] text-teal-800">
+                        Facility phlebotomy collection window (no doctor required)
+                      </div>
                     </div>
                   </div>
+                )}
 
-                  <div>
-                    <label className="text-xs font-bold text-slate-700 block mb-1">
-                      Max Patients Allowed (Capacity)
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={50}
-                      value={slotCapacity}
-                      onChange={(e) => setSlotCapacity(Number(e.target.value) || 1)}
-                      className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
-                    />
-                  </div>
+                {(() => {
+                  const startMins = parseTimeToMinutes(slotStartTime)
+                  const endMins = parseTimeToMinutes(slotEndTime)
+                  const isInvalidInterval = endMins <= startMins
+                  const durationMins = endMins - startMins
+                  return (
+                    <form onSubmit={handlePublishSlot} className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs font-bold text-slate-700 block mb-1">Start Time</label>
+                          <input
+                            type="text"
+                            value={slotStartTime}
+                            onChange={(e) => setSlotStartTime(e.target.value)}
+                            placeholder="09:00 AM"
+                            className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-slate-700 block mb-1">End Time</label>
+                          <input
+                            type="text"
+                            value={slotEndTime}
+                            onChange={(e) => setSlotEndTime(e.target.value)}
+                            placeholder={isLabClinic ? '11:00 AM' : '09:15 AM'}
+                            className={`w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 ${
+                              isInvalidInterval ? 'border-rose-400 focus:ring-rose-500' : 'focus:ring-brand-500'
+                            }`}
+                            required
+                          />
+                        </div>
+                      </div>
 
-                  <GlassButton
-                    type="submit"
-                    variant="primary"
-                    size="md"
-                    fullWidth
-                    disabled={publishingSlot}
-                  >
-                    {publishingSlot ? 'Adding...' : 'Add slot'}
-                  </GlassButton>
-                </form>
+                      {isInvalidInterval ? (
+                        <div className="p-2 rounded-xl bg-rose-50 border border-rose-200 text-[11px] font-semibold text-rose-800">
+                          End time ({slotEndTime}) must be later than start time ({slotStartTime}).
+                        </div>
+                      ) : (
+                        <div className="text-[11px] font-semibold text-emerald-700">
+                          ✓ Slot Window: {slotStartTime} to {slotEndTime} ({durationMins} mins)
+                        </div>
+                      )}
+
+                      <div>
+                        <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">Quick Duration:</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {[15, 30, 60, 120, 180, 240].map((mins) => {
+                            const activeChip = durationMins === mins
+                            return (
+                              <button
+                                key={mins}
+                                type="button"
+                                onClick={() => setSlotEndTime(formatMinutesTo12h(startMins + mins))}
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
+                                  activeChip
+                                    ? 'bg-brand-600 text-white border-brand-600'
+                                    : 'bg-white/75 text-slate-700 border-slate-200 hover:bg-brand-50'
+                                }`}
+                              >
+                                {mins >= 60 ? `+${mins / 60} hr` : `+${mins} min`}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-bold text-slate-700 block mb-1">
+                          Patient Capacity (Max Bookings)
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={200}
+                          value={slotCapacity}
+                          onChange={(e) => setSlotCapacity(Math.max(1, Number(e.target.value) || 1))}
+                          className="w-full px-3 py-2 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        />
+                      </div>
+
+                      <GlassButton
+                        type="submit"
+                        variant="primary"
+                        size="md"
+                        fullWidth
+                        disabled={publishingSlot || isInvalidInterval}
+                      >
+                        {publishingSlot ? 'Adding...' : isLabClinic ? 'Add Sample Slot' : 'Add slot'}
+                      </GlassButton>
+                    </form>
+                  )
+                })()}
               </GlassCard>
 
               {/* Quick Preset Generators */}
               <GlassCard variant="base" padding="md" radius="xl" className="space-y-3">
                 <h3 className="font-bold text-xs text-slate-800 uppercase tracking-wider">
-                  ⚡ 1-Click Slot Generators (15-min Intervals)
+                  {isLabClinic ? '⚡ 1-Click Sample Collection Windows' : '⚡ 1-Click Slot Generators (15-min Intervals)'}
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Quickly publish complete session schedules without manual entry:
+                  {isLabClinic
+                    ? 'Quickly publish facility-wide phlebotomy collection windows without doctor selection:'
+                    : 'Quickly publish complete session schedules without manual entry:'}
                 </p>
 
-                <div className="space-y-2 pt-1">
-                  <button
-                    type="button"
-                    disabled={publishingSlot}
-                    onClick={() => handleGenerateBulkSlots(9, 12, 15)}
-                    className="w-full py-2.5 px-3 bg-white/60 hover:bg-brand-50/80 hover:text-brand-700 border border-white/80 hover:border-brand-200 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer flex items-center justify-between shadow-glass-sm"
-                  >
-                    <span>Morning: 09:00 AM – 12:00 PM</span>
-                    <span className="text-[10px] text-brand-600 font-mono">12 Slots &rarr;</span>
-                  </button>
+                {isLabClinic ? (
+                  <div className="space-y-2 pt-1">
+                    {[
+                      { label: 'Morning Fasting: 06:00 AM – 09:00 AM', start: '06:00 AM', end: '09:00 AM', tag: '3 hr Window' },
+                      { label: 'Mid-Day Collection: 09:00 AM – 12:00 PM', start: '09:00 AM', end: '12:00 PM', tag: '3 hr Window' },
+                      { label: 'Afternoon Collection: 01:00 PM – 04:00 PM', start: '01:00 PM', end: '04:00 PM', tag: '3 hr Window' },
+                    ].map((win) => (
+                      <button
+                        key={win.start}
+                        type="button"
+                        disabled={publishingSlot}
+                        onClick={() => handlePublishLabCollectionWindow(win.start, win.end)}
+                        className="w-full py-2.5 px-3 bg-white/60 hover:bg-teal-50/80 hover:text-teal-800 border border-white/80 hover:border-teal-200 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer flex items-center justify-between shadow-glass-sm"
+                      >
+                        <span>{win.label}</span>
+                        <span className="text-[10px] text-teal-700 font-mono">{win.tag} &rarr;</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={publishingSlot}
+                      onClick={() => handleGenerateBulkSlots(9, 12, 15)}
+                      className="w-full py-2.5 px-3 bg-white/60 hover:bg-brand-50/80 hover:text-brand-700 border border-white/80 hover:border-brand-200 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer flex items-center justify-between shadow-glass-sm"
+                    >
+                      <span>Morning: 09:00 AM – 12:00 PM</span>
+                      <span className="text-[10px] text-brand-600 font-mono">12 Slots &rarr;</span>
+                    </button>
 
-                  <button
-                    type="button"
-                    disabled={publishingSlot}
-                    onClick={() => handleGenerateBulkSlots(13, 16, 15)}
-                    className="w-full py-2.5 px-3 bg-white/60 hover:bg-brand-50/80 hover:text-brand-700 border border-white/80 hover:border-brand-200 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer flex items-center justify-between shadow-glass-sm"
-                  >
-                    <span>Afternoon: 01:00 PM – 04:00 PM</span>
-                    <span className="text-[10px] text-brand-600 font-mono">12 Slots &rarr;</span>
-                  </button>
+                    <button
+                      type="button"
+                      disabled={publishingSlot}
+                      onClick={() => handleGenerateBulkSlots(13, 16, 15)}
+                      className="w-full py-2.5 px-3 bg-white/60 hover:bg-brand-50/80 hover:text-brand-700 border border-white/80 hover:border-brand-200 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer flex items-center justify-between shadow-glass-sm"
+                    >
+                      <span>Afternoon: 01:00 PM – 04:00 PM</span>
+                      <span className="text-[10px] text-brand-600 font-mono">12 Slots &rarr;</span>
+                    </button>
 
-                  <button
-                    type="button"
-                    disabled={publishingSlot}
-                    onClick={() => handleGenerateBulkSlots(16, 19, 15)}
-                    className="w-full py-2.5 px-3 bg-white/60 hover:bg-brand-50/80 hover:text-brand-700 border border-white/80 hover:border-brand-200 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer flex items-center justify-between shadow-glass-sm"
-                  >
-                    <span>Evening: 04:00 PM – 07:00 PM</span>
-                    <span className="text-[10px] text-brand-600 font-mono">12 Slots &rarr;</span>
-                  </button>
-                </div>
+                    <button
+                      type="button"
+                      disabled={publishingSlot}
+                      onClick={() => handleGenerateBulkSlots(16, 19, 15)}
+                      className="w-full py-2.5 px-3 bg-white/60 hover:bg-brand-50/80 hover:text-brand-700 border border-white/80 hover:border-brand-200 rounded-xl text-xs font-bold text-left transition-colors cursor-pointer flex items-center justify-between shadow-glass-sm"
+                    >
+                      <span>Evening: 04:00 PM – 07:00 PM</span>
+                      <span className="text-[10px] text-brand-600 font-mono">12 Slots &rarr;</span>
+                    </button>
+                  </div>
+                )}
               </GlassCard>
             </div>
 
@@ -7428,17 +7543,28 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[500px] overflow-y-auto pr-1">
                     {publishedSlots.map((slot) => {
-                      const isFull = (slot.bookedCount || 0) >= (slot.maxCapacity || 1)
+                      const effectiveCap = slot.maxCapacity || (isLabClinic ? 25 : 10)
+                      const booked = slot.bookedCount || 0
+                      const remaining = Math.max(0, effectiveCap - booked)
+                      const isFull = booked >= effectiveCap
+                      const matchedDoc = clinicDoctors.find((d) => d.id === slot.doctorId)
+                      const counterLabel = isLabClinic
+                        ? 'Lab Phlebotomy Counter'
+                        : matchedDoc?.fullName || 'General Counter'
+
                       return (
                         <div
                           key={slot.id}
                           className="p-3.5 liquid-glass-subtle hover:bg-white/80 rounded-2xl border border-white/75 flex items-center justify-between transition-colors gap-2 shadow-glass-sm"
                         >
-                          <div className="space-y-0.5">
-                            <span className="text-xs font-black text-slate-900 font-mono">
+                          <div className="space-y-0.5 min-w-0">
+                            <span className="text-xs font-black text-slate-900 font-mono block">
                               {slot.startTime} – {slot.endTime}
                             </span>
-                            <div className="flex items-center space-x-2">
+                            <span className="text-[11px] font-semibold text-slate-600 block truncate">
+                              {counterLabel}
+                            </span>
+                            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                               <span
                                 className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                                   isFull
@@ -7449,12 +7575,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                 {isFull ? 'Full' : 'Available'}
                               </span>
                               <span className="text-[10px] text-slate-500">
-                                Booked: {slot.bookedCount || 0} / {slot.maxCapacity || 5}
+                                Registered: {booked} / {effectiveCap} ({remaining} left)
                               </span>
                             </div>
                           </div>
 
-                          {/* Slot Actions from SlotManagerScreen.kt: -30m, Edit Capacity, Delete */}
+                          {/* Slot Actions from SlotManagerScreen.kt: -30m, +30m, Edit Capacity, Delete */}
                           <div className="flex items-center space-x-1 shrink-0">
                             <button
                               type="button"
@@ -7466,9 +7592,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             </button>
                             <button
                               type="button"
+                              onClick={() => handleAdd30MinsToSlot(slot)}
+                              className="px-2 py-1 text-[10px] font-bold bg-emerald-50/85 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg cursor-pointer"
+                              title="Extend slot end time by 30 minutes"
+                            >
+                              +30m
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => {
                                 setEditingSlotCapacity(slot)
-                                setNewSlotCapacityVal(slot.maxCapacity || 5)
+                                setNewSlotCapacityVal(effectiveCap)
                               }}
                               className="px-2 py-1 text-[10px] font-bold bg-white/80 hover:bg-brand-50 text-slate-700 hover:text-brand-700 border border-white/90 rounded-lg cursor-pointer"
                               title="Edit max patients capacity"
