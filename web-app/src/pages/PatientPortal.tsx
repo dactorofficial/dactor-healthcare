@@ -181,6 +181,7 @@ import {
   refreshOnlinePayment,
   initiateOnlinePaymentPhase,
   cancelPendingAppointment,
+  isDiagnosticLabClinic,
 } from '../services/db'
 import {
   firebaseSignOut,
@@ -548,19 +549,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   const [followupLookupError, setFollowupLookupError] = useState<string | null>(null)
 
   // 3 Clinic Types Classification for active clinic
-  const isLabClinic = useMemo(() => {
-    if (!selectedClinic) return false
-    const t = (selectedClinic.type || '').toLowerCase()
-    const n = (selectedClinic.name || '').toLowerCase()
-    return (
-      t === 'diagnostic_lab' ||
-      t.includes('lab') ||
-      n.includes('lab') ||
-      (selectedClinic.specialties?.some(
-        (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
-      ) ?? false)
-    )
-  }, [selectedClinic])
+  const isLabClinic = useMemo(() => isDiagnosticLabClinic(selectedClinic), [selectedClinic])
 
   const isSingleDoctorClinic = useMemo(() => {
     if (isLabClinic) return false
@@ -1487,13 +1476,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       setClinicServices(availServs)
       setClinicPaymentConfig(pCfg)
 
-      const isLab =
-        clinic.type === 'diagnostic_lab' ||
-        clinic.type?.toLowerCase().includes('lab') ||
-        clinic.name.toLowerCase().includes('lab') ||
-        (clinic.specialties?.some(
-          (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
-        ) ?? false)
+      const isLab = isDiagnosticLabClinic(clinic)
 
       if (isLab) {
         setBookingMode('lab')
@@ -1579,7 +1562,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
         // FILTER: Remove slots whose end time has already expired!
         const validSlots = rawSlots.filter((slot) => {
-          if (selectedDoctor && slot.doctorId && slot.doctorId !== selectedDoctor.id) {
+          if (!isLabClinic && selectedDoctor && slot.doctorId && slot.doctorId !== selectedDoctor.id) {
             return false
           }
           const isExpired = isSlotTimeExpired(bookingDate, slot.endTime, slot.startTime)
@@ -1591,7 +1574,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         setSelectedSlot(prev => {
           if (prev) {
             const matched = validSlots.find(s =>
-              s.id && prev.id ? s.id === prev.id : s.timeLabel === prev.timeLabel
+              s.id && prev.id ? s.id === prev.id : s.startTime === prev.startTime && s.endTime === prev.endTime
             )
             if (matched) return matched
           }
@@ -2941,15 +2924,113 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     window.dispatchEvent(new Event('storage'))
   }
 
-  // Filter Active vs Past appointments
-  const todayStr = new Date().toISOString().split('T')[0]
-  const filteredAppointments = myAppointments.filter((a) => {
+  // Filter Active vs Past appointments and arrange Active as:
+  // 1) Today's active (and in-progress lab) by time
+  // 2) Missed appointments (last 7 days) by date & time
+  // 3) Upcoming appointments by date & time
+  // Completed & cancelled appointments are hidden from Active (shown in Records / Past & History)
+  const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kathmandu' }).format(new Date())
+
+  const parseSlotTimeMinutes = (timeStr?: string): number => {
+    if (!timeStr || !timeStr.trim()) return 12 * 60
+    const clean = timeStr.trim().toUpperCase()
+    const parts = clean.split(/[-–—]|\bTO\b/)
+    const firstPart = (parts[0] || '').trim()
+    const secondPart = (parts[1] || '').trim()
+    const match = firstPart.match(/(\d{1,2})(?::(\d{2}))?/)
+    if (!match) return 12 * 60
+    let h = parseInt(match[1], 10)
+    const m = match[2] ? parseInt(match[2], 10) : 0
+    const firstHasAm = firstPart.includes('AM')
+    const firstHasPm = firstPart.includes('PM')
+    const secondHasAm = secondPart.includes('AM')
+    const secondHasPm = secondPart.includes('PM')
+    const isAm = firstHasAm || (!firstHasPm && (secondHasAm || (secondHasPm && h >= 7 && h <= 11)))
+    const isPm = firstHasPm || (!firstHasAm && secondHasPm && ((h >= 1 && h <= 6) || h === 12))
+    if (isPm && h < 12) h += 12
+    if (isAm && h === 12) h = 0
+    if (!isPm && !isAm && h >= 1 && h <= 6) h += 12
+    return h * 60 + m
+  }
+
+  const classifyActiveAppointment = (a: Appointment) => {
+    const apptDate = (a.appointmentDate || '').trim().slice(0, 10)
+    const cLower = (a.checkinStatus || '').trim().toLowerCase()
+    const sLower = (a.status || '').trim().toLowerCase()
+    const completedStatuses = ['prepared', 'report_prepared', 'delivered', 'done', 'completed', 'finished']
+    const inProgressLabStatuses = ['sample_collected', 'processing', 'in_lab']
+
+    const matchingReports = patientLabReports.filter(
+      (r) => r.appointmentId === a.id || (a.trackingCode10Digit && r.trackingCode10Digit === a.trackingCode10Digit)
+    )
+    const hasReadyLabReport = matchingReports.some((r) =>
+      completedStatuses.includes((r.status || '').trim().toLowerCase())
+    )
+    const isCompleted = hasReadyLabReport || completedStatuses.includes(cLower) || sLower === 'completed'
+    const isInProgressLab = !isCompleted && (matchingReports.length > 0 || inProgressLabStatuses.includes(cLower))
+    const isPastDate = Boolean(apptDate && apptDate < todayStr)
+    const isToday = Boolean(apptDate && apptDate === todayStr)
+    const isNoShow =
+      !isCompleted &&
+      !isInProgressLab &&
+      (['no_show', 'missed'].includes(cLower) || ['no_show', 'missed'].includes(sLower))
+    const isMissed = isNoShow || (isPastDate && !isCompleted && !isInProgressLab)
+    const isCancelled =
+      !isNoShow &&
+      !isCompleted &&
+      (['cancelled', 'rejected'].includes(cLower) || ['cancelled', 'rejected'].includes(sLower))
+
+    const sortTier =
+      (isToday && !isMissed && !isCompleted) || isInProgressLab
+        ? 0
+        : isMissed
+        ? 1
+        : !isPastDate && !isCompleted
+        ? 2
+        : 3
+
+    return { apptDate, isCompleted, isInProgressLab, isPastDate, isToday, isMissed, isCancelled, sortTier }
+  }
+
+  const filteredAppointments = useMemo(() => {
+    const todayMs = Date.parse(`${todayStr}T00:00:00Z`)
     if (appointmentFilter === 'active') {
-      return a.appointmentDate >= todayStr && a.checkinStatus !== 'cancelled'
-    } else {
-      return a.appointmentDate < todayStr || a.checkinStatus === 'cancelled'
+      return myAppointments
+        .filter((a) => {
+          const c = classifyActiveAppointment(a)
+          if (c.isCancelled || c.isCompleted) return false
+          if (c.isMissed && c.apptDate) {
+            const apptMs = Date.parse(`${c.apptDate}T00:00:00Z`)
+            if (!Number.isNaN(apptMs) && !Number.isNaN(todayMs)) {
+              const daysPassed = Math.round((todayMs - apptMs) / 86_400_000)
+              return daysPassed >= 0 && daysPassed <= 7
+            }
+          }
+          return true
+        })
+        .sort((a, b) => {
+          const ca = classifyActiveAppointment(a)
+          const cb = classifyActiveAppointment(b)
+          if (ca.sortTier !== cb.sortTier) return ca.sortTier - cb.sortTier
+          const dateCmp = ca.apptDate.localeCompare(cb.apptDate)
+          if (dateCmp !== 0) return dateCmp
+          const timeCmp = parseSlotTimeMinutes(a.appointmentTime) - parseSlotTimeMinutes(b.appointmentTime)
+          if (timeCmp !== 0) return timeCmp
+          return (a.createdAt || '').localeCompare(b.createdAt || '')
+        })
     }
-  })
+
+    return myAppointments
+      .filter((a) => {
+        const c = classifyActiveAppointment(a)
+        return c.isCompleted || c.isCancelled || c.isPastDate
+      })
+      .sort((a, b) => {
+        const dateCmp = (b.appointmentDate || '').localeCompare(a.appointmentDate || '')
+        if (dateCmp !== 0) return dateCmp
+        return parseSlotTimeMinutes(b.appointmentTime) - parseSlotTimeMinutes(a.appointmentTime)
+      })
+  }, [myAppointments, patientLabReports, appointmentFilter, todayStr])
 
   // Format countdown minutes:seconds
   const timerMinutes = Math.floor(paymentTimeRemaining / 60)
@@ -3266,8 +3347,10 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {filteredAppointments.map((appt) => {
-                  const isToday = appt.appointmentDate === todayStr
-                  const isCancelled = appt.checkinStatus === 'cancelled'
+                  const apptInfo = classifyActiveAppointment(appt)
+                  const isToday = apptInfo.isToday
+                  const isCancelled = apptInfo.isCancelled
+                  const isMissed = apptInfo.isMissed
 
                   return (
                     <div
@@ -3311,6 +3394,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                               ? 'bg-slate-500/15 text-slate-700 dark:text-slate-300 border-slate-500/30'
                               : isCancelled
                               ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20'
+                              : isMissed
+                              ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
                               : appt.checkinStatus === 'completed'
                               ? 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/20'
                               : appt.checkinStatus === 'in_consultation'
@@ -3328,6 +3413,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                             ? 'Expired'
                             : isCancelled
                             ? 'Cancelled'
+                            : isMissed
+                            ? 'Missed Appointment'
                             : appt.checkinStatus === 'in_consultation'
                             ? 'Inside Chamber'
                             : appt.checkinStatus === 'completed'

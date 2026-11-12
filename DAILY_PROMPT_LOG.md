@@ -7,6 +7,23 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-12
 
 ### Prompt:
+> "For diagnostic lab In website it shows to add slot as per the doctor fix this . Allign the logic of slot publishing for diagnostic lab with the logic of app . Strictly don't change any files of app . /plan"
+
+#### Changes Applied:
+1. **Website Clinic Portal — Diagnostic Lab Slot Publishing Alignment ([`ClinicPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/ClinicPortal.tsx))**:
+   - Synced `slotCapacity` to default to `25` for Diagnostic Lab mode (`10` for OPD mode, max `200`) and cleared `slotDoctorId` whenever `isLabClinic` is true (including skipping `setSlotDoctorId` during `loadClinicDetails`), matching `SlotManagerScreen.kt`.
+   - Aligned `loadSlots`, `handleApprovePayAtDesk`, and walk-in slot scoping in `isLabClinic` mode to display all clinic slots for the active date directly (`doctorId` kept `undefined` / `null` on publish).
+   - Added `Diagnostic Lab Mode` facility banner, `endTime > startTime` validation, quick duration chips (`+15 min` to `+4 hr`), and 1-click sample collection window presets (`06:00 AM – 09:00 AM`, `09:00 AM – 12:00 PM`, `01:00 PM – 04:00 PM`).
+   - Updated published slot cards to display `"Lab Phlebotomy Counter"` (or doctor/general counter), `"Registered: X / Y (Z left)"`, and `+30m` alongside `-30m` via shared `adjustSlotEndTimeByMinutes` helper.
+   - Replaced partial inline `diagnostic_lab` checks in navigation/roster banners with unified `isLabClinic` (`isDiagnosticLabClinic`) and labeled the tab `"Lab Collection Slots"` for diagnostic labs.
+2. **Website Patient Booking Alignment & Type Fix ([`ClinicDetail.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/ClinicDetail.tsx), [`PatientPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/PatientPortal.tsx))**:
+   - Replaced partial inline lab-detection checks in `ClinicDetail.tsx` and `PatientPortal.tsx` with `isDiagnosticLabClinic` from `db.ts`.
+   - Guarded `PatientPortal.tsx`'s `selectedDoctor` slot filter with `!isLabClinic` and fixed pre-existing `Slot.timeLabel` TypeScript error (`startTime` / `endTime`) so `npm run build` (`tsc && vite build`) passes cleanly.
+   - Strictly left all files under `clinic-app/` and `patient-app/` untouched.
+
+---
+
+### Prompt:
 > "For diagnostic type clinic Mark done is not transferring the patient to processing/ plan"
 
 #### Changes Applied:
@@ -1321,3 +1338,24 @@ This file tracks user prompts and the exact changes applied across the codebase,
 
 5. **Master Registry & Documentation ([HANDOFF.md](file:///g:/My%20Drive/New%20folder/HANDOFF.md))**:
    - Updated Executive Summary and Section 7 Version Registry with Patient App 1.0.37 (Code 137) release metadata and file paths.
+
+
+---
+
+## 2026-11-12
+
+### Prompt:
+> "how should we arrange the appointment section datas according to the time I think the appointment whether completed or not on today should be shown on top then missed appointments and then appointments according to date , now i have already asked you to hide the completed appointment from this section, should be only shown in records proceed without my approval / plan"
+
+#### Changes Applied:
+1. **Patient App — Appointments Tab Filtering & Priority Sorting ([`PatientMainScreen.kt`](file:///g:/My%20Drive/New%20folder/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt))**:
+   - Added shared `classifyAppointmentForTab`, `AppointmentsTabSortTier`, and `currentNepalLocalDate()` (`Asia/Kathmandu`) so filtering and sorting use a single source of truth.
+   - Updated `shouldKeepInAppointmentsTab` to **immediately hide all completed appointments** (OPD completed/done/finished and diagnostic lab report-ready/delivered/completed via `DiagnosticLabPolicy.isLabReportReadyOrCompleted`) from the Appointments section so they appear only in Records (removed the previous 2-day retention window). Retained active today/upcoming appointments, in-progress lab samples (`sample_collected`/`processing`/`in_lab`), and missed appointments (up to 7 days for rescheduling).
+   - Updated `sortAppointmentsSoonerFirst` priority order to: **(1) Today's active appointments & in-progress lab orders (by time)** -> **(2) Missed / no-show appointments (by date & time)** -> **(3) Upcoming future appointments (chronologically by date & time)**.
+   - Replaced duplicate `parseAppointmentTimeMinutes` with `AppointmentRepository.parseTimeToMinutes` for consistent parsing across hyphens, en/em-dashes, AM/PM, and 24-hour formats.
+   - Updated `RecordsTab` `"Completed"` filter and count to use `DiagnosticLabPolicy.isLabReportReadyOrCompleted` so all completed visits and ready lab reports appear under Completed in Records.
+
+2. **Web App — Patient Portal Appointments Parity ([`PatientPortal.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/PatientPortal.tsx))**:
+   - Added `Asia/Kathmandu` `todayStr`, `parseSlotTimeMinutes`, and `classifyActiveAppointment`.
+   - Updated `filteredAppointments` (`appointmentFilter === 'active'`) to exclude completed and cancelled appointments (keeping them in Records / Past & History), retain missed appointments within 7 days, and sort active appointments as: **(1) Today's active / in-progress lab (by time)** -> **(2) Missed appointments (by date & time)** -> **(3) Upcoming appointments (by date & time)**.
+   - Updated active appointment card status badge in `PatientPortal.tsx` to display `"Missed Appointment"` for missed slots.

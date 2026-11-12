@@ -3682,12 +3682,15 @@ fun RecordsTab(
         }
     }
 
-    val displayedRecords = remember(allRecords, selectedFilter, searchQuery, clinicMap.size, doctorMap.size, invoiceMap.size) {
+    val displayedRecords = remember(allRecords, selectedFilter, searchQuery, clinicMap.size, doctorMap.size, invoiceMap.size, labReportMap.size) {
         val hiddenCodes = sessionManager?.getHiddenRecordCodes() ?: emptySet()
         allRecords.filter { appt ->
             if (hiddenCodes.contains(appt.trackingCode10Digit) || hiddenCodes.contains(appt.id)) return@filter false
             val matchesFilter = when (selectedFilter) {
-                "Completed" -> appt.checkinStatus.lowercase() in listOf("completed", "done")
+                "Completed" -> DiagnosticLabPolicy.isLabReportReadyOrCompleted(
+                    appointment = appt,
+                    labReports = labReportMap[appt.id].orEmpty()
+                )
                 "With Bills" -> invoiceMap.containsKey(appt.id) || (appt.feeAmount ?: 0.0) > 0.0
                 else -> true
             }
@@ -3818,7 +3821,7 @@ fun RecordsTab(
         ) {
             listOf(
                 "All" to "All Records (${allRecords.size})",
-                "Completed" to "Completed (${allRecords.count { it.checkinStatus.lowercase() in listOf("completed", "done") }})",
+                "Completed" to "Completed (${allRecords.count { DiagnosticLabPolicy.isLabReportReadyOrCompleted(it, labReports = labReportMap[it.id].orEmpty()) }})",
                 "With Bills" to "Bills & Receipts (${allRecords.count { invoiceMap.containsKey(it.id) || (it.feeAmount ?: 0.0) > 0.0 }})"
             ).forEach { (key, label) ->
                 FilterChip(
@@ -5145,72 +5148,110 @@ fun RecordsTab(
     }
 }
 
-private fun parseAppointmentTimeMinutes(timeStr: String?): Int {
-    if (timeStr.isNullOrBlank()) return 12 * 60
-    return try {
-        val clean = timeStr.split("-", "to").first().trim()
-        val parts = clean.split(":", " ")
-        var hour = parts[0].toIntOrNull() ?: 12
-        val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
-        val isPm = clean.contains("PM", ignoreCase = true)
-        val isAm = clean.contains("AM", ignoreCase = true)
-        if (isPm && hour < 12) hour += 12
-        if (isAm && hour == 12) hour = 0
-        hour * 60 + minute
-    } catch (_: Exception) {
-        12 * 60
+private fun currentNepalLocalDate(): LocalDate? = try {
+    LocalDate.now(ZoneId.of("Asia/Kathmandu"))
+} catch (_: Exception) {
+    try { LocalDate.now() } catch (_: Exception) { null }
+}
+
+private enum class AppointmentsTabSortTier(val order: Int) {
+    TODAY_OR_IN_PROGRESS(0),
+    MISSED(1),
+    UPCOMING(2),
+    OTHER(3)
+}
+
+private data class AppointmentTabClassification(
+    val apptDate: LocalDate?,
+    val isToday: Boolean,
+    val isPastDate: Boolean,
+    val isCompleted: Boolean,
+    val isInProgressLab: Boolean,
+    val isMissed: Boolean,
+    val isExplicitlyCancelled: Boolean,
+    val sortTier: AppointmentsTabSortTier
+)
+
+private fun classifyAppointmentForTab(
+    appt: Appointment,
+    queueStatus: String?,
+    labReports: List<LabReport>,
+    today: LocalDate?
+): AppointmentTabClassification {
+    val apptDate = try { LocalDate.parse(appt.appointmentDate.trim().take(10)) } catch (_: Exception) { null }
+    val isPastDate = apptDate != null && today != null && apptDate.isBefore(today)
+    val isToday = apptDate != null && today != null && apptDate.isEqual(today)
+
+    val qLower = queueStatus?.trim()?.lowercase().orEmpty()
+    val cLower = appt.checkinStatus.trim().lowercase()
+    val sLower = appt.status.trim().lowercase()
+
+    // Completed = OPD consultation done/completed OR diagnostic lab report ready/delivered/completed
+    val isCompleted = DiagnosticLabPolicy.isLabReportReadyOrCompleted(
+        appointment = appt,
+        queueStatus = queueStatus,
+        labReports = labReports
+    )
+
+    // Sample collected / in-lab processing (not yet report-ready) stays active, never marked missed
+    val isInProgressLab = !isCompleted && DiagnosticLabPolicy.isSampleCollectedOrFurther(
+        appointment = appt,
+        queueStatus = queueStatus,
+        labReports = labReports
+    )
+
+    val isNoShow = !isCompleted && !isInProgressLab && (
+        qLower in setOf("no_show", "missed") ||
+            cLower in setOf("no_show", "missed") ||
+            sLower in setOf("no_show", "missed")
+        )
+    val isMissed = isNoShow || (isPastDate && !isCompleted && !isInProgressLab)
+
+    val isExplicitlyCancelled = !isNoShow && !isCompleted && (
+        cLower in setOf("cancelled", "rejected") ||
+            sLower in setOf("cancelled", "rejected") ||
+            qLower in setOf("cancelled", "rejected")
+        )
+
+    val sortTier = when {
+        isToday && !isMissed && !isCompleted -> AppointmentsTabSortTier.TODAY_OR_IN_PROGRESS
+        isInProgressLab -> AppointmentsTabSortTier.TODAY_OR_IN_PROGRESS
+        isMissed -> AppointmentsTabSortTier.MISSED
+        !isPastDate && !isCompleted -> AppointmentsTabSortTier.UPCOMING
+        else -> AppointmentsTabSortTier.OTHER
     }
+
+    return AppointmentTabClassification(
+        apptDate = apptDate,
+        isToday = isToday,
+        isPastDate = isPastDate,
+        isCompleted = isCompleted,
+        isInProgressLab = isInProgressLab,
+        isMissed = isMissed,
+        isExplicitlyCancelled = isExplicitlyCancelled,
+        sortTier = sortTier
+    )
 }
 
 private fun shouldKeepInAppointmentsTab(
     appt: Appointment,
     queueStatus: String?,
-    completedAt: String?,
-    hasLabReport: Boolean = false
+    labReports: List<LabReport> = emptyList()
 ): Boolean {
-    val today = try { LocalDate.now() } catch (_: Exception) { return true }
-    val apptDate = try { LocalDate.parse(appt.appointmentDate.trim().take(10)) } catch (_: Exception) { null }
-    val isPastDate = apptDate != null && apptDate.isBefore(today)
+    val today = currentNepalLocalDate() ?: return true
+    val classified = classifyAppointmentForTab(appt, queueStatus, labReports, today)
 
-    val isCompleted = hasLabReport ||
-        appt.checkinStatus.trim().lowercase() in DiagnosticLabPolicy.SAMPLE_COLLECTED_OR_FURTHER_STATUSES ||
-        appt.status.equals("COMPLETED", ignoreCase = true) ||
-        queueStatus?.trim()?.lowercase() in DiagnosticLabPolicy.SAMPLE_COLLECTED_OR_FURTHER_STATUSES
-
-    val isNoShowRaw = queueStatus?.lowercase() in listOf("no_show", "missed") ||
-        appt.checkinStatus.lowercase() in listOf("no_show", "missed") ||
-        appt.status.lowercase() in listOf("no_show", "missed")
-
-    val isNoShow = isNoShowRaw && !isCompleted
-    val isMissed = isNoShow || (isPastDate && !isCompleted)
-
-    val isExplicitlyCancelled = (appt.checkinStatus.lowercase() in listOf("cancelled", "rejected") && !isNoShow) ||
-        appt.status.equals("CANCELLED", ignoreCase = true) ||
-        appt.status.equals("REJECTED", ignoreCase = true) ||
-        (queueStatus?.lowercase() in listOf("cancelled", "rejected") && !isNoShow)
-
-    // Cancelled appointments are hidden from active appointments tab (still accessible in Records)
-    if (isExplicitlyCancelled) return false
+    // Cancelled and completed appointments are hidden from Appointments tab (shown only in Records)
+    if (classified.isExplicitlyCancelled || classified.isCompleted) return false
 
     // Missed appointments: retain in active appointments tab for up to 7 days so patient can reschedule
-    if (isMissed) {
-        if (apptDate != null) {
-            val daysPassed = java.time.temporal.ChronoUnit.DAYS.between(apptDate, today)
-            return daysPassed in 0..7
-        }
-        return true
+    if (classified.isMissed) {
+        val apptDate = classified.apptDate ?: return true
+        val daysPassed = ChronoUnit.DAYS.between(apptDate, today)
+        return daysPassed in 0..7
     }
 
-    // Active or upcoming appointments are always displayed
-    if (!isCompleted) return true
-
-    // For completed / sample-collected appointments: retain if completed within the last 2 days (<= 2 days)
-    val refDateStr = completedAt?.take(10) ?: appt.appointmentDate.trim().take(10)
-    val compDate = try { LocalDate.parse(refDateStr) } catch (_: Exception) { null }
-    if (compDate == null) return true
-
-    val daysPassed = java.time.temporal.ChronoUnit.DAYS.between(compDate, today)
-    return daysPassed in 0..2
+    return true
 }
 
 private fun sortAppointmentsSoonerFirst(
@@ -5218,40 +5259,18 @@ private fun sortAppointmentsSoonerFirst(
     queueCache: Map<String, QueueEntry> = emptyMap(),
     labReportCache: Map<String, List<LabReport>> = emptyMap()
 ): List<Appointment> {
-    val today = try { LocalDate.now() } catch (_: Exception) { null }
+    val today = currentNepalLocalDate()
 
     val comparator = compareBy<Appointment> { appt ->
-        val q = queueCache[appt.id]
-        val qStatus = q?.status?.lowercase()
-        val hasLabReport = !labReportCache[appt.id].isNullOrEmpty()
-        val apptDate = try { LocalDate.parse(appt.appointmentDate.trim().take(10)) } catch (_: Exception) { null }
-        val isPast = apptDate != null && today != null && apptDate.isBefore(today)
-
-        val isDone = hasLabReport ||
-            appt.checkinStatus.trim().lowercase() in DiagnosticLabPolicy.SAMPLE_COLLECTED_OR_FURTHER_STATUSES ||
-            appt.status.equals("COMPLETED", ignoreCase = true) ||
-            qStatus in DiagnosticLabPolicy.SAMPLE_COLLECTED_OR_FURTHER_STATUSES
-
-        val isMissed = !isDone && (
-            qStatus in listOf("no_show", "missed") ||
-            appt.checkinStatus.lowercase() in listOf("no_show", "missed") ||
-            appt.status.lowercase() in listOf("no_show", "missed") ||
-            isPast
-        )
-
-        val isToday = apptDate != null && today != null && apptDate.isEqual(today)
-
-        when {
-            isToday && !isDone && !isMissed -> 0
-            !isPast && !isDone && !isMissed -> 1
-            isMissed -> 2
-            isDone -> 3
-            else -> 4
-        }
+        val qStatus = queueCache[appt.id]?.status
+        val labReports = labReportCache[appt.id].orEmpty()
+        classifyAppointmentForTab(appt, qStatus, labReports, today).sortTier.order
     }.thenBy { appt ->
         appt.appointmentDate.trim().take(10)
     }.thenBy { appt ->
-        parseAppointmentTimeMinutes(appt.appointmentTime)
+        AppointmentRepository.parseTimeToMinutes(appt.appointmentTime)
+    }.thenBy { appt ->
+        appt.createdAt ?: ""
     }
     return appts.sortedWith(comparator)
 }
@@ -5280,12 +5299,12 @@ fun AppointmentsTab(
 
     val cachedInitial = remember {
         val l1 = appointmentRepository?.getCachedAppointments()?.filter {
-            shouldKeepInAppointmentsTab(it, queueStatus = null, completedAt = null)
+            shouldKeepInAppointmentsTab(it, queueStatus = null)
         }
         if (!l1.isNullOrEmpty()) sortAppointmentsSoonerFirst(l1)
         else {
             val l2 = sessionManager?.getCachedActiveAppointments()?.filter {
-                shouldKeepInAppointmentsTab(it, queueStatus = null, completedAt = null)
+                shouldKeepInAppointmentsTab(it, queueStatus = null)
             }
             if (!l2.isNullOrEmpty()) sortAppointmentsSoonerFirst(l2) else emptyList()
         }
@@ -5354,7 +5373,7 @@ fun AppointmentsTab(
             }
 
             val candidateAppts = combined.filter {
-                shouldKeepInAppointmentsTab(it, queueStatus = null, completedAt = null)
+                shouldKeepInAppointmentsTab(it, queueStatus = null)
             }
 
             // Populate entity caches and check live queue statuses concurrently
@@ -5419,10 +5438,15 @@ fun AppointmentsTab(
             for (appt in candidateAppts) {
                 val q = queueCache[appt.id]
                 val qStatus = q?.status?.lowercase()
-                val qCompletedAt = q?.completedAt
-                val hasLabReport = !labReportCache[appt.id].isNullOrEmpty()
-                val isDoneOrCancelled = qStatus in listOf("completed", "done", "cancelled", "rejected", "report_prepared", "prepared", "delivered") ||
-                    appt.checkinStatus.lowercase() in listOf("completed", "done", "cancelled", "rejected", "report_prepared", "prepared", "delivered")
+                val apptLabReports = labReportCache[appt.id].orEmpty()
+                val isDoneOrCancelled = DiagnosticLabPolicy.isLabReportReadyOrCompleted(
+                    appointment = appt,
+                    queueStatus = qStatus,
+                    labReports = apptLabReports
+                ) ||
+                    qStatus in listOf("cancelled", "rejected") ||
+                    appt.checkinStatus.lowercase() in listOf("cancelled", "rejected") ||
+                    appt.status.lowercase() in listOf("cancelled", "rejected")
                 if (isDoneOrCancelled) {
                     NotificationHelper.cancelAppointmentNotifications(context, appt.id)
                     if (appt.trackingCode10Digit.isNotBlank()) {
@@ -5430,7 +5454,7 @@ fun AppointmentsTab(
                     }
                 }
 
-                if (shouldKeepInAppointmentsTab(appt, queueStatus = qStatus, completedAt = qCompletedAt, hasLabReport = hasLabReport)) {
+                if (shouldKeepInAppointmentsTab(appt, queueStatus = qStatus, labReports = apptLabReports)) {
                     stillActive.add(appt)
                 }
             }
@@ -5470,7 +5494,7 @@ fun AppointmentsTab(
     }
 
     val todayDateStr = remember {
-        try { LocalDate.now().toString() } catch (e: Exception) { "" }
+        currentNepalLocalDate()?.toString() ?: ""
     }
     val todayInQueueCount = activeAppts.count { it.appointmentDate.trim().take(10) == todayDateStr }
 
@@ -5745,7 +5769,7 @@ fun AppointmentsTab(
                     val doctorName = doctor?.fullName ?: "Ramesh Shrestha"
                     val apptDateStr = appt.appointmentDate.trim().take(10)
 
-                    val todayLocalDate = LocalDate.now()
+                    val todayLocalDate = currentNepalLocalDate() ?: LocalDate.now()
                     val todayDateStr = todayLocalDate.toString()
                     val isToday = apptDateStr == todayDateStr
                     val parsedApptLocalDate = try { LocalDate.parse(apptDateStr) } catch (_: Exception) { null }
