@@ -340,6 +340,7 @@ export function printClinicPaymentReportPdf(
   periodLabel: string,
   summary: {
     netCollection: number
+    grossCollected?: number
     onlineAmount: number
     deskAmount: number
     pendingDue: number
@@ -347,9 +348,12 @@ export function printClinicPaymentReportPdf(
     newPatients: number
     followupPatients: number
     platformFee: number
+    totalExpenses?: number
+    netClinicProfit?: number
   },
   doctorStats: any[] = [],
-  logs: any[] = []
+  logs: any[] = [],
+  expenses: any[] = []
 ): void {
   const win = window.open('', '_blank', 'width=900,height=800')
   if (!win) return
@@ -358,6 +362,15 @@ export function printClinicPaymentReportPdf(
   const clinicAddress = clinic?.addressText || 'Nepal Healthcare Operations'
   const panNo = clinic?.panNumber ? `PAN: ${clinic.panNumber}` : ''
   const phone = clinic?.contactPhone ? `Phone: ${clinic.contactPhone}` : ''
+
+  const gross = summary.grossCollected !== undefined ? summary.grossCollected : summary.netCollection
+  const totalExpenses = summary.totalExpenses !== undefined
+    ? summary.totalExpenses
+    : expenses.reduce((acc: number, e: any) => acc + (Number(e.amount) || 0), 0)
+  const deskCommission = summary.platformFee || 0
+  const netProfit = summary.netClinicProfit !== undefined
+    ? summary.netClinicProfit
+    : (gross - deskCommission - totalExpenses)
 
   const doctorRowsHtml = doctorStats
     .map(
@@ -386,6 +399,20 @@ export function printClinicPaymentReportPdf(
       <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10px;text-align:center;">${l.isNewPatientForDoctor ? '<span style="color:#15803d;font-weight:700;">NEW</span>' : '<span style="color:#0284c7;">FOL-UP</span>'}</td>
       <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10px;">${escapeHtml(l.paymentMethod)}</td>
       <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10px;text-align:right;font-weight:700;">Rs. ${l.amount.toLocaleString()}</td>
+    </tr>`
+    )
+    .join('')
+
+  const expensesRowsHtml = (expenses || [])
+    .map(
+      (exp, idx) => `
+    <tr>
+      <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10px;">${idx + 1}</td>
+      <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10px;">${escapeHtml(exp.expense_date)} ${escapeHtml(exp.expense_time || '')}</td>
+      <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10px;"><strong>${escapeHtml(exp.title)}</strong><br><span style="color:#64748b;">${escapeHtml(exp.voucher_number || '')}</span></td>
+      <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10px;">${escapeHtml(exp.category)}</td>
+      <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10px;">${escapeHtml(exp.payment_method)}</td>
+      <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:10px;text-align:right;font-weight:700;color:#e11d48;">- Rs. ${Number(exp.amount || 0).toLocaleString()}</td>
     </tr>`
     )
     .join('')
@@ -421,28 +448,29 @@ export function printClinicPaymentReportPdf(
             <div class="sub">${escapeHtml(phone)} ${escapeHtml(panNo)}</div>
           </div>
           <div class="meta-box">
-            <div style="font-weight:700;font-size:12px;color:#0f766e;">PAYMENT & PATIENT AUDIT STATEMENT</div>
+            <div style="font-weight:700;font-size:12px;color:#0f766e;">OFFICIAL FINANCIAL STATEMENT</div>
             <div><strong>Period:</strong> ${escapeHtml(periodLabel)}</div>
             <div><strong>Generated:</strong> ${new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+            <div style="font-size:10px;color:#64748b;margin-top:2px;">New: +${summary.newPatients} • Free Follow-ups: ${summary.followupPatients}</div>
           </div>
         </div>
 
         <div class="kpi-grid">
           <div class="kpi-card">
-            <div class="kpi-title">Net Collections</div>
-            <div class="kpi-val" style="color:#0f766e;">Rs. ${summary.netCollection.toLocaleString()}</div>
+            <div class="kpi-title">Gross Collections</div>
+            <div class="kpi-val" style="color:#0f766e;">Rs. ${gross.toLocaleString()}</div>
           </div>
           <div class="kpi-card">
-            <div class="kpi-title">Online / Desk Split</div>
-            <div class="kpi-val" style="font-size:13px;">Rs. ${summary.onlineAmount.toLocaleString()} / Rs. ${summary.deskAmount.toLocaleString()}</div>
+            <div class="kpi-title">Clinic Expenses</div>
+            <div class="kpi-val" style="color:${totalExpenses > 0 ? '#e11d48' : '#0f172a'};">Rs. ${totalExpenses.toLocaleString()}</div>
           </div>
           <div class="kpi-card">
-            <div class="kpi-title">Patients (New / Total)</div>
-            <div class="kpi-val"><span style="color:#15803d;">${summary.newPatients} New</span> / ${summary.totalPatients}</div>
+            <div class="kpi-title">Desk Commission</div>
+            <div class="kpi-val" style="color:#334155;">Rs. ${deskCommission.toLocaleString()}</div>
           </div>
           <div class="kpi-card">
-            <div class="kpi-title">5% Platform Fee</div>
-            <div class="kpi-val" style="color:#b45309;">Rs. ${summary.platformFee.toLocaleString()}</div>
+            <div class="kpi-title">Net Clinic Profit</div>
+            <div class="kpi-val" style="color:#0f766e;font-weight:900;">Rs. ${netProfit.toLocaleString()}</div>
           </div>
         </div>
 
@@ -470,6 +498,29 @@ export function printClinicPaymentReportPdf(
             : ''
         }
 
+        ${
+          expenses.length > 0
+            ? `
+          <div class="section-title">Clinic Expenses Log (${expenses.length} Records)</div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width:25px;">#</th>
+                <th>Date & Time</th>
+                <th>Title & Ref</th>
+                <th>Category</th>
+                <th>Payment Method</th>
+                <th style="text-align:right;">Amount (NPR)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${expensesRowsHtml}
+            </tbody>
+          </table>
+        `
+            : ''
+        }
+
         <div class="section-title">Itemized Payment & Receipt Log (${logs.length} Transactions)</div>
         <table>
           <thead>
@@ -489,7 +540,7 @@ export function printClinicPaymentReportPdf(
         </table>
 
         <div class="footer">
-          <div>Report generated automatically via Dactor Nepal Clinic Management System.</div>
+          <div>Generated by Dactor Platform • System Verified Audit Copy • Pay-at-Desk Commission Accrual: Rs. ${deskCommission.toLocaleString()}</div>
           <div>Authorized Clinic Accountant / Manager Sign: _____________________</div>
         </div>
         <script>window.onload = function() { window.print(); }</script>

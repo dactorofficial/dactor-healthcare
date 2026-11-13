@@ -549,7 +549,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   // Verification handling: server-side verification using exact 10-digit mobile number
   const handleVerifySubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const cleanCode = activeCode.trim().replace(/\D/g, '')
+    const cleanCode = activeCode.trim().replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase()
     const freshLimit = getReportPhoneRateLimitState(cleanCode)
     if (freshLimit.isLocked) {
       setVerifyError(`Too many failed attempts. Verification locked for this tracking code. Please wait ${Math.ceil(freshLimit.remainingSeconds / 60)} minutes.`)
@@ -920,13 +920,12 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           }} className="flex gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
             <input
               value={inputCode}
-              onChange={(event) => setInputCode(event.target.value.replace(/\D/g, '').slice(0, 10))}
-              inputMode="numeric"
+              onChange={(event) => setInputCode(event.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase())}
               autoComplete="one-time-code"
               maxLength={10}
               aria-label="10-digit tracking code"
-              placeholder="10-digit tracking code"
-              className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-teal-500"
+              placeholder="10-digit tracking code (e.g. 1234567890 or 982DCE95B6)"
+              className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-teal-500 font-mono font-bold"
             />
             <button type="submit" disabled={loading} className="rounded-xl bg-teal-700 px-4 py-2 font-semibold text-white disabled:opacity-60">
               {loading ? 'Checking…' : 'Check'}

@@ -78,3 +78,8 @@ Whenever a new APK is built:
 
 ### 5. Installation Script Alignment
 [`install_apps.ps1`](file:///g:/My%20Drive/New%20folder/install_apps.ps1) dynamically discovers the latest versioned APKs in `APKs/` sorted by last modified date.
+
+## ⚠️ MANDATORY GLOBAL RULE 7: ONE-WAY LOGIC PROPAGATION (APP -> WEBSITE)
+- **App-to-Website Propagation**: Whenever any feature, business logic, calculation, validation, database query, data model, or workflow is added, updated, or refactored in the mobile application (`clinic-app` or `patient-app`), you **MUST ALWAYS** update and synchronize the website (`web-app` / web portal) as well to maintain complete functional and business logic parity.
+- **Strictly One-Way (No Website-to-App Backporting)**: Conversely, if any changes, enhancements, or bug fixes are made directly to the website (`web-app`), you **MUST NOT** change or backport anything to the mobile application (`clinic-app` or `patient-app`) unless explicitly directed by the user. Keep the mobile apps untouched during website-only work.
+

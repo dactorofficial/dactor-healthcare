@@ -4,6 +4,27 @@ This file tracks user prompts and the exact changes applied across the codebase,
 
 ---
 
+## 2026-11-14
+
+### Prompt:
+> "If we change any logic in app then do change the website as well but if we change the website don't change anything on app , this would be addded to our global rule  and , do , make changes ,in website , which had been made yesterday all by all ,"
+
+#### Changes Applied:
+1. **Global Rules Configuration**:
+   - Added **Global Rule: One-Way Logic Synchronization (App -> Website)** to [`C:\Users\notan\.gemini\config\rules\app_web_logic_sync.md`](file:///C:/Users/notan/.gemini/config/rules/app_web_logic_sync.md) (`always_on`), [`C:\Users\notan\.gemini\GEMINI.md`](file:///C:/Users/notan/.gemini/GEMINI.md), [`C:\Users\notan\.gemini\config\GEMINI.md`](file:///C:/Users/notan/.gemini/config/GEMINI.md), and **MANDATORY GLOBAL RULE 7** in [`GEMINI.md`](file:///C:/Users/notan/Documents/gitversiondactor/GEMINI.md).
+   - Enforces strict one-way propagation: changes in mobile apps (`clinic-app` / `patient-app`) must always be propagated to the website (`web-app`), but changes to the website must never modify the mobile apps.
+2. **Website Alphanumeric 10-Character Tracking Code Parity**:
+   - **[`web-app/src/services/db.ts`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/services/db.ts)**: Updated `getAppointmentByTrackingCode` and `getAllAppointmentsByTrackingCode` with uppercase fallback querying, and updated `getAppointmentByTrackingCodeOrContact` regex from `/^\d{10}$/` to `/^[0-9a-zA-Z]{10}$/`.
+   - **[`web-app/src/pages/PatientPortal.tsx`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/pages/PatientPortal.tsx)**: Updated returning patient 10-digit check regex (`/^[0-9A-Z]{10}$/i`), sanitization, and placeholder to support alphanumeric uppercase tracking codes (`1234567890 or 982DCE95B6`).
+   - **[`web-app/src/components/LabReportModal.tsx`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/components/LabReportModal.tsx)**, **[`web-app/src/pages/LabReports.tsx`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/pages/LabReports.tsx)**, **[`web-app/src/pages/LiveQueue.tsx`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/pages/LiveQueue.tsx)**, **[`web-app/src/components/LiveTrackerModal.tsx`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/components/LiveTrackerModal.tsx)**, **[`web-app/src/pages/ClinicPortal.tsx`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/pages/ClinicPortal.tsx)**: Replaced all numeric-only tracking code `.replace(/\D/g, '')` filters with uppercase alphanumeric `.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase()`.
+3. **Financial Ledger & Statement Exact Desk Commission & Expenses Sync**:
+   - **[`web-app/src/utils/paymentLedger.ts`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/utils/paymentLedger.ts)**: Added `serviceChargeAmount?: number` to `UnifiedPaymentLogEntry`, deduplicated primary consultation Pay-at-Desk service charges in `buildUnifiedClinicPaymentLogs`, and updated `exportPaymentLogsToCsv` to calculate exact Pay-at-Desk commission and Net Clinic Profit / Cash Flow.
+   - **[`web-app/src/utils/medicalDocPrinter.ts`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/utils/medicalDocPrinter.ts)**: Updated `printClinicPaymentReportPdf` to receive clinic expenses, rendering the 4 official KPI cards (Gross Collections, Clinic Expenses, Desk Commission, Net Clinic Profit) and dedicated expenses log table matching `BillPdfDownloader.kt`.
+   - **[`web-app/src/components/ClinicPaymentLogsView.tsx`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/components/ClinicPaymentLogsView.tsx)**: Updated CSV export and PDF statement handlers with audit period labels and filtered expenses, and added Desk Service Fee & Net Clinic Receivable breakdown in transaction drawer.
+   - **[`web-app/src/utils/paymentLedger.ts`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/utils/paymentLedger.ts)**: Enhanced `extractCleanClinicalRemarks` and `parsePaymentRecords` to strip `[PAYMENT_LOGS]...[/PAYMENT_LOGS]` metadata blocks.
+
+---
+
 ## 2026-11-13
 
 ### Prompt:

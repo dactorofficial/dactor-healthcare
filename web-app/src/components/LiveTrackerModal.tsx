@@ -111,7 +111,7 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
           )
         }
       } else {
-        const clean = query.replace(/\D/g, '')
+        const clean = query.trim().replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase()
         if (clean.length >= 5) {
           const [data, linked] = await Promise.all([
             getAppointmentByTrackingCode(clean),
@@ -320,7 +320,7 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
               placeholder={
                 tab === 'ticket'
                   ? 'e.g. #DAC-TKT-1082 or 98XXXXXXXX or email'
-                  : 'e.g. 9812345678 or #DAC-TKT-...'
+                  : 'e.g. 1234567890 or 982DCE95B6 or #DAC-TKT-...'
               }
               maxLength={tab === 'ticket' ? 60 : 25}
               className="w-full px-4 py-3 sm:py-3.5 pl-11 text-sm sm:text-base font-bold text-slate-900 dark:text-white liquid-glass-input rounded-2xl transition-all placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-400 shadow-glass-sm"

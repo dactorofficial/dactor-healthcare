@@ -396,7 +396,11 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
 
   // 7. Export Handlers
   const handleExportCsv = () => {
-    const csvContent = exportPaymentLogsToCsv(filteredLogs, clinic?.name || 'Clinic', filteredExpenses)
+    const periodLabel =
+      dateFilter === 'custom'
+        ? `${customStartDate} to ${customEndDate}`
+        : dateFilter.toUpperCase()
+    const csvContent = exportPaymentLogsToCsv(filteredLogs, clinic?.name || 'Clinic', filteredExpenses, periodLabel)
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -416,7 +420,8 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
         : dateFilter.toUpperCase(),
       summaryKpis,
       doctorAnalytics,
-      filteredLogs
+      filteredLogs,
+      filteredExpenses
     )
   }
 
@@ -1412,6 +1417,18 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
                     Rs. {selectedLogDrawer.amount.toLocaleString()}
                   </span>
                 </div>
+                {Boolean(selectedLogDrawer.serviceChargeAmount && selectedLogDrawer.serviceChargeAmount > 0) && (
+                  <>
+                    <div className="flex justify-between items-center text-xs text-amber-600 dark:text-amber-400">
+                      <span>Desk Service Fee (5%):</span>
+                      <span className="font-bold">- Rs. {Number(selectedLogDrawer.serviceChargeAmount).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs text-emerald-600 dark:text-emerald-400 font-bold">
+                      <span>Net Clinic Receivable:</span>
+                      <span>Rs. {(selectedLogDrawer.amount - Number(selectedLogDrawer.serviceChargeAmount)).toLocaleString()}</span>
+                    </div>
+                  </>
+                )}
               </div>
 
               {selectedLogDrawer.note && (

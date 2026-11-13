@@ -620,7 +620,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     if (isRescheduleMode && retainedAppointment && retainedAppointment.trackingCode10Digit === clean) {
       return
     }
-    if (isReturningPatient && clean.length === 10 && /^\d{10}$/.test(clean)) {
+    if (isReturningPatient && clean.length === 10 && /^[0-9A-Z]{10}$/i.test(clean)) {
       setIsLookingUpCode(true)
       setFollowupLookupError(null)
       getAppointmentByTrackingCode(clean)
@@ -2278,8 +2278,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     setClaimCodeError(null)
     try {
       let appt = await getAppointmentByTrackingCodeOrContact(rawInput)
-      if (!appt && rawInput.replace(/\D/g, '').length === 10) {
-        appt = await getAppointmentByTrackingCode(rawInput.replace(/\D/g, ''))
+      const cleanAlpha10 = rawInput.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase()
+      if (!appt && cleanAlpha10.length === 10) {
+        appt = await getAppointmentByTrackingCode(cleanAlpha10)
       }
       if (!appt) {
         setClaimCodeError(`No appointment found for "${rawInput}". Please verify your 10-digit code or appointment ID and try again.`)
@@ -2433,7 +2434,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   // ==========================================
   const handleLookupLabReport = async (e: React.FormEvent) => {
     e.preventDefault()
-    const clean = reportSearchCode.trim().replace(/\D/g, '')
+    const clean = reportSearchCode.trim().replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase()
     if (clean.length < 5) return
     setIsSearchingReport(true)
     setReportSearchError(null)
@@ -4608,8 +4609,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                             type="text"
                             maxLength={10}
                             value={followupCodeInput}
-                            onChange={(e) => setFollowupCodeInput(e.target.value.replace(/\D/g, ''))}
-                            placeholder="Enter 10-digit token (e.g. 8472910384)"
+                            onChange={(e) => setFollowupCodeInput(e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase())}
+                            placeholder="Enter 10-digit token (e.g. 1234567890 or 982DCE95B6)"
                             className="w-full px-4 py-2.5 bg-white border border-emerald-300 rounded-xl text-sm font-mono font-black text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
                           />
                           {isLookingUpCode && (

@@ -75,7 +75,7 @@ export const LabReports: React.FC = () => {
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
-    const clean = code.trim().replace(/\D/g, '')
+    const clean = code.trim().replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase()
     if (clean.length < 5) {
       setErrorMsg('Please enter a valid tracking code.')
       return
@@ -136,7 +136,7 @@ export const LabReports: React.FC = () => {
 
   const handleVerifyPhone = async (e: React.FormEvent) => {
     e.preventDefault()
-    const cleanCode = code.trim().replace(/\D/g, '')
+    const cleanCode = code.trim().replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase()
 
     const freshLimit = getReportPhoneRateLimitState(cleanCode)
     if (freshLimit.isLocked) {
@@ -214,8 +214,8 @@ export const LabReports: React.FC = () => {
             <input
               type="text"
               value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="Enter 10-Digit Code..."
+              onChange={(e) => setCode(e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase())}
+              placeholder="Enter 10-Digit Code (e.g. 1234567890 or 982DCE95B6)..."
               maxLength={10}
               className="w-full px-3 sm:px-4 py-2.5 sm:py-3 pl-9 sm:pl-11 text-sm sm:text-lg font-black tracking-wider text-slate-900 dark:text-white bg-transparent focus:outline-none placeholder:text-slate-400 placeholder:font-normal placeholder:tracking-normal"
             />

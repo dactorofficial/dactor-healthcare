@@ -80,7 +80,7 @@ export const LabReportModal: React.FC<LabReportModalProps> = ({
 
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
-    const clean = code.trim().replace(/\D/g, '')
+    const clean = code.trim().replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase()
     if (clean.length < 5) {
       setErrorMsg('Please enter a valid tracking code.')
       return
@@ -143,7 +143,7 @@ export const LabReportModal: React.FC<LabReportModalProps> = ({
   // Server-side registered phone verification check with rate limiting
   const handleVerifyPhone = async (e: React.FormEvent) => {
     e.preventDefault()
-    const cleanCode = code.trim().replace(/\D/g, '')
+    const cleanCode = code.trim().replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase()
 
     const freshLimit = getReportPhoneRateLimitState(cleanCode)
     if (freshLimit.isLocked) {
@@ -266,8 +266,8 @@ export const LabReportModal: React.FC<LabReportModalProps> = ({
             <input
               type="text"
               value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="Enter 10-digit code (e.g. 9812345678)"
+              onChange={(e) => setCode(e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase())}
+              placeholder="Enter 10-digit code (e.g. 1234567890 or 982DCE95B6)"
               maxLength={10}
               className="w-full px-3.5 sm:px-4 py-3 sm:py-3.5 pl-10 sm:pl-11 text-base sm:text-lg font-bold tracking-widest text-slate-900 liquid-glass-input rounded-2xl transition-all placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-400 font-mono shadow-glass-sm"
               autoFocus

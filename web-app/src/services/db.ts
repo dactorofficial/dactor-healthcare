@@ -396,13 +396,25 @@ export async function getAppointmentByTrackingCode(code: string): Promise<Appoin
   try {
     const cleanCode = code.trim()
     if (!cleanCode) return null
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('appointments')
       .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
       .eq('tracking_code_10_digit', cleanCode)
       .order('appointment_date', { ascending: false })
       .limit(1)
       .maybeSingle()
+
+    if (!data && cleanCode !== cleanCode.toUpperCase()) {
+      const res = await supabase
+        .from('appointments')
+        .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
+        .eq('tracking_code_10_digit', cleanCode.toUpperCase())
+        .order('appointment_date', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      data = res.data
+      error = res.error
+    }
 
     if (error) return null
     return data ? mapAppointment(data) : null
@@ -415,11 +427,21 @@ export async function getAllAppointmentsByTrackingCode(code: string): Promise<Ap
   try {
     const cleanCode = code.trim()
     if (!cleanCode) return []
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('appointments')
       .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
       .eq('tracking_code_10_digit', cleanCode)
       .order('appointment_date', { ascending: false })
+
+    if ((!data || data.length === 0) && cleanCode !== cleanCode.toUpperCase()) {
+      const res = await supabase
+        .from('appointments')
+        .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
+        .eq('tracking_code_10_digit', cleanCode.toUpperCase())
+        .order('appointment_date', { ascending: false })
+      data = res.data
+      error = res.error
+    }
 
     if (error || !data) return []
     return data.map(mapAppointment)
@@ -444,8 +466,8 @@ export async function getAppointmentByTrackingCodeOrContact(identifier: string):
       if (!error && data) return mapAppointment(data)
     }
 
-    // 1. Try 10-digit code directly
-    if (/^\d{10}$/.test(clean)) {
+    // 1. Try 10-character alphanumeric tracking code directly
+    if (/^[0-9a-zA-Z]{10}$/.test(clean)) {
       const byCode = await getAppointmentByTrackingCode(clean)
       if (byCode) return byCode
     }

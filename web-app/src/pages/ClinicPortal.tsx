@@ -1019,7 +1019,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   useEffect(() => {
     let active = true
     const clean = walkinFollowupCode.trim()
-    if (walkinIsFollowup && clean.length === 10 && /^\d{10}$/.test(clean)) {
+    if (walkinIsFollowup && clean.length === 10 && /^[0-9A-Z]{10}$/i.test(clean)) {
       setWalkinLookupLoading(true)
       setWalkinLookupError(null)
       getAppointmentByTrackingCode(clean)
@@ -6787,8 +6787,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                       type="text"
                       maxLength={10}
                       value={walkinFollowupCode}
-                      onChange={(e) => setWalkinFollowupCode(e.target.value.replace(/\D/g, ''))}
-                      placeholder="e.g. 8472910384"
+                      onChange={(e) => setWalkinFollowupCode(e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase())}
+                      placeholder="e.g. 1234567890 or 982DCE95B6"
                       className="w-full px-3.5 py-2 rounded-xl text-sm font-mono font-black border border-emerald-300 bg-white/85 backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
                     />
                     {walkinLookupLoading && (

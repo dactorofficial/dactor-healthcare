@@ -35,6 +35,7 @@ export interface UnifiedPaymentLogEntry {
   balanceDue?: number
   paymentStatus?: string
   items?: Array<{ name: string; price: number; quantity: number }>
+  serviceChargeAmount?: number
 }
 
 export interface ClinicExpense {
@@ -107,6 +108,29 @@ export function parsePaymentRecords(
     }
   }
 
+  // Support [PAYMENT_LOGS]...[/PAYMENT_LOGS]
+  if (rawRemarks && rawRemarks.includes('[PAYMENT_LOGS]') && rawRemarks.includes('[/PAYMENT_LOGS]')) {
+    try {
+      const jsonStr = rawRemarks.split('[PAYMENT_LOGS]')[1].split('[/PAYMENT_LOGS]')[0].trim()
+      if (jsonStr) {
+        const parsed = JSON.parse(jsonStr)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((item: any) => ({
+            id: item.id || undefined,
+            amount: Number(item.amount || 0),
+            dateTime: item.dateTime || item.date_time || 'Recorded',
+            note: item.note || 'Payment Received',
+            paymentMethod: item.paymentMethod || item.payment_method || 'CASH',
+            referenceId: item.referenceId || item.reference_id || undefined,
+            category: item.category || 'CONSULTATION',
+          }))
+        }
+      }
+    } catch (e) {
+      console.error('Error parsing payment records from [PAYMENT_LOGS]:', e)
+    }
+  }
+
   if (fallbackPaidAmount > 0) {
     const dStr = fallbackDate ? fallbackDate.slice(0, 16).replace('T', ' ') : new Date().toISOString().slice(0, 10)
     return [
@@ -131,6 +155,13 @@ export function extractCleanClinicalRemarks(rawRemarks?: string | null): string 
   if (text.includes(START_TAG)) {
     const before = text.split(START_TAG)[0].trim()
     const after = text.includes(END_TAG) ? text.split(END_TAG)[1].trim() : ''
+    text = [before, after].filter(Boolean).join('\n').trim()
+  }
+
+  // 1b. Strip [PAYMENT_LOGS] ... [/PAYMENT_LOGS]
+  if (text.includes('[PAYMENT_LOGS]')) {
+    const before = text.split('[PAYMENT_LOGS]')[0].trim()
+    const after = text.includes('[/PAYMENT_LOGS]') ? text.split('[/PAYMENT_LOGS]')[1].trim() : ''
     text = [before, after].filter(Boolean).join('\n').trim()
   }
 
@@ -159,9 +190,12 @@ export function extractCleanClinicalRemarks(rawRemarks?: string | null): string 
         Boolean(l) &&
         !l.startsWith('<!--') &&
         !l.endsWith('-->') &&
+        !l.startsWith('[PAYMENT_LOGS]') &&
+        !l.endsWith('[/PAYMENT_LOGS]') &&
         !l.startsWith('[[') &&
         !l.startsWith('{"') &&
         !l.startsWith('[{"')
+    )
     )
     .join('\n')
     .trim()
@@ -251,6 +285,7 @@ export function buildUnifiedClinicPaymentLogs(
 
   const entries: UnifiedPaymentLogEntry[] = []
   const recordedTxnKeys = new Set<string>()
+  const assignedCommissionApptIds = new Set<string>()
 
   // 2. Add structured invoice_transactions
   for (const tx of invoiceTransactions) {
@@ -271,6 +306,7 @@ export function buildUnifiedClinicPaymentLogs(
     const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
     const expectedPadTotal = isPad ? getEffectiveAppointmentTotal(appt) : 0
     const isConsultationTx = String(tx.category || 'CONSULTATION').toUpperCase() === 'CONSULTATION'
+    const isFollowUp = !isNew
     const rawTxAmount = Number(tx.amount || 0)
     const effectiveTxAmount =
       isPad && isConsultationTx && expectedPadTotal > 0 && rawTxAmount > 0 && rawTxAmount < expectedPadTotal
@@ -279,6 +315,15 @@ export function buildUnifiedClinicPaymentLogs(
     const effInvTotal = isPad
       ? Math.max(Number(appt.totalAmount || 0), expectedPadTotal, effectiveTxAmount)
       : Number(appt.totalAmount || appt.feeAmount || effectiveTxAmount || 0)
+
+    const rawApptServiceCharge = Number(appt.serviceChargeAmount || 0)
+    const serviceCharge =
+      isPad && !isFollowUp && isConsultationTx && appt.id && !assignedCommissionApptIds.has(appt.id)
+        ? (rawApptServiceCharge > 0 ? rawApptServiceCharge : Math.round(Number(appt.feeAmount || 0) * 0.05))
+        : 0
+    if (serviceCharge > 0 && appt.id) {
+      assignedCommissionApptIds.add(appt.id)
+    }
 
     entries.push({
       id: tx.id || uniqueKey,
@@ -304,6 +349,7 @@ export function buildUnifiedClinicPaymentLogs(
       invoiceTotal: effInvTotal,
       balanceDue: 0,
       paymentStatus: 'paid',
+      serviceChargeAmount: serviceCharge,
     })
   }
 
@@ -334,6 +380,7 @@ export function buildUnifiedClinicPaymentLogs(
 
         const rawPrAmt = Number(pr.amount || 0)
         const isConsultationPr = String(pr.category || 'CONSULTATION').toUpperCase() === 'CONSULTATION'
+        const isFollowUp = !isNew
         const effPrAmt =
           isPad && isConsultationPr && parsedRecords.length === 1 && effInvTotal > 0 && rawPrAmt > 0 && rawPrAmt < effInvTotal
             ? effInvTotal
@@ -342,6 +389,15 @@ export function buildUnifiedClinicPaymentLogs(
           inv.paymentStatus === 'paid'
             ? 0
             : Math.max(0, effInvTotal - effectivePaidAmt)
+
+        const rawApptServiceCharge = Number(appt.serviceChargeAmount || 0)
+        const serviceCharge =
+          isPad && !isFollowUp && isConsultationPr && appt.id && !assignedCommissionApptIds.has(appt.id)
+            ? (rawApptServiceCharge > 0 ? rawApptServiceCharge : Math.round(Number(appt.feeAmount || 0) * 0.05))
+            : 0
+        if (serviceCharge > 0 && appt.id) {
+          assignedCommissionApptIds.add(appt.id)
+        }
 
         entries.push({
           id: pr.id || uniqueKey,
@@ -368,6 +424,7 @@ export function buildUnifiedClinicPaymentLogs(
           balanceDue: effBalance,
           paymentStatus: inv.paymentStatus || 'paid',
           items: effItems,
+          serviceChargeAmount: serviceCharge,
         })
       }
     } else if (effectivePaidAmt > 0) {
@@ -380,6 +437,16 @@ export function buildUnifiedClinicPaymentLogs(
           inv.paymentStatus === 'paid'
             ? 0
             : Math.max(0, effInvTotal - effectivePaidAmt)
+        const isFollowUp = !isNew
+        const rawApptServiceCharge = Number(appt.serviceChargeAmount || 0)
+        const serviceCharge =
+          isPad && !isFollowUp && appt.id && !assignedCommissionApptIds.has(appt.id)
+            ? (rawApptServiceCharge > 0 ? rawApptServiceCharge : Math.round(Number(appt.feeAmount || 0) * 0.05))
+            : 0
+        if (serviceCharge > 0 && appt.id) {
+          assignedCommissionApptIds.add(appt.id)
+        }
+
         entries.push({
           id: uniqueKey,
           invoiceId: inv.id,
@@ -404,6 +471,7 @@ export function buildUnifiedClinicPaymentLogs(
           balanceDue: effBalance,
           paymentStatus: inv.paymentStatus || 'paid',
           items: effItems,
+          serviceChargeAmount: serviceCharge,
         })
       }
     }
@@ -580,7 +648,8 @@ export function computeDoctorDailyAndMonthlyStats(
 export function exportPaymentLogsToCsv(
   logs: UnifiedPaymentLogEntry[],
   clinicName = 'Clinic',
-  expenses: ClinicExpense[] = []
+  expenses: ClinicExpense[] = [],
+  periodLabel = 'All Time'
 ): string {
   const headers = [
     'Date',
@@ -606,13 +675,26 @@ export function exportPaymentLogsToCsv(
   }
 
   const grossCollections = logs.reduce((acc, l) => acc + (l.amount || 0), 0)
+  const platformCommission = logs.reduce((acc, l) => acc + (l.serviceChargeAmount || 0), 0)
+  const netPayout = grossCollections - platformCommission
   const totalExpenses = expenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0)
-  const netProfit = grossCollections - totalExpenses
+  const netProfit = netPayout - totalExpenses
+  const followupCount = logs.filter((l) => !l.isNewPatientForDoctor).length
+  const newPatientCount = logs.filter((l) => l.isNewPatientForDoctor).length
 
   const rows: string[] = []
-  rows.push(`"DACTOR CLINIC FINANCIAL AUDIT REPORT - ${clinicName.replace(/"/g, '""')}"`)
+  rows.push('"DACTOR PLATFORM FINANCIAL & AUDIT STATEMENT"')
+  rows.push(`"Clinic Name","${clinicName.replace(/"/g, '""')}"`)
+  rows.push(`"Audit Scope Period","${periodLabel.replace(/"/g, '""')}"`)
+  rows.push(`"Gross Collections (NPR)","${grossCollections.toFixed(2)}"`)
+  rows.push(`"Dactor Pay-at-Desk Platform Commission (NPR)","${platformCommission.toFixed(2)}"`)
+  rows.push(`"Net Clinic OPD Payout (NPR)","${netPayout.toFixed(2)}"`)
+  rows.push(`"Total Clinic Expenses (NPR)","${totalExpenses.toFixed(2)}"`)
+  rows.push(`"Net Clinic Profit / Cash Flow (NPR)","${netProfit.toFixed(2)}"`)
+  rows.push(`"Free Follow-up Consultations (0 NPR)","${followupCount} Patients (Fee Waived)"`)
+  rows.push(`"New Patients Seen","${newPatientCount} Patients"`)
+  rows.push(`"Total Audit Records","${logs.length}"`)
   rows.push(`"Generated On: ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Kathmandu' })}"`)
-  rows.push(`"Gross Collections: NPR ${grossCollections.toFixed(2)} | Total Expenses: NPR ${totalExpenses.toFixed(2)} | Net Profit: NPR ${netProfit.toFixed(2)}"`)
   rows.push('')
   rows.push(headers.map(escapeCell).join(','))
 
