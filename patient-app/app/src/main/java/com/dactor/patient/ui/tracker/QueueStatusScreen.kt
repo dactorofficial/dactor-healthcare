@@ -536,7 +536,9 @@ fun QueueStatusScreen(
                 val match = savedCodes.firstOrNull { it.first == queryCode }
                 if (match != null) {
                     displayTrackingCode = queryCode
-                    rawPatientName = sessionManager?.getSavedName() ?: "Patient"
+                    val subtitle = match.second
+                    val extractedName = if (subtitle.contains("•")) subtitle.substringBefore("•").trim() else ""
+                    rawPatientName = extractedName.ifBlank { sessionManager?.getSavedName() ?: "Patient" }
                     rawPhone = sessionManager?.getSavedPhone() ?: ""
                     rawEmail = sessionManager?.getSavedEmail() ?: ""
                     isNotFound = false
@@ -3948,6 +3950,7 @@ fun QueueStatusScreen(
                             val expected = rawPatientName.trim().lowercase().replace(Regex("\\s+"), " ")
                             entered.isNotBlank() && (
                                 expected.isBlank() ||
+                                expected == "patient" ||
                                 entered == expected ||
                                 (expected.length >= 3 && expected.contains(entered)) ||
                                 (entered.length >= 3 && entered.contains(expected))

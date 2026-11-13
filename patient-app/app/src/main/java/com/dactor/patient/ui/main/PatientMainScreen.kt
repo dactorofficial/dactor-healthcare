@@ -309,12 +309,24 @@ fun fetchCurrentLocation(
             }
         }
 
+        val isWifiOn = try {
+            val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            wm?.isWifiEnabled == true
+        } catch (e: Exception) { false }
+
         // Phase 1: Check fresh last-known location for sub-5ms instant delivery
-        val providers = listOf(
-            android.location.LocationManager.GPS_PROVIDER,
-            android.location.LocationManager.NETWORK_PROVIDER,
-            android.location.LocationManager.PASSIVE_PROVIDER
-        )
+        val providers = if (isWifiOn) {
+            listOf(
+                android.location.LocationManager.GPS_PROVIDER,
+                android.location.LocationManager.NETWORK_PROVIDER,
+                android.location.LocationManager.PASSIVE_PROVIDER
+            )
+        } else {
+            listOf(
+                android.location.LocationManager.GPS_PROVIDER,
+                android.location.LocationManager.PASSIVE_PROVIDER
+            )
+        }
         var bestCachedLoc: android.location.Location? = null
         for (p in providers) {
             try {
@@ -331,16 +343,20 @@ fun fetchCurrentLocation(
             resolveAndDeliver(bestCachedLoc)
         }
 
-        // Phase 2: Rapid lock using NETWORK_PROVIDER (locks in 50-100ms) or GPS refinement
+        // Phase 2: Rapid lock using GPS (clean, never wakes Wi-Fi) or fallback to Network only if Wi-Fi already active
         try {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                val fastProvider = if (hasNet) android.location.LocationManager.NETWORK_PROVIDER else android.location.LocationManager.GPS_PROVIDER
+                val fastProvider = when {
+                    hasGps -> android.location.LocationManager.GPS_PROVIDER
+                    hasNet && isWifiOn -> android.location.LocationManager.NETWORK_PROVIDER
+                    else -> android.location.LocationManager.PASSIVE_PROVIDER
+                }
                 lm.getCurrentLocation(fastProvider, null, context.mainExecutor) { liveLoc ->
                     if (liveLoc != null) {
                         resolveAndDeliver(liveLoc)
-                    } else if (fastProvider == android.location.LocationManager.NETWORK_PROVIDER && hasGps) {
-                        lm.getCurrentLocation(android.location.LocationManager.GPS_PROVIDER, null, context.mainExecutor) { gpsLoc ->
-                            if (gpsLoc != null) resolveAndDeliver(gpsLoc)
+                    } else if (fastProvider == android.location.LocationManager.GPS_PROVIDER && hasNet && isWifiOn) {
+                        lm.getCurrentLocation(android.location.LocationManager.NETWORK_PROVIDER, null, context.mainExecutor) { netLoc ->
+                            if (netLoc != null) resolveAndDeliver(netLoc)
                         }
                     }
                 }
@@ -355,10 +371,10 @@ fun fetchCurrentLocation(
                     override fun onProviderEnabled(provider: String) {}
                     override fun onProviderDisabled(provider: String) {}
                 }
-                if (hasNet) {
-                    lm.requestSingleUpdate(android.location.LocationManager.NETWORK_PROVIDER, listener, android.os.Looper.getMainLooper())
-                } else if (hasGps) {
+                if (hasGps) {
                     lm.requestSingleUpdate(android.location.LocationManager.GPS_PROVIDER, listener, android.os.Looper.getMainLooper())
+                } else if (hasNet && isWifiOn) {
+                    lm.requestSingleUpdate(android.location.LocationManager.NETWORK_PROVIDER, listener, android.os.Looper.getMainLooper())
                 }
             }
         } catch (ignored: Exception) {}
@@ -5627,9 +5643,10 @@ fun AppointmentsTab(
                             OutlinedTextField(
                                 value = trackingInput,
                                 onValueChange = {
-                                    if (it.length <= 10 && it.all { c -> c.isDigit() }) trackingInput = it
+                                    val cleaned = it.filter { c -> c.isLetterOrDigit() }.take(10).uppercase()
+                                    trackingInput = cleaned
                                 },
-                                placeholder = { Text("e.g. 1234567890", fontSize = 13.sp) },
+                                placeholder = { Text("e.g. 1234567890 or 982DCE95B6", fontSize = 13.sp) },
                                 leadingIcon = {
                                     Icon(
                                         Icons.Default.ConfirmationNumber,
@@ -5643,8 +5660,8 @@ fun AppointmentsTab(
                                         onClick = {
                                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                             val text = clipboard.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
-                                            val digits = text.filter { it.isDigit() }.take(10)
-                                            if (digits.length == 10) trackingInput = digits
+                                            val code = text.filter { c -> c.isLetterOrDigit() }.take(10).uppercase()
+                                            if (code.isNotBlank()) trackingInput = code
                                         }
                                     ) {
                                         Icon(Icons.Default.ContentPaste, contentDescription = "Paste", modifier = Modifier.size(16.dp))

@@ -215,9 +215,15 @@ class AppointmentRepository @Inject constructor(
         refreshOnlinePayment(appointmentId)
     suspend fun getAppointmentByTrackingCode(code: String): Appointment? = withContext(Dispatchers.IO) {
         try {
-            val appts = supabaseClient.postgrest["appointments"]
-                .select { filter { eq("tracking_code_10_digit", code.trim()) } }
+            val clean = code.trim()
+            var appts = supabaseClient.postgrest["appointments"]
+                .select { filter { eq("tracking_code_10_digit", clean) } }
                 .decodeList<Appointment>()
+            if (appts.isEmpty() && clean != clean.uppercase()) {
+                appts = supabaseClient.postgrest["appointments"]
+                    .select { filter { eq("tracking_code_10_digit", clean.uppercase()) } }
+                    .decodeList<Appointment>()
+            }
             val appt = appts.maxByOrNull { it.appointmentDate } ?: appts.lastOrNull()
             if (appt != null) {
                 if (appt.checkinStatus.lowercase() in listOf("done", "completed")) {
@@ -242,9 +248,15 @@ class AppointmentRepository @Inject constructor(
         try {
             val clean = code.trim()
             if (clean.isBlank()) return@withContext emptyList()
-            supabaseClient.postgrest["appointments"]
+            var list = supabaseClient.postgrest["appointments"]
                 .select { filter { eq("tracking_code_10_digit", clean) } }
                 .decodeList<Appointment>()
+            if (list.isEmpty() && clean != clean.uppercase()) {
+                list = supabaseClient.postgrest["appointments"]
+                    .select { filter { eq("tracking_code_10_digit", clean.uppercase()) } }
+                    .decodeList<Appointment>()
+            }
+            list
         } catch (e: Exception) {
             emptyList()
         }

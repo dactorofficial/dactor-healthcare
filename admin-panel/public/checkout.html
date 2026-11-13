@@ -100,7 +100,7 @@
 
       try {
         // Fetch the checkout payload from Supabase Edge Function
-        const url = `https://ojfoofojcpabqegxmsab.supabase.co/functions/v1/appointment-payment?action=checkout&attempt_id=${encodeURIComponent(attemptId)}`;
+        const url = `https://ojfoofojcpabqegxmsab.supabase.co/functions/v1/appointment-payment?action=get_form_payload&attempt_id=${encodeURIComponent(attemptId)}`;
         const res = await fetch(url);
         const text = await res.text();
 

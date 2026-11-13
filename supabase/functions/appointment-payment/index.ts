@@ -841,12 +841,34 @@ async function handleCheckout(url: URL, corsHeaders: Record<string, string>): Pr
   callback.searchParams.set("attempt_id", attempt.id);
   const clientReturnUrl = trustedReturnUrl(url.searchParams.get("return_url") || attempt.client_return_url);
 
-  // 1. eSewa ePay v2 Form: Redirect to GitHub Pages checkout bridge
+  // 1. eSewa ePay v2 Form: Render auto-posting form directly with HMAC signature
   if (attempt.gateway === "esewa") {
-    const bridgeUrl = new URL("https://dactorofficial.github.io/admin-portal/checkout.html");
-    bridgeUrl.searchParams.set("attempt_id", attempt.id);
-    if (clientReturnUrl) bridgeUrl.searchParams.set("return_url", clientReturnUrl.toString());
-    return Response.redirect(bridgeUrl.toString(), 302);
+    const total = Number(attempt.amount_npr).toFixed(2);
+    const pCode = credentials.esewa_product_code!.trim();
+    const signedFieldNames = "total_amount,transaction_uuid,product_code";
+    const signature = await hmacSha256Base64(
+      `total_amount=${total},transaction_uuid=${attempt.transaction_uuid},product_code=${pCode}`,
+      credentials.esewa_secret_key!.trim()
+    );
+    const endpoint = credentials.esewa_environment === "live"
+      ? "https://epay.esewa.com.np/api/epay/main/v2/form"
+      : "https://rc-epay.esewa.com.np/api/epay/main/v2/form";
+
+    if (clientReturnUrl) callback.searchParams.set("return_url", clientReturnUrl.toString());
+
+    return buildAutoPostHtml("Transferring to eSewa...", endpoint, {
+      amount: total,
+      tax_amount: "0",
+      total_amount: total,
+      transaction_uuid: attempt.transaction_uuid,
+      product_code: pCode,
+      product_service_charge: "0",
+      product_delivery_charge: "0",
+      success_url: callback.toString(),
+      failure_url: callback.toString(),
+      signed_field_names: signedFieldNames,
+      signature,
+    });
   }
 
   // 2. Khalti ePayment v2 Server-to-Server Initiation + Redirect
@@ -2122,13 +2144,9 @@ Deno.serve(async (req) => {
         console.warn("Phase 2 transition exception:", phaseEx);
       }
 
-      // Direct eSewa checkouts to the dedicated web checkout bridge on GitHub Pages
-      const checkout = requestedGateway === "esewa"
-        ? new URL("https://dactorofficial.github.io/admin-portal/checkout.html")
-        : new URL(`${supabaseUrl}/functions/v1/appointment-payment`);
-      if (requestedGateway !== "esewa") {
-        checkout.searchParams.set("action", "checkout");
-      }
+      // Unified checkout launcher URL for all gateways (renders direct auto-post form for eSewa)
+      const checkout = new URL(`${supabaseUrl}/functions/v1/appointment-payment`);
+      checkout.searchParams.set("action", "checkout");
       checkout.searchParams.set("attempt_id", attempt.id);
       if (returnUrl) checkout.searchParams.set("return_url", returnUrl.toString());
 

@@ -4,6 +4,26 @@ This file tracks user prompts and the exact changes applied across the codebase,
 
 ---
 
+## 2026-11-13
+
+### Prompt:
+> "ok proceed  the implementation to fix it ,"
+
+#### Changes Applied:
+1. **Supabase Migration for Public Payment Methods ([`supabase/migration_fix_payment_methods_and_credentials.sql`](file:///C:/Users/notan/Documents/gitversiondactor/supabase/migration_fix_payment_methods_and_credentials.sql))**:
+   - Re-defined `public.get_clinic_public_payment_methods(p_clinic_id UUID)` with explicit `v_cred public.clinic_payment_credentials%ROWTYPE` record typing.
+   - Fixed PostgreSQL runtime crash `record "v_creds" has no field "esewa_enabled"` (`HTTP 500`), properly resolving verified gateway methods (eSewa, Khalti, Fonepay, ConnectIPS) and appending `Pay at Desk (+5%)`.
+2. **eSewa Checkout Direct Form Post & Redirect Fix ([`supabase/functions/appointment-payment/index.ts`](file:///C:/Users/notan/Documents/gitversiondactor/supabase/functions/appointment-payment/index.ts), [`admin-panel/public/checkout.html`](file:///C:/Users/notan/Documents/gitversiondactor/admin-panel/public/checkout.html), [`web-app/public/checkout.html`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/public/checkout.html))**:
+   - Updated `handleCheckout` in `appointment-payment/index.ts` for eSewa to directly render and return `buildAutoPostHtml`, eliminating external bridge network hops and preventing infinite 302 redirect loops in WebView.
+   - Unified checkout launcher URL resolution in `action=initiate` to return server endpoint for immediate gateway auto-post.
+   - Fixed `checkout.html` in both `admin-panel/public/` and `web-app/public/` to request `action=get_form_payload` instead of `action=checkout`.
+3. **Patient App Alphanumeric Tracking Input & Reschedule Verification ([`PatientMainScreen.kt`](file:///C:/Users/notan/Documents/gitversiondactor/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt), [`QueueStatusScreen.kt`](file:///C:/Users/notan/Documents/gitversiondactor/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt), [`AppointmentRepository.kt`](file:///C:/Users/notan/Documents/gitversiondactor/patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt))**:
+   - Updated `trackingInput` filter in `PatientMainScreen.kt` to accept alphanumeric uppercase codes (`[0-9A-Z]`) up to 10 characters and sanitize pasted text.
+   - Added uppercase fallback querying in `AppointmentRepository.kt` for `getAppointmentByTrackingCode` and `getAllAppointmentsByTrackingCode`.
+   - Updated `QueueStatusScreen.kt` to extract registered patient names from saved tracking metadata and permit reschedule verification without locking out anonymous guest users.
+
+---
+
 ## 2026-11-12
 
 ### Prompt:
@@ -1443,6 +1463,26 @@ This file tracks user prompts and the exact changes applied across the codebase,
 5. **Master Registry & Documentation ([HANDOFF.md](file:///g:/My%20Drive/New%20folder/HANDOFF.md))**:
    - Updated Executive Summary and Section 7 Version Registry with Patient App 1.0.37 (Code 137) release metadata and file paths.
 
+
+---
+
+## 2026-11-13
+
+### Prompt:
+> "ok proceed  the implementation to fix it ,"
+
+#### Changes Applied:
+1. **Supabase Migration for Public Payment Methods ([supabase/migration_fix_payment_methods_and_credentials.sql](file:///C:/Users/notan/Documents/gitversiondactor/supabase/migration_fix_payment_methods_and_credentials.sql))**:
+   - Re-defined public.get_clinic_public_payment_methods(p_clinic_id UUID) with explicit _cred public.clinic_payment_credentials%ROWTYPE record typing.
+   - Fixed PostgreSQL runtime crash ecord "v_creds" has no field "esewa_enabled" (HTTP 500), properly resolving verified gateway methods (eSewa, Khalti, Fonepay, ConnectIPS) and appending Pay at Desk (+5%).
+2. **eSewa Checkout Direct Form Post & Redirect Fix ([supabase/functions/appointment-payment/index.ts](file:///C:/Users/notan/Documents/gitversiondactor/supabase/functions/appointment-payment/index.ts), [dmin-panel/public/checkout.html](file:///C:/Users/notan/Documents/gitversiondactor/admin-panel/public/checkout.html), [web-app/public/checkout.html](file:///C:/Users/notan/Documents/gitversiondactor/web-app/public/checkout.html))**:
+   - Updated handleCheckout in ppointment-payment/index.ts for eSewa to directly render and return uildAutoPostHtml, eliminating external bridge network hops and preventing infinite 302 redirect loops in WebView.
+   - Unified checkout launcher URL resolution in ction=initiate to return server endpoint for immediate gateway auto-post.
+   - Fixed checkout.html in both dmin-panel/public/ and web-app/public/ to request ction=get_form_payload instead of ction=checkout.
+3. **Patient App Alphanumeric Tracking Input & Reschedule Verification ([PatientMainScreen.kt](file:///C:/Users/notan/Documents/gitversiondactor/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt), [QueueStatusScreen.kt](file:///C:/Users/notan/Documents/gitversiondactor/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt), [AppointmentRepository.kt](file:///C:/Users/notan/Documents/gitversiondactor/patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt))**:
+   - Updated 	rackingInput filter in PatientMainScreen.kt to accept alphanumeric uppercase codes ([0-9A-Z]) up to 10 characters and sanitize pasted text.
+   - Added uppercase fallback querying in AppointmentRepository.kt for getAppointmentByTrackingCode and getAllAppointmentsByTrackingCode.
+   - Updated QueueStatusScreen.kt to extract registered patient names from saved tracking metadata and permit reschedule verification without locking out anonymous guest users.
 
 ---
 
