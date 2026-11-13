@@ -56,6 +56,14 @@ import {
   getLinkedConsultations,
   LinkedConsultationsResult,
   requestGuestLabReportUrl,
+  requestGuestLabReportResult,
+  requestDirectLabReportUrl,
+  requestAuthorizedDocumentUrl,
+  isUserMatchingPatientEmail,
+  getCurrentLoggedInUserEmail,
+  getReportPhoneRateLimitState,
+  clearReportPhoneRateLimit,
+  MAX_REPORT_PHONE_ATTEMPTS,
   resolveStorageUrl,
   resolveClinicLogoUrl,
   resolveClinicCoverUrl,
@@ -541,6 +549,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   // Verification handling: server-side verification using exact 10-digit mobile number
   const handleVerifySubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    const cleanCode = activeCode.trim().replace(/\D/g, '')
+    const freshLimit = getReportPhoneRateLimitState(cleanCode)
+    if (freshLimit.isLocked) {
+      setVerifyError(`Too many failed attempts. Verification locked for this tracking code. Please wait ${Math.ceil(freshLimit.remainingSeconds / 60)} minutes.`)
+      return
+    }
+
     const cleanPhone = verificationInput.trim().replace(/\D/g, '')
     if (cleanPhone.length !== 10 || !cleanPhone.startsWith('9')) {
       setVerifyError('Please enter your full 10-digit registered Nepal mobile number starting with 9.')
@@ -551,14 +566,14 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
     try {
       if (pendingVerificationAction === 'view_report' || pendingVerificationAction === 'download_report') {
-        const signedUrl = await requestGuestLabReportUrl(activeCode, cleanPhone)
-        if (signedUrl) {
+        const res = await requestGuestLabReportResult(cleanCode, cleanPhone)
+        if (res.signedUrl) {
           setIsUnlocked(true)
           setIsReportIdentityVerified(true)
           setShowVerificationModal(false)
 
           setLabReports((prev) =>
-            prev.map((r) => ({ ...r, reportFileUrl: signedUrl }))
+            prev.map((r) => ({ ...r, reportFileUrl: res.signedUrl }))
           )
 
           if (pendingVerificationAction === 'view_report') {
@@ -567,11 +582,14 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                 const st = (r.status as string | undefined)?.toLowerCase()
                 return st === 'prepared' || st === 'ready' || st === 'delivered'
               }) || labReports[0]
-            setSelectedReportToView(rep ? { ...rep, reportFileUrl: signedUrl } : null)
+            setSelectedReportToView(rep ? { ...rep, reportFileUrl: res.signedUrl } : null)
             setShowReportModal(true)
           } else {
-            window.open(signedUrl, '_blank')
+            window.open(res.signedUrl, '_blank')
           }
+          return
+        } else {
+          setVerifyError(res.error || 'Verification failed: Mobile number does not match clinic appointment records.')
           return
         }
       }
@@ -585,6 +603,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         setIsUnlocked(true)
         setIsReportIdentityVerified(true)
         setShowVerificationModal(false)
+        clearReportPhoneRateLimit(cleanCode)
 
         if (pendingVerificationAction === 'reschedule') {
           const targetClinicId = appointment?.clinicId || publicQueueStatus?.clinic_id
@@ -606,7 +625,12 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           executeCancellation()
         }
       } else {
-        setVerifyError('Verification failed. The mobile number does not match this booking record, or attempt limit exceeded.')
+        const updated = recordReportPhoneAttempt(cleanCode, false)
+        if (updated.isLocked) {
+          setVerifyError('Too many failed attempts. Verification locked for 15 minutes.')
+        } else {
+          setVerifyError(`Verification failed. Mobile number does not match. (${updated.remainingAttempts} attempts remaining)`)
+        }
       }
     } catch {
       setVerifyError('Verification failed. Please check your connection and try again.')
@@ -616,14 +640,53 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   const handleActionWithAuth = (
     action: 'view_report' | 'download_report' | 'reschedule' | 'cancel'
   ) => {
-    if (isUnlocked || isReportIdentityVerified) {
-      if (action === 'view_report') {
+    const patEmail = appointment?.patientEmail
+    const isDirectGoogleMatch = Boolean(patEmail && isUserMatchingPatientEmail(patEmail))
+
+    if (isUnlocked || isReportIdentityVerified || isDirectGoogleMatch) {
+      if (isDirectGoogleMatch && (!isUnlocked || !isReportIdentityVerified)) {
+        setIsUnlocked(true)
+        setIsReportIdentityVerified(true)
+      }
+
+      if (action === 'view_report' || action === 'download_report') {
         const rep = labReports.find((r) => r.status === 'prepared') || labReports[0]
-        setSelectedReportToView(rep || null)
-        setShowReportModal(true)
-      } else if (action === 'download_report') {
-        triggerReportDownload()
-      } else if (action === 'reschedule') {
+        if (!rep?.reportFileUrl && isDirectGoogleMatch) {
+          ;(async () => {
+            const loggedEmail = getCurrentLoggedInUserEmail()
+            let directUrl: string | null = null
+            if (rep?.id) {
+              directUrl = await requestAuthorizedDocumentUrl('lab_report', rep.id, rep.reportFileUrl || '')
+            }
+            if (!directUrl) {
+              directUrl = await requestDirectLabReportUrl(activeCode, loggedEmail)
+            }
+            if (directUrl) {
+              setLabReports((prev) => prev.map((r) => ({ ...r, reportFileUrl: directUrl })))
+              if (action === 'view_report') {
+                setSelectedReportToView(rep ? { ...rep, reportFileUrl: directUrl } : null)
+                setShowReportModal(true)
+              } else {
+                window.open(directUrl, '_blank')
+              }
+            } else if (action === 'view_report') {
+              setSelectedReportToView(rep || null)
+              setShowReportModal(true)
+            }
+          })()
+          return
+        }
+
+        if (action === 'view_report') {
+          setSelectedReportToView(rep || null)
+          setShowReportModal(true)
+        } else {
+          triggerReportDownload()
+        }
+        return
+      }
+
+      if (action === 'reschedule') {
         if (appointment?.clinicId) {
           if (onNavigate) {
             onNavigate('clinic-detail', {

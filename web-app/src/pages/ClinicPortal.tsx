@@ -198,6 +198,7 @@ import { playClinicChime } from '../utils/audioChime'
 import {
   parsePaymentRecords,
   extractCleanClinicalRemarks,
+  buildCombinedRemarks,
   WebPaymentRecord,
 } from '../utils/paymentLedger'
 import { supabase } from '../lib/supabase'
@@ -3353,7 +3354,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
       const derivedApptStatus = finalPaidAmount >= finalTotalAmount && finalTotalAmount > 0 ? 'paid' : (finalPaidAmount > 0 ? 'partial' : 'unpaid')
       const invoiceId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'inv_' + Date.now()
-      const encodedRemarks = `[PAYMENT_LOGS]${JSON.stringify(updatedPayments)}[/PAYMENT_LOGS] ${billRemarks.trim()}`
+      const cleanBillRemarks = extractCleanClinicalRemarks(billRemarks)
+      const encodedRemarks = buildCombinedRemarks(cleanBillRemarks, updatedPayments)
 
       const localInvoice: BillingInvoice = {
         id: invoiceId,
@@ -8988,7 +8990,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           {inv.paymentStatus.toUpperCase()}
                         </span>
                       </td>
-                      <td className="py-3.5 px-4 text-slate-600">{inv.remarks || '–'}</td>
+                      <td className="py-3.5 px-4 text-slate-600">{extractCleanClinicalRemarks(inv.remarks) || '–'}</td>
                       <td className="py-3.5 px-4 text-right">
                         {inv.receiptUrl ? (
                           <a

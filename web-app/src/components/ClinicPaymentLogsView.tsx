@@ -24,10 +24,14 @@ import {
   ShieldCheck,
   Layers,
   Sparkles,
+  Plus,
+  Trash2,
+  Receipt,
 } from 'lucide-react'
 import {
   UnifiedPaymentLogEntry,
   DoctorVisitAnalytics,
+  ClinicExpense,
   buildUnifiedClinicPaymentLogs,
   computeDoctorDailyAndMonthlyStats,
   exportPaymentLogsToCsv,
@@ -38,6 +42,9 @@ import {
   getClinicSubscriptionPayments,
   getPlatformCommissionSettlements,
   getClinicPaymentAttempts,
+  getClinicExpenses,
+  addClinicExpense,
+  deleteClinicExpense,
 } from '../services/db'
 
 interface ClinicPaymentLogsViewProps {
@@ -55,7 +62,7 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
   doctors = [],
   onOpenPatientBill,
 }) => {
-  const [activeTab, setActiveTab] = useState<'ledger' | 'doctor_stats' | 'services' | 'platform_and_license'>('ledger')
+  const [activeTab, setActiveTab] = useState<'ledger' | 'expenses' | 'doctor_stats' | 'services' | 'platform_and_license'>('ledger')
 
   // Date & Multi-dimensional filters
   const [dateFilter, setDateFilter] = useState<'today' | 'yesterday' | 'week' | 'month' | 'all' | 'custom'>('today')
@@ -80,6 +87,10 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
   const [subscriptionPayments, setSubscriptionPayments] = useState<any[]>([])
   const [commissionSettlements, setCommissionSettlements] = useState<any[]>([])
   const [paymentAttempts, setPaymentAttempts] = useState<any[]>([])
+  const [expenses, setExpenses] = useState<ClinicExpense[]>([])
+  const [showAddExpenseModal, setShowAddExpenseModal] = useState<boolean>(false)
+  const [expenseToDelete, setExpenseToDelete] = useState<ClinicExpense | null>(null)
+  const [isSavingExpense, setIsSavingExpense] = useState<boolean>(false)
   const [isLoadingRemote, setIsLoadingRemote] = useState<boolean>(true)
 
   useEffect(() => {
@@ -88,17 +99,19 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
       if (!clinic?.id) return
       setIsLoadingRemote(true)
       try {
-        const [txs, subs, coms, atts] = await Promise.all([
+        const [txs, subs, coms, atts, exps] = await Promise.all([
           getClinicInvoiceTransactions(clinic.id),
           getClinicSubscriptionPayments(clinic.id),
           getPlatformCommissionSettlements(clinic.id),
           getClinicPaymentAttempts(clinic.id),
+          getClinicExpenses(clinic.id),
         ])
         if (isMounted) {
           setInvoiceTransactions(txs)
           setSubscriptionPayments(subs)
           setCommissionSettlements(coms)
           setPaymentAttempts(atts)
+          setExpenses(exps)
         }
       } catch (err) {
         console.warn('Error loading clinic financial records:', err)
@@ -199,6 +212,45 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
     searchQuery,
   ])
 
+  // 3b. Filtered Expenses
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter((exp) => {
+      const expDate = exp.expense_date
+      if (dateFilter === 'today' && expDate !== todayStr) return false
+      if (dateFilter === 'yesterday' && expDate !== yesterdayStr) return false
+      if (dateFilter === 'week' && expDate < weekStartStr) return false
+      if (dateFilter === 'month' && !expDate.startsWith(monthStartStr)) return false
+      if (dateFilter === 'custom' && (expDate < customStartDate || expDate > customEndDate)) return false
+
+      if (selectedMethod !== 'all' && exp.payment_method?.toUpperCase() !== selectedMethod.toUpperCase()) return false
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim()
+        const matches =
+          exp.title?.toLowerCase().includes(q) ||
+          exp.category?.toLowerCase().includes(q) ||
+          (exp.voucher_number && exp.voucher_number.toLowerCase().includes(q)) ||
+          (exp.remarks && exp.remarks.toLowerCase().includes(q))
+        if (!matches) return false
+      }
+      return true
+    })
+  }, [
+    expenses,
+    dateFilter,
+    todayStr,
+    yesterdayStr,
+    weekStartStr,
+    monthStartStr,
+    customStartDate,
+    customEndDate,
+    selectedMethod,
+    searchQuery,
+  ])
+
+  const totalExpenses = useMemo(() => {
+    return filteredExpenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0)
+  }, [filteredExpenses])
+
   // 4. Executive KPI Summary Math
   const summaryKpis = useMemo(() => {
     let grossCollected = 0
@@ -257,6 +309,7 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
     const newPatients = newPatientKeys.size
     const totalPatients = visitedPatientKeys.size
     const followupPatients = Math.max(0, totalPatients - newPatients)
+    const netClinicProfit = netCollection - platformFee - totalExpenses
 
     return {
       netCollection,
@@ -269,9 +322,12 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
       newPatients,
       followupPatients,
       platformFee,
+      totalExpenses,
+      netClinicProfit,
     }
   }, [
     filteredLogs,
+    totalExpenses,
     appointments,
     dateFilter,
     todayStr,
@@ -340,12 +396,12 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
 
   // 7. Export Handlers
   const handleExportCsv = () => {
-    const csvContent = exportPaymentLogsToCsv(filteredLogs, clinic?.name || 'Clinic')
+    const csvContent = exportPaymentLogsToCsv(filteredLogs, clinic?.name || 'Clinic', filteredExpenses)
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.setAttribute('download', `Dactor_Payment_Logs_${(clinic?.name || 'Clinic').replace(/\s+/g, '_')}_${todayStr}.csv`)
+    link.setAttribute('download', `Dactor_Financial_Ledger_${(clinic?.name || 'Clinic').replace(/\s+/g, '_')}_${todayStr}.csv`)
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -387,6 +443,14 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
 
           {/* Action Export Buttons */}
           <div className="flex items-center gap-2.5 shrink-0">
+            <button
+              onClick={() => setShowAddExpenseModal(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow-sm shadow-rose-600/30 transition"
+              title="Record petty cash, rent, supplies, or clinic overhead"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Add Expense</span>
+            </button>
             <button
               onClick={handleExportCsv}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 transition"
@@ -509,9 +573,9 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
       </div>
 
       {/* =========================================================================
-          ZONE B: 5 EXECUTIVE SUMMARY KPI CARDS
+          ZONE B: 6 EXECUTIVE SUMMARY KPI CARDS
           ========================================================================= */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3.5">
         {/* Card 1: Net Collection */}
         <div className="bg-gradient-to-br from-teal-500/10 via-white/80 to-white/50 dark:via-slate-900/80 dark:to-slate-900/50 backdrop-blur-md p-4 rounded-2xl border border-teal-500/30 shadow-sm relative overflow-hidden">
           <div className="flex items-center justify-between">
@@ -522,7 +586,7 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-2 text-2xl font-black text-slate-900 dark:text-white">
+          <div className="mt-2 text-xl font-black text-slate-900 dark:text-white">
             Rs. {summaryKpis.netCollection.toLocaleString()}
           </div>
           <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
@@ -533,7 +597,43 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
           </div>
         </div>
 
-        {/* Card 2: Online vs Desk Split */}
+        {/* Card 2: Total Clinic Expenses */}
+        <div className="bg-gradient-to-br from-rose-500/10 via-white/80 to-white/50 dark:via-slate-900/80 dark:to-slate-900/50 backdrop-blur-md p-4 rounded-2xl border border-rose-500/30 shadow-sm relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-rose-700 dark:text-rose-400">
+              Total Expenses
+            </span>
+            <div className="w-7 h-7 rounded-lg bg-rose-500/20 text-rose-600 dark:text-rose-400 flex items-center justify-center">
+              <Receipt className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2 text-xl font-black text-rose-600 dark:text-rose-400">
+            Rs. {summaryKpis.totalExpenses.toLocaleString()}
+          </div>
+          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+            {filteredExpenses.length} logged expenses
+          </div>
+        </div>
+
+        {/* Card 3: Net Clinic Profit */}
+        <div className="bg-gradient-to-br from-emerald-500/10 via-white/80 to-white/50 dark:via-slate-900/80 dark:to-slate-900/50 backdrop-blur-md p-4 rounded-2xl border border-emerald-500/30 shadow-sm relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+              Net Profit
+            </span>
+            <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+              <TrendingUp className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2 text-xl font-black text-emerald-600 dark:text-emerald-400">
+            Rs. {summaryKpis.netClinicProfit.toLocaleString()}
+          </div>
+          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+            Collections - Fees - Expenses
+          </div>
+        </div>
+
+        {/* Card 4: Online vs Desk Split */}
         <div className="bg-white/70 dark:bg-slate-900/70 backdrop-blur-md p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -563,25 +663,7 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
           </div>
         </div>
 
-        {/* Card 3: Pending Balance Due */}
-        <div className="bg-white/70 dark:bg-slate-900/70 backdrop-blur-md p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Pending Dues
-            </span>
-            <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-              <AlertCircle className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-2 text-2xl font-black text-amber-600 dark:text-amber-400">
-            Rs. {summaryKpis.pendingDue.toLocaleString()}
-          </div>
-          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-            Uncollected balance on open bills
-          </div>
-        </div>
-
-        {/* Card 4: Patients Seen (New vs Follow-up) */}
+        {/* Card 5: Patients Seen (New vs Follow-up) */}
         <div className="bg-white/70 dark:bg-slate-900/70 backdrop-blur-md p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -591,7 +673,7 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
               <UserCheck className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-2 text-2xl font-black text-slate-900 dark:text-white flex items-baseline gap-1.5">
+          <div className="mt-2 text-lg font-black text-slate-900 dark:text-white flex items-baseline gap-1.5">
             <span className="text-emerald-600 dark:text-emerald-400">{summaryKpis.newPatients} New</span>
             <span className="text-xs text-slate-400 font-medium">/ {summaryKpis.totalPatients} Total</span>
           </div>
@@ -600,27 +682,27 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
           </div>
         </div>
 
-        {/* Card 5: 5% Platform Fee */}
+        {/* Card 6: 5% Platform Fee */}
         <div className="bg-white/70 dark:bg-slate-900/70 backdrop-blur-md p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              5% Desk Service Fee
+              5% Desk Fee
             </span>
             <div className="w-7 h-7 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center">
               <ShieldCheck className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-2 text-2xl font-black text-purple-600 dark:text-purple-400">
+          <div className="mt-2 text-lg font-black text-purple-600 dark:text-purple-400">
             Rs. {summaryKpis.platformFee.toLocaleString()}
           </div>
           <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-            Accrued on Pay-at-Desk bookings
+            Accrued on Pay-at-Desk
           </div>
         </div>
       </div>
 
       {/* =========================================================================
-          ZONE C: 4 OPERATIONAL SUB-TABS
+          ZONE C: 5 OPERATIONAL SUB-TABS
           ========================================================================= */}
       <div className="bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm overflow-hidden">
         {/* Navigation Tabs Header */}
@@ -637,6 +719,21 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
             <span>Chronological Ledger</span>
             <span className="px-2 py-0.5 rounded-full text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
               {filteredLogs.length}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('expenses')}
+            className={`pb-3 text-xs sm:text-sm font-bold flex items-center gap-2 border-b-2 transition ${
+              activeTab === 'expenses'
+                ? 'border-rose-500 text-rose-600 dark:text-rose-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <Receipt className="w-4 h-4" />
+            <span>Clinic Expenses</span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold">
+              {filteredExpenses.length}
             </span>
           </button>
 
@@ -798,6 +895,111 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
                           title="View receipt & audit details"
                         >
                           <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* Tab: Clinic Expenses */}
+        {activeTab === 'expenses' && (
+          <div className="overflow-x-auto">
+            <div className="p-4 sm:p-5 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Receipt className="w-4 h-4 text-rose-500" />
+                  <span>Clinic Overhead & Expense Register</span>
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Track petty cash, rent, staff salaries, utilities, and clinical equipment. Total in scope: <strong className="text-rose-600 dark:text-rose-400">Rs. {summaryKpis.totalExpenses.toLocaleString()}</strong>
+                </p>
+              </div>
+              <button
+                onClick={() => setShowAddExpenseModal(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow-sm transition"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Add Expense</span>
+              </button>
+            </div>
+
+            {filteredExpenses.length === 0 ? (
+              <div className="p-12 text-center space-y-3">
+                <div className="w-12 h-12 mx-auto rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center">
+                  <Receipt className="w-6 h-6" />
+                </div>
+                <div className="text-xs font-medium text-slate-400">
+                  No clinic expenses recorded for the selected period.
+                </div>
+                <button
+                  onClick={() => setShowAddExpenseModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 transition"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Record First Expense</span>
+                </button>
+              </div>
+            ) : (
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200/80 dark:border-slate-800/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50 dark:bg-slate-800/40">
+                    <th className="py-3 px-4">Date & Time</th>
+                    <th className="py-3 px-4">Expense Title</th>
+                    <th className="py-3 px-4">Category</th>
+                    <th className="py-3 px-4">Payment Method</th>
+                    <th className="py-3 px-4">Voucher / Bill #</th>
+                    <th className="py-3 px-4">Remarks / Vendor</th>
+                    <th className="py-3 px-4 text-right">Amount (NPR)</th>
+                    <th className="py-3 px-4 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                  {filteredExpenses.map((exp) => (
+                    <tr key={exp.id} className="hover:bg-rose-50/40 dark:hover:bg-slate-800/50 transition">
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <div className="font-semibold text-slate-900 dark:text-white">{exp.expense_date}</div>
+                        {exp.expense_time && (
+                          <div className="text-[11px] text-slate-400 flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            <span>{exp.expense_time}</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <div className="font-bold text-slate-900 dark:text-white">{exp.title}</div>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                          {exp.category?.replace('_', ' ') || 'OTHER'}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                          {exp.payment_method || 'CASH'}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-600 dark:text-slate-400 font-mono text-[11px]">
+                        {exp.voucher_number ? `#${exp.voucher_number}` : '—'}
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 max-w-[200px] truncate">
+                        {exp.remarks || '—'}
+                      </td>
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <span className="text-sm font-black text-rose-600 dark:text-rose-400">
+                          - Rs. {Number(exp.amount || 0).toLocaleString()}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        <button
+                          onClick={() => setExpenseToDelete(exp)}
+                          className="p-1.5 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-900/40 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition"
+                          title="Delete Expense"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </td>
                     </tr>
@@ -1330,6 +1532,262 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
                 className="px-5 py-2 rounded-xl text-xs font-semibold bg-teal-600 hover:bg-teal-500 text-white shadow-sm"
               >
                 Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL C: LOG CLINIC EXPENSE MODAL
+          ========================================================================= */}
+      {showAddExpenseModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <span className="p-2 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400">
+                  <Receipt className="w-5 h-5" />
+                </span>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">Log Clinic Expense</h3>
+              </div>
+              <button
+                onClick={() => setShowAddExpenseModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault()
+                const form = e.currentTarget
+                const formData = new FormData(form)
+                const title = (formData.get('title') as string || '').trim()
+                const amount = parseFloat(formData.get('amount') as string || '0')
+                const category = formData.get('category') as string || 'OTHER'
+                const payment_method = formData.get('payment_method') as string || 'CASH'
+                const expense_date = formData.get('expense_date') as string || todayStr
+                const expense_time = (formData.get('expense_time') as string || '').trim() || undefined
+                const voucher_number = (formData.get('voucher_number') as string || '').trim() || undefined
+                const remarks = (formData.get('remarks') as string || '').trim() || undefined
+
+                if (!title) {
+                  alert('Please enter an expense title.')
+                  return
+                }
+                if (isNaN(amount) || amount <= 0) {
+                  alert('Please enter a valid expense amount.')
+                  return
+                }
+
+                setIsSavingExpense(true)
+                try {
+                  const saved = await addClinicExpense({
+                    clinic_id: clinic.id,
+                    title,
+                    amount,
+                    category,
+                    payment_method,
+                    expense_date,
+                    expense_time,
+                    voucher_number,
+                    remarks,
+                  })
+                  if (saved) {
+                    setExpenses((prev) => [saved, ...prev])
+                    setShowAddExpenseModal(false)
+                  }
+                } catch (err: any) {
+                  console.error('Failed to log expense:', err)
+                  alert('Failed to save expense: ' + (err.message || 'Unknown error'))
+                } finally {
+                  setIsSavingExpense(false)
+                }
+              }}
+              className="space-y-3.5 text-xs"
+            >
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Expense Title *
+                </label>
+                <input
+                  type="text"
+                  name="title"
+                  required
+                  placeholder="e.g. Syringes & Cotton, Clinic Electricity Bill, Tea & Refreshments"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-xs focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Amount (NPR) *
+                  </label>
+                  <input
+                    type="number"
+                    name="amount"
+                    step="0.01"
+                    min="1"
+                    required
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-xs focus:ring-2 focus:ring-rose-500 focus:outline-none font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Category
+                  </label>
+                  <select
+                    name="category"
+                    defaultValue="PETTY_CASH"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-xs focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                  >
+                    <option value="PETTY_CASH">Petty Cash</option>
+                    <option value="MEDICAL_SUPPLIES">Medical Supplies</option>
+                    <option value="RENT">Rent</option>
+                    <option value="SALARIES">Staff Salaries</option>
+                    <option value="UTILITIES">Utilities (Electricity/Water/Net)</option>
+                    <option value="EQUIPMENT">Equipment & Maintenance</option>
+                    <option value="REFRESHMENTS">Tea & Refreshments</option>
+                    <option value="OTHER">Other Expense</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Payment Method
+                  </label>
+                  <select
+                    name="payment_method"
+                    defaultValue="CASH"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-xs focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                  >
+                    <option value="CASH">Cash</option>
+                    <option value="FONEPAY">Fonepay QR</option>
+                    <option value="ESEWA">eSewa</option>
+                    <option value="KHALTI">Khalti</option>
+                    <option value="BANK_TRANSFER">Bank Transfer / Cheque</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Voucher / Bill # (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    name="voucher_number"
+                    placeholder="e.g. V-1042"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-xs focus:ring-2 focus:ring-rose-500 focus:outline-none font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Expense Date *
+                  </label>
+                  <input
+                    type="date"
+                    name="expense_date"
+                    defaultValue={todayStr}
+                    required
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-xs focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Time (Optional)
+                  </label>
+                  <input
+                    type="time"
+                    name="expense_time"
+                    defaultValue={new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-xs focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Remarks / Vendor Details
+                </label>
+                <textarea
+                  name="remarks"
+                  rows={2}
+                  placeholder="e.g. Paid to Kathmandu Surgical Supplies"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 text-xs focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowAddExpenseModal(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingExpense}
+                  className="px-5 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow-sm disabled:opacity-50 transition"
+                >
+                  {isSavingExpense ? 'Saving...' : 'Save Expense'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL D: DELETE EXPENSE CONFIRMATION
+          ========================================================================= */}
+      {expenseToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+            <div className="w-12 h-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div className="text-center space-y-1">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">Delete Expense?</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Are you sure you want to delete <strong className="text-slate-800 dark:text-slate-200">"{expenseToDelete.title}"</strong> (- Rs. {Number(expenseToDelete.amount).toLocaleString()})?
+              </p>
+            </div>
+            <div className="flex justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setExpenseToDelete(null)}
+                className="w-1/2 px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await deleteClinicExpense(expenseToDelete.id)
+                    setExpenses((prev) => prev.filter((e) => e.id !== expenseToDelete.id))
+                  } catch (err: any) {
+                    console.error('Failed to delete expense:', err)
+                    alert('Failed to delete expense: ' + (err.message || 'Unknown error'))
+                  } finally {
+                    setExpenseToDelete(null)
+                  }
+                }}
+                className="w-1/2 px-4 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow-sm transition"
+              >
+                Delete
               </button>
             </div>
           </div>

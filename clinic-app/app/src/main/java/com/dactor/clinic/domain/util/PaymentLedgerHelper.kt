@@ -23,7 +23,21 @@ object PaymentLedgerHelper {
             try {
                 val jsonStr = rawRemarks.substringAfter(START_TAG).substringBefore(END_TAG).trim()
                 if (jsonStr.isNotBlank()) {
-                    val list = json.decodeFromString<List<PaymentRecord>>(jsonStr)
+                    val normalizedJson = jsonStr.replace("\"dateTime\":", "\"date_time\":")
+                    val list = json.decodeFromString<List<PaymentRecord>>(normalizedJson)
+                    if (list.isNotEmpty()) return list
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        // Support [PAYMENT_LOGS]...[/PAYMENT_LOGS] from web portal
+        if (!rawRemarks.isNullOrBlank() && rawRemarks.contains("[PAYMENT_LOGS]") && rawRemarks.contains("[/PAYMENT_LOGS]")) {
+            try {
+                val jsonStr = rawRemarks.substringAfter("[PAYMENT_LOGS]").substringBefore("[/PAYMENT_LOGS]").trim()
+                if (jsonStr.isNotBlank()) {
+                    val normalizedJson = jsonStr.replace("\"dateTime\":", "\"date_time\":")
+                    val list = json.decodeFromString<List<PaymentRecord>>(normalizedJson)
                     if (list.isNotEmpty()) return list
                 }
             } catch (e: Exception) {
@@ -48,10 +62,19 @@ object PaymentLedgerHelper {
         if (rawRemarks.isNullOrBlank()) return ""
         var text = rawRemarks
         text = text.replace(Regex("(?i)<!--PAYMENT_LOG_START-->[\\s\\S]*?<!--PAYMENT_LOG_END-->"), "")
+        text = text.replace(Regex("(?i)\\[PAYMENT_LOGS\\][\\s\\S]*?\\[/PAYMENT_LOGS\\]"), "")
         text = text.replace(Regex("<!--[\\s\\S]*?-->"), "")
+        text = text.replace(Regex("(?i)\\[\\[META:[\\s\\S]*?\\]\\]"), "")
+        text = text.replace(Regex("\\[\\[[\\s\\S]*?\\]\\]"), "")
+        text = text.replace(Regex("(?i)\\[[A-Z0-9_]+:[^\\]]*\\]"), "")
+        text = text.replace(Regex("\\[\\s*\\{[\\s\\S]*?\\}\\s*\\]"), "")
+        text = text.replace(Regex("\\{\\s*\"[a-zA-Z0-9_]+\"\\s*:[\\s\\S]*?\\}"), "")
         text = text.lines().filterNot { line ->
             val l = line.trim()
-            l.startsWith("[{\"id\":") || l.startsWith("{\"id\":") || (l.contains("\"amount\":") && l.contains("\"date_time\":"))
+            l.startsWith("[{\"") || l.startsWith("{\"") ||
+            (l.contains("\"amount\":") && (l.contains("\"date_time\":") || l.contains("\"dateTime\":"))) ||
+            l.startsWith("<!--") || l.endsWith("-->") ||
+            l.startsWith("[PAYMENT_LOGS]") || l.endsWith("[/PAYMENT_LOGS]")
         }.joinToString("\n")
         return text.trim()
     }
@@ -136,6 +159,7 @@ object PaymentLedgerHelper {
 
         val entries = mutableListOf<UnifiedPaymentLogEntry>()
         val processedInvoiceIds = mutableSetOf<String>()
+        val assignedCommissionApptIds = mutableSetOf<String>()
 
         // 1. Transactions from dedicated invoice_transactions table
         for (tx in transactions) {
@@ -160,6 +184,11 @@ object PaymentLedgerHelper {
             } else {
                 inv?.totalAmount ?: tx.amount
             }
+            val serviceCharge = if (isPad && !isFollowUp && isConsultation && appt != null && assignedCommissionApptIds.add(appt.id)) {
+                appt.effectiveServiceCharge
+            } else {
+                0.0
+            }
 
             entries.add(
                 UnifiedPaymentLogEntry(
@@ -182,7 +211,8 @@ object PaymentLedgerHelper {
                     balanceDue = if (isFollowUp && isConsultation) 0.0 else (if (effTotalBill > effectiveAmount) (inv?.balanceDue ?: 0.0) else 0.0),
                     receiptUrl = null,
                     isNewPatientForDoctor = !isFollowUp,
-                    category = if (isFollowUp && isConsultation) "FREE_FOLLOWUP" else (tx.category ?: "CONSULTATION")
+                    category = if (isFollowUp && isConsultation) "FREE_FOLLOWUP" else (tx.category ?: "CONSULTATION"),
+                    serviceChargeAmount = serviceCharge
                 )
             )
             if (inv != null) {
@@ -237,6 +267,11 @@ object PaymentLedgerHelper {
                     isPad && !isFollowUp && isConsultation && records.size == 1 && expectedPadTotal > 0.0 && r.amount > 0.0 && r.amount < expectedPadTotal -> expectedPadTotal
                     else -> r.amount
                 }
+                val serviceCharge = if (isPad && !isFollowUp && isConsultation && appt != null && assignedCommissionApptIds.add(appt.id)) {
+                    appt.effectiveServiceCharge
+                } else {
+                    0.0
+                }
 
                 entries.add(
                     UnifiedPaymentLogEntry(
@@ -259,7 +294,8 @@ object PaymentLedgerHelper {
                         balanceDue = if (isFollowUp && isConsultation) 0.0 else (effInvTotal - effInvPaid).coerceAtLeast(0.0),
                         receiptUrl = null,
                         isNewPatientForDoctor = !isFollowUp,
-                        category = if (isFollowUp && isConsultation) "FREE_FOLLOWUP" else (r.category ?: "CONSULTATION")
+                        category = if (isFollowUp && isConsultation) "FREE_FOLLOWUP" else (r.category ?: "CONSULTATION"),
+                        serviceChargeAmount = serviceCharge
                     )
                 )
             }
@@ -274,6 +310,12 @@ object PaymentLedgerHelper {
             val isFollowUp = !isNew || appt.feeAmount == 0.0
             val effectiveAmount = if (isFollowUp) 0.0 else appt.effectiveTotalAmount
             val apptDateTime = "${appt.appointmentDate} ${appt.appointmentTime.ifBlank { "10:00 AM" }}"
+            val isPad = appt.isPayAtDesk
+            val serviceCharge = if (isPad && !isFollowUp && assignedCommissionApptIds.add(appt.id)) {
+                appt.effectiveServiceCharge
+            } else {
+                0.0
+            }
 
             entries.add(
                 UnifiedPaymentLogEntry(
@@ -295,7 +337,8 @@ object PaymentLedgerHelper {
                     balanceDue = 0.0,
                     receiptUrl = null,
                     isNewPatientForDoctor = !isFollowUp,
-                    category = if (isFollowUp) "FREE_FOLLOWUP" else "CONSULTATION"
+                    category = if (isFollowUp) "FREE_FOLLOWUP" else "CONSULTATION",
+                    serviceChargeAmount = serviceCharge
                 )
             )
         }
@@ -438,13 +481,16 @@ object PaymentLedgerHelper {
     fun generatePaymentLogsCsv(
         logs: List<UnifiedPaymentLogEntry>,
         periodLabel: String = "All Time",
-        clinicName: String = "Dactor Partner Clinic"
+        clinicName: String = "Dactor Partner Clinic",
+        expenses: List<ClinicExpense> = emptyList()
     ): String {
         val grossCollected = logs.sumOf { it.amount }
         val followupCount = logs.count { !it.isNewPatientForDoctor }
         val newPatientCount = logs.count { it.isNewPatientForDoctor }
-        val platformCut = kotlin.math.round(grossCollected * 0.05)
-        val netPayout = grossCollected - platformCut
+        val platformCommission = logs.sumOf { it.serviceChargeAmount }
+        val netPayout = grossCollected - platformCommission
+        val totalExpenses = expenses.sumOf { it.amount }
+        val netClinicProfit = netPayout - totalExpenses
 
         val sb = StringBuilder()
         sb.append("\uFEFF") // UTF-8 BOM for Excel
@@ -453,11 +499,13 @@ object PaymentLedgerHelper {
         sb.append("\"Clinic Name\",\"${clinicName.replace("\"", "\"\"")}\"\r\n")
         sb.append("\"Audit Scope Period\",\"${periodLabel.replace("\"", "\"\"")}\"\r\n")
         sb.append("\"Gross Collections (NPR)\",\"${grossCollected.toInt()}\"\r\n")
+        sb.append("\"Dactor Pay-at-Desk Platform Commission (NPR)\",\"${platformCommission.toInt()}\"\r\n")
+        sb.append("\"Net Clinic OPD Payout (NPR)\",\"${netPayout.toInt()}\"\r\n")
+        sb.append("\"Total Clinic Expenses (NPR)\",\"${totalExpenses.toInt()}\"\r\n")
+        sb.append("\"Net Clinic Profit / Cash Flow (NPR)\",\"${netClinicProfit.toInt()}\"\r\n")
         sb.append("\"Free Follow-up Consultations (0 NPR)\",\"$followupCount Patients (Fee Waived)\"\r\n")
         sb.append("\"New Patients Seen\",\"$newPatientCount Patients\"\r\n")
         sb.append("\"Total Audit Records\",\"${logs.size}\"\r\n")
-        sb.append("\"Dactor 5% Platform Desk Cut (NPR)\",\"${platformCut.toInt()}\"\r\n")
-        sb.append("\"Net Clinic OPD Payout (NPR)\",\"${netPayout.toInt()}\"\r\n")
         sb.append("\r\n")
 
         val headers = listOf(
@@ -494,6 +542,36 @@ object PaymentLedgerHelper {
             )
             sb.append(row.joinToString(",")).append("\r\n")
         }
+
+        if (expenses.isNotEmpty()) {
+            sb.append("\r\n")
+            sb.append("\"CLINIC EXPENSES AUDIT LOG\"\r\n")
+            val expenseHeaders = listOf(
+                "Date",
+                "Time",
+                "Expense Title",
+                "Category",
+                "Payment Method",
+                "Amount (NPR)",
+                "Voucher / Bill No",
+                "Remarks"
+            )
+            sb.append(expenseHeaders.joinToString(",")).append("\r\n")
+            for (exp in expenses) {
+                val expRow = listOf(
+                    exp.expenseDate,
+                    exp.expenseTime ?: "",
+                    "\"${exp.title.replace("\"", "\"\"")}\"",
+                    exp.category,
+                    exp.paymentMethod,
+                    exp.amount.toInt().toString(),
+                    "\"${(exp.voucherNumber ?: "").replace("\"", "\"\"")}\"",
+                    "\"${(exp.remarks ?: "").replace("\"", "\"\"")}\""
+                )
+                sb.append(expRow.joinToString(",")).append("\r\n")
+            }
+        }
+
         return sb.toString()
     }
 }

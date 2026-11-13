@@ -400,7 +400,7 @@ fun PatientDirectoryScreen(
                 (appt.patientEmail?.lowercase()?.contains(q) == true) ||
                 appt.trackingCode10Digit.contains(q) ||
                 appt.id.lowercase().contains(q) ||
-                (remarksMap[appt.id]?.lowercase()?.contains(q) == true) ||
+                (com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarksMap[appt.id]).lowercase().contains(q)) ||
                 (affiliatedDoctors.find { d -> d.id == appt.doctorId }?.fullName?.lowercase()?.contains(q) == true)
             }
         }
@@ -839,7 +839,7 @@ fun PatientDirectoryScreen(
                         ) {
                             items(filteredLiveQueue, key = { it.id }) { appt ->
                                 val assignedDoctor = affiliatedDoctors.find { it.id == appt.doctorId }
-                                val existingRemark = remarksMap[appt.id]
+                                val existingRemark = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarksMap[appt.id])
                                 val detailItem = PatientDetailItem(
                                     patientName = appt.patientName,
                                     age = appt.patientAge,
@@ -923,7 +923,7 @@ fun PatientDirectoryScreen(
                                 val deterministicApptId = remember(patient.id) { getDeterministicAppointmentId(patient.id) }
                                 val assignedApptId = thisAppt?.trackingCode10Digit ?: deterministicApptId
                                 val assignedDoctor = affiliatedDoctors.find { it.id == thisAppt?.doctorId }
-                                val existingRemark = thisAppt?.let { remarksMap[it.id] }
+                                val existingRemark = thisAppt?.let { com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarksMap[it.id]) }
 
                                 val detailItem = PatientDetailItem(
                                     patientName = patient.fullName ?: (thisAppt?.patientName ?: "Unnamed Patient"),
@@ -1177,7 +1177,7 @@ fun PatientDirectoryScreen(
                                 itemsIndexed(filteredDatewiseAppointments, key = { _, appt -> appt.id }) { index, appt ->
                                     val assignedDoctor = affiliatedDoctors.find { it.id == appt.doctorId }
                                     val doctorName = assignedDoctor?.fullName ?: "Doctor"
-                                    val existingRemark = remarksMap[appt.id]
+                                    val existingRemark = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarksMap[appt.id])
                                     val isCompleted = appt.checkinStatus?.lowercase() in listOf("completed", "done", "visited")
                                     val isConsulting = appt.checkinStatus?.lowercase() in listOf("in_consultation", "consulting", "inside")
 
@@ -1543,7 +1543,7 @@ fun PatientDirectoryScreen(
                 },
                 onEditRemark = { appt, curRemark ->
                     editingApptRemark = appt
-                    remarkTextValue = curRemark
+                    remarkTextValue = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(curRemark)
                 },
                 onEditSchedule = { appt ->
                     editingApptSchedule = appt
@@ -1596,9 +1596,10 @@ fun PatientDirectoryScreen(
                                 isSavingRemark = true
                                 val clinicIdToUse = if (appt.clinicId.isNotBlank()) appt.clinicId else effectiveClinicId
                                 if (billingRepository != null) {
-                                    val ok = billingRepository.saveRemarkForAppointment(appt.id, clinicIdToUse, remarkTextValue.trim())
+                                    val cleanText = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarkTextValue).trim()
+                                    val ok = billingRepository.saveRemarkForAppointment(appt.id, clinicIdToUse, cleanText)
                                     if (ok) {
-                                        remarksMap = remarksMap + (appt.id to remarkTextValue.trim())
+                                        remarksMap = remarksMap + (appt.id to cleanText)
                                         actionMessage = "✓ Visit remarks saved to server for ${appt.patientName}!"
                                     } else {
                                         actionMessage = "Failed to save remarks. Please check network."
@@ -2840,7 +2841,7 @@ private fun PatientFullHistoryModalDialog(
                             val clinicName = visitedClinic?.name ?: "Primary Clinic"
                             val doc = doctors.find { it.id == appt.doctorId }
                             val doctorName = doc?.fullName ?: "Doctor Specialist"
-                            val curRemark = remarksMap[appt.id] ?: ""
+                            val curRemark = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarksMap[appt.id] ?: "")
 
                             Card(
                                 shape = RoundedCornerShape(14.dp),

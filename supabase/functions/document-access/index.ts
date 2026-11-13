@@ -287,23 +287,77 @@ Deno.serve(async (req: Request) => {
       if (!appt) return json({ authorized: false, error: "Document unavailable" }, 404, corsHeaders);
       storagePath = getSafeStoragePath(report.file_url, bucket);
 
+      const apptEmail = typeof appt?.patient_email === "string" ? appt.patient_email.trim().toLowerCase() : "";
+
       if (isAdmin) authorized = true;
       if (!authorized && trustedIdentity && user) {
         authorized = await rpcBoolean(user, "is_authorized_clinic_staff", { p_clinic_id: report.clinic_id })
           || await rpcBoolean(user, "is_current_patient_for_appointment", { p_appointment_id: appt.id });
       }
-      if (!authorized && !trustedIdentity && trackingCode && patientPhone && user) {
-        authorized = await rpcBoolean(user, "verify_guest_appointment_identity", {
-          p_tracking_code: trackingCode,
-          p_patient_phone: patientPhone,
-        });
+
+      // Check direct Google email match from JWT
+      if (!authorized && apptEmail && hasBearer) {
+        try {
+          const rawToken = authHeader.replace(/^Bearer\s+/i, "").trim();
+          const parts = rawToken.split(".");
+          if (parts.length === 3) {
+            const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+            const decoded = atob(base64);
+            const payload = JSON.parse(decoded);
+            const jwtEmail = typeof payload?.email === "string" ? payload.email.trim().toLowerCase() : "";
+            if (jwtEmail && jwtEmail === apptEmail && trustedIdentity) {
+              authorized = true;
+            }
+          }
+        } catch {}
       }
-      if (!authorized && !trustedIdentity && trackingCode && patientPhone && !user) {
-        const guest = createClient(supabaseUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
-        authorized = await rpcBoolean(guest, "verify_guest_appointment_identity", {
+
+      // If not authorized by identity, fallback to phone confirmation with rate limiting
+      if (!authorized && trackingCode && patientPhone) {
+        // 1. Check rate limit availability before consuming
+        const rateLimitAvailable = await rpcBoolean(service, "check_tracking_rate_limit_available", {
+          p_scope: "guest-identity",
+          p_code: trackingCode,
+          p_limit: 5,
+          p_window_seconds: 900,
+        }).catch(() => true);
+
+        if (!rateLimitAvailable) {
+          return json({
+            authorized: false,
+            rate_limited: true,
+            error: "Too many failed attempts. Verification locked for this tracking code for 15 minutes."
+          }, 429, corsHeaders);
+        }
+
+        // 2. Perform server-side exact 10-digit mobile verification (consumes 1 rate limit token)
+        authorized = await rpcBoolean(service, "verify_guest_appointment_identity", {
           p_tracking_code: trackingCode,
           p_patient_phone: patientPhone,
         });
+
+        if (!authorized) {
+          // Check if failure caused rate limit lock
+          const stillAvailable = await rpcBoolean(service, "check_tracking_rate_limit_available", {
+            p_scope: "guest-identity",
+            p_code: trackingCode,
+            p_limit: 5,
+            p_window_seconds: 900,
+          }).catch(() => true);
+
+          if (!stillAvailable) {
+            return json({
+              authorized: false,
+              rate_limited: true,
+              error: "Rate limit reached. Too many failed attempts. Locked for 15 minutes."
+            }, 429, corsHeaders);
+          }
+
+          return json({
+            authorized: false,
+            error: "Verification failed: Mobile number does not match clinic appointment records."
+          }, 403, corsHeaders);
+        }
       }
     } else if (documentType === "doctor_kyc") {
       bucket = "doctor-kyc-private";

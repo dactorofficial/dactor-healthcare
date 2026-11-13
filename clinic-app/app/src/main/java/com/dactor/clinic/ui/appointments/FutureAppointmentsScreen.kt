@@ -791,7 +791,7 @@ fun FutureAppointmentsScreen(
                         itemsIndexed(displayedAppointments, key = { _, it -> it.id }) { index, appt ->
                             val isCompleted = appt.checkinStatus == "completed"
                             val assignedDoctor = doctors.find { it.id == appt.doctorId }
-                            val curRemark = remarksMap[appt.id]
+                            val curRemark = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarksMap[appt.id])
 
                             Card(
                                 shape = RoundedCornerShape(16.dp),
@@ -1333,9 +1333,10 @@ fun FutureAppointmentsScreen(
                         onClick = {
                             coroutineScope.launch {
                                 isSavingRemark = true
-                                val ok = billingRepository?.saveRemarkForAppointment(appt.id, appt.clinicId, remarkTextInput.trim()) ?: false
+                                val textToSave = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarkTextInput).trim()
+                                val ok = billingRepository?.saveRemarkForAppointment(appt.id, appt.clinicId, textToSave) ?: false
                                 if (ok) {
-                                    remarksMap = remarksMap + (appt.id to remarkTextInput.trim())
+                                    remarksMap = remarksMap + (appt.id to textToSave)
                                     actionMessage = "✓ Remarks saved to server for ${appt.patientName}!"
                                 }
                                 isSavingRemark = false

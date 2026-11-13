@@ -41,11 +41,18 @@ fun isInternetAvailable(context: Context): Boolean {
     return try {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
 
-        // 1. Check active default network capabilities
+        // 1. Check active default network capabilities & transports
         val activeNetwork = cm.activeNetwork
         if (activeNetwork != null) {
             val caps = cm.getNetworkCapabilities(activeNetwork)
-            if (caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+            if (caps != null && (
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+            )) {
                 return true
             }
         }
@@ -54,7 +61,13 @@ fun isInternetAvailable(context: Context): Boolean {
         val allNetworks = cm.allNetworks
         for (net in allNetworks) {
             val caps = cm.getNetworkCapabilities(net)
-            if (caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+            if (caps != null && (
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+            )) {
                 return true
             }
         }
@@ -75,16 +88,13 @@ fun isInternetAvailable(context: Context): Boolean {
 
 fun openInternetSettings(context: Context) {
     try {
-        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY)
-        } else {
-            Intent(Settings.ACTION_WIFI_SETTINGS)
+        val intent = Intent(Settings.ACTION_WIRELESS_SETTINGS).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
     } catch (e: Exception) {
         try {
-            val fallback = Intent(Settings.ACTION_WIRELESS_SETTINGS).apply {
+            val fallback = Intent(Settings.ACTION_SETTINGS).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(fallback)

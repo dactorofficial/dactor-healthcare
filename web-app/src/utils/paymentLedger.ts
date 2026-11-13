@@ -37,6 +37,21 @@ export interface UnifiedPaymentLogEntry {
   items?: Array<{ name: string; price: number; quantity: number }>
 }
 
+export interface ClinicExpense {
+  id: string
+  clinic_id: string
+  title: string
+  category: string
+  amount: number
+  payment_method: string
+  expense_date: string
+  expense_time?: string
+  voucher_number?: string
+  remarks?: string
+  created_at?: string
+  updated_at?: string
+}
+
 export interface DoctorVisitAnalytics {
   doctorId: string
   doctorName: string
@@ -564,7 +579,8 @@ export function computeDoctorDailyAndMonthlyStats(
  */
 export function exportPaymentLogsToCsv(
   logs: UnifiedPaymentLogEntry[],
-  clinicName = 'Clinic'
+  clinicName = 'Clinic',
+  expenses: ClinicExpense[] = []
 ): string {
   const headers = [
     'Date',
@@ -589,9 +605,14 @@ export function exportPaymentLogsToCsv(
     return `"${s}"`
   }
 
+  const grossCollections = logs.reduce((acc, l) => acc + (l.amount || 0), 0)
+  const totalExpenses = expenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0)
+  const netProfit = grossCollections - totalExpenses
+
   const rows: string[] = []
-  rows.push(`"DACTOR CLINIC PAYMENT LOGS REPORT - ${clinicName.replace(/"/g, '""')}"`)
+  rows.push(`"DACTOR CLINIC FINANCIAL AUDIT REPORT - ${clinicName.replace(/"/g, '""')}"`)
   rows.push(`"Generated On: ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Kathmandu' })}"`)
+  rows.push(`"Gross Collections: NPR ${grossCollections.toFixed(2)} | Total Expenses: NPR ${totalExpenses.toFixed(2)} | Net Profit: NPR ${netProfit.toFixed(2)}"`)
   rows.push('')
   rows.push(headers.map(escapeCell).join(','))
 
@@ -613,6 +634,26 @@ export function exportPaymentLogsToCsv(
       log.note || '',
     ]
     rows.push(row.map(escapeCell).join(','))
+  }
+
+  if (expenses.length > 0) {
+    rows.push('')
+    rows.push('"CLINIC EXPENSES LOG"')
+    const expHeaders = ['Date', 'Time', 'Title', 'Category', 'Payment Method', 'Amount (NPR)', 'Voucher/Bill #', 'Remarks']
+    rows.push(expHeaders.map(escapeCell).join(','))
+    for (const exp of expenses) {
+      const expRow = [
+        exp.expense_date,
+        exp.expense_time || '',
+        exp.title,
+        exp.category,
+        exp.payment_method,
+        Number(exp.amount).toFixed(2),
+        exp.voucher_number || '',
+        exp.remarks || '',
+      ]
+      rows.push(expRow.map(escapeCell).join(','))
+    }
   }
 
   // Prepend UTF-8 Byte Order Mark (BOM) so Excel opens UTF-8 cleanly

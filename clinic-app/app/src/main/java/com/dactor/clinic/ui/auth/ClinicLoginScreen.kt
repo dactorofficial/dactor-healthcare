@@ -774,9 +774,18 @@ fun ClinicLoginScreen(
             }
         }
 
+        val isWifiOn = try {
+            val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            wm?.isWifiEnabled == true
+        } catch (e: Exception) { false }
+
         // 1. Initial cached reading if present
         var bestLoc: Location? = null
-        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+        val providers = if (isWifiOn) {
+            listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+        } else {
+            listOf(LocationManager.GPS_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+        }
         for (p in providers) {
             try {
                 val loc = locManager.getLastKnownLocation(p)
@@ -789,20 +798,20 @@ fun ClinicLoginScreen(
             applyLocation(bestLoc)
         }
 
-        // 2. Request fast fix (prefer fast Network provider for indoor lock, refine with GPS)
+        // 2. Request fast fix (prefer GPS cleanly without waking Wi-Fi; only use Network if Wi-Fi already on)
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val fastProvider = when {
-                    locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
                     locManager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+                    isWifiOn && locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
                     else -> LocationManager.PASSIVE_PROVIDER
                 }
                 locManager.getCurrentLocation(fastProvider, null, context.mainExecutor) { liveLoc ->
                     if (liveLoc != null) {
                         applyLocation(liveLoc)
-                    } else if (fastProvider == LocationManager.NETWORK_PROVIDER && locManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                        locManager.getCurrentLocation(LocationManager.GPS_PROVIDER, null, context.mainExecutor) { gpsLoc ->
-                            if (gpsLoc != null) applyLocation(gpsLoc)
+                    } else if (fastProvider == LocationManager.GPS_PROVIDER && isWifiOn && locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                        locManager.getCurrentLocation(LocationManager.NETWORK_PROVIDER, null, context.mainExecutor) { netLoc ->
+                            if (netLoc != null) applyLocation(netLoc)
                             else if (bestLoc == null) coroutineScope.launch(Dispatchers.Main) { isFetchingLocation = false }
                         }
                     } else if (bestLoc == null) {
@@ -820,10 +829,10 @@ fun ClinicLoginScreen(
                     override fun onProviderEnabled(provider: String) {}
                     override fun onProviderDisabled(provider: String) {}
                 }
-                if (locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                    locManager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER, listener, Looper.getMainLooper())
-                } else if (locManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                if (locManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                     locManager.requestSingleUpdate(LocationManager.GPS_PROVIDER, listener, Looper.getMainLooper())
+                } else if (isWifiOn && locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                    locManager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER, listener, Looper.getMainLooper())
                 }
             }
         } catch (e: Exception) {

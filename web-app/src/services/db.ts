@@ -2369,16 +2369,230 @@ export async function uploadClinicDocument(
 }
 
 /**
- * Request short-lived signed URL for a guest/walk-in patient lab report.
+ * Resolve current logged-in Google / account email across localStorage, Firebase, and active sessions.
+ */
+export function getCurrentLoggedInUserEmail(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    // 1. Cached Firebase Google user object
+    const gUserRaw = localStorage.getItem('dactor_google_user')
+    if (gUserRaw) {
+      try {
+        const gUser = JSON.parse(gUserRaw)
+        if (gUser?.email) return gUser.email.trim().toLowerCase()
+      } catch {}
+    }
+
+    // 2. Direct Firebase currentUser instance in window
+    const fbEmail = (window as any).dactorFirebase?.auth?.currentUser?.email
+    if (fbEmail) return fbEmail.trim().toLowerCase()
+
+    // 3. Active role session
+    const session = getLoggedInUserSession()
+    if (session?.email) return session.email.trim().toLowerCase()
+
+    // 4. Stored patient email directly
+    const patEmail = localStorage.getItem('dactor_patient_email')
+    if (patEmail) return patEmail.trim().toLowerCase()
+
+    // 5. Stored patient profile session
+    const patSessionRaw = localStorage.getItem('dactor_patient_session')
+    if (patSessionRaw) {
+      try {
+        const parsed = JSON.parse(patSessionRaw)
+        if (parsed?.email) return parsed.email.trim().toLowerCase()
+      } catch {}
+    }
+
+    // 6. Doctor / Clinic emails
+    const docEmail = localStorage.getItem('dactor_doctor_email')
+    if (docEmail) return docEmail.trim().toLowerCase()
+    const clinicEmail = localStorage.getItem('dactor_clinic_email')
+    if (clinicEmail) return clinicEmail.trim().toLowerCase()
+  } catch {}
+  return null
+}
+
+/**
+ * Check if the active Google logged-in user matches the appointment's patient email.
+ */
+export function isUserMatchingPatientEmail(patientEmail?: string | null): boolean {
+  if (!patientEmail) return false
+  const cleanPatEmail = patientEmail.trim().toLowerCase()
+  if (!cleanPatEmail || !cleanPatEmail.includes('@')) return false
+  const loggedInEmail = getCurrentLoggedInUserEmail()
+  if (!loggedInEmail) return false
+  return loggedInEmail === cleanPatEmail
+}
+
+// ==========================================
+// REPORT ACCESS RATE LIMITING CONTRACTS
+// ==========================================
+export const MAX_REPORT_PHONE_ATTEMPTS = 5
+export const REPORT_PHONE_LOCKOUT_MS = 15 * 60 * 1000 // 15 minutes
+
+export interface ReportPhoneRateLimitState {
+  attempts: number
+  remainingAttempts: number
+  isLocked: boolean
+  remainingSeconds: number
+  lockedUntil: number | null
+}
+
+export function getReportPhoneRateLimitState(trackingCode: string): ReportPhoneRateLimitState {
+  const cleanCode = (trackingCode || '').trim()
+  if (!cleanCode) {
+    return { attempts: 0, remainingAttempts: MAX_REPORT_PHONE_ATTEMPTS, isLocked: false, remainingSeconds: 0, lockedUntil: null }
+  }
+  const key = `dactor_rl_report_${cleanCode}`
+  try {
+    const raw = typeof window !== 'undefined' ? (sessionStorage.getItem(key) || localStorage.getItem(key)) : null
+    if (!raw) {
+      return { attempts: 0, remainingAttempts: MAX_REPORT_PHONE_ATTEMPTS, isLocked: false, remainingSeconds: 0, lockedUntil: null }
+    }
+    const data = JSON.parse(raw)
+    const now = Date.now()
+    if (data.lockedUntil && now < data.lockedUntil) {
+      return {
+        attempts: data.attempts || MAX_REPORT_PHONE_ATTEMPTS,
+        remainingAttempts: 0,
+        isLocked: true,
+        remainingSeconds: Math.ceil((data.lockedUntil - now) / 1000),
+        lockedUntil: data.lockedUntil,
+      }
+    }
+    // Expired lockout window resets cleanly
+    if (data.lockedUntil && now >= data.lockedUntil) {
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem(key)
+        localStorage.removeItem(key)
+      }
+      return { attempts: 0, remainingAttempts: MAX_REPORT_PHONE_ATTEMPTS, isLocked: false, remainingSeconds: 0, lockedUntil: null }
+    }
+    const attempts = Number(data.attempts || 0)
+    const remaining = Math.max(0, MAX_REPORT_PHONE_ATTEMPTS - attempts)
+    return {
+      attempts,
+      remainingAttempts: remaining,
+      isLocked: remaining <= 0,
+      remainingSeconds: 0,
+      lockedUntil: null,
+    }
+  } catch {
+    return { attempts: 0, remainingAttempts: MAX_REPORT_PHONE_ATTEMPTS, isLocked: false, remainingSeconds: 0, lockedUntil: null }
+  }
+}
+
+export function recordReportPhoneAttempt(trackingCode: string, success: boolean): ReportPhoneRateLimitState {
+  const cleanCode = (trackingCode || '').trim()
+  if (!cleanCode) {
+    return { attempts: 0, remainingAttempts: MAX_REPORT_PHONE_ATTEMPTS, isLocked: false, remainingSeconds: 0, lockedUntil: null }
+  }
+  const key = `dactor_rl_report_${cleanCode}`
+  if (success) {
+    clearReportPhoneRateLimit(cleanCode)
+    return { attempts: 0, remainingAttempts: MAX_REPORT_PHONE_ATTEMPTS, isLocked: false, remainingSeconds: 0, lockedUntil: null }
+  }
+
+  const current = getReportPhoneRateLimitState(cleanCode)
+  const newAttempts = current.attempts + 1
+  const isNowLocked = newAttempts >= MAX_REPORT_PHONE_ATTEMPTS
+  const lockedUntil = isNowLocked ? Date.now() + REPORT_PHONE_LOCKOUT_MS : null
+
+  const record = {
+    attempts: newAttempts,
+    lockedUntil,
+    lastAttemptAt: Date.now(),
+  }
+
+  try {
+    if (typeof window !== 'undefined') {
+      const serialized = JSON.stringify(record)
+      sessionStorage.setItem(key, serialized)
+      localStorage.setItem(key, serialized)
+    }
+  } catch {}
+
+  return {
+    attempts: newAttempts,
+    remainingAttempts: Math.max(0, MAX_REPORT_PHONE_ATTEMPTS - newAttempts),
+    isLocked: isNowLocked,
+    remainingSeconds: isNowLocked ? Math.ceil(REPORT_PHONE_LOCKOUT_MS / 1000) : 0,
+    lockedUntil,
+  }
+}
+
+export function clearReportPhoneRateLimit(trackingCode: string): void {
+  const cleanCode = (trackingCode || '').trim()
+  if (!cleanCode) return
+  const key = `dactor_rl_report_${cleanCode}`
+  try {
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem(key)
+      localStorage.removeItem(key)
+    }
+  } catch {}
+}
+
+export interface LabReportUrlResult {
+  signedUrl: string | null
+  rateLimited?: boolean
+  error?: string
+}
+
+/**
+ * Request short-lived signed URL for direct Google email access (no phone confirmation required).
+ */
+export async function requestDirectLabReportUrl(
+  trackingCode: string,
+  userEmail?: string | null
+): Promise<string | null> {
+  const cleanCode = (trackingCode || '').trim()
+  if (!cleanCode) return null
+  const email = (userEmail || getCurrentLoggedInUserEmail() || '').trim()
+
+  try {
+    const { data, error } = await supabase.functions.invoke('document-access', {
+      body: {
+        documentType: 'lab_report',
+        trackingCode: cleanCode,
+        userEmail: email || undefined,
+        expiresIn: 900,
+      },
+    })
+    if (!error && data?.authorized && data?.signed_url) {
+      return data.signed_url
+    }
+  } catch (e) {
+    console.warn('Direct lab report URL request error:', e)
+  }
+  return null
+}
+
+/**
+ * Request short-lived signed URL for a guest/walk-in patient lab report with rate-limiting feedback.
  * Server verifies that patientPhone matches appointment records before issuing signed URL.
  */
-export async function requestGuestLabReportUrl(trackingCode: string, patientPhone: string): Promise<string | null> {
+export async function requestGuestLabReportResult(
+  trackingCode: string,
+  patientPhone: string
+): Promise<LabReportUrlResult> {
   const cleanCode = (trackingCode || '').trim()
   const cleanPhone = (patientPhone || '').trim()
-  if (!cleanCode || !cleanPhone) return null
+  if (!cleanCode || !cleanPhone) {
+    return { signedUrl: null, error: 'Tracking code and registered mobile number are required.' }
+  }
 
-  // The Edge Function is the only signer: it resolves the file path from the
-  // authorized database row and never accepts a client-supplied storage path.
+  // Pre-check client-side rate limit
+  const rateLimitState = getReportPhoneRateLimitState(cleanCode)
+  if (rateLimitState.isLocked) {
+    return {
+      signedUrl: null,
+      rateLimited: true,
+      error: `Too many failed attempts. Verification locked for this tracking code. Please wait ${Math.ceil(rateLimitState.remainingSeconds / 60)} minutes before trying again.`,
+    }
+  }
+
   try {
     const { data, error } = await supabase.functions.invoke('document-access', {
       body: {
@@ -2388,13 +2602,63 @@ export async function requestGuestLabReportUrl(trackingCode: string, patientPhon
         expiresIn: 900,
       },
     })
-    if (!error && data?.authorized && data?.signed_url) {
-      return data.signed_url
+
+    if (data?.rate_limited || error?.message?.includes('429') || (error as any)?.status === 429) {
+      recordReportPhoneAttempt(cleanCode, false)
+      return {
+        signedUrl: null,
+        rateLimited: true,
+        error: 'Too many verification attempts from this device/IP. Please wait 15 minutes before trying again.',
+      }
     }
-  } catch (e) {
+
+    if (!error && data?.authorized && data?.signed_url) {
+      clearReportPhoneRateLimit(cleanCode)
+      return { signedUrl: data.signed_url }
+    }
+
+    // Phone mismatch or other authorization failure
+    const updatedState = recordReportPhoneAttempt(cleanCode, false)
+    if (updatedState.isLocked) {
+      return {
+        signedUrl: null,
+        rateLimited: true,
+        error: 'Too many failed attempts. Verification locked for 15 minutes.',
+      }
+    }
+
+    return {
+      signedUrl: null,
+      error: `Verification failed: Mobile number does not match clinic appointment records. (${updatedState.remainingAttempts} attempt${updatedState.remainingAttempts === 1 ? '' : 's'} remaining)`,
+    }
+  } catch (e: any) {
     console.warn('Edge function document-access invocation error:', e)
+    const is429 = e?.status === 429 || String(e?.message || '').includes('429')
+    if (is429) {
+      recordReportPhoneAttempt(cleanCode, false)
+      return {
+        signedUrl: null,
+        rateLimited: true,
+        error: 'Rate limit exceeded. Please wait 15 minutes before trying again.',
+      }
+    }
+    const updated = recordReportPhoneAttempt(cleanCode, false)
+    return {
+      signedUrl: null,
+      error: updated.isLocked
+        ? 'Too many failed attempts. Rate limit exceeded for 15 minutes.'
+        : `Server verification error. (${updated.remainingAttempts} attempts remaining)`,
+    }
   }
-  return null
+}
+
+/**
+ * Request short-lived signed URL for a guest/walk-in patient lab report.
+ * Server verifies that patientPhone matches appointment records before issuing signed URL.
+ */
+export async function requestGuestLabReportUrl(trackingCode: string, patientPhone: string): Promise<string | null> {
+  const result = await requestGuestLabReportResult(trackingCode, patientPhone)
+  return result.signedUrl
 }
 
 /**
@@ -5738,6 +6002,42 @@ export async function getClinicPaymentAttempts(clinicId: string): Promise<any[]>
     console.warn('Error fetching clinic payment attempts via RPC:', e)
     return []
   }
+}
+
+export async function getClinicExpenses(clinicId: string): Promise<any[]> {
+  if (!clinicId) return []
+  try {
+    const { data, error } = await supabase
+      .from('clinic_expenses')
+      .select('*')
+      .eq('clinic_id', clinicId)
+      .order('expense_date', { ascending: false })
+    if (error) throw error
+    return data || []
+  } catch (e) {
+    console.warn('Error fetching clinic_expenses:', e)
+    return []
+  }
+}
+
+export async function addClinicExpense(expense: any): Promise<any> {
+  const { data, error } = await supabase
+    .from('clinic_expenses')
+    .insert([expense])
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteClinicExpense(expenseId: string): Promise<boolean> {
+  if (!expenseId) return false
+  const { error } = await supabase
+    .from('clinic_expenses')
+    .delete()
+    .eq('id', expenseId)
+  if (error) throw error
+  return true
 }
 
 export async function scheduleClinicDeletion(clinicId: string): Promise<boolean> {

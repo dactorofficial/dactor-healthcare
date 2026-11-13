@@ -1690,10 +1690,11 @@ fun QueueBoardScreen(
                                     }
 
                                     // 4. Add Remark Button
+                                    val cleanItemRemark = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarksMap[item.appointmentId])
                                     OutlinedButton(
                                         onClick = {
                                             remarkTargetItem = item
-                                            remarkInputText = remarksMap[item.appointmentId] ?: ""
+                                            remarkInputText = cleanItemRemark
                                         },
                                         shape = RoundedCornerShape(10.dp),
                                         border = BorderStroke(1.dp, Color(0xFF00838F)),
@@ -1708,7 +1709,7 @@ fun QueueBoardScreen(
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            text = if (remarksMap[item.appointmentId]?.isNotBlank() == true) "Edit Remark" else "Add Remark",
+                                            text = if (cleanItemRemark.isNotBlank()) "Edit Remark" else "Add Remark",
                                             color = Color(0xFF00838F),
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 12.sp
@@ -1717,7 +1718,7 @@ fun QueueBoardScreen(
                                 }
 
                                 // Clinical Remark container if already saved
-                                val existingRemark = remarksMap[item.appointmentId]
+                                val existingRemark = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarksMap[item.appointmentId])
                                 if (!existingRemark.isNullOrBlank()) {
                                     Spacer(modifier = Modifier.height(10.dp))
                                     Surface(
@@ -2783,8 +2784,9 @@ fun QueueBoardScreen(
             onDismissRequest = { remarkTargetItem = null },
             title = {
                 Column {
+                    val cleanTargetRemark = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarksMap[target.appointmentId])
                     Text(
-                        text = if (remarksMap[target.appointmentId]?.isNotBlank() == true) "Edit Clinical Remark" else "Add Clinical Remark",
+                        text = if (cleanTargetRemark.isNotBlank()) "Edit Clinical Remark" else "Add Clinical Remark",
                         fontWeight = FontWeight.Bold,
                         fontSize = 17.sp,
                         color = Color(0xFF0F172A)
@@ -2814,7 +2816,7 @@ fun QueueBoardScreen(
                 Button(
                     onClick = {
                         val apptId = target.appointmentId
-                        val textToSave = remarkInputText.trim()
+                        val textToSave = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarkInputText).trim()
                         coroutineScope.launch {
                             isSavingRemark = true
                             try {

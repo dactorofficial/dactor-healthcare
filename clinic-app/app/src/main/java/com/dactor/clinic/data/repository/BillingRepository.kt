@@ -3,6 +3,7 @@ package com.dactor.clinic.data.repository
 import com.dactor.clinic.data.model.BillingInvoice
 import com.dactor.clinic.data.model.InvoiceItem
 import com.dactor.clinic.data.model.CatalogItem
+import com.dactor.clinic.data.model.ClinicExpense
 import com.dactor.clinic.data.model.InvoiceTransaction
 import com.dactor.clinic.data.model.ClinicSubscriptionPayment
 import com.dactor.clinic.data.model.PlatformCommissionSettlement
@@ -316,7 +317,7 @@ class BillingRepository @Inject constructor(
     suspend fun getRemarkForAppointment(appointmentId: String): String? = withContext(Dispatchers.IO) {
         try {
             val invoice = getInvoiceByAppointment(appointmentId)
-            invoice?.remarks?.ifBlank { null }
+            invoice?.remarks?.let { com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(it) }?.trim()?.ifBlank { null }
         } catch (e: Exception) {
             null
         }
@@ -332,8 +333,8 @@ class BillingRepository @Inject constructor(
                     }
                 }.decodeList<BillingInvoice>()
             invoices.mapNotNull { inv ->
-                val r = inv.remarks?.trim()
-                if (!r.isNullOrBlank()) inv.appointmentId to r else null
+                val r = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(inv.remarks).trim()
+                if (r.isNotBlank()) inv.appointmentId to r else null
             }.toMap()
         } catch (e: Exception) {
             e.printStackTrace()
@@ -345,10 +346,17 @@ class BillingRepository @Inject constructor(
         try {
             val existing = getInvoiceByAppointment(appointmentId)
             val nowIso = java.time.Instant.now().toString()
+            val cleanRemark = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarks).trim()
             if (existing != null) {
+                val existingPayments = com.dactor.clinic.domain.util.PaymentLedgerHelper.parsePaymentRecords(
+                    rawRemarks = existing.remarks,
+                    fallbackPaidAmount = existing.effectivePaidAmount,
+                    fallbackDate = existing.paidAt
+                )
+                val combinedRemarks = com.dactor.clinic.domain.util.PaymentLedgerHelper.buildCombinedRemarks(cleanRemark, existingPayments)
                 supabaseClient.postgrest["billing_invoices"]
                     .update({
-                        set("remarks", remarks)
+                        set("remarks", combinedRemarks)
                         set("updated_at", nowIso)
                     }) {
                         filter { eq("id", existing.id) }
@@ -363,7 +371,7 @@ class BillingRepository @Inject constructor(
                     paidAmount = 0.0,
                     balanceDue = 0.0,
                     paymentStatus = "pending",
-                    remarks = remarks,
+                    remarks = cleanRemark,
                     createdAt = nowIso,
                     updatedAt = nowIso
                 )
@@ -372,7 +380,7 @@ class BillingRepository @Inject constructor(
                 } catch (insEx: Exception) {
                     supabaseClient.postgrest["billing_invoices"]
                         .update({
-                            set("remarks", remarks)
+                            set("remarks", cleanRemark)
                             set("updated_at", nowIso)
                         }) {
                             filter { eq("appointment_id", appointmentId) }
@@ -481,6 +489,49 @@ class BillingRepository @Inject constructor(
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
+        }
+    }
+
+    suspend fun getExpensesForClinic(clinicId: String): List<ClinicExpense> = withContext(Dispatchers.IO) {
+        if (clinicId.isBlank()) return@withContext emptyList()
+        try {
+            supabaseClient.postgrest["clinic_expenses"]
+                .select {
+                    filter {
+                        eq("clinic_id", clinicId)
+                    }
+                }.decodeList<ClinicExpense>()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    suspend fun addExpense(expense: ClinicExpense): ClinicExpense? = withContext(Dispatchers.IO) {
+        try {
+            supabaseClient.postgrest["clinic_expenses"]
+                .insert(expense) {
+                    select()
+                }.decodeSingleOrNull<ClinicExpense>() ?: expense
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    suspend fun deleteExpense(expenseId: String): Boolean = withContext(Dispatchers.IO) {
+        if (expenseId.isBlank()) return@withContext false
+        try {
+            supabaseClient.postgrest["clinic_expenses"]
+                .delete {
+                    filter {
+                        eq("id", expenseId)
+                    }
+                }
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
         }
     }
 }

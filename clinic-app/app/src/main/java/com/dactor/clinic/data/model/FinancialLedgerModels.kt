@@ -56,25 +56,26 @@ data class PlatformCommissionSettlement(
 
 data class UnifiedPaymentLogEntry(
     val id: String,
-    val appointmentId: String?,
+    val appointmentId: String? = null,
     val invoiceId: String? = null,
-    val trackingCode10Digit: String?,
+    val trackingCode10Digit: String? = null,
     val patientName: String,
     val patientPhone: String,
     val doctorName: String,
     val doctorSpecialty: String,
-    val consultationFee: Double,
+    val consultationFee: Double = 0.0,
     val amount: Double,
     val dateTime: String,
     val paymentMethod: String,
-    val referenceId: String?,
-    val note: String?,
-    val invoiceStatus: String,
-    val totalBill: Double,
-    val balanceDue: Double,
-    val receiptUrl: String?,
-    val isNewPatientForDoctor: Boolean,
-    val category: String
+    val referenceId: String? = null,
+    val note: String? = null,
+    val invoiceStatus: String = "paid",
+    val totalBill: Double = 0.0,
+    val balanceDue: Double = 0.0,
+    val receiptUrl: String? = null,
+    val isNewPatientForDoctor: Boolean = true,
+    val category: String = "CONSULTATION",
+    val serviceChargeAmount: Double = 0.0
 )
 
 data class VisitMetric(

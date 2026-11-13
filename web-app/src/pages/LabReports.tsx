@@ -12,7 +12,18 @@ import {
   Building2,
   Lock,
 } from 'lucide-react'
-import { getLabReportsByTrackingCode, getAppointmentByTrackingCode, requestGuestLabReportUrl } from '../services/db'
+import {
+  getLabReportsByTrackingCode,
+  getAppointmentByTrackingCode,
+  requestGuestLabReportResult,
+  requestDirectLabReportUrl,
+  requestAuthorizedDocumentUrl,
+  isUserMatchingPatientEmail,
+  getCurrentLoggedInUserEmail,
+  getReportPhoneRateLimitState,
+  clearReportPhoneRateLimit,
+  MAX_REPORT_PHONE_ATTEMPTS,
+} from '../services/db'
 import { LabReport, Appointment } from '../types'
 import { updatePageSEO } from '../utils/seo'
 
@@ -31,12 +42,33 @@ export const LabReports: React.FC = () => {
     })
   }, [])
 
-  // Server-side verification state
+  // Server-side verification & Direct Access state
   const [verifyPhoneInput, setVerifyPhoneInput] = useState('')
   const [isVerifying, setIsVerifying] = useState(false)
   const [signedUrl, setSignedUrl] = useState<string | null>(null)
   const [isVerified, setIsVerified] = useState(false)
   const [verifyError, setVerifyError] = useState('')
+  const [directAccessEmail, setDirectAccessEmail] = useState<string | null>(null)
+
+  // Rate limiting state
+  const [rateLimitState, setRateLimitState] = useState(() => getReportPhoneRateLimitState(''))
+  const [cooldownSeconds, setCooldownSeconds] = useState(0)
+
+  // Cooldown countdown effect
+  useEffect(() => {
+    if (cooldownSeconds <= 0) return
+    const timer = setInterval(() => {
+      setCooldownSeconds((prev) => {
+        if (prev <= 1) {
+          const fresh = getReportPhoneRateLimitState(code)
+          setRateLimitState(fresh)
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [cooldownSeconds, code])
 
   // Preview modal
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -55,6 +87,12 @@ export const LabReports: React.FC = () => {
     setIsVerified(false)
     setVerifyPhoneInput('')
     setSignedUrl(null)
+    setDirectAccessEmail(null)
+
+    const freshRateLimit = getReportPhoneRateLimitState(clean)
+    setRateLimitState(freshRateLimit)
+    setCooldownSeconds(freshRateLimit.remainingSeconds)
+
     try {
       const [reportsData, apptData] = await Promise.all([
         getLabReportsByTrackingCode(clean),
@@ -67,6 +105,27 @@ export const LabReports: React.FC = () => {
 
       if (reportsData.length === 0 && !apptData) {
         setErrorMsg('No diagnostic lab records found matching this tracking code.')
+        return
+      }
+
+      // Check if patient email matches active logged-in Google user: Direct Access without confirmation!
+      const patientEmail = apptData?.patientEmail
+      if (patientEmail && isUserMatchingPatientEmail(patientEmail)) {
+        const loggedInEmail = getCurrentLoggedInUserEmail()
+        setDirectAccessEmail(loggedInEmail || patientEmail)
+        setIsVerified(true)
+        clearReportPhoneRateLimit(clean)
+
+        let directUrl: string | null = null
+        if (reportsData.length > 0 && reportsData[0].id) {
+          directUrl = await requestAuthorizedDocumentUrl('lab_report', reportsData[0].id, reportsData[0].reportFileUrl || '')
+        }
+        if (!directUrl) {
+          directUrl = await requestDirectLabReportUrl(clean, loggedInEmail)
+        }
+        if (directUrl) {
+          setSignedUrl(directUrl)
+        }
       }
     } catch {
       setErrorMsg('Error retrieving diagnostic report status.')
@@ -77,26 +136,43 @@ export const LabReports: React.FC = () => {
 
   const handleVerifyPhone = async (e: React.FormEvent) => {
     e.preventDefault()
+    const cleanCode = code.trim().replace(/\D/g, '')
+
+    const freshLimit = getReportPhoneRateLimitState(cleanCode)
+    if (freshLimit.isLocked) {
+      setRateLimitState(freshLimit)
+      setCooldownSeconds(freshLimit.remainingSeconds)
+      setVerifyError(`Too many failed attempts. Verification locked for this tracking code. Please wait ${Math.ceil(freshLimit.remainingSeconds / 60)} minutes.`)
+      return
+    }
+
     const cleanPhone = verifyPhoneInput.trim().replace(/\D/g, '')
     if (cleanPhone.length < 7) {
       setVerifyError('Please enter a valid mobile number (at least 7 digits) registered during booking.')
       return
     }
 
-    const cleanCode = code.trim().replace(/\D/g, '')
     setIsVerifying(true)
     setVerifyError('')
 
     try {
-      const url = await requestGuestLabReportUrl(cleanCode, cleanPhone)
-      if (url) {
-        setSignedUrl(url)
+      const res = await requestGuestLabReportResult(cleanCode, cleanPhone)
+      if (res.signedUrl) {
+        setSignedUrl(res.signedUrl)
         setIsVerified(true)
         setVerifyError('')
+        setRateLimitState(getReportPhoneRateLimitState(cleanCode))
+        setCooldownSeconds(0)
       } else {
-        setVerifyError('Verification failed: Provided mobile number does not match clinic appointment records.')
+        const updatedLimit = getReportPhoneRateLimitState(cleanCode)
+        setRateLimitState(updatedLimit)
+        setCooldownSeconds(updatedLimit.remainingSeconds)
+        setVerifyError(res.error || 'Verification failed: Provided mobile number does not match clinic appointment records.')
       }
     } catch {
+      const updatedLimit = getReportPhoneRateLimitState(cleanCode)
+      setRateLimitState(updatedLimit)
+      setCooldownSeconds(updatedLimit.remainingSeconds)
       setVerifyError('Verification error communicating with server. Please try again.')
     } finally {
       setIsVerifying(false)
@@ -218,16 +294,25 @@ export const LabReports: React.FC = () => {
             </div>
           </div>
 
-          {/* If Prepared: Phone Verification Unlock */}
+          {/* If Prepared: Direct Google Access or Phone Verification Unlock */}
           {currentStatus === 'prepared' || currentStatus === 'delivered' ? (
             <div className="p-4 sm:p-6 liquid-glass-subtle rounded-2xl border-emerald-500/30 space-y-3 sm:space-y-4">
-              <div className="flex items-center space-x-2 text-slate-900 dark:text-white font-bold text-xs sm:text-sm">
-                <Lock className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600 dark:text-teal-400 shrink-0" />
-                <span>Patient Mobile Number Verification</span>
-              </div>
-              <p className="text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                To access and download your certified diagnostic report, please confirm the registered patient's mobile number.
-              </p>
+              {directAccessEmail ? (
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center space-x-2 text-emerald-900 dark:text-emerald-200 text-xs sm:text-sm font-bold">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span>Direct Access Granted: Verified with Google ({directAccessEmail})</span>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center space-x-2 text-slate-900 dark:text-white font-bold text-xs sm:text-sm">
+                    <Lock className="w-4 h-4 sm:w-5 sm:h-5 text-teal-600 dark:text-teal-400 shrink-0" />
+                    <span>Patient Mobile Number Verification Required</span>
+                  </div>
+                  <p className="text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                    To safeguard personal medical information, please confirm the registered patient's mobile number before accessing the report file.
+                  </p>
+                </>
+              )}
 
               {!isVerified ? (
                 <form onSubmit={handleVerifyPhone} className="max-w-md space-y-2.5 sm:space-y-3">
@@ -236,24 +321,41 @@ export const LabReports: React.FC = () => {
                     value={verifyPhoneInput}
                     onChange={(e) => setVerifyPhoneInput(e.target.value)}
                     placeholder="Enter Registered Mobile Number (e.g. 9841234567)..."
-                    className="w-full px-3.5 sm:px-4 py-2 sm:py-2.5 liquid-glass-input rounded-xl text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    disabled={rateLimitState.isLocked}
+                    className="w-full px-3.5 sm:px-4 py-2 sm:py-2.5 liquid-glass-input rounded-xl text-xs sm:text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-50"
                   />
                   {verifyError && (
                     <p className="text-xs text-rose-600 font-bold">{verifyError}</p>
                   )}
+                  {rateLimitState.isLocked ? (
+                    <div className="p-2.5 bg-rose-100 border border-rose-300 rounded-xl text-rose-800 text-xs font-semibold flex items-center justify-between">
+                      <span>Rate limit exceeded. Too many verification attempts.</span>
+                      <span className="font-mono font-bold">
+                        {Math.floor(cooldownSeconds / 60)}:{(cooldownSeconds % 60).toString().padStart(2, '0')}
+                      </span>
+                    </div>
+                  ) : rateLimitState.attempts > 0 ? (
+                    <p className="text-[11px] text-amber-700 dark:text-amber-400 font-medium">
+                      Attempts remaining: {rateLimitState.remainingAttempts} of {MAX_REPORT_PHONE_ATTEMPTS}
+                    </p>
+                  ) : null}
                   <button
                     type="submit"
-                    disabled={isVerifying}
+                    disabled={isVerifying || rateLimitState.isLocked}
                     className="w-full sm:w-auto px-5 sm:px-6 py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-glass-sm transition-all cursor-pointer active:scale-95 border-t border-white/20"
                   >
-                    {isVerifying ? 'Verifying with Server...' : 'Verify & Unlock Report'}
+                    {isVerifying ? 'Verifying with Server...' : rateLimitState.isLocked ? 'Verification Locked' : 'Verify & Unlock Report'}
                   </button>
                 </form>
               ) : (
                 <div className="space-y-3 sm:space-y-4 pt-1 sm:pt-2">
                   <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center space-x-2 text-emerald-900 dark:text-emerald-300 text-xs font-bold">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    <span className="truncate">Identity Verified: {appointment?.patientName || reports[0]?.patientName}</span>
+                    <span className="truncate">
+                      {directAccessEmail
+                        ? `Identity Verified via Google: ${appointment?.patientName || reports[0]?.patientName}`
+                        : `Identity Verified: ${appointment?.patientName || reports[0]?.patientName}`}
+                    </span>
                   </div>
 
                   {signedUrl ? (

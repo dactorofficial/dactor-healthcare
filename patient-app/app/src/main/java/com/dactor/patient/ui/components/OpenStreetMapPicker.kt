@@ -149,8 +149,17 @@ fun OpenStreetMapPicker(
 
         isFetchingLocation = true
 
+        val isWifiOn = try {
+            val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            wm?.isWifiEnabled == true
+        } catch (e: Exception) { false }
+
         var lastBest: Location? = null
-        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+        val providers = if (isWifiOn) {
+            listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+        } else {
+            listOf(LocationManager.GPS_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+        }
         for (p in providers) {
             try {
                 val loc = locManager.getLastKnownLocation(p)
@@ -166,14 +175,14 @@ fun OpenStreetMapPicker(
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val provider = when {
-                    locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
                     locManager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+                    isWifiOn && locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
                     else -> LocationManager.PASSIVE_PROVIDER
                 }
                 locManager.getCurrentLocation(provider, null, context.mainExecutor) { liveLoc ->
                     if (liveLoc != null) {
                         applyLocationResult(liveLoc.latitude, liveLoc.longitude)
-                    } else if (provider == LocationManager.GPS_PROVIDER && locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                    } else if (provider == LocationManager.GPS_PROVIDER && isWifiOn && locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                         locManager.getCurrentLocation(LocationManager.NETWORK_PROVIDER, null, context.mainExecutor) { netLoc ->
                             if (netLoc != null) {
                                 applyLocationResult(netLoc.latitude, netLoc.longitude)
@@ -196,10 +205,10 @@ fun OpenStreetMapPicker(
                     override fun onProviderEnabled(p: String) {}
                     override fun onProviderDisabled(p: String) {}
                 }
-                if (locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                    locManager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER, listener, Looper.getMainLooper())
-                } else if (locManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                if (locManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                     locManager.requestSingleUpdate(LocationManager.GPS_PROVIDER, listener, Looper.getMainLooper())
+                } else if (isWifiOn && locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                    locManager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER, listener, Looper.getMainLooper())
                 }
             }
         } catch (e: Exception) {

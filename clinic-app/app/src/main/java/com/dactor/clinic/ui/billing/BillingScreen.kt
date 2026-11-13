@@ -1238,7 +1238,8 @@ fun BillingScreen(
                                 totalPaidCalc > 0.0 -> "partial"
                                 else -> "pending"
                             }
-                            val combinedRemarks = PaymentLedgerHelper.buildCombinedRemarks(clinicalRemarks, updatedPayments)
+                            val cleanClinical = PaymentLedgerHelper.extractCleanClinicalRemarks(clinicalRemarks)
+                            val combinedRemarks = PaymentLedgerHelper.buildCombinedRemarks(cleanClinical, updatedPayments)
 
                             val invoice = BillingInvoice(
                                 id = currentInvoice?.id ?: UUID.randomUUID().toString(),
@@ -1344,7 +1345,7 @@ fun BillingScreen(
                                     clinicName = cName,
                                     clinicAddress = cAddr,
                                     doctorName = assignedDoc,
-                                    clinicalRemarks = successDialogInvoice?.remarks ?: clinicalRemarks
+                                    clinicalRemarks = PaymentLedgerHelper.extractCleanClinicalRemarks(successDialogInvoice?.remarks).ifBlank { clinicalRemarks }
                                 )
                             }
                             showSuccessDialog = false

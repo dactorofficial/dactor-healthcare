@@ -398,14 +398,17 @@ object BillPdfDownloader {
         clinicName: String,
         clinicAddress: String,
         periodLabel: String,
-        logs: List<com.dactor.clinic.data.model.UnifiedPaymentLogEntry>
+        logs: List<com.dactor.clinic.data.model.UnifiedPaymentLogEntry>,
+        expenses: List<com.dactor.clinic.data.model.ClinicExpense> = emptyList()
     ) {
         try {
             val gross = logs.sumOf { it.amount }
             val followups = logs.count { !it.isNewPatientForDoctor }
             val newPatients = logs.count { it.isNewPatientForDoctor }
-            val platformCut = kotlin.math.round(gross * 0.05)
-            val netPayout = gross - platformCut
+            val platformCommission = logs.sumOf { it.serviceChargeAmount }
+            val netPayout = gross - platformCommission
+            val totalExpenses = expenses.sumOf { it.amount }
+            val netProfit = netPayout - totalExpenses
 
             val pdfDocument = PdfDocument()
             val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create() // A4 Portrait
@@ -424,7 +427,7 @@ object BillPdfDownloader {
             }
             val subHeaderPaint = Paint().apply {
                 color = Color.rgb(204, 251, 241)
-                textSize = 10.5f
+                textSize = 10f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
                 isAntiAlias = true
             }
@@ -455,6 +458,12 @@ object BillPdfDownloader {
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 isAntiAlias = true
             }
+            val expenseValuePaint = Paint().apply {
+                color = Color.rgb(225, 29, 72) // Rose 600
+                textSize = 13f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                isAntiAlias = true
+            }
             val textPaint = Paint().apply {
                 color = Color.rgb(51, 65, 85)
                 textSize = 9.5f
@@ -470,7 +479,12 @@ object BillPdfDownloader {
             canvas.drawRect(0f, 0f, 595f, 85f, headerPaint)
             canvas.drawText(clinicName.ifBlank { "Dactor Medical Clinic" }, 36f, 32f, titlePaint)
             canvas.drawText(clinicAddress.ifBlank { "Kathmandu, Nepal" }, 36f, 48f, subHeaderPaint)
-            canvas.drawText("OFFICIAL FINANCIAL AUDIT STATEMENT \u2022 $periodLabel", 36f, 66f, subHeaderPaint)
+            canvas.drawText(
+                "OFFICIAL FINANCIAL STATEMENT \u2022 $periodLabel \u2022 New: +$newPatients \u2022 Free Follow-ups: $followups",
+                36f,
+                66f,
+                subHeaderPaint
+            )
 
             var y = 108f
 
@@ -487,26 +501,26 @@ object BillPdfDownloader {
             canvas.drawText("GROSS COLLECTIONS", curX + 8f, y + 16f, labelPaint)
             canvas.drawText("Rs. ${gross.toInt()}", curX + 8f, y + 36f, boldValuePaint)
 
-            // Box 2: Free Follow-ups
+            // Box 2: Total Clinic Expenses
             curX += boxW + gap
             canvas.drawRoundRect(curX, y, curX + boxW, y + boxH, 8f, 8f, cardBgPaint)
             canvas.drawRoundRect(curX, y, curX + boxW, y + boxH, 8f, 8f, cardBorderPaint)
-            canvas.drawText("FREE FOLLOW-UPS", curX + 8f, y + 16f, labelPaint)
-            canvas.drawText("$followups (Rs. 0)", curX + 8f, y + 36f, valuePaint)
+            canvas.drawText("CLINIC EXPENSES", curX + 8f, y + 16f, labelPaint)
+            canvas.drawText("Rs. ${totalExpenses.toInt()}", curX + 8f, y + 36f, if (totalExpenses > 0) expenseValuePaint else valuePaint)
 
-            // Box 3: New Patients
+            // Box 3: Commission Accrual
             curX += boxW + gap
             canvas.drawRoundRect(curX, y, curX + boxW, y + boxH, 8f, 8f, cardBgPaint)
             canvas.drawRoundRect(curX, y, curX + boxW, y + boxH, 8f, 8f, cardBorderPaint)
-            canvas.drawText("NEW PATIENTS", curX + 8f, y + 16f, labelPaint)
-            canvas.drawText("+$newPatients Seen", curX + 8f, y + 36f, valuePaint)
+            canvas.drawText("DESK COMMISSION", curX + 8f, y + 16f, labelPaint)
+            canvas.drawText("Rs. ${platformCommission.toInt()}", curX + 8f, y + 36f, valuePaint)
 
-            // Box 4: Net Payout
+            // Box 4: Net Clinic Profit
             curX += boxW + gap
             canvas.drawRoundRect(curX, y, curX + boxW, y + boxH, 8f, 8f, cardBgPaint)
             canvas.drawRoundRect(curX, y, curX + boxW, y + boxH, 8f, 8f, cardBorderPaint)
-            canvas.drawText("NET CLINIC (95%)", curX + 8f, y + 16f, labelPaint)
-            canvas.drawText("Rs. ${netPayout.toInt()}", curX + 8f, y + 36f, valuePaint)
+            canvas.drawText("NET CLINIC PROFIT", curX + 8f, y + 16f, labelPaint)
+            canvas.drawText("Rs. ${netProfit.toInt()}", curX + 8f, y + 36f, boldValuePaint)
 
             y += boxH + 24f
 
@@ -579,7 +593,7 @@ object BillPdfDownloader {
             val footerY = 820f
             canvas.drawLine(36f, footerY - 14f, 559f, footerY - 14f, linePaint)
             canvas.drawText(
-                "Generated by Dactor Platform \u2022 System Verified Audit Copy \u2022 Follow-up consultations verified at 0 NPR",
+                "Generated by Dactor Platform \u2022 System Verified Audit Copy \u2022 Pay-at-Desk Commission Accrual: Rs. ${platformCommission.toInt()}",
                 36f,
                 footerY,
                 Paint().apply {

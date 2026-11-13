@@ -167,7 +167,13 @@ import {
   recordPaymentTransaction,
   getLabReportsByTrackingCode,
   requestGuestLabReportUrl,
+  requestGuestLabReportResult,
+  requestDirectLabReportUrl,
   requestAuthorizedDocumentUrl,
+  isUserMatchingPatientEmail,
+  getReportPhoneRateLimitState,
+  clearReportPhoneRateLimit,
+  MAX_REPORT_PHONE_ATTEMPTS,
   getPatientNotifications,
   markNotificationAsRead,
   markAllNotificationsAsRead,
@@ -2455,6 +2461,13 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   const handleExecuteReportVerification = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!verifyingReport) return
+    const trackingCode = verifyingReport.trackingCode10Digit || ''
+    const freshLimit = getReportPhoneRateLimitState(trackingCode)
+    if (freshLimit.isLocked) {
+      setVerificationError(`Too many failed attempts. Verification locked for this tracking code. Please wait ${Math.ceil(freshLimit.remainingSeconds / 60)} minutes.`)
+      return
+    }
+
     const rawInput = verificationInput.trim()
     if (!rawInput) {
       setVerificationError("Please enter the patient's registered mobile number")
@@ -2473,8 +2486,15 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     try {
       let signedUrl: string | null = null
 
-      if (verifyingReport.trackingCode10Digit) {
-        signedUrl = await requestGuestLabReportUrl(verifyingReport.trackingCode10Digit, cleanPhone)
+      if (trackingCode) {
+        const res = await requestGuestLabReportResult(trackingCode, cleanPhone)
+        if (res.signedUrl) {
+          signedUrl = res.signedUrl
+        } else {
+          setVerificationError(res.error || 'Verification failed: Mobile number does not match clinic appointment records.')
+          setIsVerifyingReport(false)
+          return
+        }
       }
 
       if (!signedUrl && verifyingReport.id) {
@@ -2482,6 +2502,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       }
 
       if (signedUrl) {
+        clearReportPhoneRateLimit(trackingCode)
         setUnlockedReportIds((prev) => [...prev, verifyingReport.id])
         setUnlockedReportUrls((prev) => ({ ...prev, [verifyingReport.id]: signedUrl! }))
         window.open(signedUrl, '_blank')
@@ -2503,8 +2524,13 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       return
     }
 
-    if (patientUser?.id) {
-      const signed = await requestAuthorizedDocumentUrl('lab_report', rep.id, rep.reportFileUrl || '')
+    // Direct access if logged-in user matches patient email or profile session
+    const isMatchingEmail = Boolean(patientUser?.email || isUserMatchingPatientEmail((rep as any).patientEmail || (rep as any).appointment?.patient_email))
+    if (patientUser?.id || isMatchingEmail) {
+      let signed = await requestAuthorizedDocumentUrl('lab_report', rep.id, rep.reportFileUrl || '')
+      if (!signed && rep.trackingCode10Digit) {
+        signed = await requestDirectLabReportUrl(rep.trackingCode10Digit, patientUser?.email)
+      }
       if (signed) {
         setUnlockedReportIds((prev) => [...prev, rep.id])
         setUnlockedReportUrls((prev) => ({ ...prev, [rep.id]: signed }))

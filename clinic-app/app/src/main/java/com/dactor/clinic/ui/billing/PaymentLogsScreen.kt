@@ -13,6 +13,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -23,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,9 +65,14 @@ fun PaymentLogsScreen(
     var transactions by remember { mutableStateOf<List<InvoiceTransaction>>(emptyList()) }
     var subscriptions by remember { mutableStateOf<List<ClinicSubscriptionPayment>>(emptyList()) }
     var settlements by remember { mutableStateOf<List<PlatformCommissionSettlement>>(emptyList()) }
+    var expenses by remember { mutableStateOf<List<ClinicExpense>>(emptyList()) }
+
+    // Dialog & delete states for Expenses
+    var showAddExpenseDialog by remember { mutableStateOf(false) }
+    var expenseToDelete by remember { mutableStateOf<ClinicExpense?>(null) }
 
     // Active filters & periods
-    var selectedTab by remember { mutableStateOf(0) } // 0: Ledger, 1: Doctors, 2: 5% & Subscriptions
+    var selectedTab by remember { mutableStateOf(0) } // 0: Ledger, 1: Expenses, 2: Doctors, 3: 5% & Subscriptions
 
     // Period Scope: "daily", "monthly", "yearly", "custom", "all"
     var periodScope by remember { mutableStateOf("daily") }
@@ -112,6 +120,7 @@ fun PaymentLogsScreen(
                 val txs = billingRepository.getTransactionsForClinic(clinicId)
                 val subs = billingRepository.getSubscriptionPaymentsForClinic(clinicId)
                 val sets = billingRepository.getCommissionSettlementsForClinic(clinicId)
+                val exps = billingRepository.getExpensesForClinic(clinicId)
 
                 appointments = appts
                 invoices = invs
@@ -119,6 +128,7 @@ fun PaymentLogsScreen(
                 transactions = txs
                 subscriptions = subs
                 settlements = sets
+                expenses = exps
             } catch (e: Exception) {
                 e.printStackTrace()
                 Toast.makeText(context, "Error loading payment logs: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -193,6 +203,41 @@ fun PaymentLogsScreen(
         }
     }
 
+    // Filtered Expenses
+    val filteredExpenses = remember(
+        expenses, periodScope, selectedDate, selectedMonth, selectedYear,
+        customStartDate, customEndDate, paymentMethodFilter, searchQuery
+    ) {
+        expenses.filter { exp ->
+            // Period scope filter
+            val expDate = exp.expenseDate
+            when (periodScope) {
+                "daily" -> if (expDate != selectedDate) return@filter false
+                "monthly" -> if (!expDate.startsWith(selectedMonth)) return@filter false
+                "yearly" -> if (!expDate.startsWith(selectedYear)) return@filter false
+                "custom" -> if (expDate < customStartDate || expDate > customEndDate) return@filter false
+                "all" -> { /* No date restriction */ }
+            }
+
+            // Payment method filter
+            if (paymentMethodFilter != "all") {
+                if (!exp.paymentMethod.equals(paymentMethodFilter, ignoreCase = true)) return@filter false
+            }
+
+            // Search query
+            if (searchQuery.isNotBlank()) {
+                val q = searchQuery.lowercase()
+                val matchTitle = exp.title.lowercase().contains(q)
+                val matchCat = exp.category.lowercase().contains(q)
+                val matchVoucher = exp.voucherNumber?.lowercase()?.contains(q) == true
+                val matchRemarks = exp.remarks?.lowercase()?.contains(q) == true
+                if (!matchTitle && !matchCat && !matchVoucher && !matchRemarks) return@filter false
+            }
+
+            true
+        }
+    }
+
     // Period display label for reports
     val periodLabel = remember(periodScope, selectedDate, selectedMonth, selectedYear, customStartDate, customEndDate) {
         when (periodScope) {
@@ -206,26 +251,26 @@ fun PaymentLogsScreen(
 
     // Export CSV
     fun exportCsv() {
-        if (filteredLogs.isEmpty()) {
-            Toast.makeText(context, "No payment records match the current filters.", Toast.LENGTH_SHORT).show()
+        if (filteredLogs.isEmpty() && filteredExpenses.isEmpty()) {
+            Toast.makeText(context, "No financial records match the current filters.", Toast.LENGTH_SHORT).show()
             return
         }
         val clinicName = clinicObj?.name ?: "Dactor Partner Clinic"
-        val csv = PaymentLedgerHelper.generatePaymentLogsCsv(filteredLogs, periodLabel, clinicName)
+        val csv = PaymentLedgerHelper.generatePaymentLogsCsv(filteredLogs, periodLabel, clinicName, filteredExpenses)
         val sendIntent = Intent().apply {
             action = Intent.ACTION_SEND
             putExtra(Intent.EXTRA_TEXT, csv)
-            putExtra(Intent.EXTRA_SUBJECT, "Payment-Logs-$periodLabel.csv")
+            putExtra(Intent.EXTRA_SUBJECT, "Financial-Ledger-$periodLabel.csv")
             type = "text/csv"
         }
-        val shareIntent = Intent.createChooser(sendIntent, "Export Payment Logs CSV")
+        val shareIntent = Intent.createChooser(sendIntent, "Export Financial Ledger CSV")
         context.startActivity(shareIntent)
     }
 
     // Export PDF
     fun exportPdf() {
-        if (filteredLogs.isEmpty()) {
-            Toast.makeText(context, "No payment records match the current filters.", Toast.LENGTH_SHORT).show()
+        if (filteredLogs.isEmpty() && filteredExpenses.isEmpty()) {
+            Toast.makeText(context, "No financial records match the current filters.", Toast.LENGTH_SHORT).show()
             return
         }
         val clinicName = clinicObj?.name ?: "Dactor Partner Clinic"
@@ -235,7 +280,8 @@ fun PaymentLogsScreen(
             clinicName = clinicName,
             clinicAddress = clinicAddress,
             periodLabel = periodLabel,
-            logs = filteredLogs
+            logs = filteredLogs,
+            expenses = filteredExpenses
         )
     }
 
@@ -282,6 +328,14 @@ fun PaymentLogsScreen(
                     }
                 },
                 actions = {
+                    // Add Expense Action
+                    IconButton(onClick = { showAddExpenseDialog = true }) {
+                        Icon(
+                            Icons.Default.AddCircleOutline,
+                            contentDescription = "Add Expense",
+                            tint = Color(0xFFE11D48)
+                        )
+                    }
                     // PDF Statement Download Action
                     IconButton(onClick = { exportPdf() }) {
                         Icon(
@@ -307,6 +361,17 @@ fun PaymentLogsScreen(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
             )
+        },
+        floatingActionButton = {
+            if (selectedTab == 1) {
+                ExtendedFloatingActionButton(
+                    onClick = { showAddExpenseDialog = true },
+                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                    text = { Text("Add Expense", fontWeight = FontWeight.Bold) },
+                    containerColor = Color(0xFFE11D48),
+                    contentColor = Color.White
+                )
+            }
         }
     ) { paddingValues ->
         if (isLoading) {
@@ -542,12 +607,14 @@ fun PaymentLogsScreen(
                     }
                 }
 
-                // 4 Clinical KPI Summary Cards (2x2 Grid)
+                // 4 Financial & Clinical KPI Summary Cards (2x2 Grid)
                 val grossCollected = filteredLogs.sumOf { it.amount }
                 val freeFollowupCount = filteredLogs.count { !it.isNewPatientForDoctor }
                 val newPaidCount = filteredLogs.count { it.isNewPatientForDoctor }
-                val platformCut = kotlin.math.round(grossCollected * 0.05)
-                val netClinicPayout = grossCollected - platformCut
+                val platformCommission = filteredLogs.sumOf { it.serviceChargeAmount }
+                val totalExpenses = filteredExpenses.sumOf { it.amount }
+                val netClinicPayout = grossCollected - platformCommission
+                val netClinicProfit = netClinicPayout - totalExpenses
 
                 Column(
                     modifier = Modifier
@@ -555,7 +622,7 @@ fun PaymentLogsScreen(
                         .padding(horizontal = 16.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // Row 1: Collections & Free Follow-ups
+                    // Row 1: Collections & Expenses
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -575,46 +642,50 @@ fun PaymentLogsScreen(
 
                         Card(
                             modifier = Modifier.weight(1f),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF)),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF1F2)),
                             shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, Color(0xFFBFDBFE))
+                            border = BorderStroke(1.dp, Color(0xFFFECDD3))
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
-                                Text("Free Follow-ups", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E40AF))
-                                Text("$freeFollowupCount Free OPD", fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color(0xFF1D4ED8))
-                                Text("Rs. 0 charged (Free consult)", fontSize = 9.sp, color = Color(0xFF2563EB))
+                                Text("Total Expenses", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF9F1239))
+                                Text(CurrencyFormatter.formatNPR(totalExpenses), fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color(0xFFBE123C))
+                                Text("${filteredExpenses.size} logged expenses", fontSize = 9.sp, color = Color(0xFFE11D48))
                             }
                         }
                     }
 
-                    // Row 2: New Patients & Net Payout (95%)
+                    // Row 2: Consultations & Net Clinic Profit
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Card(
                             modifier = Modifier.weight(1f),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF)),
                             shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, Color(0xFFBBF7D0))
+                            border = BorderStroke(1.dp, Color(0xFFBFDBFE))
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
-                                Text("New Paid Patients", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF166534))
-                                Text("+$newPaidCount", fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color(0xFF15803D))
-                                Text("1st consultation billed", fontSize = 9.sp, color = Color(0xFF16A34A))
+                                Text("Patients Consulted", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E40AF))
+                                Text("+$newPaidCount New", fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color(0xFF1D4ED8))
+                                Text("$freeFollowupCount free follow-ups", fontSize = 9.sp, color = Color(0xFF2563EB))
                             }
                         }
 
                         Card(
                             modifier = Modifier.weight(1f),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F3FF)),
+                            colors = CardDefaults.cardColors(containerColor = if (netClinicProfit >= 0) Color(0xFFF5F3FF) else Color(0xFFFFF7ED)),
                             shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, Color(0xFFDDD6FE))
+                            border = BorderStroke(1.dp, if (netClinicProfit >= 0) Color(0xFFDDD6FE) else Color(0xFFFFEDD5))
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
-                                Text("Net Clinic Payout", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF5B21B6))
-                                Text(CurrencyFormatter.formatNPR(netClinicPayout), fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color(0xFF6D28D9))
-                                Text("95% Clinic \u2022 5% Dactor cut", fontSize = 9.sp, color = Color(0xFF7C3AED))
+                                Text("Net Clinic Profit", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (netClinicProfit >= 0) Color(0xFF5B21B6) else Color(0xFF9A3412))
+                                Text(CurrencyFormatter.formatNPR(netClinicProfit), fontSize = 15.sp, fontWeight = FontWeight.Black, color = if (netClinicProfit >= 0) Color(0xFF6D28D9) else Color(0xFFC2410C))
+                                Text(
+                                    if (platformCommission > 0.0) "After desk fees & expenses" else "Gross collections - expenses",
+                                    fontSize = 9.sp,
+                                    color = if (netClinicProfit >= 0) Color(0xFF7C3AED) else Color(0xFFEA580C)
+                                )
                             }
                         }
                     }
@@ -667,7 +738,7 @@ fun PaymentLogsScreen(
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        placeholder = { Text("Search", fontSize = 13.sp) },
+                        placeholder = { Text("Search records, vouchers, categories", fontSize = 13.sp) },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
                         trailingIcon = {
                             if (searchQuery.isNotBlank()) {
@@ -714,17 +785,22 @@ fun PaymentLogsScreen(
                     Tab(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
-                        text = { Text("Ledger (${filteredLogs.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                        text = { Text("Ledger (${filteredLogs.size})", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) }
                     )
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("Doctor Tracker (${doctorAnalytics.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                        text = { Text("Expenses (${filteredExpenses.size})", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) }
                     )
                     Tab(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
-                        text = { Text("Fees & Subs (${subscriptions.size + settlements.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                        text = { Text("Doctor Tracker (${doctorAnalytics.size})", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) }
+                    )
+                    Tab(
+                        selected = selectedTab == 3,
+                        onClick = { selectedTab = 3 },
+                        text = { Text("Fees & Subs (${subscriptions.size + settlements.size})", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) }
                     )
                 }
 
@@ -734,11 +810,16 @@ fun PaymentLogsScreen(
                         logs = filteredLogs,
                         onSelectLog = { selectedLogEntry = it }
                     )
-                    1 -> DoctorTrackerListView(
+                    1 -> ExpensesListView(
+                        expenses = filteredExpenses,
+                        onAddExpense = { showAddExpenseDialog = true },
+                        onDeleteExpense = { expenseToDelete = it }
+                    )
+                    2 -> DoctorTrackerListView(
                         analytics = doctorAnalytics,
                         selectedDoctorId = selectedDoctorId
                     )
-                    2 -> FeesAndSubscriptionView(
+                    3 -> FeesAndSubscriptionView(
                         subscriptions = subscriptions,
                         settlements = settlements
                     )
@@ -839,6 +920,61 @@ fun PaymentLogsScreen(
                     if (!entry.note.isNullOrBlank()) {
                         Text("Notes: ${entry.note}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                }
+            }
+        )
+    }
+
+    // Add Expense Dialog
+    if (showAddExpenseDialog) {
+        AddEditExpenseDialog(
+            initialDate = if (periodScope == "daily") selectedDate else todayStr,
+            onDismiss = { showAddExpenseDialog = false },
+            onSave = { newExpense ->
+                val expenseToSave = newExpense.copy(clinicId = clinicId)
+                coroutineScope.launch {
+                    val saved = billingRepository?.addExpense(expenseToSave)
+                    if (saved != null) {
+                        expenses = listOf(saved) + expenses
+                        showAddExpenseDialog = false
+                        Toast.makeText(context, "✓ Expense logged: ${saved.title}", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Failed to save expense", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        )
+    }
+
+    // Delete Expense Confirmation Dialog
+    if (expenseToDelete != null) {
+        val exp = expenseToDelete!!
+        AlertDialog(
+            onDismissRequest = { expenseToDelete = null },
+            title = { Text("Delete Expense?", fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to delete '${exp.title}' (${CurrencyFormatter.formatNPR(exp.amount)})?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            val success = billingRepository?.deleteExpense(exp.id) ?: false
+                            if (success) {
+                                expenses = expenses.filter { it.id != exp.id }
+                                Toast.makeText(context, "✓ Expense deleted", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Failed to delete expense", Toast.LENGTH_SHORT).show()
+                            }
+                            expenseToDelete = null
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                ) {
+                    Text("Delete", fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { expenseToDelete = null }) {
+                    Text("Cancel")
                 }
             }
         )
@@ -982,6 +1118,458 @@ private fun LedgerListView(
             }
         }
     }
+}
+
+@Composable
+private fun ExpensesListView(
+    expenses: List<ClinicExpense>,
+    onAddExpense: () -> Unit,
+    onDeleteExpense: (ClinicExpense) -> Unit
+) {
+    if (expenses.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color(0xFFFFF1F2),
+                    modifier = Modifier.size(56.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.ReceiptLong,
+                            contentDescription = null,
+                            tint = Color(0xFFE11D48),
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
+                Text(
+                    "No clinic expenses logged for this period.",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "Track petty cash, rent, salaries, utilities, and medical supplies directly in your ledger.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+                Button(
+                    onClick = onAddExpense,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Add First Expense", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(expenses, key = { it.id }) { expense ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        // Left: Icon & Details
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = getExpenseCategoryBgColor(expense.category),
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = getExpenseCategoryIcon(expense.category),
+                                        contentDescription = null,
+                                        tint = getExpenseCategoryTextColor(expense.category),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = expense.title,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = expense.category.replace('_', ' '),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = getExpenseCategoryTextColor(expense.category)
+                                    )
+                                    Text("•", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        text = expense.expenseDate,
+                                        fontSize = 10.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    if (!expense.expenseTime.isNullOrBlank()) {
+                                        Text(
+                                            text = expense.expenseTime,
+                                            fontSize = 10.5.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant
+                                    ) {
+                                        Text(
+                                            text = expense.paymentMethod,
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                    if (!expense.voucherNumber.isNullOrBlank()) {
+                                        Text(
+                                            text = "Ref: #${expense.voucherNumber}",
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                if (!expense.remarks.isNullOrBlank()) {
+                                    Text(
+                                        text = expense.remarks,
+                                        fontSize = 10.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+
+                        // Right: Amount and Delete
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "- ${CurrencyFormatter.formatNPR(expense.amount)}",
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Color(0xFFE11D48)
+                            )
+                            IconButton(
+                                onClick = { onDeleteExpense(expense) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.DeleteOutline,
+                                    contentDescription = "Delete Expense",
+                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddEditExpenseDialog(
+    initialDate: String,
+    onDismiss: () -> Unit,
+    onSave: (ClinicExpense) -> Unit
+) {
+    val context = LocalContext.current
+    var title by remember { mutableStateOf("") }
+    var amountText by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("PETTY_CASH") }
+    var selectedPaymentMethod by remember { mutableStateOf("CASH") }
+    var expenseDate by remember { mutableStateOf(initialDate.ifBlank { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }) }
+    var expenseTime by remember { mutableStateOf(SimpleDateFormat("HH:mm", Locale.US).format(Date())) }
+    var voucherNumber by remember { mutableStateOf("") }
+    var remarks by remember { mutableStateOf("") }
+
+    val categories = listOf(
+        "PETTY_CASH" to "Petty Cash",
+        "MEDICAL_SUPPLIES" to "Medical Supplies",
+        "RENT" to "Rent",
+        "SALARIES" to "Salaries",
+        "UTILITIES" to "Utilities",
+        "EQUIPMENT" to "Equipment",
+        "REFRESHMENTS" to "Refreshments",
+        "OTHER" to "Other"
+    )
+
+    val paymentMethods = listOf("CASH", "FONEPAY", "ESEWA", "KHALTI", "BANK_TRANSFER")
+
+    fun showPicker() {
+        val cal = Calendar.getInstance()
+        try {
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            cal.time = sdf.parse(expenseDate) ?: Date()
+        } catch (_: Exception) {}
+        DatePickerDialog(
+            context,
+            { _, y, m, d ->
+                expenseDate = String.format(Locale.US, "%04d-%02d-%02d", y, m + 1, d)
+            },
+            cal.get(Calendar.YEAR),
+            cal.get(Calendar.MONTH),
+            cal.get(Calendar.DAY_OF_MONTH)
+        ).show()
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color(0xFFFFF1F2),
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.AddCircle,
+                            contentDescription = null,
+                            tint = Color(0xFFE11D48),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                Text("Log Clinic Expense", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Title
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Expense Title *") },
+                    placeholder = { Text("e.g. Syringes & Cotton, Office tea, Electricity") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
+
+                // Amount
+                OutlinedTextField(
+                    value = amountText,
+                    onValueChange = { amountText = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                    label = { Text("Amount (NPR) *") },
+                    placeholder = { Text("0.00") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
+
+                // Category chips
+                Text("Category", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    categories.forEach { (catKey, catLabel) ->
+                        FilterChip(
+                            selected = selectedCategory == catKey,
+                            onClick = { selectedCategory = catKey },
+                            label = { Text(catLabel, fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = getExpenseCategoryBgColor(catKey),
+                                selectedLabelColor = getExpenseCategoryTextColor(catKey)
+                            )
+                        )
+                    }
+                }
+
+                // Payment Method
+                Text("Payment Method", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    paymentMethods.forEach { method ->
+                        FilterChip(
+                            selected = selectedPaymentMethod == method,
+                            onClick = { selectedPaymentMethod = method },
+                            label = { Text(method, fontSize = 11.sp) }
+                        )
+                    }
+                }
+
+                // Date & Time
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { showPicker() },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(expenseDate, fontSize = 11.5.sp)
+                    }
+
+                    OutlinedTextField(
+                        value = expenseTime,
+                        onValueChange = { expenseTime = it },
+                        label = { Text("Time") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                }
+
+                // Voucher / Bill Reference Number
+                OutlinedTextField(
+                    value = voucherNumber,
+                    onValueChange = { voucherNumber = it },
+                    label = { Text("Bill / Voucher No. (Optional)") },
+                    placeholder = { Text("e.g. V-1042") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
+
+                // Remarks
+                OutlinedTextField(
+                    value = remarks,
+                    onValueChange = { remarks = it },
+                    label = { Text("Remarks / Vendor (Optional)") },
+                    placeholder = { Text("e.g. Paid to medical supplier") },
+                    maxLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val trimmedTitle = title.trim()
+                    val amt = amountText.toDoubleOrNull() ?: 0.0
+                    if (trimmedTitle.isBlank()) {
+                        Toast.makeText(context, "Please enter an expense title", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    if (amt <= 0.0) {
+                        Toast.makeText(context, "Please enter a valid expense amount", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+
+                    val expense = ClinicExpense(
+                        clinicId = "",
+                        title = trimmedTitle,
+                        category = selectedCategory,
+                        amount = amt,
+                        paymentMethod = selectedPaymentMethod,
+                        expenseDate = expenseDate,
+                        expenseTime = expenseTime.ifBlank { null },
+                        voucherNumber = voucherNumber.trim().ifBlank { null },
+                        remarks = remarks.trim().ifBlank { null }
+                    )
+                    onSave(expense)
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48))
+            ) {
+                Text("Save Expense", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+private fun getExpenseCategoryIcon(category: String) = when (category.uppercase()) {
+    "PETTY_CASH" -> Icons.Default.Payments
+    "MEDICAL_SUPPLIES" -> Icons.Default.MedicalServices
+    "RENT" -> Icons.Default.Home
+    "SALARIES" -> Icons.Default.People
+    "UTILITIES" -> Icons.Default.Bolt
+    "EQUIPMENT" -> Icons.Default.Build
+    "REFRESHMENTS" -> Icons.Default.LocalCafe
+    else -> Icons.Default.ReceiptLong
+}
+
+private fun getExpenseCategoryBgColor(category: String) = when (category.uppercase()) {
+    "PETTY_CASH" -> Color(0xFFFEF3C7) // Amber 100
+    "MEDICAL_SUPPLIES" -> Color(0xFFE0F2FE) // Sky 100
+    "RENT" -> Color(0xFFEDE9FE) // Violet 100
+    "SALARIES" -> Color(0xFFDCFCE7) // Emerald 100
+    "UTILITIES" -> Color(0xFFFEF9C3) // Yellow 100
+    "EQUIPMENT" -> Color(0xFFF1F5F9) // Slate 100
+    "REFRESHMENTS" -> Color(0xFFFFEDD5) // Orange 100
+    else -> Color(0xFFFEE2E2) // Red 100
+}
+
+private fun getExpenseCategoryTextColor(category: String) = when (category.uppercase()) {
+    "PETTY_CASH" -> Color(0xFFB45309) // Amber 700
+    "MEDICAL_SUPPLIES" -> Color(0xFF0369A1) // Sky 700
+    "RENT" -> Color(0xFF6D28D9) // Violet 700
+    "SALARIES" -> Color(0xFF15803D) // Emerald 700
+    "UTILITIES" -> Color(0xFFA16207) // Yellow 700
+    "EQUIPMENT" -> Color(0xFF475569) // Slate 700
+    "REFRESHMENTS" -> Color(0xFFC2410C) // Orange 700
+    else -> Color(0xFFB91C1C) // Red 700
 }
 
 @Composable

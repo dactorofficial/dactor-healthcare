@@ -60,10 +60,12 @@ fun LabReportScreen(
     var isLoading by remember { mutableStateOf(false) }
     var searchError by remember { mutableStateOf<String?>(null) }
 
-    var verifyMethod by remember { mutableStateOf("name") } // "name" or "phone"
+    var verifyMethod by remember { mutableStateOf("phone") } // "phone" (primary) or "name"
     var enteredVerification by remember { mutableStateOf("") }
     var isUnlocked by remember { mutableStateOf(false) }
     var verificationError by remember { mutableStateOf<String?>(null) }
+    var failedAttempts by remember { mutableStateOf(0) }
+    var lockedUntilMs by remember { mutableStateOf<Long?>(null) }
     var isDownloading by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
 
@@ -130,10 +132,30 @@ fun LabReportScreen(
             }
 
             currentReport = foundReport
-            // Always require explicit Name or Mobile Number verification before unlocking
-            isUnlocked = false
             enteredVerification = ""
             verificationError = null
+
+            // Check if patient email matches active logged-in Google user email: Direct Access without confirmation!
+            val patEmail = matchedAppt?.patientEmail?.trim()?.lowercase()
+            val savedEmail = sessionManager?.getSavedEmail()?.trim()?.lowercase()
+            val fbUserEmail = try {
+                com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.email?.trim()?.lowercase()
+            } catch (_: Exception) { null }
+            val activeUserEmail = when {
+                !fbUserEmail.isNullOrBlank() -> fbUserEmail
+                !savedEmail.isNullOrBlank() -> savedEmail
+                else -> null
+            }
+
+            if (!patEmail.isNullOrBlank() && activeUserEmail != null && activeUserEmail == patEmail) {
+                // Direct access granted without confirmation!
+                isUnlocked = true
+                statusMessage = "Verified via Google Account ($activeUserEmail) — Direct Access Granted"
+            } else {
+                // Not logged in or email mismatch: confirm with mobile number!
+                isUnlocked = false
+                verifyMethod = "phone"
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             searchError = "Could not fetch lab report. Please check your code."
@@ -156,6 +178,18 @@ fun LabReportScreen(
 
     fun verifyPatient() {
         val report = currentReport ?: return
+        val now = System.currentTimeMillis()
+        val lockedUntil = lockedUntilMs
+        if (lockedUntil != null && now < lockedUntil) {
+            val remainingMin = kotlin.math.max(1, ((lockedUntil - now) / 60000).toInt())
+            verificationError = "Too many failed attempts. Rate limit exceeded. Please wait $remainingMin minute(s) before trying again."
+            return
+        }
+        if (lockedUntil != null && now >= lockedUntil) {
+            lockedUntilMs = null
+            failedAttempts = 0
+        }
+
         val rawInput = enteredVerification.trim()
         if (rawInput.isEmpty()) {
             verificationError = if (verifyMethod == "name") {
@@ -175,8 +209,18 @@ fun LabReportScreen(
             ) {
                 isUnlocked = true
                 verificationError = null
+                failedAttempts = 0
+                lockedUntilMs = null
             } else {
-                verificationError = "Name does not match records. Please check spelling."
+                val newCount = failedAttempts + 1
+                failedAttempts = newCount
+                if (newCount >= 5) {
+                    lockedUntilMs = System.currentTimeMillis() + 15 * 60 * 1000L
+                    verificationError = "Too many failed attempts. Rate limit exceeded. Please wait 15 minutes before trying again."
+                } else {
+                    val remaining = 5 - newCount
+                    verificationError = "Name does not match records. ($remaining attempt${if (remaining == 1) "" else "s"} remaining)"
+                }
             }
         } else {
             val enteredDigits = rawInput.filter { it.isDigit() }
@@ -189,8 +233,18 @@ fun LabReportScreen(
             ) {
                 isUnlocked = true
                 verificationError = null
+                failedAttempts = 0
+                lockedUntilMs = null
             } else {
-                verificationError = "Mobile number does not match the appointment record."
+                val newCount = failedAttempts + 1
+                failedAttempts = newCount
+                if (newCount >= 5) {
+                    lockedUntilMs = System.currentTimeMillis() + 15 * 60 * 1000L
+                    verificationError = "Too many failed attempts. Rate limit exceeded. Please wait 15 minutes before trying again."
+                } else {
+                    val remaining = 5 - newCount
+                    verificationError = "Mobile number does not match the appointment record. ($remaining attempt${if (remaining == 1) "" else "s"} remaining)"
+                }
             }
         }
     }
@@ -525,12 +579,16 @@ fun LabReportScreen(
 
                             Button(
                                 onClick = { verifyPatient() },
+                                enabled = lockedUntilMs == null || System.currentTimeMillis() >= lockedUntilMs!!,
                                 modifier = Modifier.fillMaxWidth().height(48.dp),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
                                 Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text("Verify & Unlock Report", fontWeight = FontWeight.Bold)
+                                Text(
+                                    if (lockedUntilMs != null && System.currentTimeMillis() < lockedUntilMs!!) "Verification Locked" else "Verify & Unlock Report",
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
@@ -556,6 +614,22 @@ fun LabReportScreen(
                             modifier = Modifier.padding(18.dp),
                             verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
+                            if (!statusMessage.isNullOrBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFF10B981).copy(alpha = 0.15f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF047857), modifier = Modifier.size(18.dp))
+                                        Text(statusMessage ?: "", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF047857))
+                                    }
+                                }
+                            }
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
                                 color = Color(0xFF10B981).copy(alpha = 0.15f),

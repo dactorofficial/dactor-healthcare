@@ -1554,6 +1554,45 @@ REVOKE ALL ON FUNCTION public.get_public_queue_status(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_public_queue_status(TEXT) TO anon, authenticated, service_role;
 
 -- 9.2 Server-Side Exact 10-Digit Phone Verification for Guest Identity
+CREATE OR REPLACE FUNCTION public.check_tracking_rate_limit_available(
+    p_scope TEXT,
+    p_code TEXT,
+    p_limit INTEGER DEFAULT 5,
+    p_window_seconds INTEGER DEFAULT 900
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, private
+AS $$
+DECLARE
+    v_hash TEXT;
+    v_window TIMESTAMPTZ;
+    v_count INTEGER;
+BEGIN
+    IF p_scope IS NULL OR p_code IS NULL OR p_limit < 1 OR p_limit > 1000
+       OR p_window_seconds < 30 OR p_window_seconds > 86400 THEN
+        RETURN FALSE;
+    END IF;
+    v_hash := md5(p_scope || ':' || p_code);
+    v_window := to_timestamp(
+        floor(extract(epoch FROM clock_timestamp()) / p_window_seconds) * p_window_seconds
+    );
+    SELECT hit_count INTO v_count
+    FROM private.security_rate_limits
+    WHERE key_hash = v_hash AND window_start = v_window;
+
+    IF NOT FOUND THEN
+        RETURN TRUE;
+    END IF;
+
+    RETURN v_count < p_limit;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.check_tracking_rate_limit_available(TEXT, TEXT, INTEGER, INTEGER) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.check_tracking_rate_limit_available(TEXT, TEXT, INTEGER, INTEGER) TO anon, authenticated, service_role;
+
 CREATE OR REPLACE FUNCTION public.verify_guest_appointment_identity(
     p_tracking_code TEXT,
     p_patient_phone TEXT
@@ -1570,7 +1609,7 @@ DECLARE
 BEGIN
     IF length(v_phone) <> 10
        OR (v_clean_code !~ '^[0-9]{10}$' AND v_clean_code !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
-       OR NOT private.consume_tracking_rate_limit('guest-identity', v_clean_code, 10, 900) THEN
+       OR NOT private.consume_tracking_rate_limit('guest-identity', v_clean_code, 5, 900) THEN
         RETURN FALSE;
     END IF;
 
