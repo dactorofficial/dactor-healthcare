@@ -179,11 +179,18 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       const cachedRaw = sessionStorage.getItem(`dactor_queue_cache_${clean}`)
       if (cachedRaw && !silent) {
         const cached = JSON.parse(cachedRaw)
+        const cachedDate = cached.appointment?.appointmentDate?.trim().slice(0, 10)
+        const nowStr = new Date().toISOString().slice(0, 10)
         if (cached.appointment) setAppointment(cached.appointment)
         if (cached.clinic) setClinic(cached.clinic)
         if (cached.doctor) setDoctor(cached.doctor)
-        if (cached.clinicQueue) setClinicQueue(cached.clinicQueue)
-        if (cached.multiSlotResult) setMultiSlotResult(cached.multiSlotResult)
+        if (cachedDate === nowStr) {
+          if (cached.clinicQueue) setClinicQueue(cached.clinicQueue)
+          if (cached.multiSlotResult) setMultiSlotResult(cached.multiSlotResult)
+        } else {
+          setClinicQueue([])
+          setMultiSlotResult(null)
+        }
         if (cached.labReports) setLabReports(cached.labReports)
         setLoading(false)
       }
@@ -262,6 +269,10 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       if (effectiveAppt) {
         const appt = effectiveAppt
         const effectiveCode = appt.trackingCode10Digit || clean
+        const apptDate = appt.appointmentDate?.trim().slice(0, 10)
+        const nowStr = new Date().toISOString().slice(0, 10)
+        const isToday = apptDate === nowStr
+
         // Fetch clinic details - avoid re-fetching static master data during silent 4s poll
         if (appt.clinicId) {
           const shouldFetchClinic = !silent && (!clinic || clinic.id !== appt.clinicId)
@@ -270,7 +281,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
           const [clinicData, queueList, reportsData, docData] = await Promise.all([
             shouldFetchClinic ? getClinicById(appt.clinicId) : Promise.resolve(clinic),
-            getAppointmentsByClinic(appt.clinicId, appt.appointmentDate),
+            isToday ? getAppointmentsByClinic(appt.clinicId, appt.appointmentDate) : Promise.resolve([]),
             shouldFetchReports ? getLabReportsByTrackingCode(effectiveCode) : Promise.resolve(labReports),
             shouldFetchDoc ? getDoctorById(appt.doctorId!) : Promise.resolve(doctor),
           ])
@@ -280,14 +291,29 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           if (docData && (!doctor || doctor.id !== docData.id)) setDoctor(docData)
 
           let multiSlot = multiSlotResult
-          if (!silent || !multiSlot) {
-            const avgMins = clinicData?.avgConsultationTimeMinutes || clinic?.avgConsultationTimeMinutes || 10
-            try {
-              multiSlot = await calculateMultiSlotDailyPosition(
-                appt.clinicId,
-                appt.doctorId,
-                appt.appointmentDate,
-                appt.id,
+          if (isToday || (apptDate && apptDate > nowStr)) {
+            if (!silent || !multiSlot) {
+              const avgMins = clinicData?.avgConsultationTimeMinutes || clinic?.avgConsultationTimeMinutes || 10
+              try {
+                multiSlot = await calculateMultiSlotDailyPosition(
+                  appt.clinicId,
+                  appt.doctorId,
+                  appt.appointmentDate,
+                  appt.id,
+                  appt.slotId,
+                  appt.appointmentTime,
+                  avgMins
+                )
+                setMultiSlotResult(multiSlot)
+              } catch (e) {
+                console.error('Error calculating multi-slot position:', e)
+                setMultiSlotResult(null)
+              }
+            }
+          } else {
+            multiSlot = null
+            setMultiSlotResult(null)
+          }
                 appt.slotId,
                 appt.appointmentTime,
                 avgMins
@@ -523,17 +549,24 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     [clinicQueue, appointment?.doctorId]
   )
 
+  const apptDateRaw = appointment?.appointmentDate?.trim().slice(0, 10) || ''
+  const todayStr = useMemo(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  }, [])
+
+  const isAppointmentToday = Boolean(apptDateRaw && apptDateRaw === todayStr)
+  const isPastAppointment = Boolean(apptDateRaw && apptDateRaw < todayStr && !isAppointmentToday)
+
   // Check if the appointment is tomorrow or a future date
   const isFutureOrTomorrow = useMemo(() => {
+    if (isPastAppointment || isAppointmentToday) return false
     if (multiSlotResult) {
       return multiSlotResult.isTomorrow || multiSlotResult.isFutureDate
     }
-    if (!appointment?.appointmentDate) return false
-    const apptDate = appointment.appointmentDate.trim().slice(0, 10)
-    const now = new Date()
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-    return apptDate > todayStr
-  }, [multiSlotResult, appointment?.appointmentDate])
+    if (!apptDateRaw) return false
+    return apptDateRaw > todayStr
+  }, [multiSlotResult, apptDateRaw, todayStr, isPastAppointment, isAppointmentToday])
 
   const dateLabel = useMemo(() => {
     if (multiSlotResult?.dateLabel) return multiSlotResult.dateLabel
@@ -566,10 +599,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   let patientsAhead = 0
   let displayTokenNumber = appointment?.queueNumber || 1
 
-  if (isFutureOrTomorrow) {
+  if (isPastAppointment) {
+    patientsAhead = -1
+    displayTokenNumber = 0
+  } else if (isFutureOrTomorrow) {
     patientsAhead = multiSlotResult ? Math.max(0, multiSlotResult.patientsAheadInDay) : 0
     displayTokenNumber = multiSlotResult?.cumulativePosition || appointment?.queueNumber || 1
-  } else if (appointment) {
+  } else if (appointment && isAppointmentToday) {
     // For today: count active queue patients ahead for this doctor
     const activeWaiting = clinicQueue.filter(
       (a) => {
@@ -602,7 +638,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   }
 
   const clinicAvgMinutes = clinic?.avgConsultationTimeMinutes || 10
-  const estimatedWaitMinutes = Math.max(0, patientsAhead * clinicAvgMinutes)
+  const estimatedWaitMinutes = isPastAppointment ? 0 : Math.max(0, patientsAhead * clinicAvgMinutes)
 
   // Status flags
   const isLabClinic =
@@ -866,11 +902,17 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         setRescheduleMsg('Failed to reschedule. Please pick an open slot or contact clinic reception.')
         return
       }
+      try {
+        sessionStorage.removeItem(`dactor_queue_cache_${activeCode}`)
+        if (appointment.trackingCode10Digit) {
+          sessionStorage.removeItem(`dactor_queue_cache_${appointment.trackingCode10Digit}`)
+        }
+      } catch (_) {}
       setRescheduleMsg('Appointment rescheduled successfully!')
       setTimeout(() => {
         setShowRescheduleModal(false)
         fetchQueueData(activeCode)
-      }, 1200)
+      }, 1000)
     } catch {
       setRescheduleMsg('Failed to reschedule. Please contact clinic reception.')
     } finally {
@@ -1640,7 +1682,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             )}
 
             {/* 3. DOCTOR PRESENCE / AWAY BANNER */}
-            {!isConsultancyCompleted && !isLabClinic && appointment.doctorId && doctor && (
+            {!isConsultancyCompleted && !isPastAppointment && !isLabClinic && appointment.doctorId && doctor && (
               <div
                 className={`p-3.5 rounded-2xl border text-xs flex items-center space-x-2.5 backdrop-blur-sm ${
                   isFutureOrTomorrow
@@ -1683,6 +1725,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                         ? 'bg-blue-500/15 border-blue-500/30'
                         : isConsultancyCompleted
                         ? 'bg-emerald-500/15 border-emerald-500/30'
+                        : isPastAppointment
+                        ? 'bg-slate-500/15 border-slate-500/30'
                         : patientsAhead === 0
                         ? 'bg-emerald-500/15 border-emerald-500/30'
                         : 'bg-teal-500/15 border-teal-500/30'
@@ -1694,6 +1738,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           ? 'bg-gradient-to-tr from-blue-600 to-indigo-600'
                           : isConsultancyCompleted
                           ? 'bg-gradient-to-tr from-emerald-600 to-teal-600'
+                          : isPastAppointment
+                          ? 'bg-gradient-to-tr from-slate-600 to-slate-700'
                           : patientsAhead === 0
                           ? 'bg-gradient-to-tr from-emerald-600 to-teal-600'
                           : 'bg-gradient-to-tr from-teal-600 to-cyan-600'
@@ -1704,6 +1750,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           ? 'CURRENT'
                           : isConsultancyCompleted
                           ? 'VISIT'
+                          : isPastAppointment
+                          ? 'PAST'
                           : isFutureOrTomorrow
                           ? 'LINE NO.'
                           : patientsAhead === 0
@@ -1715,6 +1763,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           ? 'NOW'
                           : isConsultancyCompleted
                           ? '✓'
+                          : isPastAppointment
+                          ? '—'
                           : isFutureOrTomorrow
                           ? `${multiSlotResult?.cumulativePosition || displayTokenNumber}`
                           : `${Math.max(0, patientsAhead)}`}
@@ -1738,6 +1788,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           ? 'text-blue-700 dark:text-blue-300'
                           : isConsultancyCompleted
                           ? 'text-emerald-700 dark:text-emerald-300'
+                          : isPastAppointment
+                          ? 'text-slate-700 dark:text-slate-300'
                           : 'text-slate-900 dark:text-white'
                       }`}
                     >
@@ -1755,6 +1807,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                       ? 'You are in OPD session'
                       : isConsultancyCompleted
                       ? 'Consultation completed'
+                      : isPastAppointment
+                      ? `Past Visit • ${dateLabel}`
                       : isFutureOrTomorrow && patientsAhead === 0
                       ? `1st in line for ${dateLabel}`
                       : isFutureOrTomorrow
@@ -1764,9 +1818,11 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                       : `${patientsAhead} patients ahead`}
                     </h3>
 
-                    <span className="px-2 sm:px-2.5 py-0.5 rounded-md liquid-glass-subtle text-slate-700 dark:text-slate-300 text-[11px] sm:text-xs font-bold">
-                      Token #{displayTokenNumber}{doctor?.fullName && !isLabClinic ? ` • ${doctor.fullName}` : ''}
-                    </span>
+                    {(!isPastAppointment || isConsultancyCompleted) && (
+                      <span className="px-2 sm:px-2.5 py-0.5 rounded-md liquid-glass-subtle text-slate-700 dark:text-slate-300 text-[11px] sm:text-xs font-bold">
+                        Token #{displayTokenNumber}{doctor?.fullName && !isLabClinic ? ` • ${doctor.fullName}` : ''}
+                      </span>
+                    )}
                   </div>
 
                   <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
@@ -1782,12 +1838,22 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                       ? 'Currently with specialist in consultation cabin'
                       : isConsultancyCompleted
                       ? 'Thank you for visiting • Prescription & bill available below'
+                      : isPastAppointment
+                      ? `This visit was scheduled for ${dateLabel}. Live queue tracking is active on the day of appointment.`
                       : isFutureOrTomorrow
                       ? `Scheduled for ${dateLabel} • Approx. ${multiSlotResult?.approxAppointmentTimeText || `${slotStartTimeStr} (±15 min)`}`
                       : slotNoticeText || (patientsAhead === 0
                       ? '0 patients ahead • Please stay close to the consultation cabin'
                       : `${patientsAhead} ahead in line • Est. wait: ~${estimatedWaitMinutes} mins`)}
                   </p>
+
+                  {isPastAppointment && !isConsultancyCompleted && (
+                    <div className="pt-1">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800 text-[11px] font-bold">
+                        <span>⏱ Past Appointment • Click "Reschedule Visit" below to choose an upcoming date</span>
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1854,7 +1920,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="p-4 rounded-2xl liquid-glass-subtle space-y-0.5">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                        {isFutureOrTomorrow ? 'Your Slot' : 'Your Booked Window'}
+                        {isPastAppointment ? 'Past Slot' : isFutureOrTomorrow ? 'Your Slot' : 'Your Booked Window'}
                       </span>
                       <div className="text-base font-black text-slate-900 dark:text-white">
                         {isFutureOrTomorrow
@@ -1864,7 +1930,9 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           : '09:00 AM (±15 min)'}
                       </div>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                        {isFutureOrTomorrow
+                        {isPastAppointment
+                          ? `Visit Date: ${appointment.appointmentDate}`
+                          : isFutureOrTomorrow
                           ? 'Scheduled slot'
                           : suggestedArrivalText || `Date: ${appointment.appointmentDate}`}
                       </span>
@@ -1872,19 +1940,25 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
                     <div className="p-4 rounded-2xl liquid-glass-subtle space-y-0.5 border border-teal-500/30">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300">
-                        {isFutureOrTomorrow
+                        {isPastAppointment
+                          ? 'Tracking Status'
+                          : isFutureOrTomorrow
                           ? 'Scheduled Window'
                           : 'Expected Window'}
                       </span>
                       <div className="text-base font-black text-teal-900 dark:text-teal-200">
-                        {isFutureOrTomorrow && multiSlotResult
+                        {isPastAppointment
+                          ? 'Visit Concluded'
+                          : isFutureOrTomorrow && multiSlotResult
                           ? multiSlotResult.approxAppointmentTimeText
                           : isFutureOrTomorrow
                           ? `${slotStartTimeStr} (±15 min)`
                           : displayWaitText}
                       </div>
                       <span className="text-[11px] text-teal-700 dark:text-teal-400">
-                        {isFutureOrTomorrow && multiSlotResult
+                        {isPastAppointment
+                          ? 'Live tracking closes after appointment date'
+                          : isFutureOrTomorrow && multiSlotResult
                           ? `${multiSlotResult.timeWindowText} (±15 min)`
                           : isFutureOrTomorrow
                           ? 'Staggered arrival window'
