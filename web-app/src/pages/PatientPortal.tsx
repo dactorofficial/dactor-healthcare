@@ -212,6 +212,7 @@ import {
   WebPaymentRecord,
 } from '../utils/paymentLedger'
 import { escapeHtml } from '../utils/html'
+import { setDefaultTabSEO } from '../utils/seo'
 
 // ==========================================
 // CLINIC & DOCTOR PROFILE CARD SUBCOMPONENTS
@@ -364,6 +365,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   })
 
   useEffect(() => {
+    setDefaultTabSEO('patient-portal')
     getSupportUrl().then((url) => {
       if (url) setSupportUrl(url)
     })

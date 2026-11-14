@@ -4,7 +4,7 @@
  * sessionStorage, and application localStorage cache upon logout.
  */
 import { deleteClinicOfflineDb } from '../services/clinicOfflineDb'
-import { signOutFirebase, firebaseSignOut } from '../services/firebase'
+import { signOutFirebase, firebaseSignOut } from '../lib/firebase'
 
 export async function clearAllAppCache(): Promise<void> {
   // 1. Browser CacheStorage API (caches)

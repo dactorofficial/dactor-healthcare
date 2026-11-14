@@ -311,6 +311,38 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
               })
             )
           } catch (_) {}
+
+          // Snapshot diffing for authenticated queue status
+          const prev = lastSnapshotRef.current
+          const newCheckinStatus = appt.checkinStatus
+          const newQueueNum = appt.queueNumber
+          const newCabin = docData?.cabinStatus || doctor?.cabinStatus
+          const newQueueLength = queueList?.length
+
+          const hasChanged = Boolean(
+            (prev.checkinStatus !== undefined || prev.queueNumber !== undefined) && (
+              prev.checkinStatus !== newCheckinStatus ||
+              prev.queueNumber !== newQueueNum ||
+              prev.cabinStatus !== newCabin ||
+              prev.queueLength !== newQueueLength
+            )
+          )
+
+          if (hasChanged && silent) {
+            playChimeSound()
+            setActiveAlert({
+              id: String(Date.now()),
+              title: 'Queue Updated',
+              message: `Queue status changed to ${String(newCheckinStatus || 'UPDATED').toUpperCase()}${newQueueNum ? ` (Token #${newQueueNum})` : ''}`,
+            })
+          }
+
+          lastSnapshotRef.current = {
+            checkinStatus: newCheckinStatus,
+            queueNumber: newQueueNum,
+            cabinStatus: newCabin,
+            queueLength: newQueueLength,
+          }
         }
       } else {
         setMultiSlotResult(null)
@@ -319,6 +351,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     } catch {
       if (!silent) setErrorMsg('Failed to update live queue status. Please try again.')
     } finally {
+      if (silent) isPollingRef.current = false
       if (!silent) setLoading(false)
     }
   }

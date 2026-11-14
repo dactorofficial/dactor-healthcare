@@ -784,15 +784,15 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
 
         {/* Tab 1: Chronological Ledger */}
         {activeTab === 'ledger' && (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto max-h-[calc(100vh-280px)] overflow-y-auto rounded-xl border border-slate-200/80 dark:border-slate-800/80">
             {filteredLogs.length === 0 ? (
               <div className="p-12 text-center text-slate-400 text-xs">
                 No payment transactions found matching the selected period and filters.
               </div>
             ) : (
               <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200/80 dark:border-slate-800/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50 dark:bg-slate-800/40">
+                <thead className="sticky top-0 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md shadow-sm z-10">
+                  <tr className="border-b border-slate-200/80 dark:border-slate-800/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/80 dark:bg-slate-800/80">
                     <th className="py-3 px-4">Date & Time</th>
                     <th className="py-3 px-4">Patient / Tracking Code</th>
                     <th className="py-3 px-4">Doctor & Specialty</th>
