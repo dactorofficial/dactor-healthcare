@@ -2606,6 +2606,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     e.preventDefault()
     if (!pushAlertTargetAppt || !selectedClinic) return
     setSendingPushAlert(true)
+    setAlertedApptIds((prev) => new Set(prev).add(pushAlertTargetAppt.id))
     try {
       const ok = await sendManualNotification(
         pushAlertTargetAppt.id,
@@ -2620,7 +2621,6 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
       )
 
       if (ok) {
-        setAlertedApptIds((prev) => new Set(prev).add(pushAlertTargetAppt.id))
         setPushAlertSentSuccess(true)
         setTimeout(() => {
           setPushAlertModalOpen(false)

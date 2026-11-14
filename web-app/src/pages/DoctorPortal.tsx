@@ -927,6 +927,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   const handleSendPatientAlert = async () => {
     if (!alertTargetAppt || !alertTitle.trim() || !alertMessage.trim()) return
     setSendingAlert(true)
+    setAlertedApptIds((prev) => new Set(prev).add(alertTargetAppt.id))
     try {
       await sendManualNotification(
         alertTargetAppt.id,
@@ -939,7 +940,6 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
         alertTargetAppt.clinicId,
         'arrive_soon'
       )
-      setAlertedApptIds((prev) => new Set(prev).add(alertTargetAppt.id))
       setAlertSuccess(true)
       setTimeout(() => {
         setAlertSuccess(false)

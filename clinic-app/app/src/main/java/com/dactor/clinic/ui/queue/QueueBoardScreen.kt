@@ -2779,8 +2779,10 @@ fun QueueBoardScreen(
                                                             label = if (isAlerted) "Arrive Soon" else "Send Alert",
                                                             icon = if (isAlerted) Icons.Default.DirectionsRun else Icons.Default.Notifications,
                                                             onClick = {
+                                                                val pos = index + 1
+                                                                alertedItemIds = alertedItemIds + item.id
+                                                                notificationSentMessage = "✓ Arrive Soon alert sent to ${item.patientName} (Pos #$pos)."
                                                                 coroutineScope.launch {
-                                                                    val pos = index + 1
                                                                     val peopleAheadCount = liveQueue.take(index).count { it.status == "inside" || it.status == "waiting" }
                                                                     val targetRaw = rawQueueEntries.find { it.id == item.id }
                                                                     val timing = QueueRepository.calculateLiveQueueTimingEstimate(
@@ -2814,10 +2816,7 @@ fun QueueBoardScreen(
                                                                         rightLabel = "Queue Position",
                                                                         type = NotificationType.ARRIVE_SOON.key
                                                                     ) ?: false
-                                                                    if (sentOk) {
-                                                                        alertedItemIds = alertedItemIds + item.id
-                                                                        notificationSentMessage = "✓ Arrive Soon alert sent to ${item.patientName} (Pos #$pos)."
-                                                                    } else {
+                                                                    if (!sentOk) {
                                                                         notificationSentMessage = "⚠ Could not deliver push alert for ${item.patientName}. Please retry."
                                                                     }
                                                                 }

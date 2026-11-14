@@ -1184,7 +1184,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       } else {
         // Position 1 and current time is within slot or slot is over:
         finalExpected = now
-        waitText = 'Arrive Fast'
+        waitText = 'Arrive Soon'
       }
     } else {
       // Patient is at position 2, 3, etc. (patientsAhead > 0)
@@ -1205,14 +1205,14 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     const startWin = new Date(finalExpected.getTime() - 5 * 60000)
     const endWin = new Date(finalExpected.getTime() + 10 * 60000)
 
-    const isArriveFast = waitText === 'Arrive Fast'
+    const isArriveSoon = waitText === 'Arrive Soon' || waitText === 'Arrive Fast'
 
     return {
       effectiveExpectedTime: finalExpected,
-      timeWindowText: isArriveFast ? 'Immediate' : `${fmt(startWin)} – ${fmt(endWin)}`,
-      approxTimeText: isArriveFast ? 'Your turn, arrive fast' : `around ${fmt(finalExpected)}`,
+      timeWindowText: isArriveSoon ? 'Immediate' : `${fmt(startWin)} – ${fmt(endWin)}`,
+      approxTimeText: isArriveSoon ? 'Your turn, arrive soon' : `around ${fmt(finalExpected)}`,
       suggestedArrivalText: arrivalAdvice,
-      slotNoticeText: isArriveFast ? 'You are at position 1! You are next in line — arrive fast.' : notice,
+      slotNoticeText: isArriveSoon ? 'You are at position 1! You are next in line — arrive soon.' : notice,
       displayWaitText: waitText
     }
   }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, clinic?.isOpen, isNoShow, clinic?.weeklyScheduleJson, clinicAvgMinutes, patientsAhead, estimatedWaitMinutes, isFutureOrTomorrow, multiSlotResult, dateLabel, slotStartTimeStr])
