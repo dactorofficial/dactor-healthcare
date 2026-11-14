@@ -74,6 +74,7 @@ export const AverageTime: React.FC<AverageTimeProps> = ({ onSelectClinic }) => {
   }
 
   useEffect(() => {
+    setDefaultTabSEO('average-time')
     loadLiveTelemetry()
 
     const channel = supabase

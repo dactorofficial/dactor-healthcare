@@ -41,6 +41,7 @@ import {
   FlaskConical,
   Lock,
 } from 'lucide-react'
+import { setDefaultTabSEO } from '../utils/seo'
 import {
   Doctor,
   Appointment,

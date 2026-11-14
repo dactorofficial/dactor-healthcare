@@ -1587,127 +1587,122 @@ private fun getExpenseCategoryTextColor(category: String) = when (category.upper
     else -> Color(0xFFB91C1C) // Red 700
 }
 
-@Composable
-private fun DoctorTrackerListView(
+private fun LazyListScope.doctorTrackerListItems(
     analytics: List<DoctorVisitAnalytics>,
     selectedDoctorId: String
 ) {
-    val displayed = remember(analytics, selectedDoctorId) {
-        if (selectedDoctorId == "all") analytics else analytics.filter { it.doctorId == selectedDoctorId }
-    }
+    val displayed = if (selectedDoctorId == "all") analytics else analytics.filter { it.doctorId == selectedDoctorId }
 
     if (displayed.isEmpty()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(32.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("No doctor analytics available.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        item(key = "empty_doctor_analytics") {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("No doctor analytics available.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     } else {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(displayed, key = { it.doctorId }) { doc ->
-                var isExpanded by remember { mutableStateOf(false) }
+        items(displayed, key = { it.doctorId }) { doc ->
+            var isExpanded by remember { mutableStateOf(false) }
 
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(doc.doctorName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text(doc.specialty, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Text(
-                                "Fee: ${CurrencyFormatter.formatNPR(doc.consultationFee)}",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
-                                color = Color(0xFF0D9488)
-                            )
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(doc.doctorName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(doc.specialty, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                        Text(
+                            "Fee: ${CurrencyFormatter.formatNPR(doc.consultationFee)}",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            color = Color(0xFF0D9488)
+                        )
+                    }
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                        // Metric blocks
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
-                                .padding(8.dp),
-                            horizontalArrangement = Arrangement.SpaceAround
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Total", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("${doc.totalVisits}", fontSize = 14.sp, fontWeight = FontWeight.Black)
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("New Patients", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF059669))
-                                Text("+${doc.newPatients}", fontSize = 14.sp, fontWeight = FontWeight.Black, color = Color(0xFF059669))
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Follow-up", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2563EB))
-                                Text("${doc.followupPatients}", fontSize = 14.sp, fontWeight = FontWeight.Black, color = Color(0xFF2563EB))
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("OPD Revenue", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(CurrencyFormatter.formatNPR(doc.totalOpdRevenue), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
+                    // Metric blocks
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                            .padding(8.dp),
+                        horizontalArrangement = Arrangement.SpaceAround
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Total", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("${doc.totalVisits}", fontSize = 14.sp, fontWeight = FontWeight.Black)
                         }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Toggle Expand Daily Breakdowns
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { isExpanded = !isExpanded }
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                if (isExpanded) "Hide Daily & Monthly Breakdown" else "View Daily & Monthly Breakdown (${doc.dailyBreakdown.size} days)",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF0D9488)
-                            )
-                            Icon(
-                                if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = null,
-                                tint = Color(0xFF0D9488),
-                                modifier = Modifier.size(16.dp)
-                            )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("New Patients", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF059669))
+                            Text("+${doc.newPatients}", fontSize = 14.sp, fontWeight = FontWeight.Black, color = Color(0xFF059669))
                         }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Follow-up", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2563EB))
+                            Text("${doc.followupPatients}", fontSize = 14.sp, fontWeight = FontWeight.Black, color = Color(0xFF2563EB))
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("OPD Revenue", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(CurrencyFormatter.formatNPR(doc.totalOpdRevenue), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
 
-                        if (isExpanded) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text("Recent Daily Breakdown:", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            doc.dailyBreakdown.entries.sortedByDescending { it.key }.take(7).forEach { (day, stats) ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 2.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(day, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text("+${stats.newPatients} New", fontSize = 11.sp, color = Color(0xFF059669), fontWeight = FontWeight.Bold)
-                                        Text("${stats.followupPatients} F/U", fontSize = 11.sp, color = Color(0xFF2563EB))
-                                        Text(CurrencyFormatter.formatNPR(stats.totalRevenue), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Toggle Expand Daily Breakdowns
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isExpanded = !isExpanded }
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            if (isExpanded) "Hide Daily & Monthly Breakdown" else "View Daily & Monthly Breakdown (${doc.dailyBreakdown.size} days)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF0D9488)
+                        )
+                        Icon(
+                            if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            tint = Color(0xFF0D9488),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    if (isExpanded) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text("Recent Daily Breakdown:", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        doc.dailyBreakdown.entries.sortedByDescending { it.key }.take(7).forEach { (day, stats) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(day, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("+${stats.newPatients} New", fontSize = 11.sp, color = Color(0xFF059669), fontWeight = FontWeight.Bold)
+                                    Text("${stats.followupPatients} F/U", fontSize = 11.sp, color = Color(0xFF2563EB))
+                                    Text(CurrencyFormatter.formatNPR(stats.totalRevenue), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -1718,20 +1713,19 @@ private fun DoctorTrackerListView(
     }
 }
 
-@Composable
-private fun FeesAndSubscriptionView(
+private fun LazyListScope.feesAndSubscriptionItems(
     subscriptions: List<ClinicSubscriptionPayment>,
     settlements: List<PlatformCommissionSettlement>
 ) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // 5% Platform Commission Section
-        item {
+    // 5% Platform Commission Section
+    item(key = "fees_settlement_section") {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
             Text("5% Pay-at-Desk Platform Service Charges", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Spacer(modifier = Modifier.height(6.dp))
             if (settlements.isEmpty()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -1769,11 +1763,17 @@ private fun FeesAndSubscriptionView(
                 }
             }
         }
+    }
 
-        // Clinic License Subscriptions Section
-        item {
+    // Clinic License Subscriptions Section
+    item(key = "fees_subscription_section") {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
             Text("Clinic Portal License & Renewal Payments", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Spacer(modifier = Modifier.height(6.dp))
             if (subscriptions.isEmpty()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),

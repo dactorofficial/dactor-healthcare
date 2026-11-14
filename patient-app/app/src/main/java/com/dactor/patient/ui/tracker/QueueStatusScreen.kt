@@ -416,12 +416,14 @@ fun QueueStatusScreen(
                 val isAppointmentToday = (parsedApptDate?.isEqual(java.time.LocalDate.now()) == true) || (appt.appointmentDate.trim().take(10) == java.time.LocalDate.now().toString())
                 val isTomorrow = parsedApptDate?.isEqual(java.time.LocalDate.now().plusDays(1)) ?: false
                 val isFutureDate = parsedApptDate?.isAfter(java.time.LocalDate.now()) ?: false
+                val isPastDate = (parsedApptDate?.isBefore(java.time.LocalDate.now()) == true) && !isAppointmentToday
                 val isFutureOrTomorrow = !isAppointmentToday && (isTomorrow || isFutureDate || slotResult?.isFutureDate == true || slotResult?.isTomorrow == true)
 
                 // Count queue patients ahead:
                 // For future dates/tomorrow, use multi-slot cumulative day position.
                 // For today, count LIVE queue patients ahead (waiting + inside).
-                if (isPendingClinicApproval) {
+                // For past dates or pending approval, silence live queue countdown and clear token position.
+                if (isPendingClinicApproval || isPastDate) {
                     patientsAhead = -1
                     tokenNumber = 0
                     liveTimingEstimate = null
@@ -1541,7 +1543,8 @@ fun QueueStatusScreen(
                         val isApptDateToday = (parsedDate?.isEqual(java.time.LocalDate.now()) == true) || (apptDateRaw == todayStr)
                         val isTomorrow = (parsedDate?.isEqual(java.time.LocalDate.now().plusDays(1)) == true) || (multiSlotResult?.isTomorrow == true)
                         val isFutureDate = (parsedDate?.isAfter(java.time.LocalDate.now()) == true) || (multiSlotResult?.isFutureDate == true)
-                        val isFutureOrTomorrow = !isApptDateToday && (isTomorrow || isFutureDate || multiSlotResult?.isFutureDate == true || multiSlotResult?.isTomorrow == true)
+                        val isPastDate = (parsedDate?.isBefore(java.time.LocalDate.now()) == true) && !isApptDateToday
+                        val isFutureOrTomorrow = !isApptDateToday && !isPastDate && (isTomorrow || isFutureDate || multiSlotResult?.isFutureDate == true || multiSlotResult?.isTomorrow == true)
                         val isLate = isApptDateToday && (liveTimingEstimate?.isPatientLate == true)
 
                         val resolvedDateLabel = when {
@@ -1567,7 +1570,8 @@ fun QueueStatusScreen(
                                     color = when {
                                         isLate -> Color(0xFFFFE4E6)
                                         queueStatus == "inside" -> Color(0xFFDBEAFE)
-                                        queueStatus == "done" -> Color(0xFFDCFCE7)
+                                        queueStatus == "done" || isConsultancyCompleted -> Color(0xFFDCFCE7)
+                                        isPastDate -> Color(0xFFF1F5F9)
                                         patientsAhead == 0 -> Color(0xFFDCFCE7)
                                         else -> Color(0xFFE0F2FE)
                                     },
@@ -1579,7 +1583,8 @@ fun QueueStatusScreen(
                                     color = when {
                                         isLate -> Color(0xFFE11D48)
                                         queueStatus == "inside" -> Color(0xFF2563EB)
-                                        queueStatus == "done" -> Color(0xFF059669)
+                                        queueStatus == "done" || isConsultancyCompleted -> Color(0xFF059669)
+                                        isPastDate -> Color(0xFF64748B)
                                         patientsAhead == 0 -> Color(0xFF10B981)
                                         else -> Color(0xFF0284C7)
                                     },
@@ -1593,17 +1598,19 @@ fun QueueStatusScreen(
                                         val topBadgeLabel = when {
                                             isLate -> "LATE"
                                             queueStatus == "inside" -> "CURRENT"
-                                            queueStatus == "done" -> "VISIT"
+                                            queueStatus == "done" || isConsultancyCompleted -> "VISIT"
                                             isTomorrow -> "TOMORROW"
                                             isFutureOrTomorrow -> "RANK"
+                                            isPastDate -> "PAST"
                                             patientsAhead == 0 -> "UP NEXT"
                                             else -> "POSITION"
                                         }
                                         val mainBadgeText = when {
                                             isLate -> "!"
                                             queueStatus == "inside" -> "NOW"
-                                            queueStatus == "done" -> "✓"
+                                            queueStatus == "done" || isConsultancyCompleted -> "✓"
                                             isFutureOrTomorrow -> "$resolvedRankNumber"
+                                            isPastDate -> "\u2014"
                                             patientsAhead >= 0 -> "$patientsAhead"
                                             else -> "\u2014"
                                         }
@@ -1637,14 +1644,16 @@ fun QueueStatusScreen(
                                     Text(
                                         text = when {
                                             isLate -> "Arrive soon, you are late"
-                                            !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow) -> "Loading queue status..."
+                                            !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow && !isPastDate) -> "Loading queue status..."
                                             isLabClinic && isReportReady -> "Status: Prepared"
                                             isLabClinic && isSampleProcessing -> "Status: Processing"
+                                            isLabClinic && isPastDate -> "Past Lab Order \u2022 $resolvedDateLabel"
                                             isLabClinic && patientsAhead == 0 -> "Next for Sample Collection!"
                                             isLabClinic && patientsAhead > 0 -> "$patientsAhead Patients Ahead"
                                             isLabClinic -> "Waiting for Sample Collection"
                                             queueStatus == "inside" -> "You are in OPD session"
-                                            queueStatus == "done" -> "Consultation completed"
+                                            queueStatus == "done" || isConsultancyCompleted -> "Consultation completed"
+                                            isPastDate -> "Past Visit \u2022 $resolvedDateLabel"
                                             isTomorrow -> "Tomorrow \u2022 Position #$resolvedRankNumber in line"
                                             isFutureOrTomorrow -> "$resolvedDateLabel \u2022 Position #$resolvedRankNumber in line"
                                             patientsAhead == 0 -> "You're next in line"
@@ -1658,15 +1667,16 @@ fun QueueStatusScreen(
                                             isLabClinic && isReportReady -> Color(0xFF059669)
                                             isLabClinic && isSampleProcessing -> Color(0xFFD97706)
                                             queueStatus == "inside" -> Color(0xFF2563EB)
-                                            queueStatus == "done" -> Color(0xFF059669)
+                                            queueStatus == "done" || isConsultancyCompleted -> Color(0xFF059669)
                                             isFutureOrTomorrow && !isTomorrow -> Color(0xFF5B21B6)
+                                            isPastDate -> Color(0xFF475569)
                                             else -> Color(0xFF0F172A)
                                         },
                                         modifier = Modifier.weight(1f),
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    if (tokenNumber > 0) {
+                                    if (tokenNumber > 0 && !isPastDate) {
                                         Surface(
                                             shape = RoundedCornerShape(6.dp),
                                             color = Color(0xFFF1F5F9),
@@ -1688,12 +1698,14 @@ fun QueueStatusScreen(
                                 Text(
                                     text = when {
                                         isLate -> "Another patient was called inside \u2022 Please arrive now"
-                                        !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow) -> "Syncing queue details with clinic..."
+                                        !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow && !isPastDate) -> "Syncing queue details with clinic..."
                                         isLabClinic && isReportReady -> "Report Prepared \u2022 Verify Name/Phone to View"
                                         isLabClinic && isSampleProcessing -> "Sample Collected \u2022 Processing in Lab"
+                                        isLabClinic && isPastDate -> "Diagnostic lab order from $resolvedDateLabel. Records saved below."
                                         isLabClinic && patientsAhead == 0 -> "Proceed for sample collection"
                                         queueStatus == "inside" -> "With doctor in consultation room"
-                                        queueStatus == "done" -> "Thank you for visiting"
+                                        queueStatus == "done" || isConsultancyCompleted -> "Completed on $resolvedDateLabel \u2022 Details saved below"
+                                        isPastDate -> "Scheduled on $resolvedDateLabel. Live tracking is active on appointment day."
                                         isTomorrow -> "Scheduled for Tomorrow \u2022 Clinic starts at 08:00 AM"
                                         isFutureOrTomorrow -> "Scheduled for $resolvedDateLabel \u2022 Approx. ${multiSlotResult?.approxAppointmentTimeText ?: (appointment?.appointmentTime ?: "")}"
                                         !liveTimingEstimate?.slotNoticeText.isNullOrBlank() -> liveTimingEstimate!!.slotNoticeText
@@ -1705,6 +1717,40 @@ fun QueueStatusScreen(
                                 )
 
                                 if (isFutureOrTomorrow && !isLate) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (isTomorrow) Color(0xFFE0F2FE) else Color(0xFFEEF2FF),
+                                        border = BorderStroke(1.dp, if (isTomorrow) Color(0xFFBAE6FD) else Color(0xFFC7D2FE)),
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = if (isTomorrow) {
+                                                "📅 Tomorrow \u2022 Position #$resolvedRankNumber in Line"
+                                            } else {
+                                                "📅 $resolvedDateLabel \u2022 Rank #$resolvedRankNumber in Line"
+                                            },
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isTomorrow) Color(0xFF0369A1) else Color(0xFF4338CA),
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                } else if (isPastDate && !isConsultancyCompleted) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFFF8FAFC),
+                                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "⏱ Past Appointment \u2022 Use Reschedule below to pick an upcoming date",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color(0xFF64748B),
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
                                     Surface(
                                         shape = RoundedCornerShape(8.dp),
                                         color = if (isTomorrow) Color(0xFFE0F2FE) else Color(0xFFEEF2FF),

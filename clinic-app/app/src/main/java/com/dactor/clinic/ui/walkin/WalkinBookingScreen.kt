@@ -184,7 +184,7 @@ fun WalkinBookingScreen(
                     patientName = found.patientName
                     mobileNumber = found.patientMobile
                     age = (found.patientAge ?: 30).toString()
-                    selectedGender = found.patientGender?.takeIf { it.isNotBlank() } ?: "Male"
+                    selectedGender = if (found.patientGender?.isNotBlank() == true) found.patientGender else "Male"
                     email = found.patientEmail ?: ""
                     feeAmount = "0"
 
@@ -513,7 +513,7 @@ fun WalkinBookingScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "${returningPatientRecord!!.patientAge ?: parsedAge ?: 30} yrs • ${(returningPatientRecord!!.patientGender ?: "Male").ifBlank { "Male" }}",
+                                    text = "${returningPatientRecord?.patientAge ?: parsedAge ?: 30} yrs • ${returningPatientRecord?.patientGender?.ifBlank { "Male" } ?: "Male"}",
                                     fontSize = 12.sp,
                                     color = Color(0xFF475569)
                                 )

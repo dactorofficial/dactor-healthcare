@@ -713,6 +713,14 @@ class UserSessionManager @Inject constructor(
         }
     }
 
+    fun clearCachedQueueStatus(code: String) {
+        if (code.isBlank()) return
+        prefs.edit()
+            .remove("local_cached_q_${code.trim()}")
+            .remove("local_cached_q_master_${code.trim()}")
+            .apply()
+    }
+
     fun clearSession() {
         val fcm = prefs.getString("fcm_token", null)
         val hasSeen = prefs.getBoolean("has_seen_onboarding", false)

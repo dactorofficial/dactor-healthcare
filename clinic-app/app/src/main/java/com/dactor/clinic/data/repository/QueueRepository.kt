@@ -150,7 +150,7 @@ class QueueRepository @Inject constructor(
         if (clinicId.isBlank()) return@withContext emptyList()
         if (!forceRefresh) {
             val cached = clinicQueueCache[clinicId]
-            if (cached != null && (System.currentTimeMillis() - cached.first) < 15_000L) {
+            if (cached != null && (System.currentTimeMillis() - cached.first) < 1500L) {
                 return@withContext cached.second
             }
         }
@@ -298,7 +298,7 @@ class QueueRepository @Inject constructor(
         if (doctorId.isBlank()) return@withContext emptyList()
         if (!forceRefresh) {
             val cached = doctorQueueCache[doctorId]
-            if (cached != null && (System.currentTimeMillis() - cached.first) < 15_000L) {
+            if (cached != null && (System.currentTimeMillis() - cached.first) < 1500L) {
                 return@withContext cached.second
             }
         }

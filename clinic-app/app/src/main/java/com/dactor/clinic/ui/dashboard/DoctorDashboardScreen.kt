@@ -266,7 +266,7 @@ fun DoctorDashboardScreen(
     LaunchedEffect(doctorId) {
         while (isActive) {
             loadDoctorData()
-            delay(4000L)
+            delay(2000L)
         }
     }
 

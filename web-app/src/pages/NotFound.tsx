@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Compass,
   Home,
@@ -16,6 +16,7 @@ import {
   HelpCircle,
 } from 'lucide-react'
 import { GlassCard, GlassButton, GlassBadge, GlassInput } from '../components/glass'
+import { setDefaultTabSEO } from '../utils/seo'
 
 interface NotFoundProps {
   attemptedPath?: string
@@ -32,6 +33,10 @@ export const NotFound: React.FC<NotFoundProps> = ({
 }) => {
   const [copied, setCopied] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+
+  useEffect(() => {
+    setDefaultTabSEO('404')
+  }, [])
 
   const displayPath =
     attemptedPath ||
