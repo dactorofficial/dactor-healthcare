@@ -906,7 +906,6 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
                   ))}
                 </tbody>
               </table>
-              </div>
             )}
           </div>
         )}
