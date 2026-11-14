@@ -43,7 +43,7 @@ async function generateSEOArtifacts() {
   try {
     const cData = await fetchSupabase(
       'clinics',
-      'select=id,name,type,address_text,specialties,updated_at,verification_status,is_archived,contact_phone,contact_email,description,city,latitude,longitude'
+      'select=id,name,type,address_text,specialties,updated_at,verification_status,is_archived,contact_phone,contact_email,description,latitude,longitude,logo_url,pictures'
     )
     clinics = (cData || []).filter(c => !c.is_archived && c.verification_status !== 'rejected')
   } catch (e) {
@@ -63,7 +63,7 @@ async function generateSEOArtifacts() {
   try {
     const sData = await fetchSupabase(
       'clinic_services',
-      'select=id,clinic_id,service_name,price,category,description&is_available=eq.true'
+      'select=id,clinic_id,service_name,price,description'
     )
     services = sData || []
   } catch (e) {

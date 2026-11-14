@@ -97,9 +97,13 @@ fun QueueStatusScreen(
         }
     }
     val cachedPrewarmQueue = remember(appointmentIdOrCode, cachedPrewarmAppt) {
-        val query = appointmentIdOrCode.trim()
-        sessionManager?.getCachedQueueStatus(query)
-            ?: cachedPrewarmAppt?.let { sessionManager?.getCachedQueueStatus(it.id) }
+        val todayStr = java.time.LocalDate.now().toString()
+        // STRICT: Only prewarm queue status for TODAY'S appointment. NEVER prewarm past or future appointments with stale queue entries!
+        if (cachedPrewarmAppt?.appointmentDate == todayStr) {
+            val query = appointmentIdOrCode.trim()
+            sessionManager?.getCachedQueueStatus(query)
+                ?: cachedPrewarmAppt?.let { sessionManager?.getCachedQueueStatus(it.id) }
+        } else null
     }
     val cachedPrewarmClinic = remember(cachedPrewarmAppt, cachedMaster) {
         cachedMaster?.clinic ?: cachedPrewarmAppt?.clinicId?.takeIf { it.isNotBlank() }?.let {

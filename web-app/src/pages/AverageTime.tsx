@@ -12,6 +12,7 @@ import {
 import { Clinic, Doctor, Appointment } from '../types'
 import { getClinics, getDoctors, getAppointmentsByClinic } from '../services/db'
 import { supabase } from '../lib/supabase'
+import { setDefaultTabSEO } from '../utils/seo'
 
 interface AverageTimeProps {
   onSelectClinic?: (clinicId: string) => void

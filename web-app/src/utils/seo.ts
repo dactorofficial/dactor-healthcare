@@ -27,6 +27,7 @@ export function updatePageSEO(options: {
   description?: string
   canonicalUrl?: string
   ogImage?: string
+  robots?: string
   clinic?: Clinic | null
   doctor?: Doctor | null
   allDoctors?: Doctor[]
@@ -34,7 +35,7 @@ export function updatePageSEO(options: {
   if (typeof document === 'undefined') return
 
   const baseUrl = getBaseUrl()
-  const { title, description, canonicalUrl, ogImage, clinic, doctor, allDoctors } = options
+  const { title, description, canonicalUrl, ogImage, robots, clinic, doctor, allDoctors } = options
 
   // 1. Update Title Tag
   if (title) {
@@ -51,7 +52,14 @@ export function updatePageSEO(options: {
     updateMetaProperty('twitter:description', description)
   }
 
-  // 3. Update Canonical & OpenGraph URL dynamically matching current host
+  // 3. Update Robots Meta Tag
+  if (robots) {
+    updateMetaTag('robots', robots)
+  } else {
+    updateMetaTag('robots', 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1')
+  }
+
+  // 4. Update Canonical & OpenGraph URL dynamically matching current host
   const activeUrl = canonicalUrl || (clinic ? `${baseUrl}/?clinic=${clinic.id}` : baseUrl)
   updateMetaProperty('og:url', activeUrl)
   updateMetaProperty('twitter:url', activeUrl)
@@ -64,18 +72,101 @@ export function updatePageSEO(options: {
   }
   linkCanonical.href = activeUrl
 
-  // 4. Update OpenGraph Image
+  // 5. Update OpenGraph Image
   const clinicImage = clinic?.pictures?.[0] || clinic?.logoUrl
   const resolvedClinicImage = clinicImage ? (resolveStorageUrl(clinicImage, 'clinic_photos') || clinicImage) : undefined
   const imageUrl = ogImage || resolvedClinicImage || `${baseUrl}/app_logo.svg`
   updateMetaProperty('og:image', imageUrl)
   updateMetaProperty('twitter:image', imageUrl)
 
-  // 5. Inject / Update Schema.org JSON-LD Structured Data
+  // 6. Inject / Update Schema.org JSON-LD Structured Data
   if (clinic) {
     injectClinicJsonLd(clinic, doctor, allDoctors)
   } else {
     resetDefaultJsonLd()
+  }
+}
+
+/**
+ * Sets standard SEO metadata for predefined routes across Dactor
+ */
+export function setDefaultTabSEO(tab: string, extra?: { query?: string; code?: string; clinicName?: string }) {
+  const baseUrl = getBaseUrl()
+  switch (tab) {
+    case 'home':
+      updatePageSEO({
+        title: "Dactor - Nepal's Realtime Healthcare OPD Queue, Clinic Portal & Lab Ecosystem",
+        description: "Book doctor appointments online in Nepal, track live OPD clinic token queues in real-time, find specialist doctors, order pathology lab tests (MRI, CT, Blood), and download verified medical reports on Dactor.",
+        canonicalUrl: `${baseUrl}/`
+      })
+      break
+    case 'clinics': {
+      const q = extra?.query
+      const title = q
+        ? `${q} Doctors & Clinics in Nepal | Dactor Booking`
+        : "Find Verified Doctors & Clinics in Nepal | Dactor"
+      const description = q
+        ? `Search top rated ${q} specialist doctors and verified clinics in Kathmandu and across Nepal. Book instant OPD appointments and view consultation fees.`
+        : "Browse verified polyclinics, hospitals, diagnostic pathology centers, and specialist doctors across Kathmandu, Lalitpur, and Nepal."
+      updatePageSEO({
+        title,
+        description,
+        canonicalUrl: q ? `${baseUrl}/?tab=clinics&q=${encodeURIComponent(q)}` : `${baseUrl}/?tab=clinics`
+      })
+      break
+    }
+    case 'live-queue': {
+      const code = extra?.code
+      updatePageSEO({
+        title: code
+          ? `Live OPD Queue Status for Token #${code} | Dactor`
+          : "Live OPD Queue Tracker & Consultation Wait Time | Dactor Nepal",
+        description: "Monitor live hospital and clinic consulting token numbers in real time, current patient in cabin, and estimated wait minutes with your 10-digit tracking code.",
+        canonicalUrl: code ? `${baseUrl}/?tab=live-queue&code=${code}` : `${baseUrl}/?tab=live-queue`
+      })
+      break
+    }
+    case 'lab-reports':
+      updatePageSEO({
+        title: "Download Certified Diagnostic Lab Reports Online | Dactor Nepal",
+        description: "Track your pathology blood test, urine culture, ultrasound, and digital imaging reports online in 3 stages and download verified PDF medical records securely.",
+        canonicalUrl: `${baseUrl}/?tab=lab-reports`
+      })
+      break
+    case 'average-time':
+      updatePageSEO({
+        title: "Live OPD Wait Times & Consultation Telemetry | Dactor Nepal",
+        description: "Real-time doctor consultation durations, patient queue counts, and waiting times across verified medical clinics in Nepal.",
+        canonicalUrl: `${baseUrl}/?tab=average-time`
+      })
+      break
+    case 'support':
+      updatePageSEO({
+        title: "24/7 Patient & Clinic Helpdesk Support | Dactor Nepal",
+        description: "Need help booking an appointment, tracking live OPD queues, or accessing lab results? Submit a support ticket or track existing requests.",
+        canonicalUrl: `${baseUrl}/?page=support`
+      })
+      break
+    case 'portal':
+    case 'doctor-portal':
+    case 'patient-portal':
+    case 'account':
+    case 'records':
+      updatePageSEO({
+        title: tab === 'portal' ? 'Clinic Management Portal | Dactor' : tab === 'doctor-portal' ? 'Doctor Clinical Portal | Dactor' : 'Patient Health Portal | Dactor',
+        description: 'Secure healthcare portal on Dactor.',
+        robots: 'noindex, nofollow'
+      })
+      break
+    case '404':
+      updatePageSEO({
+        title: 'Page Not Found (404) | Dactor Health',
+        description: 'The requested healthcare page could not be found.',
+        robots: 'noindex, nofollow'
+      })
+      break
+    default:
+      break
   }
 }
 

@@ -248,7 +248,20 @@ class AppointmentRepository @Inject constructor(
                     .select { filter { eq("tracking_code_10_digit", clean.uppercase()) } }
                     .decodeList<Appointment>()
             }
-            val appt = appts.maxByOrNull { it.appointmentDate } ?: appts.lastOrNull()
+            if (appts.isEmpty()) return@withContext null
+
+            val todayStr = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kathmandu")).toString()
+            // Priority 1: Active or confirmed appointment for TODAY
+            val activeToday = appts.firstOrNull { 
+                it.appointmentDate == todayStr && it.checkinStatus.lowercase() != "cancelled" && it.status.uppercase() != "CANCELLED"
+            }
+            // Priority 2: Upcoming future appointment (soonest date first)
+            val upcomingFuture = appts.filter { 
+                it.appointmentDate > todayStr && it.checkinStatus.lowercase() != "cancelled" && it.status.uppercase() != "CANCELLED"
+            }.minByOrNull { it.appointmentDate }
+            // Priority 3: Latest past or completed appointment
+            val appt = activeToday ?: upcomingFuture ?: appts.maxByOrNull { it.appointmentDate } ?: appts.last()
+
             if (appt != null) {
                 if (appt.checkinStatus.lowercase() in listOf("done", "completed")) {
                     return@withContext appt.copy(checkinStatus = "completed")
@@ -1202,22 +1215,26 @@ class AppointmentRepository @Inject constructor(
     }
 
     private fun parseRescheduleRpcResult(rawData: String, json: JsonObject?): Boolean {
-        val explicitSuccess = json?.get("success")?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
+        val explicitSuccess = json?.get("success")?.jsonPrimitive?.booleanOrNull
+            ?: json?.get("success")?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
         if (explicitSuccess != null) return explicitSuccess
-        if (json?.get("error") != null) return false
+
+        // Any explicit error code or message signals failure
+        if (json?.get("error") != null || json?.get("code") != null || json?.get("message") != null) {
+            return false
+        }
 
         val trimmed = rawData.trim()
         if (trimmed.equals("false", ignoreCase = true) ||
             trimmed.contains("\"success\":false") ||
-            trimmed.contains("\"success\": false")
+            trimmed.contains("\"success\": false") ||
+            trimmed.isBlank()
         ) {
             return false
         }
-        return trimmed.isBlank() ||
-            trimmed.equals("true", ignoreCase = true) ||
+        return trimmed.equals("true", ignoreCase = true) ||
             trimmed.contains("\"success\":true") ||
-            trimmed.contains("\"success\": true") ||
-            json != null
+            trimmed.contains("\"success\": true")
     }
 
     private fun isMissingRpcSignatureError(err: Throwable): Boolean {
@@ -1249,6 +1266,7 @@ class AppointmentRepository @Inject constructor(
         val resolvedStatus = if (preservePendingApproval) "WAITING_FOR_APPROVAL" else "APPROVED"
 
         // 1. Authoritative SECURITY DEFINER RPC (Live signature first, legacy migration fallback on PGRST202)
+        var rpcSucceeded = false
         try {
             val primaryParams = buildJsonObject {
                 put("p_appointment_id", id)
@@ -1274,50 +1292,63 @@ class AppointmentRepository @Inject constructor(
             }
             val json = try { response.decodeSingleOrNull<JsonObject>() } catch (_: Exception) { null }
             if (parseRescheduleRpcResult(response.data, json)) {
-                return@withContext true
+                rpcSucceeded = true
             }
         } catch (rpcErr: Exception) {
             rpcErr.printStackTrace()
         }
 
-        // 2. Direct database update fallback (whitelisted fields retry if patient privilege trigger rejects restricted fields)
-        try {
+        // 2. Direct database update fallback if RPC didn't succeed
+        if (!rpcSucceeded) {
             try {
-                supabaseClient.postgrest["appointments"]
-                    .update({
-                        set("appointment_date", newDate)
-                        set("appointment_time", normalizedTime)
-                        set("checkin_status", "not_checked_in")
-                        set("status", resolvedStatus)
-                        set("updated_at", java.time.Instant.now().toString())
-                        if (cleanSlotId != null) {
-                            set("slot_id", cleanSlotId)
+                try {
+                    supabaseClient.postgrest["appointments"]
+                        .update({
+                            set("appointment_date", newDate)
+                            set("appointment_time", normalizedTime)
+                            set("checkin_status", "not_checked_in")
+                            set("status", resolvedStatus)
+                            set("consultation_completed_at", null as String?)
+                            set("cancelled_at", null as String?)
+                            set("cancellation_reason", null as String?)
+                            set("updated_at", java.time.Instant.now().toString())
+                            if (cleanSlotId != null) {
+                                set("slot_id", cleanSlotId)
+                            }
+                            if (cleanDocId != null) {
+                                set("doctor_id", cleanDocId)
+                            }
+                        }) {
+                            filter { eq("id", id) }
                         }
-                        if (cleanDocId != null) {
-                            set("doctor_id", cleanDocId)
+                } catch (privilegeErr: Exception) {
+                    // Retry strictly with patient-whitelisted reschedule columns
+                    supabaseClient.postgrest["appointments"]
+                        .update({
+                            set("appointment_date", newDate)
+                            set("appointment_time", normalizedTime)
+                            set("checkin_status", "not_checked_in")
+                            set("consultation_completed_at", null as String?)
+                            set("cancelled_at", null as String?)
+                            set("cancellation_reason", null as String?)
+                            set("updated_at", java.time.Instant.now().toString())
+                            if (cleanSlotId != null) {
+                                set("slot_id", cleanSlotId)
+                            }
+                            if (cleanDocId != null && (existing?.doctorId.isNullOrBlank() || cleanDocId == existing?.doctorId)) {
+                                set("doctor_id", cleanDocId)
+                            }
+                        }) {
+                            filter { eq("id", id) }
                         }
-                    }) {
-                        filter { eq("id", id) }
-                    }
-            } catch (privilegeErr: Exception) {
-                // Retry strictly with patient-whitelisted reschedule columns
-                supabaseClient.postgrest["appointments"]
-                    .update({
-                        set("appointment_date", newDate)
-                        set("appointment_time", normalizedTime)
-                        set("checkin_status", "not_checked_in")
-                        set("updated_at", java.time.Instant.now().toString())
-                        if (cleanSlotId != null) {
-                            set("slot_id", cleanSlotId)
-                        }
-                        if (cleanDocId != null && (existing?.doctorId.isNullOrBlank() || cleanDocId == existing?.doctorId)) {
-                            set("doctor_id", cleanDocId)
-                        }
-                    }) {
-                        filter { eq("id", id) }
-                    }
+                }
+            } catch (fallbackErr: Exception) {
+                fallbackErr.printStackTrace()
+                return@withContext false
             }
+        }
 
+        try {
             if (!oldSlotId.isNullOrBlank() && oldSlotId != cleanSlotId) {
                 reconcileSlotBookedCount(oldSlotId)
             }
