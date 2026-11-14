@@ -80,6 +80,7 @@ import {
   triggerSync,
   subscribeSyncState,
   SyncStatus,
+  syncIndividualPatientRecord,
 } from '../services/clinicSyncManager'
 import {
   syncBackupToGoogleDrive,
@@ -3518,17 +3519,51 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     }
   }
 
-  // Patient Directory Search
+  // Patient Directory Search (with offline IndexedDB fallback & on-demand caching)
   const handlePatientSearch = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!patientSearchQuery.trim() || !selectedClinic) return
 
     setSearchingPatients(true)
+    const cleanQ = patientSearchQuery.trim().toLowerCase()
     try {
-      const results = await searchPatientRecords(selectedClinic.id, patientSearchQuery.trim())
-      setPatientSearchResults(results)
+      let results = await searchPatientRecords(selectedClinic.id, patientSearchQuery.trim())
+      if (results && results.length > 0) {
+        // Cache to local IndexedDB store for offline directory queries
+        try {
+          await putRecords('appointments', results)
+        } catch {}
+      } else if (typeof window !== 'undefined') {
+        // Offline fallback to local IndexedDB store
+        try {
+          const localAppts = await getStore<Appointment>('appointments')
+          results = localAppts.filter(a =>
+            a.clinicId === selectedClinic.id && (
+              a.patientName?.toLowerCase().includes(cleanQ) ||
+              a.patientMobile?.includes(cleanQ) ||
+              a.trackingCode10Digit?.toLowerCase().includes(cleanQ) ||
+              a.id?.toLowerCase().includes(cleanQ)
+            )
+          )
+        } catch {}
+      }
+      setPatientSearchResults(results || [])
     } catch (err) {
-      console.error('Error searching patients:', err)
+      console.error('Error searching patients, falling back to offline store:', err)
+      try {
+        const localAppts = await getStore<Appointment>('appointments')
+        const fallbackResults = localAppts.filter(a =>
+          a.clinicId === selectedClinic.id && (
+            a.patientName?.toLowerCase().includes(cleanQ) ||
+            a.patientMobile?.includes(cleanQ) ||
+            a.trackingCode10Digit?.toLowerCase().includes(cleanQ) ||
+            a.id?.toLowerCase().includes(cleanQ)
+          )
+        )
+        setPatientSearchResults(fallbackResults)
+      } catch {
+        setPatientSearchResults([])
+      }
     } finally {
       setSearchingPatients(false)
     }
@@ -9579,6 +9614,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                     if (nextExpanded) {
                                       // ON-DEMAND LAZY SYNC: Retrieve changeable information (new appointments, bills) for checked patient
                                       try {
+                                        const syncKey = (pat.trackingCodes && pat.trackingCodes[0]) || pat.phone || pat.id
+                                        if (syncKey && selectedClinic?.id) {
+                                          syncIndividualPatientRecord(selectedClinic.id, syncKey).catch(() => {})
+                                        }
                                         const freshData = await refreshPatientChangeableData(
                                           pat.trackingCodes || [],
                                           pat.phone,

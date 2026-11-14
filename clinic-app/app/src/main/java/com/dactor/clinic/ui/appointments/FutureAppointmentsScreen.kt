@@ -1375,4 +1375,3 @@ fun FutureAppointmentsScreen(
             )
         }
     }
-}
