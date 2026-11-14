@@ -401,23 +401,44 @@ export async function getAppointmentByTrackingCode(code: string): Promise<Appoin
       .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
       .eq('tracking_code_10_digit', cleanCode)
       .order('appointment_date', { ascending: false })
-      .limit(1)
-      .maybeSingle()
 
-    if (!data && cleanCode !== cleanCode.toUpperCase()) {
+    if ((!data || data.length === 0) && cleanCode !== cleanCode.toUpperCase()) {
       const res = await supabase
         .from('appointments')
         .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
         .eq('tracking_code_10_digit', cleanCode.toUpperCase())
         .order('appointment_date', { ascending: false })
-        .limit(1)
-        .maybeSingle()
       data = res.data
       error = res.error
     }
 
-    if (error) return null
-    return data ? mapAppointment(data) : null
+    if (error || !data || data.length === 0) return null
+
+    const todayStr = getLocalDateIsoString()
+    const mappedList = data.map(mapAppointment)
+
+    // Priority 1: Active or confirmed appointment for TODAY
+    const activeToday = mappedList.find(
+      (a) =>
+        a.appointmentDate === todayStr &&
+        a.checkinStatus?.toLowerCase() !== 'cancelled' &&
+        a.status?.toUpperCase() !== 'CANCELLED'
+    )
+    if (activeToday) return activeToday
+
+    // Priority 2: Upcoming future appointment (soonest date first)
+    const upcomingFuture = mappedList
+      .filter(
+        (a) =>
+          a.appointmentDate > todayStr &&
+          a.checkinStatus?.toLowerCase() !== 'cancelled' &&
+          a.status?.toUpperCase() !== 'CANCELLED'
+      )
+      .sort((a, b) => a.appointmentDate.localeCompare(b.appointmentDate))[0]
+    if (upcomingFuture) return upcomingFuture
+
+    // Priority 3: Latest past or completed appointment
+    return mappedList[0] || null
   } catch {
     return null
   }
@@ -472,6 +493,34 @@ export async function getAppointmentByTrackingCodeOrContact(identifier: string):
       if (byCode) return byCode
     }
 
+    const pickBestAppointment = (list: any[]) => {
+      const today = getLocalDateIsoString()
+      const mapped = list.map(mapAppointment)
+      const activeToday = mapped.find(
+        (a) =>
+          a.appointmentDate === today &&
+          a.checkinStatus?.toLowerCase() !== 'cancelled' &&
+          a.status?.toUpperCase() !== 'CANCELLED'
+      )
+      if (activeToday) return activeToday
+      const upcoming = mapped
+        .filter(
+          (a) =>
+            a.appointmentDate > today &&
+            a.checkinStatus?.toLowerCase() !== 'cancelled' &&
+            a.status?.toUpperCase() !== 'CANCELLED'
+        )
+        .sort((a, b) => a.appointmentDate.localeCompare(b.appointmentDate))[0]
+      if (upcoming) return upcoming
+      return (
+        mapped.find(
+          (a) =>
+            a.checkinStatus?.toLowerCase() !== 'completed' &&
+            a.checkinStatus?.toLowerCase() !== 'cancelled'
+        ) || mapped[0]
+      )
+    }
+
     // 2. Try Email
     if (clean.includes('@') && clean.includes('.')) {
       const { data, error } = await supabase
@@ -482,8 +531,7 @@ export async function getAppointmentByTrackingCodeOrContact(identifier: string):
         .limit(10)
 
       if (!error && data && data.length > 0) {
-        const active = data.find((a: any) => a.checkin_status !== 'completed' && a.checkin_status !== 'cancelled') || data[0]
-        return mapAppointment(active)
+        return pickBestAppointment(data)
       }
     }
 
@@ -499,8 +547,7 @@ export async function getAppointmentByTrackingCodeOrContact(identifier: string):
         .limit(10)
 
       if (!error && data && data.length > 0) {
-        const active = data.find((a: any) => a.checkin_status !== 'completed' && a.checkin_status !== 'cancelled') || data[0]
-        return mapAppointment(active)
+        return pickBestAppointment(data)
       }
     }
 
@@ -1830,13 +1877,39 @@ export async function shiftAppointmentDate(
       }
 
       const rpcPayload = rpcResult.data as any
-      const explicitFalse = rpcPayload && typeof rpcPayload === 'object' && rpcPayload.success === false
-      if (!rpcResult.error && !explicitFalse) {
+      const isExplicitSuccess =
+        !rpcResult.error &&
+        rpcPayload &&
+        typeof rpcPayload === 'object' &&
+        rpcPayload.success === true
+
+      if (isExplicitSuccess) {
+        // Clear session cache for tracking code so live queue refreshes with authoritative new date
+        try {
+          const code = trackingCode || oldAppt?.tracking_code_10_digit
+          if (code) {
+            sessionStorage.removeItem(`dactor_queue_cache_${code}`)
+          }
+          sessionStorage.removeItem(`dactor_queue_cache_${appointmentId}`)
+        } catch (_) {}
+
+        // Always reconcile slot capacity for old and new slots
+        if (oldAppt?.slot_id && oldAppt.slot_id !== validSlotId) {
+          reconcileSlotBookedCount(oldAppt.slot_id).catch(() => {})
+        }
+        if (validSlotId) {
+          reconcileSlotBookedCount(validSlotId).catch(() => {})
+        }
         return true
       }
-      if (explicitFalse) {
-        console.warn('reschedule_patient_appointment rejected:', rpcPayload?.error || rpcPayload)
-        return false
+
+      const explicitFalse =
+        rpcPayload && typeof rpcPayload === 'object' && rpcPayload.success === false
+      if (explicitFalse && rpcPayload?.error) {
+        console.warn('reschedule_patient_appointment rejected by RPC:', rpcPayload.error)
+        if (/slot.*full|already.*full|cannot be rescheduled/i.test(rpcPayload.error)) {
+          return false
+        }
       }
     } catch (rpcErr) {
       console.warn('reschedule_patient_appointment RPC fallback notice:', rpcErr)
@@ -2006,6 +2079,15 @@ export async function shiftAppointmentDate(
         created_at: new Date().toISOString(),
       })
     } catch {}
+
+    // Clear session cache for tracking code so live queue refreshes with authoritative new date
+    try {
+      const code = trackingCode || oldAppt?.tracking_code_10_digit
+      if (code) {
+        sessionStorage.removeItem(`dactor_queue_cache_${code}`)
+      }
+      sessionStorage.removeItem(`dactor_queue_cache_${appointmentId}`)
+    } catch (_) {}
 
     return true
   } catch (err) {

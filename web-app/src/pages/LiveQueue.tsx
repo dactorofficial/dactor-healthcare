@@ -379,12 +379,12 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     })
   }, [appointment, publicQueueStatus, clinic, isUnlocked])
 
-  // Live auto-refresh every 4 seconds (matching Android QueueStatusScreen.kt)
+  // Live auto-refresh every 2 seconds (matching Android QueueStatusScreen.kt)
   useEffect(() => {
     if (!activeCode) return
     const interval = setInterval(() => {
       fetchQueueData(activeCode, true)
-    }, 4000)
+    }, 2000)
     return () => clearInterval(interval)
   }, [activeCode])
 
