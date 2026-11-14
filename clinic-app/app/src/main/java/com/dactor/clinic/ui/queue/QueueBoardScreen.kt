@@ -46,6 +46,8 @@ import com.dactor.clinic.R
 import com.dactor.clinic.data.model.Appointment
 import com.dactor.clinic.data.model.Clinic
 import com.dactor.clinic.data.model.Doctor
+import com.dactor.clinic.data.model.NotificationTemplate
+import com.dactor.clinic.data.model.NotificationType
 import com.dactor.clinic.data.model.QueueEntry
 import com.dactor.clinic.data.repository.AppointmentRepository
 import com.dactor.clinic.data.repository.BillingRepository

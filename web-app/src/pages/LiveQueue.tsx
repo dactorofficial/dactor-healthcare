@@ -307,7 +307,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         // Fetch clinic details - avoid re-fetching static clinic master data during silent 2s poll,
         // but always fetch doctor to track dynamic cabin status changes (e.g. waiting -> inside).
         if (targetAppt.clinicId) {
-          const shouldFetchClinic = !silent && (!clinic || clinic.id !== targetAppt.clinicId)
+          const shouldFetchClinic = (!silent && (!clinic || clinic.id !== targetAppt.clinicId)) || (requestSeqRef.current % 4 === 0)
           const shouldFetchDoc = Boolean(targetAppt.doctorId)
           const shouldFetchReports = !silent || labReports.length === 0
 
@@ -535,6 +535,18 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         () => {
           if (activeCode) {
             fetchQueueData(activeCode, true)
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'clinics' },
+        (payload) => {
+          const c = payload.new as any
+          if (c && appointment?.clinicId && c.id === appointment.clinicId) {
+            if (activeCode) {
+              fetchQueueData(activeCode, true)
+            }
           }
         }
       )

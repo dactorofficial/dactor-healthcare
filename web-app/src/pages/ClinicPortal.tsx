@@ -146,6 +146,7 @@ import {
   uploadReceiptFile,
   updateDoctorPresence,
   updateClinicBreak,
+  updateClinicOpenStatus,
   searchPatientRecords,
   updateClinic,
   toggleClinicHoliday,
@@ -902,11 +903,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
   const [loading, setLoading] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
-  // Doctor In-Clinic Presence & Clinic Break
+  // Doctor In-Clinic Presence & Clinic Break & Open/Close Status
   const [doctorInClinic, setDoctorInClinic] = useState<boolean>(true)
   const [clinicOnBreak, setClinicOnBreak] = useState<boolean>(false)
+  const [clinicIsOpen, setClinicIsOpen] = useState<boolean>(true)
   const [updatingPresence, setUpdatingPresence] = useState(false)
   const [updatingBreak, setUpdatingBreak] = useState(false)
+  const [updatingOpenStatus, setUpdatingOpenStatus] = useState(false)
+  const [showCloseClinicModal, setShowCloseClinicModal] = useState(false)
 
   // Average Consultation Time Mode & Settings
   const [avgTimeMode, setAvgTimeMode] = useState<'auto' | 'manual'>('auto')
@@ -1293,6 +1297,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
 
   const syncClinicToSettings = (clinicObj: Clinic) => {
     setClinicOnBreak(clinicObj.isOnBreak ?? false)
+    setClinicIsOpen(clinicObj.isOpen !== false)
     setAvgTimeMode((clinicObj.avgTimeMode as any) || 'auto')
     setManualAvgMinutes(clinicObj.manualAvgConsultationTimeMinutes || 10)
     if (clinicObj.weeklyScheduleJson) {
@@ -2439,6 +2444,60 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
       console.error('Error toggling clinic break:', err)
     } finally {
       setUpdatingBreak(false)
+    }
+  }
+
+  // Clinic Open / Closed Status Toggle & Sweep
+  const handleToggleClinicOpen = () => {
+    if (!selectedClinic) return
+    if (clinicIsOpen) {
+      setShowCloseClinicModal(true)
+    } else {
+      handleConfirmReopenClinic()
+    }
+  }
+
+  const handleConfirmReopenClinic = async () => {
+    if (!selectedClinic) return
+    setUpdatingOpenStatus(true)
+    try {
+      const ok = await updateClinicOpenStatus(selectedClinic.id, true)
+      if (ok) {
+        setClinicIsOpen(true)
+        setSelectedClinic({ ...selectedClinic, isOpen: true, closedAt: undefined })
+      }
+    } catch (err) {
+      console.error('Error reopening clinic:', err)
+    } finally {
+      setUpdatingOpenStatus(false)
+    }
+  }
+
+  const handleConfirmCloseClinic = async () => {
+    if (!selectedClinic) return
+    setUpdatingOpenStatus(true)
+    try {
+      const closedAt = new Date().toISOString()
+      const ok = await updateClinicOpenStatus(selectedClinic.id, false)
+      if (ok) {
+        setClinicIsOpen(false)
+        setSelectedClinic({ ...selectedClinic, isOpen: false, closedAt })
+      }
+
+      // Automatically transfer all remaining patients in today's live queue to No-Show
+      const res = await autoTransferUncompletedQueueToNoShow(selectedClinic.id, true)
+
+      // Refresh appointments to reflect No-Show statuses
+      const freshAppts = await getAppointmentsByClinic(selectedClinic.id)
+      if (freshAppts) setAppointments(freshAppts)
+
+      setShowCloseClinicModal(false)
+      alert(`Clinic is now CLOSED. Automatically transferred ${res.count} active patient(s) in the live queue to No-Show.`)
+    } catch (err) {
+      console.error('Error closing clinic and transferring queue:', err)
+      alert('Failed to close clinic. Please try again.')
+    } finally {
+      setUpdatingOpenStatus(false)
     }
   }
 
@@ -5432,6 +5491,25 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           >
             <Coffee className="w-3.5 h-3.5" />
             <span>{clinicOnBreak ? 'On Break' : 'Take Break'}</span>
+          </button>
+
+          {/* Clinic Open / Closed Toggle */}
+          <button
+            onClick={handleToggleClinicOpen}
+            disabled={updatingOpenStatus}
+            className={`flex items-center space-x-1.5 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+              clinicIsOpen
+                ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-500/25'
+                : 'bg-rose-500/15 border-rose-400/40 text-rose-800 dark:text-rose-300 hover:bg-rose-500/25'
+            }`}
+            title={clinicIsOpen ? "Clinic is currently OPEN. Click to close clinic and transfer remaining live queue to No-Show." : "Clinic is currently CLOSED. Click to reopen clinic."}
+          >
+            <span
+              className={`w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full ${
+                clinicIsOpen ? 'bg-emerald-500 animate-pulse shadow-sm shadow-emerald-500/50' : 'bg-rose-500 shadow-sm shadow-rose-500/50'
+              }`}
+            />
+            <span className="font-bold">{clinicIsOpen ? 'Clinic: Open' : 'Clinic: Closed'}</span>
           </button>
 
           {!isLabClinic && (
@@ -13503,6 +13581,83 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                 </GlassButton>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: CLOSE CLINIC & TRANSFER LIVE QUEUE TO NO-SHOW      */}
+      {/* ========================================================= */}
+      {showCloseClinicModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-white/60">
+              <div className="flex items-center space-x-2">
+                <div className="w-9 h-9 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-600 flex items-center justify-center shrink-0">
+                  <AlertCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">
+                    Close Clinic for Today?
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    {selectedClinic?.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCloseClinicModal(false)}
+                disabled={updatingOpenStatus}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-slate-600">
+              <p className="font-semibold text-slate-800">
+                Are you sure you want to mark the clinic as CLOSED for today?
+              </p>
+              <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 space-y-2 text-rose-900">
+                <div className="flex items-start space-x-2">
+                  <span className="font-bold">•</span>
+                  <span>
+                    When any patient live tracks the queue, their screen will immediately display <strong>CLINIC IS CURRENTLY CLOSED</strong>.
+                  </span>
+                </div>
+                <div className="flex items-start space-x-2">
+                  <span className="font-bold">•</span>
+                  <span>
+                    All remaining waiting and inside patients in today's live queue (<strong>{appointments.filter((a) => a.checkinStatus === 'waiting' || a.checkinStatus === 'inside' || a.checkinStatus === 'in_consultation').length} patient(s)</strong>) will automatically be moved to <strong>No-Show</strong>.
+                  </span>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500 italic">
+                You can reopen the clinic at any time by toggling the button back to Open.
+              </p>
+            </div>
+
+            <div className="flex space-x-3 pt-2">
+              <GlassButton
+                type="button"
+                variant="ghost"
+                size="md"
+                onClick={() => setShowCloseClinicModal(false)}
+                disabled={updatingOpenStatus}
+                className="flex-1"
+              >
+                Cancel
+              </GlassButton>
+              <button
+                type="button"
+                onClick={handleConfirmCloseClinic}
+                disabled={updatingOpenStatus}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md transition disabled:opacity-50 cursor-pointer"
+              >
+                {updatingOpenStatus ? 'Closing Clinic...' : 'Confirm & Close Clinic'}
+              </button>
+            </div>
           </div>
         </div>
       )}

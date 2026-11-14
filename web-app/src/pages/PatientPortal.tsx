@@ -2575,7 +2575,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     const ext = isImage ? (targetUrl.includes('.png') ? 'png' : 'jpg') : 'pdf'
     const fileName = buildReportFileName(
       (rep as any).clinicName || 'Dactor_Clinic',
-      patientUser?.full_name || rep.patientName,
+      patientUser?.fullName || (patientUser as any)?.full_name || rep.patientName,
       rep.testName,
       rep.trackingCode10Digit || rep.id,
       ext
@@ -8675,15 +8675,29 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                             <div className="flex items-center space-x-2 shrink-0">
                               {isReady ? (
                                 isUnlocked && unlockedReportUrls[report.id] ? (
-                                  <a
-                                    href={unlockedReportUrls[report.id]}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-xs"
-                                  >
-                                    <Download className="w-3.5 h-3.5" />
-                                    <span>Download</span>
-                                  </a>
+                                  <div className="flex items-center space-x-1.5">
+                                    {isReportDownloadedLocally(report.id) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const localUrl = getCachedBlobUrl(report.id) || unlockedReportUrls[report.id]
+                                          window.open(localUrl, '_blank')
+                                        }}
+                                        className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-xs cursor-pointer"
+                                      >
+                                        <Eye className="w-3.5 h-3.5" />
+                                        <span>View</span>
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDownloadPatientReport(report, unlockedReportUrls[report.id])}
+                                      className="px-3 py-1.5 bg-slate-900 dark:bg-slate-700 hover:bg-purple-600 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-xs cursor-pointer"
+                                    >
+                                      <Download className="w-3.5 h-3.5" />
+                                      <span>{isReportDownloadedLocally(report.id) ? 'Re-download' : 'Download'}</span>
+                                    </button>
+                                  </div>
                                 ) : (
                                   <button
                                     type="button"

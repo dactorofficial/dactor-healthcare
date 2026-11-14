@@ -55,7 +55,8 @@ data class LiveQueueTimingEstimate(
     val suggestedArrivalText: String = "",
     val slotNoticeText: String = "",
     val canOfferEarlyArrival: Boolean = false,
-    val earlyArrivalOfferText: String? = null
+    val earlyArrivalOfferText: String? = null,
+    val isPatientLate: Boolean = false
 )
 
 @Singleton

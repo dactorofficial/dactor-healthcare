@@ -36,14 +36,16 @@ data class NotificationTemplateData(
             leftValue: String,
             rightLabel: String = "Your Appointment Time",
             rightValue: String,
-            trackingCode: String? = null
+            trackingCode: String? = null,
+            statusBadge: String? = null
         ): String {
             val safeLeftLabel = leftLabel.replace("|", "/").replace("]", "")
             val safeLeftVal = leftValue.replace("|", "/").replace("]", "")
             val safeRightLabel = rightLabel.replace("|", "/").replace("]", "")
             val safeRightVal = rightValue.replace("|", "/").replace("]", "")
             val codePart = if (!trackingCode.isNullOrBlank()) "|code=${trackingCode.trim()}" else ""
-            return "${cleanMessage.trim()}\n[[META:leftLabel=$safeLeftLabel|leftVal=$safeLeftVal|rightLabel=$safeRightLabel|rightVal=$safeRightVal$codePart]]"
+            val badgePart = if (!statusBadge.isNullOrBlank()) "|badge=${statusBadge.trim()}" else ""
+            return "${cleanMessage.trim()}\n[[META:leftLabel=$safeLeftLabel|leftVal=$safeLeftVal|rightLabel=$safeRightLabel|rightVal=$safeRightVal$codePart$badgePart]]"
         }
 
         fun fromNotification(title: String, rawMessage: String, type: String = "queue_alert"): NotificationTemplateData {

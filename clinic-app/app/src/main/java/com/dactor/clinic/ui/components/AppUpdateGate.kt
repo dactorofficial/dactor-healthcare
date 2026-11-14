@@ -147,7 +147,7 @@ fun AppUpdateGate(
                         modifier = Modifier.padding(14.dp)
                     ) {
                         Image(
-                            painter = painterResource(id = R.drawable.ic_dactor_logo),
+                            painter = painterResource(id = R.drawable.app_logo),
                             contentDescription = "Dactor Logo",
                             contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxSize()
