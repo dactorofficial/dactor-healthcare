@@ -335,8 +335,9 @@ export class ClinicSyncManager {
   /**
    * Pulls remote delta updates from Supabase tables where updated_at >= last_synced_at,
    * resolving collisions with local IndexedDB via Last-Write-Wins (LWW).
+   * Routine background sync selectively filters appointments strictly to today's date.
    */
-  public async pullRemoteDeltas(clinicId?: string): Promise<SyncPullResult> {
+  public async pullRemoteDeltas(clinicId?: string, syncDate?: string): Promise<SyncPullResult> {
     const targetClinicId = clinicId || this.clinicId;
     if (!this.isOnline) {
       return { pulled: 0 };
@@ -348,6 +349,7 @@ export class ClinicSyncManager {
 
     let pulled = 0;
     const nowIso = new Date().toISOString();
+    const todayStr = syncDate || new Date().toISOString().split('T')[0];
 
     // Fetch all pending mutations to protect newer unpushed local modifications
     let pendingMutations: OutboxMutation[] = [];
@@ -355,8 +357,12 @@ export class ClinicSyncManager {
       pendingMutations = await getPendingMutations('all');
     } catch (_) {}
 
-    // Pull appointments
-    let query = this.remoteDb.from('appointments').select('*').eq('clinic_id', targetClinicId);
+    // Pull appointments strictly scheduled for today during routine sync
+    let query = this.remoteDb
+      .from('appointments')
+      .select('*')
+      .eq('clinic_id', targetClinicId)
+      .eq('appointment_date', todayStr);
     if (lastPull) {
       query = query.gte('updated_at', lastPull);
     }

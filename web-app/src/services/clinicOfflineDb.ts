@@ -566,3 +566,55 @@ export async function setSyncMeta(key: string, value: any): Promise<void> {
   };
   await putRecord<SyncMetaRecord>('sync_meta', record);
 }
+
+// ============================================================================
+// PATIENT DIRECTORY HELPERS
+// ============================================================================
+
+/**
+ * Retrieves a patient record from the patients store by ID.
+ */
+export async function getPatientRecord(id: string): Promise<any> {
+  return getRecord('patients', id);
+}
+
+/**
+ * Upserts a single patient record into the patients store.
+ */
+export async function putPatientRecord(patient: any): Promise<void> {
+  return putRecord('patients', patient);
+}
+
+/**
+ * Upserts multiple patient records into the patients store.
+ */
+export async function putPatientRecords(patients: any[]): Promise<void> {
+  return putRecords('patients', patients);
+}
+
+/**
+ * Retrieves all patient records stored locally, optionally filtered by clinicId.
+ */
+export async function getAllPatients(clinicId?: string): Promise<any[]> {
+  const all = await getStore<any>('patients');
+  if (clinicId) {
+    return all.filter((p) => !p.clinic_id || p.clinic_id === clinicId);
+  }
+  return all;
+}
+
+/**
+ * Searches local patient records by name, phone, or tracking code.
+ */
+export async function searchPatientsOffline(query: string, clinicId?: string): Promise<any[]> {
+  const clean = (query || '').toLowerCase().trim();
+  const patients = await getAllPatients(clinicId);
+  if (!clean) return patients;
+  return patients.filter((p) => {
+    const nameMatch = p.full_name && p.full_name.toLowerCase().includes(clean);
+    const phoneMatch = p.phone && p.phone.includes(clean);
+    const idMatch = p.id && p.id.toLowerCase().includes(clean);
+    return Boolean(nameMatch || phoneMatch || idMatch);
+  });
+}
+
