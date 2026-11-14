@@ -94,6 +94,7 @@ export interface Doctor {
   primaryClinicId?: string
   kycStatus?: string // approved, pending, rejected
   profilePictureUrl?: string
+  cabinStatus?: string
   licenseDocUrl?: string
   certificatesDocUrl?: string
   description?: string

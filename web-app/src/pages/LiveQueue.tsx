@@ -317,7 +317,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           const prev = lastSnapshotRef.current
           const newCheckinStatus = appt.checkinStatus
           const newQueueNum = appt.queueNumber
-          const newCabin = docData?.cabinStatus || doctor?.cabinStatus
+          const newCabin = (docData as any)?.cabinStatus || (doctor as any)?.cabinStatus
           const newQueueLength = queueList?.length
 
           const hasChanged = Boolean(
