@@ -438,6 +438,76 @@ export class ClinicSyncManager {
   }
 
   /**
+   * On-demand selective sync: fetches all appointment and patient records for an individual patient
+   * and persists them to local IndexedDB stores ('appointments' and 'patients').
+   */
+  public async syncIndividualPatientRecord(clinicId: string, patientKey: string): Promise<any> {
+    const clean = (patientKey || '').trim();
+    if (!clean) return null;
+    const targetClinicId = clinicId || this.clinicId;
+
+    try {
+      let res = await this.remoteDb
+        .from('appointments')
+        .select('*')
+        .or(`tracking_code_10_digit.eq.${clean},id.eq.${clean},patient_mobile.eq.${clean}`);
+
+      if (!res?.data || res.data.length === 0) {
+        const byTracking = await this.remoteDb
+          .from('appointments')
+          .select('*')
+          .eq('tracking_code_10_digit', clean);
+        if (byTracking?.data?.length > 0) {
+          res = byTracking;
+        } else {
+          const byId = await this.remoteDb
+            .from('appointments')
+            .select('*')
+            .eq('id', clean);
+          if (byId?.data?.length > 0) {
+            res = byId;
+          } else {
+            const byPhone = await this.remoteDb
+              .from('appointments')
+              .select('*')
+              .eq('patient_mobile', clean);
+            if (byPhone?.data?.length > 0) {
+              res = byPhone;
+            }
+          }
+        }
+      }
+
+      const appointments = res?.data || [];
+      if (Array.isArray(appointments) && appointments.length > 0) {
+        for (const appt of appointments) {
+          if (!appt || !appt.id) continue;
+          await putRecord('appointments', appt);
+
+          const patientId = appt.user_id || appt.patient_id || appt.tracking_code_10_digit || appt.id;
+          const patientRecord = {
+            id: patientId,
+            clinic_id: appt.clinic_id || targetClinicId,
+            full_name: appt.patient_name || appt.name || 'Patient',
+            phone: appt.patient_mobile || appt.patient_phone || appt.phone || '',
+            gender: appt.patient_gender || appt.gender || 'Other',
+            age: appt.patient_age || appt.age || null,
+            email: appt.patient_email || appt.email || null,
+            last_visit_date: appt.appointment_date,
+            updated_at: appt.updated_at || new Date().toISOString(),
+          };
+          await putRecord('patients', patientRecord);
+        }
+        return appointments;
+      }
+      return null;
+    } catch (err) {
+      console.warn('[clinicSyncManager] syncIndividualPatientRecord error:', err);
+      return null;
+    }
+  }
+
+  /**
    * Starts periodic background synchronization timer.
    */
   public start(intervalMs?: number): void {
@@ -579,4 +649,15 @@ export async function setOnlineStatus(online: boolean): Promise<void> {
   if (activeSyncManager) {
     await activeSyncManager.setOnlineStatus(online);
   }
+}
+
+/**
+ * On-demand sync for an individual patient record on the active sync manager.
+ */
+export async function syncIndividualPatientRecord(clinicId: string, patientKey: string): Promise<any> {
+  if (activeSyncManager) {
+    return activeSyncManager.syncIndividualPatientRecord(clinicId, patientKey);
+  }
+  const fallback = new ClinicSyncManager(clinicId || 'default');
+  return fallback.syncIndividualPatientRecord(clinicId, patientKey);
 }
