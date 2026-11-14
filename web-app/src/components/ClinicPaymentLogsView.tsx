@@ -1080,10 +1080,10 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
                 No doctor consultations recorded for {doctorAnalyticsPeriod}.
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto max-h-[calc(100vh-280px)] overflow-y-auto rounded-xl border border-slate-200/80 dark:border-slate-800/80">
                 <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-200/80 dark:border-slate-800/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50 dark:bg-slate-800/40">
+                  <thead className="sticky top-0 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md shadow-sm z-10">
+                    <tr className="border-b border-slate-200/80 dark:border-slate-800/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/80 dark:bg-slate-800/80">
                       <th className="py-3 px-4">Doctor & Specialty</th>
                       <th className="py-3 px-4 text-center">New Patients Seen</th>
                       <th className="py-3 px-4 text-center">Follow-up Patients</th>
@@ -1240,15 +1240,15 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
               </div>
 
               {/* Settlement History Table */}
-              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden max-h-[50vh] overflow-y-auto">
                 {commissionSettlements.length === 0 ? (
                   <div className="p-6 text-center text-xs text-slate-400">
                     No settlements recorded yet. 5% fees accrue automatically as Pay-at-Desk consultations are completed.
                   </div>
                 ) : (
                   <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 dark:bg-slate-800/50 text-[11px] text-slate-400 uppercase">
+                    <thead className="sticky top-0 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md shadow-sm z-10">
+                      <tr className="border-b border-slate-200/80 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-800/80 text-[11px] text-slate-400 uppercase">
                         <th className="py-2.5 px-3">Settlement Date</th>
                         <th className="py-2.5 px-3">Period</th>
                         <th className="py-2.5 px-3">Appointments</th>
@@ -1294,15 +1294,15 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
                 </p>
               </div>
 
-              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden max-h-[50vh] overflow-y-auto">
                 {subscriptionPayments.length === 0 ? (
                   <div className="p-6 text-center text-xs text-slate-400">
                     No renewal receipts on file. When license renewals are completed, they appear here permanently.
                   </div>
                 ) : (
                   <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 dark:bg-slate-800/50 text-[11px] text-slate-400 uppercase">
+                    <thead className="sticky top-0 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md shadow-sm z-10">
+                      <tr className="border-b border-slate-200/80 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-800/80 text-[11px] text-slate-400 uppercase">
                         <th className="py-2.5 px-3">Payment Date</th>
                         <th className="py-2.5 px-3">Plan</th>
                         <th className="py-2.5 px-3">Method & Txn Ref</th>
