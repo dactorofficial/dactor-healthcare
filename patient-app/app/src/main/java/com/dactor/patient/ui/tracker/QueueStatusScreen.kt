@@ -176,6 +176,20 @@ fun QueueStatusScreen(
     var billingInvoice by remember { mutableStateOf<BillingInvoice?>(null) }
     var clinicalRemarks by remember { mutableStateOf<String?>(null) }
     var labReports by remember { mutableStateOf<List<LabReport>>(emptyList()) }
+    var downloadedReportFile by remember { mutableStateOf<java.io.File?>(null) }
+
+    // Check for locally downloaded report file whenever appointment or reports update
+    LaunchedEffect(appointment?.id, labReports.size) {
+        val primaryRep = labReports.firstOrNull { it.stage == "prepared" } ?: labReports.firstOrNull()
+        if (primaryRep != null) {
+            downloadedReportFile = com.dactor.patient.util.LabReportPdfDownloader.findDownloadedReportFile(
+                context = context,
+                report = primaryRep,
+                clinicName = clinicName,
+                patientName = rawPatientName
+            )
+        }
+    }
 
     // Multi-visit clinic history states
     var multiClinicAppointments by remember { mutableStateOf<List<Appointment>>(emptyList()) }
@@ -286,18 +300,21 @@ fun QueueStatusScreen(
                     isSavedToProfile = true
                 }
 
-                // Fetch clinic info (only when missing or on full refresh)
-                if (appt.clinicId.isNotBlank() && (!isDeltaOnly || clinicObj == null)) {
-                    val clinic = clinicRepository?.getClinicById(appt.clinicId, forceRefresh = (clinicObj == null))
-                    clinicObj = clinic
-                    if (clinic != null) {
-                        clinicName = clinic.name
-                        clinicAddress = clinic.addressText ?: "Nepal"
-                        clinicPhone = clinic.contactPhone?.trim() ?: ""
-                        clinicLatitude = clinic.latitude ?: 27.7172
-                        clinicLongitude = clinic.longitude ?: 85.3240
-                        clinicType = clinic.type ?: "single_visit"
-                        clinicAvgTimeMinutes = clinic.getEffectiveAvgMinutes()
+                // Fetch clinic info (only when missing, on full refresh, or periodically during delta poll)
+                if (appt.clinicId.isNotBlank()) {
+                    val shouldRefreshClinic = !isDeltaOnly || clinicObj == null || (System.currentTimeMillis() % 12_000L < 4_500L)
+                    if (shouldRefreshClinic) {
+                        val clinic = clinicRepository?.getClinicById(appt.clinicId, forceRefresh = (clinicObj == null))
+                        if (clinic != null) {
+                            clinicObj = clinic
+                            clinicName = clinic.name
+                            clinicAddress = clinic.addressText ?: "Nepal"
+                            clinicPhone = clinic.contactPhone?.trim() ?: ""
+                            clinicLatitude = clinic.latitude ?: 27.7172
+                            clinicLongitude = clinic.longitude ?: 85.3240
+                            clinicType = clinic.type ?: "single_visit"
+                            clinicAvgTimeMinutes = clinic.getEffectiveAvgMinutes()
+                        }
                     }
                 }
 
@@ -816,7 +833,11 @@ fun QueueStatusScreen(
             report = primaryReport,
             patientName = rawPatientName.ifBlank { "Registered Patient" },
             clinicName = clinicName.ifBlank { "Dactor Diagnostic & Pathology Lab" },
-            doctorName = doctorName.ifBlank { "Certified Pathologist / Lab Technician" }
+            doctorName = doctorName.ifBlank { "Certified Pathologist / Lab Technician" },
+            autoOpen = false,
+            onComplete = { file ->
+                downloadedReportFile = file
+            }
         )
     }
 
@@ -1005,9 +1026,56 @@ fun QueueStatusScreen(
                     }
                 }
 
-                // ── A. CLINIC ON BREAK ALERT BANNER ───────────────────
+                // ── A0. CLINIC CLOSED ALERT BANNER ───────────────────
                 val isPayAtDeskPendingNotice = appointment?.paymentMode == "PAY_AT_DESK" && appointment?.status != "APPROVED"
-                if (!isConsultancyCompleted && !isPayAtDeskPendingNotice && clinicObj?.isOnBreak == true) {
+                val isClinicClosed = clinicObj?.isOpen == false
+                if (!isConsultancyCompleted && !isPayAtDeskPendingNotice && isClinicClosed) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFFFEE2E2),
+                        border = BorderStroke(1.5.dp, Color(0xFFEF4444)),
+                        shadowElevation = 2.dp,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFFEF4444),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Default.Lock,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "CLINIC IS CURRENTLY CLOSED",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF991B1B)
+                                )
+                                Text(
+                                    text = "The clinic has closed for today. Live queue tracking and consultations have concluded.",
+                                    fontSize = 11.5.sp,
+                                    color = Color(0xFFB91C1C),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ── A. CLINIC ON BREAK ALERT BANNER ───────────────────
+                if (!isConsultancyCompleted && !isPayAtDeskPendingNotice && clinicObj?.isOnBreak == true && !isClinicClosed) {
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = Color(0xFFFEE2E2),
@@ -1043,7 +1111,7 @@ fun QueueStatusScreen(
                                 )
                                 val todayBreak = clinicObj?.getTodaySchedule()?.takeIf { it.hasBreak }
                                 val breakTimingStr = if (todayBreak != null && !todayBreak.breakStart.isNullOrBlank() && !todayBreak.breakEnd.isNullOrBlank()) {
-                                    "Scheduled Break: ${todayBreak.breakStart} \u2013 ${todayBreak.breakEnd}. Consultations will resume shortly."
+                                    "Scheduled Break: ${todayBreak.breakStart} \u2013 ${todayBreak.breakEnd}. Consultations resume at ${todayBreak.breakEnd}."
                                 } else {
                                     "Consultations are paused temporarily. Will resume shortly."
                                 }
@@ -1568,6 +1636,7 @@ fun QueueStatusScreen(
                                 Surface(
                                     shape = CircleShape,
                                     color = when {
+                                        isClinicClosed || isNoShow -> Color(0xFFFFE4E6)
                                         isLate -> Color(0xFFFFE4E6)
                                         queueStatus == "inside" -> Color(0xFFDBEAFE)
                                         queueStatus == "done" || isConsultancyCompleted -> Color(0xFFDCFCE7)
@@ -1581,6 +1650,7 @@ fun QueueStatusScreen(
                                 Surface(
                                     shape = CircleShape,
                                     color = when {
+                                        isClinicClosed || isNoShow -> Color(0xFFE11D48)
                                         isLate -> Color(0xFFE11D48)
                                         queueStatus == "inside" -> Color(0xFF2563EB)
                                         queueStatus == "done" || isConsultancyCompleted -> Color(0xFF059669)
@@ -1596,6 +1666,8 @@ fun QueueStatusScreen(
                                         verticalArrangement = Arrangement.Center
                                     ) {
                                         val topBadgeLabel = when {
+                                            isClinicClosed -> "CLOSED"
+                                            isNoShow -> "NO SHOW"
                                             isLate -> "LATE"
                                             queueStatus == "inside" -> "CURRENT"
                                             queueStatus == "done" || isConsultancyCompleted -> "VISIT"
@@ -1606,6 +1678,7 @@ fun QueueStatusScreen(
                                             else -> "POSITION"
                                         }
                                         val mainBadgeText = when {
+                                            isClinicClosed || isNoShow -> "\u2715"
                                             isLate -> "!"
                                             queueStatus == "inside" -> "NOW"
                                             queueStatus == "done" || isConsultancyCompleted -> "✓"
@@ -1643,6 +1716,8 @@ fun QueueStatusScreen(
                                 ) {
                                     Text(
                                         text = when {
+                                            isClinicClosed -> "Clinic is Closed for Today"
+                                            isNoShow -> "Visit Concluded as No-Show"
                                             isLate -> "Arrive soon, you are late"
                                             !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow && !isPastDate) -> "Loading queue status..."
                                             isLabClinic && isReportReady -> "Status: Prepared"
@@ -1663,6 +1738,7 @@ fun QueueStatusScreen(
                                         fontSize = 17.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = when {
+                                            isClinicClosed || isNoShow -> Color(0xFFDC2626)
                                             isLate -> Color(0xFFDC2626)
                                             isLabClinic && isReportReady -> Color(0xFF059669)
                                             isLabClinic && isSampleProcessing -> Color(0xFFD97706)
@@ -1697,6 +1773,8 @@ fun QueueStatusScreen(
                                 }
                                 Text(
                                     text = when {
+                                        isClinicClosed -> "The clinic has closed for today. Live queue consultations have concluded."
+                                        isNoShow -> "Token was not attended before clinic closed and has been moved to No-Show."
                                         isLate -> "Another patient was called inside \u2022 Please arrive now"
                                         !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow && !isPastDate) -> "Syncing queue details with clinic..."
                                         isLabClinic && isReportReady -> "Report Prepared \u2022 Verify Name/Phone to View"
@@ -1747,25 +1825,6 @@ fun QueueStatusScreen(
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Medium,
                                             color = Color(0xFF64748B),
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = if (isTomorrow) Color(0xFFE0F2FE) else Color(0xFFEEF2FF),
-                                        border = BorderStroke(1.dp, if (isTomorrow) Color(0xFFBAE6FD) else Color(0xFFC7D2FE)),
-                                        modifier = Modifier.padding(top = 2.dp)
-                                    ) {
-                                        Text(
-                                            text = if (isTomorrow) {
-                                                "📅 Tomorrow \u2022 Position #$resolvedRankNumber in Line"
-                                            } else {
-                                                "📅 $resolvedDateLabel \u2022 Rank #$resolvedRankNumber in Line"
-                                            },
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isTomorrow) Color(0xFF0369A1) else Color(0xFF4338CA),
                                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                                         )
                                     }
@@ -2032,11 +2091,13 @@ fun QueueStatusScreen(
                                     shape = RoundedCornerShape(14.dp),
                                     color = when {
                                         isLate -> Color(0xFFFEE2E2)
+                                        liveTimingEstimate?.isClinicOnBreak == true -> Color(0xFFFEF3C7)
                                         liveTimingEstimate?.canOfferEarlyArrival == true -> Color(0xFFDCFCE7)
                                         else -> Color(0xFFE0F2FE)
                                     },
                                     border = when {
                                         isLate -> BorderStroke(1.5.dp, Color(0xFFEF4444))
+                                        liveTimingEstimate?.isClinicOnBreak == true -> BorderStroke(1.dp, Color(0xFFF59E0B))
                                         liveTimingEstimate?.canOfferEarlyArrival == true -> BorderStroke(1.dp, Color(0xFF86EFAC))
                                         else -> null
                                     },
@@ -2044,6 +2105,7 @@ fun QueueStatusScreen(
                                 ) {
                                     val timing = liveTimingEstimate
                                     val displayWait = when {
+                                        isClinicClosed || isNoShow -> "Clinic Closed"
                                         isLate -> "Arrive soon, you are late"
                                         isFutureOrTomorrow && !multiSlotResult?.approxAppointmentTimeText.isNullOrBlank() -> {
                                             multiSlotResult!!.approxAppointmentTimeText
@@ -2051,13 +2113,18 @@ fun QueueStatusScreen(
                                         else -> timing?.estimatedTimeLeftText?.takeIf { it.isNotBlank() }
                                             ?: (if (patientsAhead > 0) "~${patientsAhead * clinicAvgTimeMinutes} min" else "< 5 min")
                                     }
-                                    val isArriveFast = !isLate && !isFutureOrTomorrow && (displayWait.contains("Arrive Fast", ignoreCase = true) ||
+                                    val isArriveFast = !isLate && !isFutureOrTomorrow && (timing?.isClinicOnBreak != true) && (displayWait.contains("Arrive Fast", ignoreCase = true) ||
+                                        displayWait.contains("Arrive Soon", ignoreCase = true) ||
                                         timing?.expectedExactTimeText?.contains("arrive fast", ignoreCase = true) == true ||
-                                        (patientsAhead == 0 && timing?.estimatedTimeLeftText?.contains("Arrive Fast", ignoreCase = true) == true))
+                                        timing?.expectedExactTimeText?.contains("arrive soon", ignoreCase = true) == true ||
+                                        (patientsAhead == 0 && (timing?.estimatedTimeLeftText?.contains("Arrive Fast", ignoreCase = true) == true || timing?.estimatedTimeLeftText?.contains("Arrive Soon", ignoreCase = true) == true)))
                                     val displayWindow = when {
+                                        isClinicClosed || isNoShow -> "Consultations ended for today"
                                         isLate -> "Report to clinic desk immediately"
                                         isFutureOrTomorrow && !multiSlotResult?.timeWindowText.isNullOrBlank() -> multiSlotResult!!.timeWindowText
-                                        isArriveFast -> "Your turn, arrive fast"
+                                        isArriveFast -> "Your turn, arrive soon"
+                                        timing?.isClinicOnBreak == true && !timing.timeWindowText.isNullOrBlank() -> timing.timeWindowText
+                                        timing?.isClinicOnBreak == true && !timing.approxTimeText.isNullOrBlank() -> timing.approxTimeText
                                         !timing?.timeWindowText.isNullOrBlank() -> timing!!.timeWindowText
                                         !timing?.approxTimeText.isNullOrBlank() -> timing!!.approxTimeText
                                         !timing?.expectedExactTimeText.isNullOrBlank() && timing.expectedExactTimeText != "Soon, be ready" -> "Approx. ${timing.expectedExactTimeText} (±15 min)"
@@ -2076,12 +2143,14 @@ fun QueueStatusScreen(
                                             Icon(
                                                 when {
                                                     isLate -> Icons.Default.Warning
+                                                    timing?.isClinicOnBreak == true -> Icons.Default.PauseCircle
                                                     timing?.canOfferEarlyArrival == true -> Icons.Default.Bolt
                                                     else -> Icons.Default.PhoneCallback
                                                 },
                                                 contentDescription = null,
                                                 tint = when {
                                                     isLate -> Color(0xFFE11D48)
+                                                    timing?.isClinicOnBreak == true -> Color(0xFFD97706)
                                                     timing?.canOfferEarlyArrival == true -> Color(0xFF16A34A)
                                                     else -> Color(0xFF0284C7)
                                                 },
@@ -2090,6 +2159,7 @@ fun QueueStatusScreen(
                                             Text(
                                                 text = when {
                                                     isLate -> "URGENT ACTION"
+                                                    timing?.isClinicOnBreak == true -> "Clinic on Break"
                                                     timing?.canOfferEarlyArrival == true -> "Doctor Free Early"
                                                     isFutureOrTomorrow -> "Expected Slot"
                                                     else -> "Expected window"
@@ -2097,6 +2167,7 @@ fun QueueStatusScreen(
                                                 fontSize = 12.sp,
                                                 color = when {
                                                     isLate -> Color(0xFFBE123C)
+                                                    timing?.isClinicOnBreak == true -> Color(0xFFB45309)
                                                     timing?.canOfferEarlyArrival == true -> Color(0xFF16A34A)
                                                     else -> Color(0xFF0284C7)
                                                 },
@@ -2109,6 +2180,7 @@ fun QueueStatusScreen(
                                             fontWeight = FontWeight.Bold,
                                             color = when {
                                                 isLate -> Color(0xFF9F1239)
+                                                timing?.isClinicOnBreak == true -> Color(0xFF92400E)
                                                 timing?.canOfferEarlyArrival == true -> Color(0xFF15803D)
                                                 else -> Color(0xFF0284C7)
                                             },
@@ -2119,8 +2191,12 @@ fun QueueStatusScreen(
                                         Text(
                                             text = displayWindow,
                                             fontSize = 11.5.sp,
-                                            fontWeight = if (isLate) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isLate) Color(0xFFBE123C) else Color(0xFF64748B),
+                                            fontWeight = if (isLate || timing?.isClinicOnBreak == true) FontWeight.Bold else FontWeight.Normal,
+                                            color = when {
+                                                isLate -> Color(0xFFBE123C)
+                                                timing?.isClinicOnBreak == true -> Color(0xFFB45309)
+                                                else -> Color(0xFF64748B)
+                                            },
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis,
                                             lineHeight = 14.sp
@@ -3181,16 +3257,45 @@ fun QueueStatusScreen(
                             )
 
                             if (isReportReady) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
+                                val isDownloaded = downloadedReportFile != null || (labReports.isNotEmpty() && labReports.any {
+                                    com.dactor.patient.util.LabReportPdfDownloader.isReportDownloadedLocally(context, it, clinicName, rawPatientName)
+                                })
+
+                                if (!isDownloaded) {
+                                    // ONLY SHOW DOWNLOAD (View in App removed until one has downloaded the photo / pdf)
                                     Button(
                                         onClick = {
                                             if (!isReportIdentityVerified && !isUnlocked) {
-                                                pendingVerificationAction = "view_report"
+                                                pendingVerificationAction = "download_report"
                                                 showVerificationDialog = true
                                             } else {
+                                                triggerDirectReportDownload()
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                        modifier = Modifier.fillMaxWidth().height(44.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.FileDownload,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            text = if (isReportIdentityVerified || isUnlocked) "Download Report (PDF / Picture)" else "Verify & Download Report",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                } else {
+                                    // SHOW VIEW IN APP ONLY AFTER DOWNLOADED
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Button(
+                                            onClick = {
                                                 coroutineScope.launch {
                                                     val appt = appointment
                                                     if (appt != null && labReports.isEmpty()) {
@@ -3201,39 +3306,30 @@ fun QueueStatusScreen(
                                                     }
                                                     showLabReportDialog = true
                                                 }
-                                            }
-                                        },
-                                        shape = RoundedCornerShape(12.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isReportIdentityVerified) Icons.Default.Visibility else Icons.Default.LockOpen,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(15.dp)
-                                        )
-                                        Spacer(Modifier.width(5.dp))
-                                        Text(
-                                            text = if (isReportIdentityVerified) "View In-App" else "Verify & View",
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-
-                                    if (hasUploadedFile) {
-                                        OutlinedButton(
-                                            onClick = {
-                                                if (!isReportIdentityVerified) {
-                                                    pendingVerificationAction = "download_report"
-                                                    showVerificationDialog = true
-                                                } else {
-                                                    triggerDirectReportDownload()
-                                                }
                                             },
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                            modifier = Modifier.weight(1f).height(44.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Visibility,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                            Spacer(Modifier.width(5.dp))
+                                            Text(
+                                                text = "View In-App (Offline)",
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        OutlinedButton(
+                                            onClick = { triggerDirectReportDownload() },
                                             shape = RoundedCornerShape(12.dp),
                                             border = BorderStroke(1.5.dp, Color(0xFF059669)),
                                             colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White),
-                                            modifier = Modifier.weight(1f)
+                                            modifier = Modifier.weight(0.9f).height(44.dp)
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.FileDownload,
@@ -3241,10 +3337,10 @@ fun QueueStatusScreen(
                                                 tint = Color(0xFF059669),
                                                 modifier = Modifier.size(15.dp)
                                             )
-                                            Spacer(Modifier.width(5.dp))
+                                            Spacer(Modifier.width(4.dp))
                                             Text(
-                                                text = if (isReportIdentityVerified) "Download File" else "Verify & Download",
-                                                fontSize = 11.5.sp,
+                                                text = "Re-download",
+                                                fontSize = 11.sp,
                                                 color = Color(0xFF059669),
                                                 fontWeight = FontWeight.Bold
                                             )
@@ -4213,56 +4309,115 @@ fun QueueStatusScreen(
                                         }
                                     }
 
-                                    // In-app picture preview if the clinic uploaded an image/photo of the report
-                                    if (hasRemoteFile && isImg) {
-                                        Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            AsyncImage(
-                                                model = rep.fileUrl,
-                                                contentDescription = "Uploaded Lab Report Image",
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .heightIn(min = 180.dp, max = 340.dp)
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(Color(0xFFE2E8F0)),
-                                                contentScale = ContentScale.Fit
-                                            )
+                                    val localFile = com.dactor.patient.util.LabReportPdfDownloader.findDownloadedReportFile(
+                                        context,
+                                        rep,
+                                        clinicName,
+                                        rawPatientName
+                                    ) ?: downloadedReportFile
+
+                                    // In-app viewer: Loaded strictly from local downloaded file, never re-downloading from server
+                                    if (isImg) {
+                                        if (localFile != null && localFile.exists()) {
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                AsyncImage(
+                                                    model = localFile,
+                                                    contentDescription = "Downloaded Lab Report Image",
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .heightIn(min = 180.dp, max = 340.dp)
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(Color(0xFFE2E8F0)),
+                                                    contentScale = ContentScale.Fit
+                                                )
+                                            }
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = Color(0xFFECFDF5),
+                                                border = BorderStroke(1.dp, Color(0xFFA7F3D0)),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                                ) {
+                                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(13.dp))
+                                                    Text(
+                                                        text = "Offline View • Loaded from Dactor Reports/${localFile.name}",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = Color(0xFF065F46)
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = Color(0xFFFFFBEB),
+                                                border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(
+                                                    text = "Report picture is prepared. Tap 'Download' below to save it locally in Dactor Reports and view offline.",
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFF92400E),
+                                                    modifier = Modifier.padding(10.dp)
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        // PDF Report
+                                        if (localFile != null && localFile.exists()) {
+                                            Button(
+                                                onClick = {
+                                                    com.dactor.patient.util.LabReportPdfDownloader.openLocalReportFile(context, localFile, "application/pdf")
+                                                },
+                                                shape = RoundedCornerShape(8.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                                modifier = Modifier.fillMaxWidth().height(36.dp)
+                                            ) {
+                                                Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                Spacer(Modifier.width(6.dp))
+                                                Text("Open Downloaded PDF (Offline)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                            }
                                         }
                                     }
 
-                                    if (hasRemoteFile) {
-                                        OutlinedButton(
-                                            onClick = {
-                                                com.dactor.patient.util.LabReportPdfDownloader.downloadAndSaveReportFile(
-                                                    context = context,
-                                                    report = rep,
-                                                    patientName = rawPatientName.ifBlank { "Registered Patient" },
-                                                    clinicName = clinicName.ifBlank { "Diagnostic Lab" },
-                                                    doctorName = doctorName.ifBlank { "Pathologist" }
-                                                )
-                                            },
-                                            shape = RoundedCornerShape(8.dp),
-                                            border = BorderStroke(1.dp, Color(0xFF059669)),
-                                            modifier = Modifier.fillMaxWidth().height(36.dp),
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = if (isImg) Icons.Default.Image else Icons.Default.PictureAsPdf,
-                                                contentDescription = null,
-                                                tint = Color(0xFF059669),
-                                                modifier = Modifier.size(14.dp)
+                                    OutlinedButton(
+                                        onClick = {
+                                            com.dactor.patient.util.LabReportPdfDownloader.downloadAndSaveReportFile(
+                                                context = context,
+                                                report = rep,
+                                                patientName = rawPatientName.ifBlank { "Registered Patient" },
+                                                clinicName = clinicName.ifBlank { "Diagnostic Lab" },
+                                                doctorName = doctorName.ifBlank { "Pathologist" },
+                                                autoOpen = false,
+                                                onComplete = { file -> downloadedReportFile = file }
                                             )
-                                            Spacer(Modifier.width(6.dp))
-                                            Text(
-                                                text = if (isImg) "Download Report Picture" else "Open / Download Uploaded PDF",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color(0xFF059669)
-                                            )
-                                        }
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = BorderStroke(1.dp, Color(0xFF059669)),
+                                        modifier = Modifier.fillMaxWidth().height(36.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (localFile != null) Icons.Default.Refresh else Icons.Default.FileDownload,
+                                            contentDescription = null,
+                                            tint = Color(0xFF059669),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            text = if (localFile != null) "Re-download Report to Dactor Reports" else (if (isImg) "Download Report Picture" else "Download Report PDF"),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF059669)
+                                        )
                                     }
                                 }
                             }

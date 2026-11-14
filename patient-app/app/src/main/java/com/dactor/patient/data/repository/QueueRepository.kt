@@ -297,10 +297,12 @@ class QueueRepository @Inject constructor(
                 val isFirstPos = message.contains("position 1", ignoreCase = true) ||
                     message.contains("next in line", ignoreCase = true) ||
                     expectedTime?.contains("arrive fast", ignoreCase = true) == true ||
-                    estimatedTimeLeft?.contains("arrive fast", ignoreCase = true) == true
+                    expectedTime?.contains("arrive soon", ignoreCase = true) == true ||
+                    estimatedTimeLeft?.contains("arrive fast", ignoreCase = true) == true ||
+                    estimatedTimeLeft?.contains("arrive soon", ignoreCase = true) == true
 
-                val leftVal = if (isFirstPos) "Arrive Fast" else (estimatedTimeLeft ?: "Soon, be ready")
-                val rightVal = if (isFirstPos) "Your turn, arrive fast" else (expectedTime ?: "Soon, be ready")
+                val leftVal = if (isFirstPos) "Arrive Soon" else (estimatedTimeLeft ?: "Soon, be ready")
+                val rightVal = if (isFirstPos) "Your turn, arrive soon" else (expectedTime ?: "Soon, be ready")
                 val rightLabel = if (isFirstPos) "Turn Status" else "Your Appointment Time"
 
                 NotificationTemplateData.buildMessageWithMeta(
@@ -610,19 +612,84 @@ class QueueRepository @Inject constructor(
 
             // 2. Clinic on break
             if (clinic?.isOnBreak == true) {
-                val breakDesc = if (todaySchedule?.hasBreak == true) {
-                    "${todaySchedule.breakStart} - ${todaySchedule.breakEnd}"
+                val hasBreakSchedule = todaySchedule?.hasBreak == true && !todaySchedule.breakEnd.isNullOrBlank()
+                val breakDesc = if (hasBreakSchedule) {
+                    "${todaySchedule!!.breakStart} - ${todaySchedule.breakEnd}"
                 } else {
                     "Short Break"
                 }
+
+                // Determine effective break ending time (anchor for post-break resumption)
+                val rawBreakEnd = if (hasBreakSchedule) {
+                    ClinicScheduleHelper.parseTimeToLocalTime(todaySchedule!!.breakEnd)
+                } else {
+                    val def2pm = ClinicScheduleHelper.parseTimeToLocalTime("02:00 PM")
+                    if (nowTime.isBefore(def2pm)) def2pm else nowTime.plusMinutes(15)
+                }
+
+                // If scheduled break end has already passed (e.g. clinic still on break after scheduled end),
+                // anchor resumption to now (+5 mins buffer) so expected time is never in the past
+                val effectiveBreakEnd = if (nowTime.isAfter(rawBreakEnd)) {
+                    nowTime.plusMinutes(5)
+                } else {
+                    rawBreakEnd
+                }
+
+                // Stagger patients from the break ending time:
+                // First person in active queue (totalPeopleAhead == 0) gets effectiveBreakEnd
+                // Subsequent patients get effectiveBreakEnd + (totalPeopleAhead * avgMins)
+                val breakStaggeredTime = effectiveBreakEnd.plusMinutes((totalPeopleAhead * avgMins).toLong())
+
+                // If patient booked a slot later in the day that is further out than the break resumption time,
+                // respect their booked slot start time
+                val effectiveExpectedTime = if (slotStartTime != null && slotStartTime.isAfter(breakStaggeredTime)) {
+                    slotStartTime.plusMinutes((totalPeopleAhead * avgMins).toLong())
+                } else {
+                    breakStaggeredTime
+                }
+
+                val diffSec = java.time.Duration.between(nowTime, effectiveExpectedTime).seconds
+                val diffMins = kotlin.math.ceil(diffSec / 60.0).toInt().coerceAtLeast(0)
+
+                val effectiveTimeLeftText = when {
+                    diffMins > 60 -> {
+                        val hours = diffMins / 60
+                        val rem = diffMins % 60
+                        if (rem == 0) "~ $hours hr" else "~ ${hours}h ${rem}m"
+                    }
+                    diffMins > 0 -> "~ $diffMins min"
+                    else -> "Resuming shortly"
+                }
+
+                val effectiveExactTimeText = effectiveExpectedTime.format(timeFormatter)
+                val windowText = formatTimeWindow(effectiveExpectedTime)
+                val approxText = formatApproxTime(effectiveExpectedTime)
+
+                val breakEndStr = effectiveBreakEnd.format(timeFormatter)
+                val bannerText = "Clinic is currently on a break ($breakDesc). Consultations resume at $breakEndStr."
+                val noticeText = if (totalPeopleAhead == 0) {
+                    "Clinic on break ($breakDesc). You are #1 in queue; consultation resumes at $breakEndStr."
+                } else {
+                    val personWord = if (totalPeopleAhead == 1) "person" else "people"
+                    "Clinic on break ($breakDesc). $totalPeopleAhead $personWord ahead; consultation resumes around $effectiveExactTimeText."
+                }
+
                 return LiveQueueTimingEstimate(
-                    estimatedTimeLeftText = "Clinic on Break",
-                    expectedExactTimeText = breakDesc,
-                    doctorStatusBanner = "Clinic is currently on a break ($breakDesc)",
+                    estimatedTimeLeftText = effectiveTimeLeftText,
+                    expectedExactTimeText = effectiveExactTimeText,
+                    doctorStatusBanner = bannerText,
+                    isDoctorNotInside = false,
+                    isDoctorIdleFiveMins = false,
                     isClinicOnBreak = true,
-                    slotNoticeText = "Queue paused: clinic on break ($breakDesc)",
+                    isSoonBeReady = (totalPeopleAhead == 0) || (diffMins <= 5),
+                    timeWindowText = windowText,
+                    approxTimeText = approxText,
                     slotStartTimeText = slotStartStr,
-                    suggestedArrivalText = suggestedArrivalStr
+                    suggestedArrivalText = suggestedArrivalStr,
+                    slotNoticeText = noticeText,
+                    canOfferEarlyArrival = false,
+                    earlyArrivalOfferText = null,
+                    isPatientLate = false
                 )
             }
 
@@ -768,8 +835,8 @@ class QueueRepository @Inject constructor(
                     // Position 1 and current time is within slot, doctor free early, or slot is over:
                     // Directly shows "Your turn, arrive fast"
                     effectiveExpectedTime = nowTime
-                    effectiveTimeLeftText = "Arrive Fast"
-                    effectiveExactTimeText = "Your turn, arrive fast"
+                    effectiveTimeLeftText = "Arrive Soon"
+                    effectiveExactTimeText = "Your turn, arrive soon"
                 }
             } else {
                 // Patient is at position 2, 3, etc. (totalPeopleAhead > 0)

@@ -1215,8 +1215,11 @@ class AppointmentRepository @Inject constructor(
     }
 
     private fun parseRescheduleRpcResult(rawData: String, json: JsonObject?): Boolean {
-        val explicitSuccess = json?.get("success")?.jsonPrimitive?.booleanOrNull
-            ?: json?.get("success")?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
+        val explicitSuccess = try {
+            json?.get("success")?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
+        } catch (_: Exception) {
+            null
+        }
         if (explicitSuccess != null) return explicitSuccess
 
         // Any explicit error code or message signals failure

@@ -192,6 +192,12 @@ import {
   isDiagnosticLabClinic,
 } from '../services/db'
 import {
+  buildReportFileName,
+  downloadAndCacheReport,
+  isReportDownloadedLocally,
+  getCachedBlobUrl,
+} from '../utils/reportFileManager'
+import {
   firebaseSignOut,
   signInWithFirebaseGoogle,
   checkRedirectGoogleUser,
@@ -2311,10 +2317,13 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
       if (patientUser?.id && (!appt.userId || appt.userId !== patientUser.id)) {
         try {
+          const safeApptId = (appt.id || '').replace(/[,()]/g, '')
+          const safeCode10 = (code10 || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase()
+          const filterStr = safeCode10 ? `id.eq.${safeApptId},tracking_code_10_digit.eq.${safeCode10}` : `id.eq.${safeApptId}`
           await supabase
             .from('appointments')
             .update({ user_id: patientUser.id, patient_email: patientUser.email })
-            .or(`id.eq.${appt.id}${code10 ? `,tracking_code_10_digit.eq.${code10}` : ''}`)
+            .or(filterStr)
         } catch {}
       }
 
@@ -2557,6 +2566,21 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     setVerifyMethod('phone')
     setVerificationInput('')
     setVerificationError(null)
+  }
+
+  const handleDownloadPatientReport = async (rep: LabReport, rawUrl?: string) => {
+    const targetUrl = rawUrl || unlockedReportUrls[rep.id] || rep.reportFileUrl
+    if (!targetUrl) return
+    const isImage = rep.reportFileType === 'image' || Boolean(targetUrl.match(/\.(jpeg|jpg|png|webp)$/i))
+    const ext = isImage ? (targetUrl.includes('.png') ? 'png' : 'jpg') : 'pdf'
+    const fileName = buildReportFileName(
+      (rep as any).clinicName || 'Dactor_Clinic',
+      patientUser?.full_name || rep.patientName,
+      rep.testName,
+      rep.trackingCode10Digit || rep.id,
+      ext
+    )
+    await downloadAndCacheReport(targetUrl, fileName, rep.id)
   }
 
   // ==========================================
@@ -5923,15 +5947,29 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                                   {rep.uploadedAt?.split('T')[0] || 'Recent'}
                                 </span>
                                 {unlockedReportUrls[rep.id] ? (
-                                  <a
-                                    href={unlockedReportUrls[rep.id]}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-center space-x-1.5 px-3 py-1.5 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white rounded-xl text-xs font-bold transition shadow-xs active:scale-95"
-                                  >
-                                    <Download className="w-3.5 h-3.5" />
-                                    <span>Download PDF</span>
-                                  </a>
+                                  <div className="flex items-center space-x-1.5">
+                                    {isReportDownloadedLocally(rep.id) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const localUrl = getCachedBlobUrl(rep.id) || unlockedReportUrls[rep.id]
+                                          window.open(localUrl, '_blank')
+                                        }}
+                                        className="flex items-center space-x-1 px-2.5 py-1.5 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white rounded-xl text-xs font-bold transition shadow-xs active:scale-95 cursor-pointer"
+                                      >
+                                        <Eye className="w-3.5 h-3.5" />
+                                        <span>View (Offline)</span>
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDownloadPatientReport(rep, unlockedReportUrls[rep.id])}
+                                      className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-900 dark:bg-slate-800 hover:bg-teal-600 text-white rounded-xl text-xs font-bold transition shadow-xs active:scale-95 cursor-pointer"
+                                    >
+                                      <Download className="w-3.5 h-3.5" />
+                                      <span>{isReportDownloadedLocally(rep.id) ? 'Re-download' : 'Download'}</span>
+                                    </button>
+                                  </div>
                                 ) : (
                                   <button
                                     type="button"

@@ -74,6 +74,12 @@ import { printAppointmentBill, printPrescription } from '../utils/medicalDocPrin
 import { supabase } from '../lib/supabase'
 import { playChimeSound } from '../utils/audioChime'
 import { updatePageSEO } from '../utils/seo'
+import {
+  buildReportFileName,
+  downloadAndCacheReport,
+  isReportDownloadedLocally,
+  getCachedBlobUrl,
+} from '../utils/reportFileManager'
 
 interface LiveQueueProps {
   initialCode?: string
@@ -142,6 +148,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   // Report Viewing Modal
   const [showReportModal, setShowReportModal] = useState(false)
   const [selectedReportToView, setSelectedReportToView] = useState<LabReport | null>(null)
+  const [isReportDownloaded, setIsReportDownloaded] = useState(false)
+
+  useEffect(() => {
+    const rep = labReports.find((r) => r.status === 'prepared') || labReports[0]
+    const downloaded = isReportDownloadedLocally(activeCode) || (rep?.id ? isReportDownloadedLocally(rep.id) : false)
+    setIsReportDownloaded(downloaded)
+  }, [activeCode, labReports])
 
   // Prescription & Bill Modal
   const [showPrescriptionModal, setShowPrescriptionModal] = useState(false)
@@ -843,13 +856,15 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             if (directUrl) {
               setLabReports((prev) => prev.map((r) => ({ ...r, reportFileUrl: directUrl })))
               if (action === 'view_report') {
-                setSelectedReportToView(rep ? { ...rep, reportFileUrl: directUrl } : null)
+                const cached = getCachedBlobUrl(rep?.id || activeCode) || directUrl
+                setSelectedReportToView(rep ? { ...rep, reportFileUrl: cached } : null)
                 setShowReportModal(true)
               } else {
-                window.open(directUrl, '_blank')
+                await executeReportDownload({ ...rep, reportFileUrl: directUrl })
               }
             } else if (action === 'view_report') {
-              setSelectedReportToView(rep || null)
+              const cached = getCachedBlobUrl(rep?.id || activeCode) || rep?.reportFileUrl || null
+              setSelectedReportToView(rep ? { ...rep, reportFileUrl: cached || rep.reportFileUrl } : null)
               setShowReportModal(true)
             }
           })()
@@ -857,10 +872,11 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         }
 
         if (action === 'view_report') {
-          setSelectedReportToView(rep || null)
+          const cached = getCachedBlobUrl(rep?.id || activeCode) || rep?.reportFileUrl || null
+          setSelectedReportToView(rep ? { ...rep, reportFileUrl: cached || rep?.reportFileUrl } : null)
           setShowReportModal(true)
         } else {
-          triggerReportDownload()
+          executeReportDownload(rep)
         }
         return
       }
@@ -890,15 +906,29 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     }
   }
 
-  const triggerReportDownload = () => {
-    const rep = labReports.find((r) => r.status === 'prepared') || labReports[0]
+  async function executeReportDownload(targetRep?: LabReport | null) {
+    const rep = targetRep || labReports.find((r) => r.status === 'prepared') || labReports[0]
     if (rep?.reportFileUrl) {
-      window.open(rep.reportFileUrl, '_blank')
+      const isImg = rep.reportFileType === 'image' || Boolean(rep.reportFileUrl.match(/\.(jpeg|jpg|png|webp)$/i))
+      const ext = isImg ? (rep.reportFileUrl.includes('.png') ? 'png' : 'jpg') : 'pdf'
+      const fileName = buildReportFileName(
+        clinic?.name,
+        appointment?.patientName,
+        rep.testName,
+        appointment?.trackingCode10Digit || rep.id,
+        ext
+      )
+      await downloadAndCacheReport(rep.reportFileUrl, fileName, rep.id || activeCode)
+      setIsReportDownloaded(true)
     } else {
       alert(
         'Your diagnostic report is certified and ready for collection at the clinic desk. A digital PDF download will sync shortly.'
       )
     }
+  }
+
+  const triggerReportDownload = () => {
+    executeReportDownload()
   }
 
   const executeCancellation = async () => {
@@ -1031,6 +1061,78 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     const dynamicTime = new Date(now.getTime() + estimatedWaitMinutes * 60000)
     const isSlotInFuture = slotStartDate ? now.getTime() < slotStartDate.getTime() : false
 
+    // When clinic is on break, anchor patient #1 to break end time and subsequent patients to break end + (patientsAhead * avgMins)
+    if (clinic?.isOnBreak) {
+      let breakEndHours = 14
+      let breakEndMinutes = 0
+
+      if (clinic?.weeklyScheduleJson) {
+        try {
+          const schedList = JSON.parse(clinic.weeklyScheduleJson)
+          if (Array.isArray(schedList)) {
+            const todayDay = now.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase()
+            const todayItem = schedList.find((s: any) =>
+              String(s.dayOfWeek || s.day || '').toUpperCase().startsWith(todayDay.slice(0, 3))
+            )
+            if (todayItem && todayItem.hasBreak && todayItem.breakEnd) {
+              const m = todayItem.breakEnd.match(/^(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*([APap][Mm]))?/)
+              if (m) {
+                let h = parseInt(m[1], 10)
+                const min = parseInt(m[2], 10)
+                const ampm = m[3]?.toUpperCase()
+                if (ampm === 'PM' && h < 12) h += 12
+                if (ampm === 'AM' && h === 12) h = 0
+                breakEndHours = h
+                breakEndMinutes = min
+              }
+            }
+          }
+        } catch {}
+      }
+
+      const breakEndDate = new Date()
+      breakEndDate.setHours(breakEndHours, breakEndMinutes, 0, 0)
+
+      // If scheduled break end has already passed today, anchor to now (+ 5 mins buffer)
+      const effectiveBreakEnd = now.getTime() > breakEndDate.getTime()
+        ? new Date(now.getTime() + 5 * 60000)
+        : breakEndDate
+
+      // Stagger from break ending time:
+      // Patient #1 in line gets effectiveBreakEnd
+      // Subsequent patients get effectiveBreakEnd + (patientsAhead * clinicAvgMinutes)
+      const breakStaggered = new Date(effectiveBreakEnd.getTime() + patientsAhead * clinicAvgMinutes * 60000)
+
+      // Respect booked slot start time if it is even later in the day
+      const finalExpected = (slotStartDate && slotStartDate.getTime() > breakStaggered.getTime())
+        ? new Date(slotStartDate.getTime() + patientsAhead * clinicAvgMinutes * 60000)
+        : breakStaggered
+
+      const diffMins = Math.round((finalExpected.getTime() - now.getTime()) / 60000)
+      const waitText = diffMins > 60
+        ? `~${Math.round(diffMins / 60)} hr`
+        : diffMins > 0
+        ? `~${diffMins} min`
+        : 'Resuming shortly'
+
+      const fmt = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+      const startWin = new Date(finalExpected.getTime() - 5 * 60000)
+      const endWin = new Date(finalExpected.getTime() + 10 * 60000)
+
+      const notice = patientsAhead === 0
+        ? `Clinic on break. You are #1 in queue; consultation resumes at ${fmt(effectiveBreakEnd)}.`
+        : `Clinic on break. ${patientsAhead} ${patientsAhead === 1 ? 'person' : 'people'} ahead; consultation resumes around ${fmt(finalExpected)}.`
+
+      return {
+        effectiveExpectedTime: finalExpected,
+        timeWindowText: `${fmt(startWin)} – ${fmt(endWin)}`,
+        approxTimeText: `around ${fmt(finalExpected)}`,
+        suggestedArrivalText: arrivalAdvice,
+        slotNoticeText: notice,
+        displayWaitText: waitText
+      }
+    }
+
     let finalExpected: Date
     let waitText: string
 
@@ -1073,7 +1175,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       slotNoticeText: isArriveFast ? 'You are at position 1! You are next in line — arrive fast.' : notice,
       displayWaitText: waitText
     }
-  }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, patientsAhead, estimatedWaitMinutes, isFutureOrTomorrow, multiSlotResult, dateLabel, slotStartTimeStr])
+  }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, clinic?.weeklyScheduleJson, clinicAvgMinutes, patientsAhead, estimatedWaitMinutes, isFutureOrTomorrow, multiSlotResult, dateLabel, slotStartTimeStr])
 
   // Formatted expected call time
   const formattedExpectedTime = approxTimeText
@@ -1709,7 +1811,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                     CLINIC IS CURRENTLY ON BREAK
                   </h4>
                   <p className="text-xs text-amber-700 dark:text-amber-400/90">
-                    Consultations are paused temporarily. They will resume shortly.
+                    Consultations are paused temporarily. Break ends and consultations resume {approxTimeText} ({displayWaitText}).
                   </p>
                 </div>
               </div>
@@ -1972,15 +2074,17 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                       </span>
                     </div>
 
-                    <div className="p-4 rounded-2xl liquid-glass-subtle space-y-0.5 border border-teal-500/30">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300">
-                        {isPastAppointment
+                    <div className={`p-4 rounded-2xl liquid-glass-subtle space-y-0.5 border ${clinic?.isOnBreak ? 'border-amber-500/50 bg-amber-500/5' : 'border-teal-500/30'}`}>
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${clinic?.isOnBreak ? 'text-amber-800 dark:text-amber-300' : 'text-teal-700 dark:text-teal-300'}`}>
+                        {clinic?.isOnBreak
+                          ? 'Clinic on Break'
+                          : isPastAppointment
                           ? 'Tracking Status'
                           : isFutureOrTomorrow
                           ? 'Scheduled Window'
                           : 'Expected Window'}
                       </span>
-                      <div className="text-base font-black text-teal-900 dark:text-teal-200">
+                      <div className={`text-base font-black ${clinic?.isOnBreak ? 'text-amber-900 dark:text-amber-200' : 'text-teal-900 dark:text-teal-200'}`}>
                         {isPastAppointment
                           ? 'Visit Concluded'
                           : isFutureOrTomorrow && multiSlotResult
@@ -2206,21 +2310,37 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 pt-1">
-                      <button
-                        onClick={() => handleActionWithAuth('view_report')}
-                        className="flex-1 py-2.5 px-4 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-glass-sm active:scale-95 border-t border-white/20"
-                      >
-                        <Eye className="w-4 h-4" />
-                        <span>{isReportIdentityVerified ? 'View Report In-App' : 'Verify & View Report'}</span>
-                      </button>
+                      {!isReportDownloaded ? (
+                        <button
+                          onClick={() => handleActionWithAuth('download_report')}
+                          className="flex-1 py-2.5 px-4 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-glass-sm active:scale-95 border-t border-white/20"
+                        >
+                          <Download className="w-4 h-4" />
+                          <span>
+                            {isReportIdentityVerified
+                              ? 'Download Report (PDF / Picture)'
+                              : 'Verify & Download Report'}
+                          </span>
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => handleActionWithAuth('view_report')}
+                            className="flex-1 py-2.5 px-4 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-glass-sm active:scale-95 border-t border-white/20"
+                          >
+                            <Eye className="w-4 h-4" />
+                            <span>View Report In-App (Offline)</span>
+                          </button>
 
-                      <button
-                        onClick={() => handleActionWithAuth('download_report')}
-                        className="py-2.5 px-4 liquid-glass-subtle text-teal-700 dark:text-teal-300 hover:bg-white/80 dark:hover:bg-slate-800/80 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer active:scale-95"
-                      >
-                        <Download className="w-4 h-4" />
-                        <span>Download PDF</span>
-                      </button>
+                          <button
+                            onClick={() => handleActionWithAuth('download_report')}
+                            className="py-2.5 px-4 liquid-glass-subtle text-teal-700 dark:text-teal-300 hover:bg-white/80 dark:hover:bg-slate-800/80 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer active:scale-95"
+                          >
+                            <Download className="w-4 h-4" />
+                            <span>Re-download</span>
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 ) : effectiveLabStatus === 'processing' ? (

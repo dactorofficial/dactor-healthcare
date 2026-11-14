@@ -197,6 +197,7 @@ import {
   requestAuthorizedDocumentUrl,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
+import { convertImagesToPdf } from '../utils/imageToPdf'
 import { playClinicChime } from '../utils/audioChime'
 import {
   parsePaymentRecords,
@@ -316,7 +317,7 @@ function calculateLiveQueueTimingEstimate(
     return `${h.toString().padStart(2, '0')}:${m} ${ampm}`
   }
 
-  // 1. Check if doctor is not inside the clinic
+  // 2. Check if doctor is not inside the clinic
   if (doctor && doctor.isInClinic === false) {
     return {
       statusText: 'Doctor is not inside the clinic (He/She is not in)',
@@ -328,21 +329,6 @@ function calculateLiveQueueTimingEstimate(
       remainingMinutes: 0,
       timeWindowText: 'Doctor Away',
       approxTimeText: 'Doctor Away',
-    }
-  }
-
-  // 2. Check if clinic is on break
-  if (clinic.isOnBreak) {
-    return {
-      statusText: 'Clinic is currently on break. Consultations will resume shortly.',
-      estimatedWait: 'On Break',
-      exactTimeStr: 'On Break',
-      isDoctorAway: false,
-      isOnBreak: true,
-      isSoonBeReady: false,
-      remainingMinutes: 0,
-      timeWindowText: 'On Break',
-      approxTimeText: 'On Break',
     }
   }
 
@@ -420,6 +406,76 @@ function calculateLiveQueueTimingEstimate(
         ? 'No one ahead of you. You are up next!'
         : `${patientsAhead} ahead in line. Est. wait: ~${patientsAhead * avgMins} mins`)
 
+  // Check if clinic is on break
+  if (clinic.isOnBreak) {
+    let breakEndHours = 14
+    let breakEndMinutes = 0
+
+    if (clinic.weeklyScheduleJson) {
+      try {
+        const schedList = JSON.parse(clinic.weeklyScheduleJson)
+        if (Array.isArray(schedList)) {
+          const todayDay = now.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase()
+          const todayItem = schedList.find((s: any) =>
+            String(s.dayOfWeek || s.day || '').toUpperCase().startsWith(todayDay.slice(0, 3))
+          )
+          if (todayItem && todayItem.hasBreak && todayItem.breakEnd) {
+            const m = todayItem.breakEnd.match(/^(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*([APap][Mm]))?/)
+            if (m) {
+              let h = parseInt(m[1], 10)
+              const min = parseInt(m[2], 10)
+              const ampm = m[3]?.toUpperCase()
+              if (ampm === 'PM' && h < 12) h += 12
+              if (ampm === 'AM' && h === 12) h = 0
+              breakEndHours = h
+              breakEndMinutes = min
+            }
+          }
+        }
+      } catch {}
+    }
+
+    const breakEndDate = new Date()
+    breakEndDate.setHours(breakEndHours, breakEndMinutes, 0, 0)
+
+    const effectiveBreakEnd = now.getTime() > breakEndDate.getTime()
+      ? new Date(now.getTime() + 5 * 60000)
+      : breakEndDate
+
+    const breakStaggered = new Date(effectiveBreakEnd.getTime() + patientsAhead * avgMins * 60000)
+    const finalExpected = (slotStartDate && slotStartDate.getTime() > breakStaggered.getTime())
+      ? new Date(slotStartDate.getTime() + patientsAhead * avgMins * 60000)
+      : breakStaggered
+
+    const diffMins = Math.round((finalExpected.getTime() - now.getTime()) / 60000)
+    const waitStr = diffMins > 60
+      ? `~${Math.round(diffMins / 60)} hr`
+      : diffMins > 0
+      ? `~${diffMins} min`
+      : 'Resuming shortly'
+
+    const fmt = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    const startWin = new Date(finalExpected.getTime() - 5 * 60000)
+    const endWin = new Date(finalExpected.getTime() + 10 * 60000)
+
+    return {
+      statusText: patientsAhead === 0
+        ? `Clinic on break. Patient is #1 in queue; consultation resumes around ${fmt(effectiveBreakEnd)}.`
+        : `Clinic on break. ${patientsAhead} ahead; consultation resumes around ${fmt(finalExpected)}.`,
+      estimatedWait: waitStr,
+      exactTimeStr: fmt(finalExpected),
+      isDoctorAway: false,
+      isOnBreak: true,
+      isSoonBeReady: patientsAhead === 0 || diffMins <= 5,
+      remainingMinutes: Math.max(0, diffMins),
+      timeWindowText: `${fmt(startWin)} – ${fmt(endWin)}`,
+      approxTimeText: `around ${fmt(finalExpected)}`,
+      slotNoticeText: `Clinic on break • Resumes at ${fmt(effectiveBreakEnd)}`,
+      canOfferEarlyArrival: false,
+      suggestedArrivalText: arrivalAdvice,
+    }
+  }
+
   // Dynamic wait based on active queue
   let remainingForInside = 0
   if (insidePatient) {
@@ -442,7 +498,7 @@ function calculateLiveQueueTimingEstimate(
     } else {
       // Position 1 and current time is within slot or slot is over:
       finalExpectedTime = now
-      waitStr = 'Arrive Fast'
+      waitStr = 'Arrive Soon'
       remainingMins = 0
     }
   } else {
@@ -460,9 +516,9 @@ function calculateLiveQueueTimingEstimate(
     }
   }
 
-  const isArriveFast = waitStr === 'Arrive Fast'
+  const isArriveFast = waitStr === 'Arrive Fast' || waitStr === 'Arrive Soon'
   const windowText = isArriveFast ? 'Immediate' : formatTimeWindow(finalExpectedTime)
-  const approxText = isArriveFast ? 'Your turn, arrive fast' : formatApproxTime(finalExpectedTime)
+  const approxText = isArriveFast ? 'Your turn, arrive soon' : formatApproxTime(finalExpectedTime)
 
   const isSoon = patientsAhead === 0 || remainingMins <= 3 || waitStr.includes('Soon') || isArriveFast
 
@@ -880,6 +936,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
   const [pushAlertRightVal, setPushAlertRightVal] = useState('')
   const [sendingPushAlert, setSendingPushAlert] = useState(false)
   const [pushAlertSentSuccess, setPushAlertSentSuccess] = useState(false)
+  const [alertedApptIds, setAlertedApptIds] = useState<Set<string>>(new Set())
 
   // Timed Slots Publisher State
   const [slotDoctorId, setSlotDoctorId] = useState<string>('')
@@ -1085,6 +1142,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
   const [labUploadModalOpen, setLabUploadModalOpen] = useState(false)
   const [targetLabAppt, setTargetLabAppt] = useState<Appointment | null>(null)
   const [reportFile, setReportFile] = useState<File | null>(null)
+  const [reportImageFiles, setReportImageFiles] = useState<File[]>([])
+  const [reportImagePreviews, setReportImagePreviews] = useState<string[]>([])
+  const [isProcessingPdf, setIsProcessingPdf] = useState(false)
   const [reportCompressionInfo, setReportCompressionInfo] = useState<string | null>(null)
   const [technicianNotes, setTechnicianNotes] = useState('')
   const [uploadingReport, setUploadingReport] = useState(false)
@@ -2472,11 +2532,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
       selectedDoctor
     )
 
-    setPushAlertLeftVal(estimate.estimatedWait)
-    setPushAlertRightVal(estimate.exactTimeStr)
-    setPushAlertTitle(`Token #${appt.trackingCode10Digit}: Live OPD Queue Alert`)
+    const pos = appt.queueNumber || '1'
+    setPushAlertLeftVal('Arrive Soon')
+    setPushAlertRightVal(estimate.exactTimeStr.includes('arrive') ? 'Your turn, arrive soon' : `Position #${pos}`)
+    setPushAlertTitle(`Arrive Soon • Turn Approaching (#${pos})`)
     setPushAlertMessage(
-      `Dear ${appt.patientName}, doctor is ready for consultation. Please proceed to Cabin 1.`
+      `Hi ${appt.patientName}, your turn is approaching! Please arrive at the clinic soon to avoid missing your turn.`
     )
     setPushAlertModalOpen(true)
     setPushAlertSentSuccess(false)
@@ -2495,10 +2556,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         pushAlertRightVal,
         pushAlertTargetAppt.trackingCode10Digit,
         pushAlertTargetAppt.userId || undefined,
-        selectedClinic.id
+        selectedClinic.id,
+        'arrive_soon'
       )
 
       if (ok) {
+        setAlertedApptIds((prev) => new Set(prev).add(pushAlertTargetAppt.id))
         setPushAlertSentSuccess(true)
         setTimeout(() => {
           setPushAlertModalOpen(false)
@@ -3717,22 +3780,66 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
   }
 
   // Diagnostic Lab 3-Stage Workflow
-  const handleLabReportFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    if (file.type.startsWith('image/')) {
-      const origSizeKb = Math.round(file.size / 1024)
-      const compressed = await compressImage(file, 300 * 1024, 1800)
-      const newSizeKb = Math.round(compressed.size / 1024)
-      setReportFile(compressed)
-      setReportCompressionInfo(
-        `Optimized report scan from ${origSizeKb} KB down to ${newSizeKb} KB (≤ 300 KB)`
-      )
-    } else {
-      setReportFile(file)
+  const processReportImages = async (files: File[]) => {
+    if (files.length === 0) {
+      setReportFile(null)
       setReportCompressionInfo(null)
+      setReportImageFiles([])
+      setReportImagePreviews((prev) => {
+        prev.forEach((p) => URL.revokeObjectURL(p))
+        return []
+      })
+      return
     }
+
+    setIsProcessingPdf(true)
+    try {
+      const previews = files.map((f) => URL.createObjectURL(f))
+      setReportImagePreviews((prev) => {
+        prev.forEach((p) => URL.revokeObjectURL(p))
+        return previews
+      })
+      setReportImageFiles(files)
+
+      const baseName = `Lab_Report_${targetLabAppt?.trackingCode10Digit || 'scan'}`
+      const converted = await convertImagesToPdf(files, 100 * 1024, baseName)
+      setReportFile(converted.file)
+      setReportCompressionInfo(converted.summary)
+    } catch (err) {
+      console.error('Error generating unified report PDF:', err)
+      alert('Failed to convert images to unified PDF.')
+    } finally {
+      setIsProcessingPdf(false)
+    }
+  }
+
+  const handleLabReportFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(e.target.files || [])
+    if (selectedFiles.length === 0) return
+
+    if (selectedFiles.length === 1 && selectedFiles[0].type === 'application/pdf') {
+      const pdfFile = selectedFiles[0]
+      setReportImageFiles([])
+      setReportImagePreviews((prev) => {
+        prev.forEach((p) => URL.revokeObjectURL(p))
+        return []
+      })
+      setReportFile(pdfFile)
+      const sizeKb = Math.round(pdfFile.size / 1024)
+      setReportCompressionInfo(`PDF Document: ${pdfFile.name} (${sizeKb} KB)`)
+      return
+    }
+
+    const imageFiles = selectedFiles.filter((f) => f.type.startsWith('image/'))
+    if (imageFiles.length > 0) {
+      const combined = [...reportImageFiles, ...imageFiles]
+      await processReportImages(combined)
+    }
+  }
+
+  const handleRemoveReportImage = async (indexToRemove: number) => {
+    const remaining = reportImageFiles.filter((_, idx) => idx !== indexToRemove)
+    await processReportImages(remaining)
   }
 
   const handleUploadReportSubmit = async (e: React.FormEvent) => {
@@ -6219,6 +6326,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                     onClick={(e) => {
                                       e.stopPropagation()
                                       setTargetLabAppt(appt)
+                                      setReportFile(null)
+                                      setReportImageFiles([])
+                                      setReportImagePreviews([])
+                                      setReportCompressionInfo(null)
                                       setLabUploadModalOpen(true)
                                     }}
                                     className="px-3 py-1.5 bg-gradient-to-r from-brand-600 to-teal-600 hover:from-brand-700 hover:to-teal-700 text-white rounded-lg font-bold text-xs shadow-sm cursor-pointer active:scale-[0.98] inline-flex items-center space-x-1"
@@ -6356,10 +6467,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                           e.stopPropagation()
                                           handleOpenPushAlertModal(appt)
                                         }}
-                                        className="px-2.5 py-1.5 bg-purple-500/15 hover:bg-purple-500/25 text-purple-700 dark:text-purple-300 border border-purple-300/50 rounded-xl font-bold text-xs cursor-pointer inline-flex items-center space-x-1"
+                                        className={`px-2.5 py-1.5 rounded-xl font-bold text-xs cursor-pointer inline-flex items-center space-x-1 ${alertedApptIds.has(appt.id) ? 'bg-teal-500/20 text-teal-700 dark:text-teal-300 border border-teal-400/50' : 'bg-purple-500/15 hover:bg-purple-500/25 text-purple-700 dark:text-purple-300 border border-purple-300/50'}`}
                                       >
                                         <Bell className="w-3.5 h-3.5" />
-                                        <span>Push Alert</span>
+                                        <span>{alertedApptIds.has(appt.id) ? 'Arrive Soon' : 'Push Alert'}</span>
                                       </button>
 
                                       {/* Shift Date */}
@@ -8029,9 +8140,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                           <button
                             type="button"
                             onClick={() => handleOpenPushAlertModal(appt)}
-                            className="px-2.5 py-1 bg-purple-50/85 text-purple-700 hover:bg-purple-100 rounded-lg text-[11px] font-bold cursor-pointer"
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${alertedApptIds.has(appt.id) ? 'bg-teal-50 text-teal-700 hover:bg-teal-100' : 'bg-purple-50/85 text-purple-700 hover:bg-purple-100'}`}
                           >
-                            Push Alert
+                            {alertedApptIds.has(appt.id) ? 'Arrive Soon' : 'Push Alert'}
                           </button>
                           <button
                             type="button"
@@ -9957,6 +10068,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                             <button
                               onClick={() => {
                                 setTargetLabAppt(appt)
+                                setReportFile(null)
+                                setReportImageFiles([])
+                                setReportImagePreviews([])
+                                setReportCompressionInfo(null)
                                 setLabUploadModalOpen(true)
                               }}
                               className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-bold text-[11px] shadow-glass-sm cursor-pointer"
@@ -12760,19 +12875,69 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
             <form onSubmit={handleUploadReportSubmit} className="space-y-4">
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Upload PDF Report or Scan (Auto-Compress to &le; 300 KB)
+                  Upload Diagnostic Report (Multi-Picture / X-Rays or PDF &le; 100 KB)
                 </label>
                 <input
                   type="file"
+                  multiple
                   accept="application/pdf,image/*"
                   onChange={handleLabReportFileChange}
                   className="w-full text-xs text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100 cursor-pointer"
                 />
+                {isProcessingPdf && (
+                  <p className="text-[11px] text-teal-700 font-bold bg-teal-50/85 p-2 rounded-lg border border-teal-200 mt-2 flex items-center gap-2">
+                    <span className="animate-spin text-sm">⏳</span> Compressing &amp; stitching into unified PDF (&le; 100 KB)...
+                  </p>
+                )}
                 {reportCompressionInfo && (
-                  <p className="text-[11px] text-teal-700 font-bold bg-teal-50/85 p-2 rounded-lg border border-teal-200 mt-1">
+                  <p className="text-[11px] text-teal-700 font-bold bg-teal-50/85 p-2 rounded-lg border border-teal-200 mt-2">
                     ⚡ {reportCompressionInfo}
                   </p>
                 )}
+                {reportImagePreviews.length > 0 && (
+                  <div className="mt-2.5">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-bold text-slate-700">
+                        Selected Pages / Scans ({reportImagePreviews.length}):
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => processReportImages([])}
+                        className="text-[10px] text-red-600 hover:text-red-700 font-semibold cursor-pointer"
+                      >
+                        Clear All
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2 overflow-x-auto py-1">
+                      {reportImagePreviews.map((src, idx) => (
+                        <div
+                          key={idx}
+                          className="relative flex-shrink-0 w-16 h-20 rounded-lg overflow-hidden border border-slate-300 shadow-xs group"
+                        >
+                          <img
+                            src={src}
+                            alt={`Page ${idx + 1}`}
+                            className="w-full h-full object-cover"
+                          />
+                          <span className="absolute top-1 left-1 bg-black/70 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
+                            P{idx + 1}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveReportImage(idx)}
+                            className="absolute top-1 right-1 w-4 h-4 bg-red-600 text-white rounded-full flex items-center justify-center text-[10px] hover:bg-red-700 shadow cursor-pointer"
+                            title="Remove page"
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <p className="text-[10.5px] text-slate-500 mt-1.5">
+                  💡 Select 1 or multiple pictures (X-rays, blood reports, urine panels). They will be automatically combined into a single diagnostic PDF and compressed to &le; 100 KB locally.
+                </p>
               </div>
 
               <div>
@@ -12804,10 +12969,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                 </GlassButton>
                 <button
                   type="submit"
-                  disabled={uploadingReport}
-                  className="flex-1 py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-teal-600/20 cursor-pointer"
+                  disabled={uploadingReport || isProcessingPdf}
+                  className="flex-1 py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-teal-600/20 cursor-pointer disabled:opacity-50"
                 >
-                  {uploadingReport ? 'Uploading File...' : 'Mark Prepared & Notify'}
+                  {uploadingReport ? 'Uploading File...' : isProcessingPdf ? 'Compressing PDF...' : 'Mark Prepared & Notify'}
                 </button>
               </div>
             </form>

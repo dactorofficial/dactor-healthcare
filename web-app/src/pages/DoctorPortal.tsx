@@ -184,6 +184,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   const [alertMessage, setAlertMessage] = useState('')
   const [sendingAlert, setSendingAlert] = useState(false)
   const [alertSuccess, setAlertSuccess] = useState(false)
+  const [alertedApptIds, setAlertedApptIds] = useState<Set<string>>(new Set())
 
   // Profile Edit State
   const [editFee, setEditFee] = useState<number>(500)
@@ -931,12 +932,14 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
         alertTargetAppt.id,
         alertTitle.trim(),
         alertMessage.trim(),
-        undefined,
+        'Arrive Soon',
         undefined,
         alertTargetAppt.trackingCode10Digit,
         alertTargetAppt.userId || undefined,
-        alertTargetAppt.clinicId
+        alertTargetAppt.clinicId,
+        'arrive_soon'
       )
+      setAlertedApptIds((prev) => new Set(prev).add(alertTargetAppt.id))
       setAlertSuccess(true)
       setTimeout(() => {
         setAlertSuccess(false)
@@ -2244,14 +2247,14 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                     type="button"
                     onClick={() => {
                       setAlertTargetAppt(currentInsidePatient)
-                      setAlertTitle(`Doctor Cabin Alert • ${currentDoctor?.fullName}`)
-                      setAlertMessage('Your consultation is ongoing. Please remain inside cabin.')
+                      setAlertTitle(`Arrive Soon • Turn Approaching • Dr. ${currentDoctor?.fullName}`)
+                      setAlertMessage(`Dear ${currentInsidePatient.patientName}, your consultation is ongoing. Please remain inside cabin.`)
                       setAlertModalOpen(true)
                     }}
-                    className="w-full sm:w-auto px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs border border-white/20 transition-all cursor-pointer flex items-center justify-center space-x-1.5 active:scale-[0.98]"
+                    className={`w-full sm:w-auto px-3.5 py-2.5 rounded-xl font-bold text-xs border transition-all cursor-pointer flex items-center justify-center space-x-1.5 active:scale-[0.98] ${alertedApptIds.has(currentInsidePatient.id) ? 'bg-teal-500/30 text-teal-200 border-teal-400/50' : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'}`}
                   >
                     <Send className="w-3.5 h-3.5" />
-                    <span>Send Alert</span>
+                    <span>{alertedApptIds.has(currentInsidePatient.id) ? 'Arrive Soon' : 'Send Alert'}</span>
                   </button>
 
                   <button
@@ -2361,14 +2364,14 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                         type="button"
                         onClick={() => {
                           setAlertTargetAppt(appt)
-                          setAlertTitle(`Your Turn is Next • Dr. ${currentDoctor?.fullName}`)
+                          setAlertTitle(`Arrive Soon • Turn Approaching (#${appt.queueNumber || '1'})`)
                           setAlertMessage(
-                            `Token #${appt.queueNumber}: Please proceed towards Dr. ${currentDoctor?.fullName}'s cabin.`
+                            `Hi ${appt.patientName}, your turn is approaching! Please arrive towards Dr. ${currentDoctor?.fullName}'s cabin soon.`
                           )
                           setAlertModalOpen(true)
                         }}
-                        className="p-2 rounded-xl liquid-glass-card border border-white/40 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:text-blue-600 hover:bg-blue-500/10 transition-colors cursor-pointer active:scale-[0.98]"
-                        title="Send Push Alert to Patient"
+                        className={`p-2 rounded-xl liquid-glass-card border border-white/40 dark:border-white/10 transition-colors cursor-pointer active:scale-[0.98] ${alertedApptIds.has(appt.id) ? 'text-teal-600 dark:text-teal-400 bg-teal-500/20' : 'text-slate-600 dark:text-slate-300 hover:text-blue-600 hover:bg-blue-500/10'}`}
+                        title={alertedApptIds.has(appt.id) ? 'Arrive Soon Alert Sent' : 'Send Push Alert to Patient'}
                       >
                         <Send className="w-4 h-4" />
                       </button>

@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -76,8 +77,175 @@ fun AppUpdateEnforcer(
     }
 
     val result = updateResult
-    // Compulsory modal dialog: completely blocks navigation and UI if update is required
-    if (result != null && result.isUpdateRequired) {
+    // 1. Temporary Closure Gate: blocks navigation if Superadmin has temporarily closed patient app
+    if (result != null && result.isTemporarilyClosed) {
+        Dialog(
+            onDismissRequest = { /* Non-dismissible while app is temporarily closed by Superadmin */ },
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false,
+                usePlatformDefaultWidth = false
+            )
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                shape = RoundedCornerShape(26.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 10.dp,
+                shadowElevation = 24.dp,
+                border = BorderStroke(1.dp, Color(0xFFFDE68A))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    // Pulsing amber/orange maintenance icon
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(76.dp)
+                            .background(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(Color(0xFFFEF3C7), Color(0xFFFDE68A), Color(0xFFFBBF24))
+                                ),
+                                shape = CircleShape
+                            )
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFFD97706),
+                            modifier = Modifier.size(54.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Temporary closure badge pill
+                    Surface(
+                        color = Color(0xFFFFFBEB),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color(0xFFFCD34D))
+                    ) {
+                        Text(
+                            text = "PAUSED • TEMPORARILY CLOSED",
+                            color = Color(0xFFB45309),
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 11.sp,
+                            letterSpacing = 0.5.sp,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    Text(
+                        text = result.closureTitle?.ifBlank { "Service Temporarily Paused" } ?: "Service Temporarily Paused",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A),
+                        textAlign = TextAlign.Center
+                    )
+
+                    Text(
+                        text = result.closureMessage?.ifBlank { "Dactor Patient App is temporarily closed for scheduled maintenance or operational updates. Please check back shortly." }
+                            ?: "Dactor Patient App is temporarily closed for scheduled maintenance or operational updates. Please check back shortly.",
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
+                        color = Color(0xFF475569),
+                        textAlign = TextAlign.Center
+                    )
+
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "Emergency Assistance & Support",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF0D5C4D)
+                            )
+                            Text(
+                                text = "If you have an urgent medical emergency, please visit the nearest hospital emergency room directly.",
+                                fontSize = 11.sp,
+                                color = Color(0xFF64748B),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+
+                    // Refresh Button
+                    Button(
+                        onClick = { runUpdateCheck() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF0D5C4D),
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = if (isChecking) "Checking Status..." else "Check If Reopened",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // Exit Application
+                    OutlinedButton(
+                        onClick = {
+                            val activity = context as? Activity
+                            activity?.finishAffinity()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, Color(0xFFCBD5E1))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ExitToApp,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = Color(0xFF64748B)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Exit Application", fontSize = 13.sp, color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+    }
+    // 2. Compulsory Update Dialog: completely blocks navigation and UI if update is required
+    else if (result != null && result.isUpdateRequired) {
         Dialog(
             onDismissRequest = { /* Compulsory: non-dismissible by tapping outside or back press */ },
             properties = DialogProperties(

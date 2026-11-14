@@ -17,7 +17,7 @@ import { NotFound } from './pages/NotFound'
 import { LiveTrackerModal } from './components/LiveTrackerModal'
 import { LabReportModal } from './components/LabReportModal'
 import { NotificationModal } from './components/NotificationModal'
-import { getPatientNotifications, getDoctorById, getLoggedInUserSession, refreshOnlinePayment } from './services/db'
+import { getPatientNotifications, getDoctorById, getLoggedInUserSession, refreshOnlinePayment, checkAppClosureStatus, AppClosureStatus } from './services/db'
 import { supabase } from './lib/supabase'
 import { LiquidAuroraBackground } from './components/glass'
 import { clearAllAppCache } from './utils/cacheCleaner'
@@ -311,6 +311,23 @@ export const getInitialTab = (): string => {
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>(() => getInitialTab())
+  const [closureStatus, setClosureStatus] = useState<AppClosureStatus | null>(null)
+  const [checkingClosure, setCheckingClosure] = useState<boolean>(false)
+
+  const evaluateClosure = async () => {
+    try {
+      const status = await checkAppClosureStatus('web_app')
+      setClosureStatus(status)
+    } catch {}
+    setCheckingClosure(false)
+  }
+
+  useEffect(() => {
+    evaluateClosure()
+    const timer = setInterval(evaluateClosure, 30000)
+    return () => clearInterval(timer)
+  }, [])
+
   const [selectedClinicId, setSelectedClinicId] = useState<string | null>(() => {
     try {
       const p = new URLSearchParams(window.location.search)
@@ -772,6 +789,63 @@ export const App: React.FC = () => {
       setReportModalInitialCode(code)
     }
     setReportModalOpen(true)
+  }
+
+  // Temporary Closure Gate: if web_app is temporarily closed by Superadmin, render maintenance view
+  if (closureStatus?.isTemporarilyClosed) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between items-center p-6 selection:bg-rose-500 selection:text-white font-sans">
+        <div className="w-full max-w-lg mx-auto flex-1 flex flex-col justify-center items-center text-center space-y-6">
+          <div className="relative">
+            <div className="w-20 h-20 rounded-3xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shadow-2xl shadow-amber-500/20 text-3xl">
+              ⚠️
+            </div>
+            <span className="absolute -bottom-2 -right-2 px-2.5 py-0.5 rounded-full bg-rose-500/20 border border-rose-500/30 text-rose-300 text-[10px] font-bold tracking-wider uppercase">
+              Maintenance
+            </span>
+          </div>
+
+          <div className="space-y-2">
+            <span className="inline-block px-3 py-1 rounded-full text-xs font-bold tracking-wider uppercase bg-amber-500/10 border border-amber-500/30 text-amber-300">
+              Service Temporarily Paused
+            </span>
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
+              {closureStatus.title || 'Web Portal Temporarily Closed'}
+            </h1>
+            <p className="text-slate-400 text-sm max-w-md mx-auto leading-relaxed">
+              {closureStatus.message ||
+                'Dactor Web Portal is temporarily closed for scheduled maintenance or operational updates. Please check back shortly.'}
+            </p>
+          </div>
+
+          <div className="w-full p-4 rounded-2xl bg-slate-900 border border-slate-800 text-xs text-slate-300 space-y-2 text-left">
+            <div className="font-bold text-slate-200 flex items-center gap-2">
+              <span>🚨</span>
+              <span>Urgent Medical Emergency</span>
+            </div>
+            <p className="text-slate-400 text-xs leading-relaxed">
+              If you or a loved one requires immediate emergency care, please proceed directly to the nearest hospital emergency room.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setCheckingClosure(true)
+              evaluateClosure()
+            }}
+            disabled={checkingClosure}
+            className="w-full py-3.5 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold text-sm shadow-xl shadow-indigo-600/25 transition flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <span>{checkingClosure ? 'Checking Status...' : 'Check If Reopened'}</span>
+          </button>
+        </div>
+
+        <div className="text-xs text-slate-500 text-center py-4">
+          © {new Date().getFullYear()} Dactor Platform. All operational services monitored securely.
+        </div>
+      </div>
+    )
   }
 
   return (

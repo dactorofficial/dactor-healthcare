@@ -12,6 +12,7 @@ import {
 import { Clinic, Doctor, Appointment } from '../types'
 import { getClinics, getDoctors, getAppointmentsByClinic } from '../services/db'
 import { supabase } from '../lib/supabase'
+import { RealtimeManager } from '../services/realtimeManager'
 import { setDefaultTabSEO } from '../utils/seo'
 
 interface AverageTimeProps {
@@ -77,17 +78,22 @@ export const AverageTime: React.FC<AverageTimeProps> = ({ onSelectClinic }) => {
     setDefaultTabSEO('average-time')
     loadLiveTelemetry()
 
-    const channel = supabase
-      .channel('avg-wait-time-telemetry')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'clinics' }, () => loadLiveTelemetry())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'doctors' }, () => loadLiveTelemetry())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, () => loadLiveTelemetry())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'queue_entries' }, () => loadLiveTelemetry())
-      .subscribe()
+    // Visibility-aware and idle-throttled Realtime connection (conserves Supabase Free Tier 200-socket limit)
+    const cleanup = RealtimeManager.registerManagedSubscription({
+      channelName: 'avg-wait-time-telemetry',
+      subscribe: () =>
+        supabase
+          .channel('avg-wait-time-telemetry')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'clinics' }, () => loadLiveTelemetry())
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'doctors' }, () => loadLiveTelemetry())
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, () => loadLiveTelemetry())
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'queue_entries' }, () => loadLiveTelemetry())
+          .subscribe(),
+      onReconnect: () => loadLiveTelemetry(),
+      idleTimeoutMinutes: 3,
+    })
 
-    return () => {
-      supabase.removeChannel(channel)
-    }
+    return cleanup
   }, [])
 
   const totalWaitingAllClinics = telemetry.reduce((acc, t) => acc + t.waitingCount, 0)

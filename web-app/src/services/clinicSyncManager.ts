@@ -442,7 +442,7 @@ export class ClinicSyncManager {
    * and persists them to local IndexedDB stores ('appointments' and 'patients').
    */
   public async syncIndividualPatientRecord(clinicId: string, patientKey: string): Promise<any> {
-    const clean = (patientKey || '').trim();
+    const clean = (patientKey || '').trim().replace(/[,()]/g, '');
     if (!clean) return null;
     const targetClinicId = clinicId || this.clinicId;
 

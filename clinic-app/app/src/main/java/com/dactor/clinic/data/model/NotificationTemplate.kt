@@ -135,6 +135,36 @@ sealed class NotificationTemplate {
         }
     }
 
+    object ArriveSoon : NotificationTemplate() {
+        override val type = NotificationType.ARRIVE_SOON
+        fun buildTitle(queuePosition: Int? = null) = if (queuePosition != null && queuePosition > 0) {
+            "Arrive Soon \u2022 Turn Approaching (#$queuePosition)"
+        } else {
+            "Arrive Soon! Turn Approaching"
+        }
+        fun buildMessage(
+            patientName: String,
+            code: String,
+            queuePosition: Int = 2,
+            estTime: String = "~ 10-15 mins"
+        ): String {
+            val aheadPart = when {
+                queuePosition <= 1 -> "You are next in line."
+                queuePosition == 2 -> "Only 1 patient is ahead of you."
+                else -> "Only ${queuePosition - 1} patients are ahead of you."
+            }
+            return NotificationTemplateData.buildMessageWithMeta(
+                cleanMessage = "Hi $patientName, your turn is approaching! You are position #$queuePosition in the queue (#$code). $aheadPart Please arrive at the clinic soon to avoid missing your turn.",
+                leftLabel = "Turn Status",
+                leftValue = "Arrive Soon",
+                rightLabel = "Queue Position",
+                rightValue = "Position #$queuePosition",
+                trackingCode = code,
+                statusBadge = "ARRIVE SOON \u2022 #$queuePosition"
+            )
+        }
+    }
+
     object EarlyArrivalInvite : NotificationTemplate() {
         override val type = NotificationType.EARLY_ARRIVAL
         fun buildTitle() = "⚡ Doctor is Free Now! Come in Early?"

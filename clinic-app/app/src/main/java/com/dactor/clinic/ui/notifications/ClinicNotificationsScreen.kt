@@ -149,7 +149,10 @@ fun DactorTemplateNotificationCard(
 
             // Bottom 2-Column Pill Container matching Unified Notification Template
             val isArriveFast = templateData.rightValue.contains("arrive fast", ignoreCase = true) ||
-                templateData.leftValue.contains("arrive fast", ignoreCase = true)
+                templateData.leftValue.contains("arrive fast", ignoreCase = true) ||
+                templateData.rightValue.contains("arrive soon", ignoreCase = true) ||
+                templateData.leftValue.contains("arrive soon", ignoreCase = true) ||
+                templateData.title.contains("arrive soon", ignoreCase = true)
 
             Surface(
                 shape = RoundedCornerShape(14.dp),

@@ -502,23 +502,31 @@ export function matchClinic(
       }
     }
 
-    // Rank 2: Doctor Name match
-    if (docNameLower.includes(q) || `dr. ${docNameLower}`.includes(q)) {
-      score += 120
+    // Rank 2: Doctor Name match (direct, title-stripped, or token-level)
+    const qClean = q.replace(/^dr\.?\s*/i, '').replace(/^doctor\s*/i, '').trim()
+    const docNameClean = docNameLower.replace(/^dr\.?\s*/i, '').replace(/^doctor\s*/i, '').trim()
+    const qCleanTokens = qClean.split(/\s+/).filter((t) => t.length >= 2)
+    const docTokens = docNameClean.split(/\s+/).filter((t) => t.length >= 2)
+
+    const isDirectDocMatch =
+      docNameLower.includes(q) ||
+      `dr. ${docNameLower}`.includes(q) ||
+      docNameClean.includes(qClean) ||
+      (qClean.length >= 3 && qClean.includes(docNameClean))
+    const isTokenDocMatch =
+      qCleanTokens.length > 0 &&
+      docTokens.some((dTok) =>
+        qCleanTokens.some((qTok) => dTok === qTok || (qTok.length >= 3 && (dTok.startsWith(qTok) || qTok.startsWith(dTok))))
+      )
+    const isStemDocMatch = stemsArray.some(
+      (stem) => stem.length >= 3 && (docNameClean.includes(stem) || docTokens.includes(stem))
+    )
+
+    if (isDirectDocMatch || isTokenDocMatch || isStemDocMatch) {
+      score += isDirectDocMatch ? 130 : 115
       docMatched = true
       if (!highlightReason) {
-        highlightReason = `Matched Doctor: ${doc.fullName.startsWith('Dr.') ? doc.fullName : `Dr. ${doc.fullName}`}`
-      }
-    } else {
-      for (const stem of stemsArray) {
-        if (docNameLower.includes(stem)) {
-          score += 110
-          docMatched = true
-          if (!highlightReason) {
-            highlightReason = `Matched Doctor: ${doc.fullName.startsWith('Dr.') ? doc.fullName : `Dr. ${doc.fullName}`}`
-          }
-          break
-        }
+        highlightReason = `Affiliated Doctor: ${doc.fullName.startsWith('Dr.') ? doc.fullName : `Dr. ${doc.fullName}`}`
       }
     }
 
@@ -671,45 +679,62 @@ export function matchDoctor(
     }
   }
 
-  // 2. Doctor Name
-  if (docNameLower.includes(q) || `dr. ${docNameLower}`.includes(q)) {
-    score += 120
-    if (!highlightReason) highlightReason = `Matched Doctor: Dr. ${doctor.fullName}`
-  } else {
-    for (const stem of stemsArray) {
-      if (docNameLower.includes(stem)) {
-        score += 110
-        if (!highlightReason) highlightReason = `Matched Doctor: Dr. ${doctor.fullName}`
-        break
-      }
+  // 2. Doctor Name (direct, title-stripped, or token-level)
+  const qClean = q.replace(/^dr\.?\s*/i, '').replace(/^doctor\s*/i, '').trim()
+  const docNameClean = docNameLower.replace(/^dr\.?\s*/i, '').replace(/^doctor\s*/i, '').trim()
+  const qCleanTokens = qClean.split(/\s+/).filter((t) => t.length >= 2)
+  const docTokens = docNameClean.split(/\s+/).filter((t) => t.length >= 2)
+
+  const isDirectDocMatch =
+    docNameLower.includes(q) ||
+    `dr. ${docNameLower}`.includes(q) ||
+    docNameClean.includes(qClean) ||
+    (qClean.length >= 3 && qClean.includes(docNameClean))
+  const isTokenDocMatch =
+    qCleanTokens.length > 0 &&
+    docTokens.some((dTok) =>
+      qCleanTokens.some((qTok) => dTok === qTok || (qTok.length >= 3 && (dTok.startsWith(qTok) || qTok.startsWith(dTok))))
+    )
+  const isStemDocMatch = stemsArray.some(
+    (stem) => stem.length >= 3 && (docNameClean.includes(stem) || docTokens.includes(stem))
+  )
+
+  if (isDirectDocMatch || isTokenDocMatch || isStemDocMatch) {
+    score += isDirectDocMatch ? 130 : 110
+    if (!highlightReason) {
+      highlightReason = `Matched Doctor: ${doctor.fullName.startsWith('Dr.') ? doctor.fullName : `Dr. ${doctor.fullName}`}`
     }
   }
 
-  // 3. Practicing Clinics & Area
+  // 3. Practicing Clinics & Area (Bidirectional Affiliation Match)
+  const qTokens = q.split(/\s+/).filter((t) => t.length >= 2)
   for (const clinic of clinics) {
     const cName = (clinic.name || '').toLowerCase()
     const cAddr = (clinic.addressText || '').toLowerCase()
-    if (cName.includes(q)) {
-      score += 95
-      if (!highlightReason) highlightReason = `Practices at ${clinic.name}`
-      break
+    const cNameTokens = cName.split(/\s+/).filter((t) => t.length >= 2)
+
+    // Clinic name match (direct, stem, or token overlap)
+    const isDirectClinicMatch = cName.includes(q) || (q.length >= 3 && q.includes(cName))
+    const isStemClinicMatch = stemsArray.some(
+      (stem) => stem.length >= 3 && (cName.includes(stem) || stem.includes(cName))
+    )
+    const isTokenClinicMatch = qTokens.some(
+      (tok) =>
+        tok.length >= 3 &&
+        (cName.includes(tok) ||
+          cNameTokens.some((it) => it === tok || it.startsWith(tok) || tok.startsWith(it)))
+    )
+
+    if (isDirectClinicMatch || isStemClinicMatch || isTokenClinicMatch) {
+      score += isDirectClinicMatch ? 120 : 100
+      if (!highlightReason) {
+        highlightReason = `Practices at ${clinic.name}`
+      }
     }
-    if (cAddr.includes(q)) {
+
+    if (cAddr.includes(q) || (q.length >= 3 && q.includes(cAddr)) || stemsArray.some((stem) => stem.length >= 3 && cAddr.includes(stem))) {
       score += 75
       if (!highlightReason) highlightReason = `Area: ${clinic.addressText || clinic.name}`
-      break
-    }
-    for (const stem of stemsArray) {
-      if (cName.includes(stem)) {
-        score += 85
-        if (!highlightReason) highlightReason = `Practices at ${clinic.name}`
-        break
-      }
-      if (cAddr.includes(stem)) {
-        score += 65
-        if (!highlightReason) highlightReason = `Area: ${clinic.addressText || clinic.name}`
-        break
-      }
     }
   }
 

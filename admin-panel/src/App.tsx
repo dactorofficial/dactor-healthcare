@@ -57,6 +57,7 @@ function App() {
   const [archivedCount, setArchivedCount] = useState<number>(0)
   const [pendingTicketsCount, setPendingTicketsCount] = useState<number>(0)
   const [pendingDeskSettlementsCount, setPendingDeskSettlementsCount] = useState<number>(0)
+  const [closedAppsCount, setClosedAppsCount] = useState<number>(0)
   const [session, setSession] = useState<any>(null)
   const [checkingAuth, setCheckingAuth] = useState(true)
   const [currentPath, setCurrentPath] = useState('/dashboard')
@@ -221,6 +222,14 @@ function App() {
       } catch (e) {
         console.warn('Error fetching desk settlements count:', e)
       }
+
+      try {
+        const { data: verRows } = await supabase
+          .from('app_versions')
+          .select('is_temporarily_closed')
+          .eq('is_temporarily_closed', true)
+        setClosedAppsCount(verRows?.length || 0)
+      } catch {}
     }
     fetchCounters()
     const interval = setInterval(fetchCounters, 12000)
@@ -523,12 +532,19 @@ function App() {
 
           <button
             onClick={() => navigate('/app-versions')}
-            className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium transition ${
               currentPath === '/app-versions' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
             }`}
           >
-            <ArrowUpCircle className="w-4 h-4 text-emerald-400" />
-            <span>App Version Control</span>
+            <div className="flex items-center space-x-3">
+              <ArrowUpCircle className="w-4 h-4 text-emerald-400" />
+              <span>App Control & Closure</span>
+            </div>
+            {closedAppsCount > 0 && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse">
+                {closedAppsCount} Paused
+              </span>
+            )}
           </button>
         </nav>
 

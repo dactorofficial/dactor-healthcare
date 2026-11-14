@@ -314,7 +314,11 @@ object OpenRouteSpatialEngine {
     }
 
     fun getClinicCorpus(clinic: Clinic, doctors: List<Doctor>, services: List<ClinicService>): PreIndexedClinicCorpus {
-        return clinicCorpusCache[clinic.id] ?: indexClinic(clinic, doctors, services)
+        val cached = clinicCorpusCache[clinic.id]
+        if (cached != null && (doctors.isEmpty() || cached.doctorsJoinedLower.isNotBlank())) {
+            return cached
+        }
+        return indexClinic(clinic, doctors, services)
     }
 
     /**
@@ -345,6 +349,10 @@ object OpenRouteSpatialEngine {
     }
 
     fun getDoctorCorpus(doctor: Doctor, clinics: List<Clinic> = emptyList()): PreIndexedDoctorCorpus {
-        return doctorCorpusCache[doctor.id] ?: indexDoctor(doctor, clinics)
+        val cached = doctorCorpusCache[doctor.id]
+        if (cached != null && (clinics.isEmpty() || cached.clinicsJoinedLower.isNotBlank())) {
+            return cached
+        }
+        return indexDoctor(doctor, clinics)
     }
 }

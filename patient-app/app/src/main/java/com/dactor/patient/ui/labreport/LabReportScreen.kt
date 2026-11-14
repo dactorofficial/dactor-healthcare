@@ -650,6 +650,14 @@ fun LabReportScreen(
 
                             Text("Report Document (In-App Viewer)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
 
+                            val localReportFile = com.dactor.patient.util.LabReportPdfDownloader.findDownloadedReportFile(
+                                context = context,
+                                report = report,
+                                clinicName = null,
+                                patientName = report.patientNameVerification.ifBlank { sessionManager?.getSavedName() }
+                            )
+                            val isDownloaded = localReportFile != null && localReportFile.exists()
+
                             // Document Card
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
@@ -694,11 +702,11 @@ fun LabReportScreen(
                                         }
                                     }
 
-                                    // In-app preview if an image/picture was uploaded by the lab clinic
-                                    if (hasRemoteFile && isImageFile) {
+                                    // In-app preview only after downloaded, loaded strictly from local file
+                                    if (isDownloaded && isImageFile && localReportFile != null) {
                                         AsyncImage(
-                                            model = report.fileUrl,
-                                            contentDescription = "Uploaded Lab Report Picture",
+                                            model = localReportFile,
+                                            contentDescription = "Downloaded Lab Report Picture",
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .heightIn(min = 180.dp, max = 380.dp)
@@ -706,6 +714,42 @@ fun LabReportScreen(
                                                 .background(Color(0xFFE2E8F0)),
                                             contentScale = ContentScale.Fit
                                         )
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = Color(0xFFECFDF5),
+                                            border = BorderStroke(1.dp, Color(0xFFA7F3D0)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(13.dp))
+                                                Text(
+                                                    text = "Offline View • Loaded from Dactor Reports/${localReportFile.name}",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = Color(0xFF065F46)
+                                                )
+                                            }
+                                        }
+                                    } else if (!isDownloaded) {
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = Color(0xFFF1F5F9),
+                                            border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Text("Digital Report File Ready", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF0F172A))
+                                                Text(
+                                                    "To view in-app, please download the file first. It will be saved into your 'Dactor Reports' folder and will load locally without downloading from the server every time.",
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFF475569)
+                                                )
+                                            }
+                                        }
                                     }
 
                                     HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
@@ -722,40 +766,86 @@ fun LabReportScreen(
                                 }
                             }
 
-                            // Download & Share Actions (saves directly to device Downloads)
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Button(
-                                    onClick = {
-                                        val savedUri = com.dactor.patient.util.LabReportPdfDownloader.downloadAndSaveReportFile(
-                                            context = context,
-                                            report = report,
-                                            patientName = report.patientNameVerification.ifBlank { sessionManager?.getSavedName() ?: "Registered Patient" }
-                                        )
-                                        if (savedUri != null) {
-                                            statusMessage = "✓ Lab Report file downloaded directly to your device's Downloads folder!"
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f).height(48.dp),
-                                    shape = RoundedCornerShape(12.dp)
+                            // Download & View Actions
+                            if (isDownloaded && localReportFile != null) {
+                                // Once downloaded, show "View in App" / Open Local File action
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(if (isImageFile) "Download Picture" else "Download File", fontWeight = FontWeight.Bold)
-                                }
+                                    Button(
+                                        onClick = {
+                                            com.dactor.patient.util.LabReportPdfDownloader.openLocalReportFile(
+                                                context = context,
+                                                file = localReportFile,
+                                                mimeType = if (isImageFile) "image/*" else "application/pdf"
+                                            )
+                                        },
+                                        modifier = Modifier.weight(1f).height(48.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
+                                    ) {
+                                        Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("View In-App (Offline)", fontWeight = FontWeight.Bold)
+                                    }
 
-                                OutlinedButton(
-                                    onClick = {
-                                        val shareText = "Dactor Lab Report: ${report.testName} (ID: ${report.id})\nDocument: ${report.fileName ?: "Report.pdf"}"
-                                        clipboardManager.setText(AnnotatedString(shareText))
-                                        statusMessage = "Report details copied to clipboard."
-                                    },
-                                    modifier = Modifier.height(48.dp),
-                                    shape = RoundedCornerShape(12.dp)
+                                    OutlinedButton(
+                                        onClick = {
+                                            val savedUri = com.dactor.patient.util.LabReportPdfDownloader.downloadAndSaveReportFile(
+                                                context = context,
+                                                report = report,
+                                                patientName = report.patientNameVerification.ifBlank { sessionManager?.getSavedName() ?: "Registered Patient" }
+                                            )
+                                            if (savedUri != null) {
+                                                statusMessage = "✓ Lab Report file saved into Dactor Reports!"
+                                            }
+                                        },
+                                        modifier = Modifier.height(48.dp),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Icon(Icons.Default.Download, contentDescription = "Re-download", modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                            } else {
+                                // Download & Share Actions (saves directly to local Dactor Reports and Downloads/Dactor Reports)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    Icon(Icons.Default.Share, contentDescription = "Share", modifier = Modifier.size(18.dp))
+                                    Button(
+                                        onClick = {
+                                            val savedUri = com.dactor.patient.util.LabReportPdfDownloader.downloadAndSaveReportFile(
+                                                context = context,
+                                                report = report,
+                                                patientName = report.patientNameVerification.ifBlank { sessionManager?.getSavedName() ?: "Registered Patient" },
+                                                onComplete = {
+                                                    statusMessage = "✓ Saved to Dactor Reports! You can now view in-app offline."
+                                                }
+                                            )
+                                            if (savedUri != null) {
+                                                statusMessage = "✓ Lab Report file downloaded to Dactor Reports!"
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f).height(48.dp),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(if (isImageFile) "Download Picture" else "Download File", fontWeight = FontWeight.Bold)
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = {
+                                            val shareText = "Dactor Lab Report: ${report.testName} (ID: ${report.id})\nDocument: ${report.fileName ?: "Report.pdf"}"
+                                            clipboardManager.setText(AnnotatedString(shareText))
+                                            statusMessage = "Report details copied to clipboard."
+                                        },
+                                        modifier = Modifier.height(48.dp),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Icon(Icons.Default.Share, contentDescription = "Share", modifier = Modifier.size(18.dp))
+                                    }
                                 }
                             }
 
