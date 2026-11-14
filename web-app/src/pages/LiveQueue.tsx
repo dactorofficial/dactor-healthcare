@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Activity,
   Search,
@@ -109,6 +109,17 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     message: string
   } | null>(null)
 
+  // 2s Server Polling Concurrency Guard & Snapshot Change Detection
+  const isPollingRef = useRef(false)
+  const lastSnapshotRef = useRef<{
+    checkinStatus?: string
+    queueNumber?: string | number
+    publicStatus?: string
+    publicToken?: string | number
+    cabinStatus?: string
+    queueLength?: number
+  }>({})
+
   // Live Consultation Timer
   const [currentEpochSecond, setCurrentEpochSecond] = useState<number>(() =>
     Math.floor(Date.now() / 1000)
@@ -157,6 +168,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   const fetchQueueData = async (targetCode: string, silent = false) => {
     const clean = targetCode.trim()
     if (!clean) return
+    if (silent && isPollingRef.current) return
+    if (silent) isPollingRef.current = true
     if (!silent) setLoading(true)
     setErrorMsg('')
 
@@ -205,6 +218,35 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             setClinic(null)
             setDoctor(null)
             if (!silent) setErrorMsg('No booking record found. Check the code and try again.')
+          }
+
+          // Snapshot diffing for public queue status
+          const prev = lastSnapshotRef.current
+          const newPubStatus = status?.status
+          const newPubToken = status?.token_number
+          const newCabin = status?.doctor_in_cabin ? 'inside' : 'waiting'
+
+          const hasChanged = Boolean(
+            (prev.publicStatus !== undefined || prev.publicToken !== undefined) && (
+              prev.publicStatus !== newPubStatus ||
+              prev.publicToken !== newPubToken ||
+              prev.cabinStatus !== newCabin
+            )
+          )
+
+          if (hasChanged && silent) {
+            playChimeSound()
+            setActiveAlert({
+              id: String(Date.now()),
+              title: 'Queue Updated',
+              message: `Queue status changed to ${String(newPubStatus || 'UPDATED').toUpperCase()}${newPubToken ? ` (Token #${newPubToken})` : ''}`,
+            })
+          }
+
+          lastSnapshotRef.current = {
+            publicStatus: newPubStatus,
+            publicToken: newPubToken,
+            cabinStatus: newCabin,
           }
           return
         }

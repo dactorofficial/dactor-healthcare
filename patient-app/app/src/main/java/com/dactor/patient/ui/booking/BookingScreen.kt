@@ -501,6 +501,8 @@ fun BookingScreen(
                                                 } else {
                                                     queueRepository?.removeOrCancelQueueEntry(pendingReschedule.appointmentId)
                                                 }
+                                                sessionManager?.clearCachedQueueStatus(pendingReschedule.appointmentId)
+                                                sessionManager?.clearCachedQueueStatus(pendingReschedule.trackingCode)
                                                 sessionManager?.clearPendingReschedule()
                                                 Toast.makeText(context, "Rescheduled to $selectedDate at ${selectedSlot.startTime} successfully!", Toast.LENGTH_LONG).show()
                                                 navController.navigate(NavRoutes.QueueStatus.createRoute(pendingReschedule.trackingCode)) {

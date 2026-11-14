@@ -148,6 +148,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   })
 
   useEffect(() => {
+    setDefaultTabSEO('doctor-portal')
     getSupportUrl().then((url) => {
       if (url) setSupportUrl(url)
     })

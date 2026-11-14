@@ -63,6 +63,7 @@ import {
 import { ClinicPaymentLogsView } from '../components/ClinicPaymentLogsView'
 import dactorLogo from '../assets/logo.svg'
 import { printAppointmentBill, printPrescription } from '../utils/medicalDocPrinter'
+import { setDefaultTabSEO } from '../utils/seo'
 import { GlassCard, GlassButton, GlassBadge } from '../components/glass'
 import { DateScroller } from '../components/DateScroller'
 import { generateTrackingCode } from '../utils/trackingCode'
@@ -480,7 +481,7 @@ function calculateLiveQueueTimingEstimate(
   }
 }
 
-export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
+export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
   // Authentication & Profile State
   const [clinics, setClinics] = useState<Clinic[]>([])
   const [selectedClinic, setSelectedClinic] = useState<Clinic | null>(null)
@@ -539,6 +540,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   })
 
   useEffect(() => {
+    setDefaultTabSEO('portal')
     getSupportUrl().then((url) => {
       if (url) setSupportUrl(url)
     })
@@ -764,6 +766,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     const handleScroll = () => {
       if (!ticking) {
         window.requestAnimationFrame(() => {
+          const hasScrollableContent = document.documentElement.scrollHeight > window.innerHeight + 250
+          if (!hasScrollableContent) {
+            setIsScrolledDown(false)
+            ticking = false
+            return
+          }
           const currentScrollY = window.scrollY
           // If scrolled down more than 90px and scrolling downwards -> collapse top controls smoothly
           if (currentScrollY > 90 && currentScrollY > lastScrollY + 12) {
