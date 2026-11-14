@@ -62,6 +62,7 @@ import {
   isUserMatchingPatientEmail,
   getCurrentLoggedInUserEmail,
   getReportPhoneRateLimitState,
+  recordReportPhoneAttempt,
   clearReportPhoneRateLimit,
   MAX_REPORT_PHONE_ATTEMPTS,
   resolveStorageUrl,

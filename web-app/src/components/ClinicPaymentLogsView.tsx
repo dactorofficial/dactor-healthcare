@@ -906,6 +906,7 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         )}
@@ -949,9 +950,10 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
                 </button>
               </div>
             ) : (
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200/80 dark:border-slate-800/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50 dark:bg-slate-800/40">
+              <div className="overflow-x-auto max-h-[calc(100vh-280px)] overflow-y-auto rounded-xl border border-slate-200/80 dark:border-slate-800/80">
+                <table className="w-full text-left border-collapse">
+                  <thead className="sticky top-0 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md shadow-sm z-10">
+                    <tr className="border-b border-slate-200/80 dark:border-slate-800/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/80 dark:bg-slate-800/80">
                     <th className="py-3 px-4">Date & Time</th>
                     <th className="py-3 px-4">Expense Title</th>
                     <th className="py-3 px-4">Category</th>
@@ -1011,6 +1013,7 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         )}

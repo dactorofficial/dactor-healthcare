@@ -1,0 +1,92 @@
+name: Automated SEO & Sitemap Synchronization
+
+on:
+  schedule:
+    # Runs daily at 02:00 UTC (07:45 AM Nepal Time)
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - 'web-app/scripts/generate-seo.js'
+      - 'web-app/index.html'
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "seo-sync"
+  cancel-in-progress: false
+
+jobs:
+  sync-seo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run Dynamic SEO & Prerendering Generator
+        run: |
+          node web-app/scripts/generate-seo.js
+
+      - name: Commit and Push Changes if SEO Artifacts Updated
+        run: |
+          git config user.name "Dactor SEO Bot"
+          git config user.email "seo@dactor.health"
+          git add web-app/public/sitemap.xml web-app/public/llms.txt web-app/public/llms-full.txt web-app/index.html sitemap.xml llms.txt llms-full.txt web-app/public/manifest.json || true
+          
+          if git diff --staged --quiet; then
+            echo "No SEO changes detected. Sitemaps and schemas are up to date."
+          else
+            echo "SEO changes detected. Committing and pushing..."
+            git commit -m "chore(seo): automated daily sitemap and schema synchronization [skip ci]"
+            git push origin main
+          fi
+
+  deploy-pages:
+    needs: sync-seo
+    if: always()
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'web-app/package.json'
+
+      - name: Install Dependencies
+        working-directory: ./web-app
+        run: npm ci
+
+      - name: Build Web Application
+        working-directory: ./web-app
+        run: npm run build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './web-app/dist'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
