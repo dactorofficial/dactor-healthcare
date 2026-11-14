@@ -105,12 +105,32 @@ Over the last 48 hours, engineering efforts addressed high-priority billing and 
   - `web-app/src/pages/LabReports.tsx`
   - `web-app/src/pages/LiveQueue.tsx`
 
+### 3.3 Clinic Prioritization & Live Queue Doctor Profile Refinements
+* **Clinic Discovery Prioritization**:
+  - Prioritized pure clinics over general hospitals on dedicated clinic tabs across `ClinicDetailScreen.kt`, `PatientMainScreen.kt`, and `ClinicPortal.tsx`.
+* **Doctor Profile Filtering in Live Queue**:
+  - Suppressed unassigned / placeholder doctor profiles in Live Queue views and trackers (`QueueBoardScreen.kt`, `QueueStatusScreen.kt`, `LiveQueue.tsx`) to prevent displaying ghost queues.
+* **Notification State Synchronization**:
+  - Implemented persistent read-state tracking via `UserSessionManager.kt` in both `clinic-app` and `patient-app`, backed by `migration_fix_notification_read_sync.sql`.
+* **Key Files**:
+  - `clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/QueueBoardScreen.kt`
+  - `patient-app/app/src/main/java/com/dactor/patient/ui/discovery/ClinicDetailScreen.kt`
+  - `patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt`
+  - `patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt`
+  - `web-app/src/pages/LiveQueue.tsx`
+  - `web-app/src/pages/ClinicPortal.tsx`
+  - `web-app/src/pages/Home.tsx`
+  - `web-app/src/pages/PatientPortal.tsx`
+  - `supabase/migration_fix_notification_read_sync.sql`
+
 ---
 
 ## 4. Git Commit History
 
 | Commit Hash | Date & Time (NPT) | Type / Scope | Description |
 | :--- | :--- | :--- | :--- |
+| `7e1e6ff` | 2026-11-14 06:02:05 | `fix(patient,web)` | Prioritize clinics on clinic tabs and hide unassigned doctor profile in live queue |
+| `816e1f3` | 2026-11-14 01:48:24 | `docs` | Add comprehensive work report for Nov 13-14, 2026 |
 | `6797a13` | 2026-11-14 01:39:30 | `feat(web-app)` | Sync app logic changes from yesterday and add one-way app-to-web global rule |
 | `4a559c9` | 2026-11-13 14:17:12 | `feat` | Add clinic expense tracking to payment logs and financial ledger |
 | `355317f` | 2026-11-13 13:29:30 | `fix(payments,patient)` | Fix eSewa auto-post form loop, public methods RPC, and alphanumeric tracking code |
