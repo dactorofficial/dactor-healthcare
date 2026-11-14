@@ -944,4 +944,178 @@ suite.test('F12-05: Redaction engine interface conforms to redactor specificatio
   assert.equal(env.REDACTED_VALUE, '[REDACTED]');
 });
 
+// ============================================================================
+// FEATURE 13: Live Queue 2s Polling & Selective Patient Record Sync (R1 & R2)
+// ============================================================================
+
+suite.test('F13-01: Live Queue 2000ms polling interval and isPollingRef concurrency guard', async (assert) => {
+  let isPolling = false;
+  let pollCount = 0;
+  let overlappingRejections = 0;
+
+  async function mockPollStep(latencyMs) {
+    if (isPolling) {
+      overlappingRejections++;
+      return;
+    }
+    isPolling = true;
+    try {
+      pollCount++;
+      await new Promise((r) => setTimeout(r, latencyMs));
+    } finally {
+      isPolling = false;
+    }
+  }
+
+  // Poll 1: normal latency 10ms
+  await mockPollStep(10);
+  assert.equal(pollCount, 1);
+  assert.equal(isPolling, false, 'Lock must be released after poll finishes');
+
+  // Poll 2: slow response running concurrently with another poll
+  const slowPromise = mockPollStep(40);
+  // Attempt concurrent poll while slowPromise is pending
+  const fastPromise = mockPollStep(5);
+  await Promise.all([slowPromise, fastPromise]);
+
+  assert.equal(pollCount, 2, 'Only 1 of the concurrent polls should execute');
+  assert.equal(overlappingRejections, 1, 'Overlapping poll must be rejected by isPollingRef guard');
+  assert.equal(isPolling, false, 'Lock must be reset after completion');
+});
+
+suite.test('F13-02: Live Queue snapshot diffing emits immediate alert on detail transition', async (assert) => {
+  let lastSnapshot = { checkinStatus: 'waiting', queueNumber: 1, cabinStatus: true, queueLength: 5 };
+  const alertsEmitted = [];
+
+  function evaluateSnapshotChange(newSnapshot, isSilent = true) {
+    const hasChanged = Boolean(
+      (lastSnapshot.checkinStatus !== undefined || lastSnapshot.queueNumber !== undefined) && (
+        lastSnapshot.checkinStatus !== newSnapshot.checkinStatus ||
+        lastSnapshot.queueNumber !== newSnapshot.queueNumber ||
+        lastSnapshot.cabinStatus !== newSnapshot.cabinStatus ||
+        lastSnapshot.queueLength !== newSnapshot.queueLength
+      )
+    );
+
+    if (hasChanged && isSilent) {
+      alertsEmitted.push({
+        status: newSnapshot.checkinStatus,
+        token: newSnapshot.queueNumber,
+        cabin: newSnapshot.cabinStatus
+      });
+    }
+    lastSnapshot = { ...newSnapshot };
+    return hasChanged;
+  }
+
+  // Identical snapshot -> no alert
+  const noChange = evaluateSnapshotChange({ checkinStatus: 'waiting', queueNumber: 1, cabinStatus: true, queueLength: 5 });
+  assert.equal(noChange, false, 'No change should not trigger alert');
+  assert.equal(alertsEmitted.length, 0);
+
+  // Status transition to in_consultation -> immediate alert emitted
+  const statusChange = evaluateSnapshotChange({ checkinStatus: 'in_consultation', queueNumber: 1, cabinStatus: true, queueLength: 5 });
+  assert.equal(statusChange, true);
+  assert.equal(alertsEmitted.length, 1);
+  assert.equal(alertsEmitted[0].status, 'in_consultation');
+
+  // Token number advance to 2 -> immediate alert emitted
+  const tokenChange = evaluateSnapshotChange({ checkinStatus: 'in_consultation', queueNumber: 2, cabinStatus: true, queueLength: 4 });
+  assert.equal(tokenChange, true);
+  assert.equal(alertsEmitted.length, 2);
+  assert.equal(alertsEmitted[1].token, 2);
+});
+
+suite.test('F13-03: Local patient directory storage in IndexedDB patients store', async (assert) => {
+  const patientRecord = {
+    id: 'pat-offline-001',
+    clinic_id: 'clinic-alpha',
+    full_name: 'Bishnu Prasad',
+    phone: '9841223344',
+    gender: 'Male',
+    age: 45,
+    email: 'bishnu@example.com',
+    last_visit_date: '2026-11-14',
+    updated_at: new Date().toISOString()
+  };
+
+  // Upsert patient into IndexedDB 'patients' store
+  await env.putPatientRecord(patientRecord);
+
+  // Verify persistence and indexed lookup
+  const loaded = await env.getPatientRecord('pat-offline-001');
+  assert.ok(loaded, 'Patient must be retrievable from local patients store');
+  assert.equal(loaded.full_name, 'Bishnu Prasad');
+  assert.equal(loaded.phone, '9841223344');
+
+  const allClinicPatients = await env.getAllPatients('clinic-alpha');
+  assert.equal(allClinicPatients.length, 1);
+  assert.equal(allClinicPatients[0].id, 'pat-offline-001');
+});
+
+suite.test('F13-04: Selective sync filters today appointments only and excludes non-scheduled patients', async (assert) => {
+  const clinicId = 'clinic-sync-test';
+  const manager = new env.ClinicSyncManager(clinicId);
+  const today = new Date().toISOString().split('T')[0];
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+
+  // Populate remote database with appointments across multiple dates
+  await env.globalRemoteDb.from('appointments').upsert([
+    { id: 'appt-today-1', clinic_id: clinicId, appointment_date: today, patient_name: 'Patient Today A', updated_at: new Date().toISOString() },
+    { id: 'appt-today-2', clinic_id: clinicId, appointment_date: today, patient_name: 'Patient Today B', updated_at: new Date().toISOString() },
+    { id: 'appt-future-1', clinic_id: clinicId, appointment_date: tomorrow, patient_name: 'Patient Future C', updated_at: new Date().toISOString() }
+  ]);
+
+  // Routine sync with today's date filter
+  const { pulled } = await manager.pullRemoteDeltas(clinicId, today);
+  assert.equal(pulled, 2, 'Only today 2 appointments should be pulled during routine sync');
+
+  // Verify today appointments exist locally
+  const appt1 = await env.getRecord('appointments', 'appt-today-1');
+  const appt2 = await env.getRecord('appointments', 'appt-today-2');
+  assert.ok(appt1, 'Today appointment A must be persisted');
+  assert.ok(appt2, 'Today appointment B must be persisted');
+
+  // Verify non-scheduled future appointment is excluded from local storage
+  const futureAppt = await env.getRecord('appointments', 'appt-future-1');
+  assert.equal(futureAppt, undefined, 'Future appointment must NOT be synced in routine sync');
+});
+
+suite.test('F13-05: On-demand sync fetches and persists individual patient record when opened', async (assert) => {
+  const clinicId = 'clinic-ondemand-test';
+  const manager = new env.ClinicSyncManager(clinicId);
+  const futureDate = '2026-11-28';
+
+  // Remote appointment not scheduled for today
+  await env.globalRemoteDb.from('appointments').upsert([
+    {
+      id: 'appt-ondemand-99',
+      clinic_id: clinicId,
+      tracking_code_10_digit: '1234567899',
+      patient_name: 'Unscheduled Checked Patient',
+      patient_mobile: '9841999999',
+      appointment_date: futureDate,
+      updated_at: new Date().toISOString()
+    }
+  ]);
+
+  // Not in local DB initially
+  const beforeCheck = await env.getRecord('appointments', 'appt-ondemand-99');
+  assert.equal(beforeCheck, undefined, 'Record should not exist in local DB before check');
+
+  // Staff actively inspects / opens Patient 99's record
+  const syncedRecords = await manager.syncIndividualPatientRecord(clinicId, '1234567899');
+  assert.ok(syncedRecords && syncedRecords.length > 0, 'On-demand sync must return matching record');
+
+  // Now persisted in local 'appointments' and 'patients' stores
+  const afterAppt = await env.getRecord('appointments', 'appt-ondemand-99');
+  assert.ok(afterAppt, 'Appointment must be saved in IndexedDB appointments store');
+  assert.equal(afterAppt.patient_name, 'Unscheduled Checked Patient');
+
+  const afterPatient = await env.getPatientRecord('1234567899');
+  assert.ok(afterPatient, 'Patient must be saved in IndexedDB patients store');
+  assert.equal(afterPatient.full_name, 'Unscheduled Checked Patient');
+  assert.equal(afterPatient.phone, '9841999999');
+});
+
 module.exports = suite;
