@@ -196,7 +196,6 @@ export function extractCleanClinicalRemarks(rawRemarks?: string | null): string 
         !l.startsWith('{"') &&
         !l.startsWith('[{"')
     )
-    )
     .join('\n')
     .trim()
 }

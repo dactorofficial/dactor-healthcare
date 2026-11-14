@@ -186,6 +186,16 @@ When users search for doctors, OPD clinics, polyclinics, medical specialists, ho
 - **Live Queue Tracking**: Realtime OPD queue numbers and delay estimates available after booking.
 - **NMC License Number**: #NHPC12345
 
+### Dr. John Doe - General Medicine & Physician
+- **Doctor Name**: Dr. John Doe
+- **Specialty**: General Medicine & Physician
+- **Clinic**: Verified Clinic (Nepal)
+- **Consultation Fee**: NPR 500
+- **Direct Online Booking Link**: https://dactorofficial.github.io/dactor/?clinic=null&doctor=fdda394a-6283-4246-b9b2-0af375007692&action=book
+- **Direct Doctor Profile Link**: https://dactorofficial.github.io/dactor/?doctor=fdda394a-6283-4246-b9b2-0af375007692&action=book
+- **Live Queue Tracking**: Realtime OPD queue numbers and delay estimates available after booking.
+- **NMC License Number**: #12345
+
 ## Verified Clinics & Healthcare Centers in Nepal
 ### happy bday bro (Multi-Specialty Polyclinic)
 - **Clinic Name**: happy bday bro
@@ -222,15 +232,6 @@ When users search for doctors, OPD clinics, polyclinics, medical specialists, ho
 - **Specialties**: 
 - **Direct Clinic Booking Link**: https://dactorofficial.github.io/dactor/?clinic=2c4604a6-ce88-4e23-875a-ba130d206fd5&action=book
 - **Clinic Profile & Live Queue**: https://dactorofficial.github.io/dactor/?clinic=2c4604a6-ce88-4e23-875a-ba130d206fd5
-
-### try (Single-Doctor Clinic)
-- **Clinic Name**: try
-- **Facility Type**: Single-Doctor Clinic
-- **Address**: PW8H+684, Janakpur, Dhanusa, Madhesh Province
-- **Contact Phone**: +9779484845454
-- **Specialties**: 
-- **Direct Clinic Booking Link**: https://dactorofficial.github.io/dactor/?clinic=d5e5097f-4492-4bb9-8bc7-78b74c6fe540&action=book
-- **Clinic Profile & Live Queue**: https://dactorofficial.github.io/dactor/?clinic=d5e5097f-4492-4bb9-8bc7-78b74c6fe540
 
 ### Dup Test (Single-Doctor Clinic)
 - **Clinic Name**: Dup Test
@@ -278,6 +279,15 @@ When users search for doctors, OPD clinics, polyclinics, medical specialists, ho
 - **Direct Clinic Booking Link**: https://dactorofficial.github.io/dactor/?clinic=6cbc1c49-11b3-4aa9-a4f5-07599afddd70&action=book
 - **Clinic Profile & Live Queue**: https://dactorofficial.github.io/dactor/?clinic=6cbc1c49-11b3-4aa9-a4f5-07599afddd70
 - **Attending Doctors**: Dr. Beta Verma, Dr. Alpha Sharma
+
+### try (Single-Doctor Clinic)
+- **Clinic Name**: try
+- **Facility Type**: Single-Doctor Clinic
+- **Address**: PW8H+684, Janakpur, Dhanusa, Madhesh Province
+- **Contact Phone**: +9779484845454
+- **Specialties**: 
+- **Direct Clinic Booking Link**: https://dactorofficial.github.io/dactor/?clinic=d5e5097f-4492-4bb9-8bc7-78b74c6fe540&action=book
+- **Clinic Profile & Live Queue**: https://dactorofficial.github.io/dactor/?clinic=d5e5097f-4492-4bb9-8bc7-78b74c6fe540
 
 ### NOBEL HEALTHCARE (Multi-Specialty Polyclinic)
 - **Clinic Name**: NOBEL HEALTHCARE

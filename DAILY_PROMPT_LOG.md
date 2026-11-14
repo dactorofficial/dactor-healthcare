@@ -7,6 +7,25 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-14
 
 ### Prompt:
+> "git pull new things from main branch"
+
+#### Changes Applied:
+1. **Git Pull Synchronization**:
+   - Pulled and fast-forward merged latest commits (`5ca9442..30b153c`) from `origin/main` into the local repository.
+   - Synchronized 61 files (5,719 insertions, 987 deletions) covering:
+     - Clinic expense tracking and financial ledger models/UI (`clinic-app/app/src/main/java/com/dactor/clinic/data/model/ClinicExpense.kt`, `PaymentLogsScreen.kt`, `migration_clinic_expenses.sql`, unit tests).
+     - eSewa direct form post & payment method record typing fix (`supabase/functions/appointment-payment/index.ts`, `checkout.html`, `migration_fix_payment_methods_and_credentials.sql`).
+     - Alphanumeric 10-character tracking code support across patient app and web portal (`PatientMainScreen.kt`, `QueueStatusScreen.kt`, `db.ts`, `LiveQueue.tsx`, `LabReports.tsx`).
+     - Clinic tab prioritization and unassigned doctor profile hiding in live queue (`ClinicDetailScreen.kt`, `LiveQueue.tsx`).
+     - Global rule enforcement for One-Way Logic Synchronization (App -> Website).
+2. **Web Portal Build Syntax & Import Fixes ([`paymentLedger.ts`](file:///g:/My%20Drive/New%20folder/web-app/src/utils/paymentLedger.ts), [`LiveQueue.tsx`](file:///g:/My%20Drive/New%20folder/web-app/src/pages/LiveQueue.tsx))**:
+   - Fixed syntax error in `web-app/src/utils/paymentLedger.ts` by removing extraneous closing parenthesis in `extractCleanClinicalRemarks()`.
+   - Imported missing `recordReportPhoneAttempt` from `../services/db` in `web-app/src/pages/LiveQueue.tsx`.
+   - Verified clean production compilation with `npm run build` in `web-app`.
+
+---
+
+### Prompt:
 > "If we change any logic in app then do change the website as well but if we change the website don't change anything on app , this would be addded to our global rule  and , do , make changes ,in website , which had been made yesterday all by all ,"
 
 #### Changes Applied:
