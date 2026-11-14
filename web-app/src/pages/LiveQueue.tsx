@@ -112,6 +112,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
   // 2s Server Polling Concurrency Guard & Snapshot Change Detection
   const isPollingRef = useRef(false)
+  const requestSeqRef = useRef(0)
+  const activeRequestsRef = useRef(0)
   const lastSnapshotRef = useRef<{
     checkinStatus?: string
     queueNumber?: string | number
@@ -170,7 +172,9 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     const clean = targetCode.trim()
     if (!clean) return
     if (silent && isPollingRef.current) return
-    if (silent) isPollingRef.current = true
+    isPollingRef.current = true
+    const seq = ++requestSeqRef.current
+    activeRequestsRef.current++
     if (!silent) setLoading(true)
     setErrorMsg('')
 
@@ -198,6 +202,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
     try {
       if (!/^\d{10}$/.test(clean)) {
+        if (seq !== requestSeqRef.current) return
         setAppointment(null)
         setPublicQueueStatus(null)
         setLabReports([])
@@ -205,90 +210,113 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         return
       }
 
-      let effectiveAppt = appointment
-      if (!silent || !effectiveAppt) {
-        const appt = await getAppointmentByTrackingCodeOrContact(clean)
-        if (!appt) {
-          const { data: publicRows, error: publicError } = await supabase.rpc('get_public_queue_status', {
-            p_tracking_code: clean,
-          })
-          const status = !publicError && Array.isArray(publicRows) ? publicRows[0] : null
-          setAppointment(null)
-          setLinkedConsultations(null)
-          setClinicQueue([])
-          setLabReports([])
-          setMultiSlotResult(null)
-          setPublicQueueStatus(status || null)
-          if (status?.clinic_id) {
-            setClinic(await getClinicById(status.clinic_id))
-            setDoctor(status.doctor_id ? await getDoctorById(status.doctor_id) : null)
-          } else {
-            setClinic(null)
-            setDoctor(null)
-            if (!silent) setErrorMsg('No booking record found. Check the code and try again.')
-          }
+      // Always re-fetch the appointment record across all polls (silent or non-silent)
+      // to detect live token number, check-in status, and appointment state changes.
+      const appt = await getAppointmentByTrackingCodeOrContact(clean)
+      if (seq !== requestSeqRef.current) return
 
-          // Snapshot diffing for public queue status
-          const prev = lastSnapshotRef.current
-          const newPubStatus = status?.status
-          const newPubToken = status?.token_number
-          const newCabin = status?.doctor_in_cabin ? 'inside' : 'waiting'
+      if (!appt) {
+        const { data: publicRows, error: publicError } = await supabase.rpc('get_public_queue_status', {
+          p_tracking_code: clean,
+        })
+        if (seq !== requestSeqRef.current) return
 
-          const hasChanged = Boolean(
-            (prev.publicStatus !== undefined || prev.publicToken !== undefined) && (
-              prev.publicStatus !== newPubStatus ||
-              prev.publicToken !== newPubToken ||
-              prev.cabinStatus !== newCabin
-            )
-          )
-
-          if (hasChanged && silent) {
-            playChimeSound()
-            setActiveAlert({
-              id: String(Date.now()),
-              title: 'Queue Updated',
-              message: `Queue status changed to ${String(newPubStatus || 'UPDATED').toUpperCase()}${newPubToken ? ` (Token #${newPubToken})` : ''}`,
-            })
-          }
-
-          lastSnapshotRef.current = {
-            publicStatus: newPubStatus,
-            publicToken: newPubToken,
-            cabinStatus: newCabin,
-          }
-          return
+        const status = !publicError && Array.isArray(publicRows) ? publicRows[0] : null
+        setAppointment(null)
+        setLinkedConsultations(null)
+        setClinicQueue([])
+        setLabReports([])
+        setMultiSlotResult(null)
+        setPublicQueueStatus(status || null)
+        if (status?.clinic_id) {
+          const [clinicData, docData] = await Promise.all([
+            getClinicById(status.clinic_id),
+            status.doctor_id ? getDoctorById(status.doctor_id) : Promise.resolve(null),
+          ])
+          if (seq !== requestSeqRef.current) return
+          setClinic(clinicData)
+          setDoctor(docData)
+        } else {
+          setClinic(null)
+          setDoctor(null)
+          if (!silent) setErrorMsg('No booking record found. Check the code and try again.')
         }
 
-        const linked = await getLinkedConsultations(clean)
-        effectiveAppt = appt || linked?.targetAppointment || null
-        setAppointment(effectiveAppt)
-        setLinkedConsultations(linked)
-        setPublicQueueStatus(null)
+        // Snapshot diffing for public queue status
+        const prev = lastSnapshotRef.current
+        const newPubStatus = status?.status
+        const newPubToken = status?.token_number
+        const newCabin = status?.doctor_in_cabin ? 'inside' : 'waiting'
+
+        const hasChanged = Boolean(
+          (prev.publicStatus !== undefined || prev.publicToken !== undefined || prev.cabinStatus !== undefined) && (
+            prev.publicStatus !== newPubStatus ||
+            prev.publicToken !== newPubToken ||
+            prev.cabinStatus !== newCabin
+          )
+        )
+
+        if (hasChanged && silent) {
+          playChimeSound()
+          setActiveAlert({
+            id: String(Date.now()),
+            title: 'Queue Updated',
+            message: `Queue status changed to ${String(newPubStatus || 'UPDATED').toUpperCase()}${newPubToken ? ` (Token #${newPubToken})` : ''}`,
+          })
+        }
+
+        lastSnapshotRef.current = {
+          publicStatus: newPubStatus,
+          publicToken: newPubToken,
+          cabinStatus: newCabin,
+        }
+        return
       }
 
+      // Authenticated appointment discovered
+      const linked = (!silent || !linkedConsultations)
+        ? await getLinkedConsultations(clean)
+        : linkedConsultations
+      if (seq !== requestSeqRef.current) return
+
+      const effectiveAppt = appt || linked?.targetAppointment || null
+      setAppointment(effectiveAppt)
+      if (linked) setLinkedConsultations(linked)
+      setPublicQueueStatus(null)
+
       if (effectiveAppt) {
-        const appt = effectiveAppt
-        const effectiveCode = appt.trackingCode10Digit || clean
-        const apptDate = appt.appointmentDate?.trim().slice(0, 10)
+        const targetAppt = effectiveAppt
+        const effectiveCode = targetAppt.trackingCode10Digit || clean
+        const apptDate = targetAppt.appointmentDate?.trim().slice(0, 10)
         const nowStr = new Date().toISOString().slice(0, 10)
         const isToday = apptDate === nowStr
 
-        // Fetch clinic details - avoid re-fetching static master data during silent 4s poll
-        if (appt.clinicId) {
-          const shouldFetchClinic = !silent && (!clinic || clinic.id !== appt.clinicId)
-          const shouldFetchDoc = !silent && appt.doctorId && (!doctor || doctor.id !== appt.doctorId)
+        // Fetch clinic details - avoid re-fetching static clinic master data during silent 2s poll,
+        // but always fetch doctor to track dynamic cabin status changes (e.g. waiting -> inside).
+        if (targetAppt.clinicId) {
+          const shouldFetchClinic = !silent && (!clinic || clinic.id !== targetAppt.clinicId)
+          const shouldFetchDoc = Boolean(targetAppt.doctorId)
           const shouldFetchReports = !silent || labReports.length === 0
 
           const [clinicData, queueList, reportsData, docData] = await Promise.all([
-            shouldFetchClinic ? getClinicById(appt.clinicId) : Promise.resolve(clinic),
-            isToday ? getAppointmentsByClinic(appt.clinicId, appt.appointmentDate) : Promise.resolve([]),
+            shouldFetchClinic ? getClinicById(targetAppt.clinicId) : Promise.resolve(clinic),
+            isToday ? getAppointmentsByClinic(targetAppt.clinicId, targetAppt.appointmentDate) : Promise.resolve([]),
             shouldFetchReports ? getLabReportsByTrackingCode(effectiveCode) : Promise.resolve(labReports),
-            shouldFetchDoc ? getDoctorById(appt.doctorId!) : Promise.resolve(doctor),
+            shouldFetchDoc ? getDoctorById(targetAppt.doctorId!) : Promise.resolve(doctor),
           ])
+          if (seq !== requestSeqRef.current) return
+
           if (clinicData && (!clinic || clinic.id !== clinicData.id)) setClinic(clinicData)
           setClinicQueue(queueList)
           if (shouldFetchReports) setLabReports(reportsData)
-          if (docData && (!doctor || doctor.id !== docData.id)) setDoctor(docData)
+          if (docData) setDoctor(docData)
+
+          // If the appointment exists in queueList, grab the freshest queue snapshot
+          const updatedFromQueue = queueList?.find((q: any) => q.id === targetAppt.id)
+          const freshAppt = updatedFromQueue || targetAppt
+          if (updatedFromQueue) {
+            setAppointment(freshAppt)
+          }
 
           let multiSlot = multiSlotResult
           if (isToday || (apptDate && apptDate > nowStr)) {
@@ -296,14 +324,15 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
               const avgMins = clinicData?.avgConsultationTimeMinutes || clinic?.avgConsultationTimeMinutes || 10
               try {
                 multiSlot = await calculateMultiSlotDailyPosition(
-                  appt.clinicId,
-                  appt.doctorId,
-                  appt.appointmentDate,
-                  appt.id,
-                  appt.slotId,
-                  appt.appointmentTime,
+                  freshAppt.clinicId,
+                  freshAppt.doctorId,
+                  freshAppt.appointmentDate,
+                  freshAppt.id,
+                  freshAppt.slotId,
+                  freshAppt.appointmentTime,
                   avgMins
                 )
+                if (seq !== requestSeqRef.current) return
                 setMultiSlotResult(multiSlot)
               } catch (e) {
                 console.error('Error calculating multi-slot position:', e)
@@ -319,7 +348,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             sessionStorage.setItem(
               `dactor_queue_cache_${clean}`,
               JSON.stringify({
-                appointment: appt,
+                appointment: freshAppt,
                 clinic: clinicData || clinic,
                 doctor: docData || doctor,
                 clinicQueue: queueList,
@@ -331,13 +360,20 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
           // Snapshot diffing for authenticated queue status
           const prev = lastSnapshotRef.current
-          const newCheckinStatus = appt.checkinStatus
-          const newQueueNum = appt.queueNumber
+          const newCheckinStatus = freshAppt.checkinStatus
+          const newQueueNum = freshAppt.queueNumber
           const newCabin = (docData as any)?.cabinStatus || (doctor as any)?.cabinStatus
           const newQueueLength = queueList?.length
 
+          const hasInitialized = Boolean(
+            prev.checkinStatus !== undefined ||
+            prev.queueNumber !== undefined ||
+            prev.cabinStatus !== undefined ||
+            prev.queueLength !== undefined
+          )
+
           const hasChanged = Boolean(
-            (prev.checkinStatus !== undefined || prev.queueNumber !== undefined) && (
+            hasInitialized && (
               prev.checkinStatus !== newCheckinStatus ||
               prev.queueNumber !== newQueueNum ||
               prev.cabinStatus !== newCabin ||
@@ -366,16 +402,24 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         if (!silent) setErrorMsg(`No booking record found for '${clean}'.`)
       }
     } catch {
-      if (!silent) setErrorMsg('Failed to update live queue status. Please try again.')
+      if (!silent && seq === requestSeqRef.current) {
+        setErrorMsg('Failed to update live queue status. Please try again.')
+      }
     } finally {
-      if (silent) isPollingRef.current = false
-      if (!silent) setLoading(false)
+      activeRequestsRef.current = Math.max(0, activeRequestsRef.current - 1)
+      if (activeRequestsRef.current === 0) {
+        isPollingRef.current = false
+      }
+      if (!silent && seq === requestSeqRef.current) {
+        setLoading(false)
+      }
     }
   }
 
   // Load when activeCode changes
   useEffect(() => {
     if (activeCode) {
+      lastSnapshotRef.current = {}
       fetchQueueData(activeCode)
     }
   }, [activeCode])

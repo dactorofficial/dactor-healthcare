@@ -948,82 +948,363 @@ suite.test('F12-05: Redaction engine interface conforms to redactor specificatio
 // FEATURE 13: Live Queue 2s Polling & Selective Patient Record Sync (R1 & R2)
 // ============================================================================
 
-suite.test('F13-01: Live Queue 2000ms polling interval and isPollingRef concurrency guard', async (assert) => {
-  let isPolling = false;
-  let pollCount = 0;
-  let overlappingRejections = 0;
+suite.test('F13-01: Live Queue 2000ms polling, isPollingRef guard, and request sequence race condition resolution', async (assert) => {
+  // Mock remote server database
+  let serverToken = 1;
+  let serverStatus = 'waiting';
+  let serverDoctorCabin = 'waiting';
 
-  async function mockPollStep(latencyMs) {
-    if (isPolling) {
-      overlappingRejections++;
-      return;
-    }
-    isPolling = true;
-    try {
-      pollCount++;
-      await new Promise((r) => setTimeout(r, latencyMs));
-    } finally {
-      isPolling = false;
-    }
+  const remoteApi = {
+    getAppointmentByTrackingCodeOrContact: async (code, latency = 10) => {
+      await new Promise((r) => setTimeout(r, latency));
+      return {
+        id: 'appt-track-001',
+        trackingCode10Digit: code,
+        clinicId: 'clinic-1',
+        doctorId: 'doc-1',
+        appointmentDate: new Date().toISOString().slice(0, 10),
+        checkinStatus: serverStatus,
+        queueNumber: serverToken,
+      };
+    },
+    getClinicById: async (id) => ({ id, name: 'Apex Care Clinic' }),
+    getDoctorById: async (id) => ({ id, name: 'Dr. Sita KC', cabinStatus: serverDoctorCabin }),
+    getAppointmentsByClinic: async (clinicId, date) => [
+      { id: 'appt-track-001', checkinStatus: serverStatus, queueNumber: serverToken },
+      { id: 'appt-track-002', checkinStatus: 'waiting', queueNumber: serverToken + 1 },
+    ],
+  };
+
+  // LiveQueue Component Harness adhering to LiveQueue.tsx implementation
+  function createLiveQueueHarness() {
+    const state = {
+      appointment: null,
+      clinic: null,
+      doctor: null,
+      clinicQueue: [],
+      loading: false,
+      errorMsg: '',
+      isPollingRef: { current: false },
+      requestSeqRef: { current: 0 },
+      activeRequestsRef: { current: 0 },
+      lastSnapshotRef: { current: {} },
+      alertsEmitted: [],
+      chimesPlayed: 0,
+      executionHistory: [],
+    };
+
+    const fetchQueueData = async (targetCode, silent = false, mockLatency = 10) => {
+      const clean = targetCode.trim();
+      if (!clean) return;
+      if (silent && state.isPollingRef.current) {
+        state.executionHistory.push({ type: 'rejected_overlap', silent, seq: state.requestSeqRef.current });
+        return;
+      }
+      state.isPollingRef.current = true;
+      const seq = ++state.requestSeqRef.current;
+      state.activeRequestsRef.current++;
+      if (!silent) state.loading = true;
+      state.errorMsg = '';
+      state.executionHistory.push({ type: 'started', silent, seq });
+
+      try {
+        if (!/^\d{10}$/.test(clean)) {
+          if (seq !== state.requestSeqRef.current) return;
+          state.appointment = null;
+          return;
+        }
+
+        const appt = await remoteApi.getAppointmentByTrackingCodeOrContact(clean, mockLatency);
+        if (seq !== state.requestSeqRef.current) {
+          state.executionHistory.push({ type: 'dropped_stale_response', seq, currentSeq: state.requestSeqRef.current });
+          return;
+        }
+
+        const effectiveAppt = appt;
+        state.appointment = effectiveAppt;
+
+        if (effectiveAppt && effectiveAppt.clinicId) {
+          const shouldFetchClinic = !silent && (!state.clinic || state.clinic.id !== effectiveAppt.clinicId);
+          const shouldFetchDoc = Boolean(effectiveAppt.doctorId);
+
+          const [clinicData, queueList, docData] = await Promise.all([
+            shouldFetchClinic ? remoteApi.getClinicById(effectiveAppt.clinicId) : Promise.resolve(state.clinic),
+            remoteApi.getAppointmentsByClinic(effectiveAppt.clinicId, effectiveAppt.appointmentDate),
+            shouldFetchDoc ? remoteApi.getDoctorById(effectiveAppt.doctorId) : Promise.resolve(state.doctor),
+          ]);
+          if (seq !== state.requestSeqRef.current) {
+            state.executionHistory.push({ type: 'dropped_stale_all', seq, currentSeq: state.requestSeqRef.current });
+            return;
+          }
+
+          if (clinicData) state.clinic = clinicData;
+          state.clinicQueue = queueList || [];
+          if (docData) state.doctor = docData;
+
+          const updatedFromQueue = queueList?.find((q) => q.id === effectiveAppt.id);
+          const freshAppt = updatedFromQueue || effectiveAppt;
+          if (updatedFromQueue) {
+            state.appointment = freshAppt;
+          }
+
+          const prev = state.lastSnapshotRef.current;
+          const newCheckinStatus = freshAppt.checkinStatus;
+          const newQueueNum = freshAppt.queueNumber;
+          const newCabin = docData?.cabinStatus || state.doctor?.cabinStatus;
+          const newQueueLength = queueList?.length;
+
+          const hasInitialized = Boolean(
+            prev.checkinStatus !== undefined ||
+            prev.queueNumber !== undefined ||
+            prev.cabinStatus !== undefined ||
+            prev.queueLength !== undefined
+          );
+
+          const hasChanged = Boolean(
+            hasInitialized && (
+              prev.checkinStatus !== newCheckinStatus ||
+              prev.queueNumber !== newQueueNum ||
+              prev.cabinStatus !== newCabin ||
+              prev.queueLength !== newQueueLength
+            )
+          );
+
+          if (hasChanged && silent) {
+            state.chimesPlayed++;
+            state.alertsEmitted.push({
+              id: String(Date.now()),
+              title: 'Queue Updated',
+              message: `Queue status changed to ${String(newCheckinStatus || 'UPDATED').toUpperCase()}${newQueueNum ? ` (Token #${newQueueNum})` : ''}`,
+            });
+          }
+
+          state.lastSnapshotRef.current = {
+            checkinStatus: newCheckinStatus,
+            queueNumber: newQueueNum,
+            cabinStatus: newCabin,
+            queueLength: newQueueLength,
+          };
+          state.executionHistory.push({ type: 'completed', silent, seq, token: newQueueNum });
+        }
+      } finally {
+        state.activeRequestsRef.current = Math.max(0, state.activeRequestsRef.current - 1);
+        if (state.activeRequestsRef.current === 0) {
+          state.isPollingRef.current = false;
+        }
+        if (!silent && seq === state.requestSeqRef.current) {
+          state.loading = false;
+        }
+      }
+    };
+
+    return { state, fetchQueueData };
   }
 
-  // Poll 1: normal latency 10ms
-  await mockPollStep(10);
-  assert.equal(pollCount, 1);
-  assert.equal(isPolling, false, 'Lock must be released after poll finishes');
+  const { state, fetchQueueData } = createLiveQueueHarness();
 
-  // Poll 2: slow response running concurrently with another poll
-  const slowPromise = mockPollStep(40);
-  // Attempt concurrent poll while slowPromise is pending
-  const fastPromise = mockPollStep(5);
-  await Promise.all([slowPromise, fastPromise]);
+  // Step 1: Initial mount (non-silent) loads token 1
+  await fetchQueueData('1234567890', false, 10);
+  assert.equal(state.appointment?.queueNumber, 1, 'Initial load sets token 1');
+  assert.equal(state.isPollingRef.current, false, 'Lock released after initial fetch');
+  assert.equal(state.loading, false, 'Loading spinner cleared');
 
-  assert.equal(pollCount, 2, 'Only 1 of the concurrent polls should execute');
-  assert.equal(overlappingRejections, 1, 'Overlapping poll must be rejected by isPollingRef guard');
-  assert.equal(isPolling, false, 'Lock must be reset after completion');
+  // Step 2: Overlapping silent polls - second poll dropped while first is in-flight
+  const slowSilentPoll = fetchQueueData('1234567890', true, 60);
+  const fastOverlappingPoll = fetchQueueData('1234567890', true, 10);
+  await Promise.all([slowSilentPoll, fastOverlappingPoll]);
+
+  const rejections = state.executionHistory.filter((e) => e.type === 'rejected_overlap');
+  assert.equal(rejections.length, 1, 'Overlapping silent poll must be dropped by isPollingRef');
+  assert.equal(state.isPollingRef.current, false, 'Lock reset after slow poll finishes');
+
+  // Step 3: Out-of-order race condition guard (TEST-2C remediation)
+  // Simulate slow background silent poll initiated at T=0 with latency 100ms
+  // While pending, server updates token from 1 -> 5.
+  // At T=10ms, user initiates manual refresh (non-silent) with latency 15ms.
+  serverToken = 5;
+  const inFlightSilent = fetchQueueData('1234567890', true, 100);
+
+  // Manual refresh fires with seq = 4
+  await new Promise((r) => setTimeout(r, 10));
+  serverToken = 6; // Server increments to token 6 right before manual refresh completes
+  const userRefresh = fetchQueueData('1234567890', false, 15);
+
+  await Promise.all([inFlightSilent, userRefresh]);
+
+  // The manual refresh (seq 4) completed with Token 6.
+  // The slow silent poll (seq 3) resolved AFTER the manual refresh, but because seq 3 !== 4,
+  // its stale token (5) was dropped and did NOT overwrite state.appointment!
+  assert.equal(state.appointment?.queueNumber, 6, 'State must retain fresh Token 6 and NOT be overwritten by stale in-flight response');
+  const droppedStale = state.executionHistory.filter((e) => e.type === 'dropped_stale_response' || e.type === 'dropped_stale_all');
+  assert.ok(droppedStale.length >= 1, 'Stale in-flight poll response must be cleanly discarded via requestSeqRef guard');
+  assert.equal(state.isPollingRef.current, false, 'Lock must be fully released when all requests complete');
 });
 
 suite.test('F13-02: Live Queue snapshot diffing emits immediate alert on detail transition', async (assert) => {
-  let lastSnapshot = { checkinStatus: 'waiting', queueNumber: 1, cabinStatus: true, queueLength: 5 };
-  const alertsEmitted = [];
+  let serverToken = 1;
+  let serverStatus = 'waiting';
+  let serverDoctorCabin = 'waiting';
+  let serverQueueLength = 5;
 
-  function evaluateSnapshotChange(newSnapshot, isSilent = true) {
-    const hasChanged = Boolean(
-      (lastSnapshot.checkinStatus !== undefined || lastSnapshot.queueNumber !== undefined) && (
-        lastSnapshot.checkinStatus !== newSnapshot.checkinStatus ||
-        lastSnapshot.queueNumber !== newSnapshot.queueNumber ||
-        lastSnapshot.cabinStatus !== newSnapshot.cabinStatus ||
-        lastSnapshot.queueLength !== newSnapshot.queueLength
-      )
-    );
+  const remoteApi = {
+    getAppointmentByTrackingCodeOrContact: async (code) => ({
+      id: 'appt-track-999',
+      trackingCode10Digit: code,
+      clinicId: 'clinic-delta',
+      doctorId: 'doc-delta',
+      appointmentDate: new Date().toISOString().slice(0, 10),
+      checkinStatus: serverStatus,
+      queueNumber: serverToken,
+    }),
+    getClinicById: async (id) => ({ id, name: 'Delta Health Clinic' }),
+    getDoctorById: async (id) => ({ id, name: 'Dr. Rajesh Sharma', cabinStatus: serverDoctorCabin }),
+    getAppointmentsByClinic: async () => {
+      const list = [];
+      for (let i = 0; i < serverQueueLength; i++) {
+        list.push({
+          id: i === 0 ? 'appt-track-999' : `appt-${i}`,
+          checkinStatus: i === 0 ? serverStatus : 'waiting',
+          queueNumber: serverToken + i,
+        });
+      }
+      return list;
+    },
+  };
 
-    if (hasChanged && isSilent) {
-      alertsEmitted.push({
-        status: newSnapshot.checkinStatus,
-        token: newSnapshot.queueNumber,
-        cabin: newSnapshot.cabinStatus
-      });
-    }
-    lastSnapshot = { ...newSnapshot };
-    return hasChanged;
+  function createLiveQueueHarness() {
+    const state = {
+      appointment: null,
+      clinic: null,
+      doctor: null,
+      clinicQueue: [],
+      isPollingRef: { current: false },
+      requestSeqRef: { current: 0 },
+      activeRequestsRef: { current: 0 },
+      lastSnapshotRef: { current: {} },
+      alertsEmitted: [],
+      chimesPlayed: 0,
+    };
+
+    const poll = async (silent = true) => {
+      if (silent && state.isPollingRef.current) return;
+      state.isPollingRef.current = true;
+      const seq = ++state.requestSeqRef.current;
+      state.activeRequestsRef.current++;
+
+      try {
+        const appt = await remoteApi.getAppointmentByTrackingCodeOrContact('9876543210');
+        if (seq !== state.requestSeqRef.current) return;
+        state.appointment = appt;
+
+        const [clinicData, queueList, docData] = await Promise.all([
+          remoteApi.getClinicById(appt.clinicId),
+          remoteApi.getAppointmentsByClinic(),
+          remoteApi.getDoctorById(appt.doctorId),
+        ]);
+        if (seq !== state.requestSeqRef.current) return;
+
+        state.clinic = clinicData;
+        state.clinicQueue = queueList;
+        state.doctor = docData;
+
+        const updatedFromQueue = queueList?.find((q) => q.id === appt.id);
+        const freshAppt = updatedFromQueue || appt;
+        if (updatedFromQueue) state.appointment = freshAppt;
+
+        const prev = state.lastSnapshotRef.current;
+        const newCheckinStatus = freshAppt.checkinStatus;
+        const newQueueNum = freshAppt.queueNumber;
+        const newCabin = docData?.cabinStatus;
+        const newQueueLength = queueList?.length;
+
+        const hasInitialized = Boolean(
+          prev.checkinStatus !== undefined ||
+          prev.queueNumber !== undefined ||
+          prev.cabinStatus !== undefined ||
+          prev.queueLength !== undefined
+        );
+
+        const hasChanged = Boolean(
+          hasInitialized && (
+            prev.checkinStatus !== newCheckinStatus ||
+            prev.queueNumber !== newQueueNum ||
+            prev.cabinStatus !== newCabin ||
+            prev.queueLength !== newQueueLength
+          )
+        );
+
+        if (hasChanged && silent) {
+          state.chimesPlayed++;
+          state.alertsEmitted.push({
+            id: String(Date.now()),
+            title: 'Queue Updated',
+            message: `Queue status changed to ${String(newCheckinStatus || 'UPDATED').toUpperCase()}${newQueueNum ? ` (Token #${newQueueNum})` : ''}`,
+            cabin: newCabin,
+            queueLength: newQueueLength,
+          });
+        }
+
+        state.lastSnapshotRef.current = {
+          checkinStatus: newCheckinStatus,
+          queueNumber: newQueueNum,
+          cabinStatus: newCabin,
+          queueLength: newQueueLength,
+        };
+      } finally {
+        state.activeRequestsRef.current = Math.max(0, state.activeRequestsRef.current - 1);
+        if (state.activeRequestsRef.current === 0) {
+          state.isPollingRef.current = false;
+        }
+      }
+    };
+
+    return { state, poll };
   }
 
-  // Identical snapshot -> no alert
-  const noChange = evaluateSnapshotChange({ checkinStatus: 'waiting', queueNumber: 1, cabinStatus: true, queueLength: 5 });
-  assert.equal(noChange, false, 'No change should not trigger alert');
-  assert.equal(alertsEmitted.length, 0);
+  const { state, poll } = createLiveQueueHarness();
 
-  // Status transition to in_consultation -> immediate alert emitted
-  const statusChange = evaluateSnapshotChange({ checkinStatus: 'in_consultation', queueNumber: 1, cabinStatus: true, queueLength: 5 });
-  assert.equal(statusChange, true);
-  assert.equal(alertsEmitted.length, 1);
-  assert.equal(alertsEmitted[0].status, 'in_consultation');
+  // Test 1: Initial load establish snapshot baseline without alerting
+  await poll(false);
+  assert.equal(state.appointment?.queueNumber, 1, 'Initial appointment token is 1');
+  assert.equal(state.appointment?.checkinStatus, 'waiting');
+  assert.equal(state.doctor?.cabinStatus, 'waiting');
+  assert.equal(state.alertsEmitted.length, 0, 'No alert emitted on initial mount');
+  assert.equal(state.chimesPlayed, 0, 'No chime played on initial mount');
 
-  // Token number advance to 2 -> immediate alert emitted
-  const tokenChange = evaluateSnapshotChange({ checkinStatus: 'in_consultation', queueNumber: 2, cabinStatus: true, queueLength: 4 });
-  assert.equal(tokenChange, true);
-  assert.equal(alertsEmitted.length, 2);
-  assert.equal(alertsEmitted[1].token, 2);
+  // Test 2: Unchanged state on 2s silent poll -> 0 alerts emitted
+  await poll(true);
+  assert.equal(state.alertsEmitted.length, 0, 'No alert when server details are identical');
+
+  // Test 3: Token number advances on server (1 -> 2) -> 2s silent poll detects and alerts immediately
+  serverToken = 2;
+  await poll(true);
+  assert.equal(state.appointment?.queueNumber, 2, 'State token number must immediately update to 2');
+  assert.equal(state.alertsEmitted.length, 1, 'Immediate alert emitted on token number change');
+  assert.equal(state.chimesPlayed, 1, 'Audio chime played on token change');
+  assert.match(state.alertsEmitted[0].message, /Token #2/, 'Alert message must reflect the updated token number');
+
+  // Test 4: Checkin status transition (waiting -> in_consultation) -> immediate alert emitted
+  serverStatus = 'in_consultation';
+  await poll(true);
+  assert.equal(state.appointment?.checkinStatus, 'in_consultation', 'State checkinStatus must update to in_consultation');
+  assert.equal(state.alertsEmitted.length, 2, 'Immediate alert emitted on checkinStatus change');
+  assert.equal(state.chimesPlayed, 2, 'Audio chime played on status transition');
+  assert.match(state.alertsEmitted[1].message, /IN_CONSULTATION/, 'Alert message must announce IN_CONSULTATION status');
+
+  // Test 5: Doctor cabin status toggle (waiting -> inside) -> detected during silent 2s poll!
+  serverDoctorCabin = 'inside';
+  await poll(true);
+  assert.equal(state.doctor?.cabinStatus, 'inside', 'Doctor cabin status must update to inside during silent poll');
+  assert.equal(state.alertsEmitted.length, 3, 'Immediate alert emitted on doctor cabin status change');
+  assert.equal(state.chimesPlayed, 3, 'Audio chime played on cabin transition');
+
+  // Test 6: Queue length change (5 -> 4) -> alert announced with fresh token and status, NOT stale
+  serverQueueLength = 4;
+  await poll(true);
+  assert.equal(state.clinicQueue.length, 4, 'Clinic queue length updated');
+  assert.equal(state.alertsEmitted.length, 4, 'Alert emitted on queue length change');
+  assert.match(state.alertsEmitted[3].message, /Token #2/, 'Queue length change alert must announce fresh Token #2, not stale Token #1');
+  assert.match(state.alertsEmitted[3].message, /IN_CONSULTATION/, 'Queue length change alert must announce fresh IN_CONSULTATION status');
 });
 
 suite.test('F13-03: Local patient directory storage in IndexedDB patients store', async (assert) => {
