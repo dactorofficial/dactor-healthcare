@@ -18,6 +18,7 @@ import AppVersionManager from './pages/AppVersionManager'
 import SupportTickets from './pages/SupportTickets'
 import NotFound from './pages/NotFound'
 import ErrorBoundary from './components/ErrorBoundary'
+import { clearAllAdminCache } from './utils/cacheCleaner'
 import {
   LayoutDashboard,
   Building2,
@@ -228,12 +229,8 @@ function App() {
 
   const handleSignOut = async () => {
     try {
-      localStorage.removeItem('dactor_admin_session')
-      localStorage.removeItem('dactor_admin_passwords')
-    } catch {
-      // Ignore storage errors
-    }
-    await supabase.auth.signOut()
+      await clearAllAdminCache()
+    } catch {}
     setSession(null)
   }
 

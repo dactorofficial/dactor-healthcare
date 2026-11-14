@@ -44,6 +44,13 @@ class DoctorRepository @Inject constructor(
 
     fun getCachedDoctorsByClinicMap(): Map<String, List<Doctor>> = cachedDoctorsByClinic
 
+    fun clearCache() {
+        cachedAllDoctors = null
+        cachedDoctorsById.clear()
+        cachedDoctorsByClinic.clear()
+        cachedAcceptedInvitations = null
+    }
+
     private fun enrichDoctor(doctor: Doctor): Doctor {
         val certs = doctor.certificatesDocUrl
         if (!certs.isNullOrBlank() && certs.trim().startsWith("{")) {

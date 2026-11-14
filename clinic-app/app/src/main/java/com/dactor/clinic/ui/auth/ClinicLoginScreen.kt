@@ -1402,13 +1402,11 @@ fun ClinicLoginScreen(
     }
 
     fun signOutFromPending() {
-        try {
-            googleSignInClient.signOut()
-            FirebaseAuth.getInstance().signOut()
-            clinicRepository?.clearCache()
-            doctorRepository?.clearCache()
-            sessionManager?.clearSession()
-        } catch (ignored: Exception) {}
+        coroutineScope.launch {
+            try {
+                com.dactor.clinic.data.cache.AppCacheManager.getInstance(context).clearAllCache()
+            } catch (ignored: Exception) {}
+        }
         currentView = "auth_choice"
         errorMessage = null
         statusMessage = null

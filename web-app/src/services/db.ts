@@ -5942,6 +5942,64 @@ export async function getClinicPatientDirectory(clinicId: string): Promise<Clini
   }
 }
 
+/**
+ * On-demand lazy retrieval of a specific patient's latest changeable information
+ * (new appointments, latest billing status, clinical remarks).
+ * Reduces server load by querying only this patient instead of entire historical tables.
+ */
+export async function refreshPatientChangeableData(
+  trackingCodes: string[],
+  patientPhone?: string,
+  clinicId?: string
+): Promise<{ appointments: Appointment[]; invoices: any[] }> {
+  try {
+    let query = supabase
+      .from('appointments')
+      .select('*, doctor:doctors(*), clinic:clinics(*), queue_entries(*)')
+
+    if (clinicId) {
+      query = query.eq('clinic_id', clinicId)
+    }
+
+    const cleanCodes = (trackingCodes || []).filter((c) => c && c !== 'N/A')
+    if (cleanCodes.length > 0) {
+      query = query.in('tracking_code_10_digit', cleanCodes)
+    } else if (patientPhone && patientPhone !== 'N/A') {
+      query = query.eq('patient_mobile', patientPhone)
+    } else {
+      return { appointments: [], invoices: [] }
+    }
+
+    const { data: rawAppts, error } = await query
+    if (error) throw error
+
+    const validAppts: Appointment[] = (rawAppts || []).filter(
+      (a: any) =>
+        a.status === 'APPROVED' &&
+        a.status !== 'WAITING_FOR_APPROVAL' &&
+        a.status !== 'pending_payment' &&
+        a.status !== 'UNAPPROVED' &&
+        a.status !== 'EXPIRED' &&
+        a.checkin_status !== 'cancelled'
+    )
+
+    let invoices: any[] = []
+    if (validAppts.length > 0) {
+      const apptIds = validAppts.map((a) => a.id)
+      const { data: rawInvs } = await supabase
+        .from('invoices')
+        .select('*')
+        .in('appointment_id', apptIds)
+      invoices = rawInvs || []
+    }
+
+    return { appointments: validAppts, invoices }
+  } catch (err) {
+    console.error('Error in refreshPatientChangeableData:', err)
+    return { appointments: [], invoices: [] }
+  }
+}
+
 // ==========================================
 // CLINIC SUBSCRIPTION, ARCHIVE, SLOTS & INVITATIONS API
 // ==========================================

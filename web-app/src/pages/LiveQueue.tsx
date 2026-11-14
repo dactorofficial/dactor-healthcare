@@ -184,70 +184,76 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         return
       }
 
-      const appt = await getAppointmentByTrackingCodeOrContact(clean)
-      if (!appt) {
-        const { data: publicRows, error: publicError } = await supabase.rpc('get_public_queue_status', {
-          p_tracking_code: clean,
-        })
-        const status = !publicError && Array.isArray(publicRows) ? publicRows[0] : null
-        setAppointment(null)
-        setLinkedConsultations(null)
-        setClinicQueue([])
-        setLabReports([])
-        setMultiSlotResult(null)
-        setPublicQueueStatus(status || null)
-        if (status?.clinic_id) {
-          setClinic(await getClinicById(status.clinic_id))
-          setDoctor(status.doctor_id ? await getDoctorById(status.doctor_id) : null)
-        } else {
-          setClinic(null)
-          setDoctor(null)
-          if (!silent) setErrorMsg('No booking record found. Check the code and try again.')
+      let effectiveAppt = appointment
+      if (!silent || !effectiveAppt) {
+        const appt = await getAppointmentByTrackingCodeOrContact(clean)
+        if (!appt) {
+          const { data: publicRows, error: publicError } = await supabase.rpc('get_public_queue_status', {
+            p_tracking_code: clean,
+          })
+          const status = !publicError && Array.isArray(publicRows) ? publicRows[0] : null
+          setAppointment(null)
+          setLinkedConsultations(null)
+          setClinicQueue([])
+          setLabReports([])
+          setMultiSlotResult(null)
+          setPublicQueueStatus(status || null)
+          if (status?.clinic_id) {
+            setClinic(await getClinicById(status.clinic_id))
+            setDoctor(status.doctor_id ? await getDoctorById(status.doctor_id) : null)
+          } else {
+            setClinic(null)
+            setDoctor(null)
+            if (!silent) setErrorMsg('No booking record found. Check the code and try again.')
+          }
+          return
         }
-        return
-      }
 
-      const linked = await getLinkedConsultations(clean)
-      const effectiveAppt = appt || linked?.targetAppointment || null
-      setAppointment(effectiveAppt)
-      setLinkedConsultations(linked)
-      setPublicQueueStatus(null)
+        const linked = await getLinkedConsultations(clean)
+        effectiveAppt = appt || linked?.targetAppointment || null
+        setAppointment(effectiveAppt)
+        setLinkedConsultations(linked)
+        setPublicQueueStatus(null)
+      }
 
       if (effectiveAppt) {
         const appt = effectiveAppt
         const effectiveCode = appt.trackingCode10Digit || clean
-        // Fetch clinic details
+        // Fetch clinic details - avoid re-fetching static master data during silent 4s poll
         if (appt.clinicId) {
-          const shouldFetchClinic = !clinic || clinic.id !== appt.clinicId
-          const shouldFetchDoc = appt.doctorId && (!doctor || doctor.id !== appt.doctorId)
+          const shouldFetchClinic = !silent && (!clinic || clinic.id !== appt.clinicId)
+          const shouldFetchDoc = !silent && appt.doctorId && (!doctor || doctor.id !== appt.doctorId)
+          const shouldFetchReports = !silent || labReports.length === 0
 
           const [clinicData, queueList, reportsData, docData] = await Promise.all([
             shouldFetchClinic ? getClinicById(appt.clinicId) : Promise.resolve(clinic),
             getAppointmentsByClinic(appt.clinicId, appt.appointmentDate),
-            getLabReportsByTrackingCode(effectiveCode),
+            shouldFetchReports ? getLabReportsByTrackingCode(effectiveCode) : Promise.resolve(labReports),
             shouldFetchDoc ? getDoctorById(appt.doctorId!) : Promise.resolve(doctor),
           ])
-          setClinic(clinicData)
+          if (clinicData && (!clinic || clinic.id !== clinicData.id)) setClinic(clinicData)
           setClinicQueue(queueList)
-          setLabReports(reportsData)
-          if (docData) setDoctor(docData)
+          if (shouldFetchReports) setLabReports(reportsData)
+          if (docData && (!doctor || doctor.id !== docData.id)) setDoctor(docData)
 
-          const avgMins = clinicData?.avgConsultationTimeMinutes || 10
-          let multiSlot: MultiSlotPositionResult | null = null
-          try {
-            multiSlot = await calculateMultiSlotDailyPosition(
-              appt.clinicId,
-              appt.doctorId,
-              appt.appointmentDate,
-              appt.id,
-              appt.slotId,
-              appt.appointmentTime,
-              avgMins
-            )
-            setMultiSlotResult(multiSlot)
-          } catch (e) {
-            console.error('Error calculating multi-slot position:', e)
-            setMultiSlotResult(null)
+          let multiSlot = multiSlotResult
+          if (!silent || !multiSlot) {
+            const avgMins = clinicData?.avgConsultationTimeMinutes || clinic?.avgConsultationTimeMinutes || 10
+            try {
+              multiSlot = await calculateMultiSlotDailyPosition(
+                appt.clinicId,
+                appt.doctorId,
+                appt.appointmentDate,
+                appt.id,
+                appt.slotId,
+                appt.appointmentTime,
+                avgMins
+              )
+              setMultiSlotResult(multiSlot)
+            } catch (e) {
+              console.error('Error calculating multi-slot position:', e)
+              setMultiSlotResult(null)
+            }
           }
 
           try {
@@ -255,10 +261,10 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
               `dactor_queue_cache_${clean}`,
               JSON.stringify({
                 appointment: appt,
-                clinic: clinicData,
+                clinic: clinicData || clinic,
                 doctor: docData || doctor,
                 clinicQueue: queueList,
-                labReports: reportsData,
+                labReports: shouldFetchReports ? reportsData : labReports,
                 multiSlotResult: multiSlot,
               })
             )

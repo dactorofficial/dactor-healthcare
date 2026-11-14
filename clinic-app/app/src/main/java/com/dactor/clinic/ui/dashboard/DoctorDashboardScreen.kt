@@ -138,6 +138,17 @@ fun DoctorDashboardScreen(
     val scrollState = rememberScrollState()
     val today = LocalDate.now().toString()
 
+    fun performLogout() {
+        coroutineScope.launch {
+            try {
+                com.dactor.clinic.data.cache.AppCacheManager.getInstance(context).clearAllCache()
+            } catch (_: Exception) {}
+            navController.navigate(NavRoutes.ClinicLogin) {
+                popUpTo(0) { inclusive = true }
+            }
+        }
+    }
+
     // Live ticking timer for ongoing doctor consultation
     LaunchedEffect(appointmentsQueue.firstOrNull { it.checkinStatus == "inside" || it.checkinStatus == "in_consultation" || it.checkinStatus == "inside_opd" }?.id) {
         activeConsultationSeconds = 0
@@ -631,21 +642,7 @@ fun DoctorDashboardScreen(
                 Spacer(Modifier.height(12.dp))
 
                 OutlinedButton(
-                    onClick = {
-                        sessionManager.clearSession()
-                        clinicRepository?.clearCache()
-                        doctorRepository?.clearCache()
-                        try {
-                            com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
-                                context,
-                                com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                            ).signOut()
-                            com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                        } catch (ignored: Exception) {}
-                        navController.navigate(NavRoutes.ClinicLogin) {
-                            popUpTo(0) { inclusive = true }
-                        }
-                    },
+                    onClick = { performLogout() },
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth().height(48.dp)
                 ) {
@@ -1551,19 +1548,7 @@ fun DoctorDashboardScreen(
                 Button(
                     onClick = {
                         showSignOutConfirmDialog = false
-                        com.dactor.clinic.data.local.UserSessionManager(context).clearSession()
-                        clinicRepository?.clearCache()
-                        doctorRepository?.clearCache()
-                        try {
-                            com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
-                                context,
-                                com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                            ).signOut()
-                            com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                        } catch (ignored: Exception) {}
-                        navController.navigate(NavRoutes.ClinicLogin) {
-                            popUpTo(0) { inclusive = true }
-                        }
+                        performLogout()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {

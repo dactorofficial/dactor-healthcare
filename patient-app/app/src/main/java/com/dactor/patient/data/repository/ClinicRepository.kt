@@ -77,6 +77,13 @@ class ClinicRepository @Inject constructor(
 
     fun getCachedSpecialties(): List<MedicalSpecialty>? = cachedSpecialties
 
+    fun clearCache() {
+        cachedClinics = null
+        cachedClinicsById.clear()
+        cachedAllServicesByClinic = null
+        cachedSpecialties = null
+    }
+
     private fun enrichClinic(clinic: Clinic): Clinic {
         val descStr = clinic.description
         if (!descStr.isNullOrBlank() && descStr.trim().startsWith("{")) {

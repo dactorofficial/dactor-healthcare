@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import com.dactor.clinic.domain.util.DateTimePickers
@@ -86,6 +87,9 @@ fun WalkinBookingScreen(
 
     var feeAmount by remember { mutableStateOf("500") }
     var isFollowUpVisit by remember { mutableStateOf(false) }
+    var followupCodeInput by remember { mutableStateOf("") }
+    var isLookingUpFollowup by remember { mutableStateOf(false) }
+    var followupLookupError by remember { mutableStateOf<String?>(null) }
     var isOverbookingConfirmed by remember { mutableStateOf(false) }
     var pastClinicAppointments by remember { mutableStateOf<List<Appointment>>(emptyList()) }
     var returningPatientRecord by remember { mutableStateOf<Appointment?>(null) }
@@ -141,6 +145,7 @@ fun WalkinBookingScreen(
                 isLabClinic = detectedLab
                 if (detectedLab) {
                     isFollowUpVisit = false
+                    followupCodeInput = ""
                     returningPatientRecord = null
                     selectedDoctor = null
                     feeAmount = "0"
@@ -162,12 +167,60 @@ fun WalkinBookingScreen(
         }
     }
 
-    LaunchedEffect(mobileNumber, selectedDoctor, pastClinicAppointments, isLabClinic) {
-        if (isLabClinic) {
-            returningPatientRecord = null
-            isFollowUpVisit = false
-            return@LaunchedEffect
+    // Follow-up 10-digit code auto-lookup & auto-population
+    LaunchedEffect(followupCodeInput, isFollowUpVisit, pastClinicAppointments) {
+        if (!isFollowUpVisit) return@LaunchedEffect
+        val clean = followupCodeInput.trim().uppercase()
+        if (clean.length == 10 && clean.matches(Regex("^[0-9A-Z]{10}$"))) {
+            isLookingUpFollowup = true
+            followupLookupError = null
+            try {
+                val localMatch = pastClinicAppointments.firstOrNull {
+                    it.trackingCode10Digit.equals(clean, ignoreCase = true)
+                }
+                val found = localMatch ?: appointmentRepository?.getAppointmentByTrackingCode(clean)
+                if (found != null) {
+                    returningPatientRecord = found
+                    patientName = found.patientName
+                    mobileNumber = found.patientMobile
+                    age = (found.patientAge ?: 30).toString()
+                    selectedGender = found.patientGender?.takeIf { it.isNotBlank() } ?: "Male"
+                    email = found.patientEmail ?: ""
+                    feeAmount = "0"
+
+                    if (!found.doctorId.isNullOrBlank() && affiliatedDoctors.isNotEmpty()) {
+                        val matchingDoc = affiliatedDoctors.firstOrNull { it.id == found.doctorId }
+                        if (matchingDoc != null) {
+                            selectedDoctor = matchingDoc
+                        }
+                    }
+                    selectedSlot = null // Auto-select fresh slot for doctor & date
+                    followupLookupError = null
+                } else {
+                    returningPatientRecord = null
+                    followupLookupError = "No appointment record found for code #$clean."
+                }
+            } catch (e: Exception) {
+                returningPatientRecord = null
+                followupLookupError = "Failed to lookup code: ${e.message ?: "Network error"}"
+            } finally {
+                isLookingUpFollowup = false
+            }
+        } else {
+            if (clean.isNotEmpty() && clean.length != 10) {
+                followupLookupError = "Tracking code must be exactly 10 digits."
+            } else {
+                followupLookupError = null
+            }
+            if (clean.isEmpty()) {
+                returningPatientRecord = null
+            }
         }
+    }
+
+    // Phone-based returning patient detection in standard/new patient mode
+    LaunchedEffect(mobileNumber, selectedDoctor, pastClinicAppointments, isLabClinic, isFollowUpVisit) {
+        if (isLabClinic || isFollowUpVisit) return@LaunchedEffect
         val clean = mobileNumber.filter { it.isDigit() }.takeLast(10)
         if (clean.length == 10) {
             val matchedPrior = pastClinicAppointments.firstOrNull { appt ->
@@ -176,13 +229,9 @@ fun WalkinBookingScreen(
                     !appt.status.equals("cancelled", ignoreCase = true) &&
                     !appt.status.equals("rejected", ignoreCase = true)
             }
-            returningPatientRecord = matchedPrior
-            if (matchedPrior != null) {
-                isFollowUpVisit = true
-                feeAmount = "0"
+            if (matchedPrior != null && returningPatientRecord == null) {
+                returningPatientRecord = matchedPrior
             }
-        } else {
-            returningPatientRecord = null
         }
     }
 
@@ -283,130 +332,7 @@ fun WalkinBookingScreen(
                 }
             }
 
-            OutlinedTextField(
-                value = patientName,
-                onValueChange = {
-                    patientName = it
-                    if (errorMessage != null) errorMessage = null
-                },
-                label = { Text("Patient Full Name *") },
-                placeholder = { Text("Full Legal Name") },
-                leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-                isError = isNameError,
-                supportingText = if (isNameError) {
-                    { Text("Required: Patient full name (at least 2 characters)", color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
-                } else null,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(nameFocus)
-                    .onGloballyPositioned { nameFieldY = it.positionInRoot().y.toInt() },
-                shape = RoundedCornerShape(12.dp)
-            )
-
-            OutlinedTextField(
-                value = mobileNumber,
-                onValueChange = {
-                    if (it.length <= 10 && it.all { ch -> ch.isDigit() }) mobileNumber = it
-                    if (errorMessage != null) errorMessage = null
-                },
-                label = { Text("Mobile Number (+977) *") },
-                placeholder = { Text("98xxxxxxxx (10 digits)") },
-                leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
-                isError = isPhoneError,
-                supportingText = if (isPhoneError) {
-                    { Text("Required: Exactly 10 digits starting with 9", color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
-                } else null,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(phoneFocus)
-                    .onGloballyPositioned { phoneFieldY = it.positionInRoot().y.toInt() },
-                shape = RoundedCornerShape(12.dp)
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                OutlinedTextField(
-                    value = age,
-                    onValueChange = {
-                        if (it.length <= 3 && it.all { ch -> ch.isDigit() }) age = it
-                        if (errorMessage != null) errorMessage = null
-                    },
-                    label = { Text("Age *") },
-                    placeholder = { Text("e.g. 35") },
-                    isError = isAgeError,
-                    supportingText = if (isAgeError) {
-                        { Text("Age: 1-120", color = MaterialTheme.colorScheme.error, fontSize = 10.sp) }
-                    } else null,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier
-                        .weight(1f)
-                        .focusRequester(ageFocus)
-                        .onGloballyPositioned { ageFieldY = it.positionInRoot().y.toInt() },
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                Column(
-                    modifier = Modifier
-                        .weight(2f)
-                        .onGloballyPositioned { genderFieldY = it.positionInRoot().y.toInt() }
-                ) {
-                    Text(
-                        text = "Gender *" + if (isGenderError) " (Required)" else "",
-                        fontSize = 12.sp,
-                        color = if (isGenderError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = if (isGenderError) FontWeight.Bold else FontWeight.Normal
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        listOf("Male", "Female", "Other").forEach { gender ->
-                            FilterChip(
-                                selected = selectedGender == gender,
-                                onClick = {
-                                    selectedGender = gender
-                                    if (errorMessage != null) errorMessage = null
-                                },
-                                label = { Text(gender, fontSize = 12.sp) },
-                                border = if (isGenderError) BorderStroke(1.dp, MaterialTheme.colorScheme.error) else null
-                            )
-                        }
-                    }
-                }
-            }
-
-            OutlinedTextField(
-                value = email,
-                onValueChange = { email = it },
-                label = { Text("Email (Optional for Future Sync)") },
-                placeholder = { Text("patient@example.com") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
-            )
-
-            if (!isLabClinic && affiliatedDoctors.isNotEmpty()) {
-                Text("Select Attending Doctor", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                Row(
-                    modifier = Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    for (doc in affiliatedDoctors) {
-                        FilterChip(
-                            selected = selectedDoctor?.id == doc.id,
-                            onClick = {
-                                selectedDoctor = doc
-                                if (!isFollowUpVisit) {
-                                    feeAmount = (doc.consultationFee ?: 500.0).toInt().toString()
-                                }
-                            },
-                            label = { Text("Dr. ${doc.fullName} (${doc.specialty})", fontSize = 12.sp) }
-                        )
-                    }
-                }
-            }
-
-            // ─── CONSULTATION VISIT TYPE & FEE ─────────────────────────────
+            // ─── 1. CONSULTATION VISIT TYPE SELECTION (NEW PATIENT VS FOLLOW-UP) ───
             if (!isLabClinic) {
                 Card(
                     colors = CardDefaults.cardColors(
@@ -442,34 +368,6 @@ fun WalkinBookingScreen(
                             )
                         }
 
-                        if (returningPatientRecord != null) {
-                            Surface(
-                                color = Color(0xFFDCFCE7),
-                                border = BorderStroke(1.dp, Color(0xFF86EFAC)),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        tint = Color(0xFF15803D),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Text(
-                                        text = "Returning patient detected! Prior visit with Dr. ${selectedDoctor?.fullName ?: "Doctor"} on ${returningPatientRecord?.appointmentDate ?: "record"}. Eligible for Free Follow-up.",
-                                        fontSize = 11.sp,
-                                        color = Color(0xFF166534),
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-                            }
-                        }
-
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -502,13 +400,346 @@ fun WalkinBookingScreen(
 
                         Text(
                             text = if (isFollowUpVisit) {
-                                "✓ Follow-up consultation is free of charge (0 NPR). Amount received will not be increased."
+                                "✓ Follow-up consultation is free of charge (0 NPR). Enter previous 10-digit code below to retrieve all details automatically."
                             } else {
                                 "Standard consultation fee of Rs. $feeAmount will be recorded for this new patient."
                             },
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+            }
+
+            // ─── 2. PATIENT DATA ENTRY: CODE-ONLY IN FOLLOW-UP VS FULL FORM IN NEW PATIENT ───
+            if (!isLabClinic && isFollowUpVisit) {
+                // STREAMLINED FOLLOW-UP MODE: ONLY ASK FOR THE 10-DIGIT CODE
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            "Enter Previous 10-Digit Appointment Code *",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = Color(0xFF0F172A)
+                        )
+
+                        OutlinedTextField(
+                            value = followupCodeInput,
+                            onValueChange = { input ->
+                                val clean = input.replace("[^a-zA-Z0-9]".toRegex(), "").take(10).uppercase()
+                                followupCodeInput = clean
+                                if (errorMessage != null) errorMessage = null
+                            },
+                            label = { Text("10-Digit Code (from prior slip or SMS)") },
+                            placeholder = { Text("e.g. 1234567890 or 982DCE95B6") },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                            trailingIcon = {
+                                if (isLookingUpFollowup) {
+                                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                } else if (returningPatientRecord != null) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = "Verified", tint = Color(0xFF16A34A))
+                                }
+                            },
+                            isError = followupLookupError != null,
+                            supportingText = {
+                                if (followupLookupError != null) {
+                                    Text(followupLookupError ?: "", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                                } else {
+                                    Text("Auto-retrieves patient name, mobile, age, doctor, and slot.", fontSize = 11.sp)
+                                }
+                            },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
+                }
+
+                // RETRIEVED VERIFIED PATIENT SUMMARY CARD
+                if (returningPatientRecord != null) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
+                        border = BorderStroke(1.dp, Color(0xFF86EFAC)),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF15803D), modifier = Modifier.size(18.dp))
+                                    Text("Verified Returning Patient", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF166534))
+                                }
+                                Surface(
+                                    color = Color(0xFFDCFCE7),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        text = "100% Free Follow-Up",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color(0xFF15803D),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = returningPatientRecord!!.patientName,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF0F172A)
+                            )
+
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${returningPatientRecord!!.patientAge ?: parsedAge ?: 30} yrs • ${(returningPatientRecord!!.patientGender ?: "Male").ifBlank { "Male" }}",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF475569)
+                                )
+                                Text(
+                                    text = "•",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF94A3B8)
+                                )
+                                Text(
+                                    text = "+977 ${returningPatientRecord!!.patientMobile}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF0F172A)
+                                )
+                            }
+
+                            if (!returningPatientRecord!!.patientEmail.isNullOrBlank()) {
+                                Text(
+                                    text = returningPatientRecord!!.patientEmail!!,
+                                    fontSize = 11.5.sp,
+                                    color = Color(0xFF64748B)
+                                )
+                            }
+
+                            Divider(color = Color(0xFFBBF7D0), thickness = 1.dp, modifier = Modifier.padding(vertical = 4.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Prior Visit: ${returningPatientRecord!!.appointmentDate} (Token #${returningPatientRecord!!.trackingCode10Digit})",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF166534)
+                                )
+                                if (selectedDoctor != null) {
+                                    Text(
+                                        text = "Dr. ${selectedDoctor!!.fullName}",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF1E3A8A)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Attending Doctor row for multi-doctor clinics
+                    if (affiliatedDoctors.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Attending Doctor", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            if (selectedDoctor != null) {
+                                Text(
+                                    "Dr. ${selectedDoctor!!.fullName}",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        if (affiliatedDoctors.size > 1) {
+                            Row(
+                                modifier = Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                for (doc in affiliatedDoctors) {
+                                    FilterChip(
+                                        selected = selectedDoctor?.id == doc.id,
+                                        onClick = {
+                                            selectedDoctor = doc
+                                            selectedSlot = null // Reset so new doctor's slots auto-select
+                                        },
+                                        label = { Text("Dr. ${doc.fullName} (${doc.specialty})", fontSize = 12.sp) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else if (!isLookingUpFollowup) {
+                    Surface(
+                        color = Color(0xFFEFF6FF),
+                        border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(18.dp))
+                            Text(
+                                text = "Please enter the patient's 10-digit code above. Patient details and the next available slot will be retrieved and selected automatically.",
+                                color = Color(0xFF1E40AF),
+                                fontSize = 11.5.sp
+                            )
+                        }
+                    }
+                }
+            } else if (!isLabClinic) {
+                // STANDARD NEW PATIENT FORM (FULL MANUAL ENTRY)
+                OutlinedTextField(
+                    value = patientName,
+                    onValueChange = {
+                        patientName = it
+                        if (errorMessage != null) errorMessage = null
+                    },
+                    label = { Text("Patient Full Name *") },
+                    placeholder = { Text("Full Legal Name") },
+                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                    isError = isNameError,
+                    supportingText = if (isNameError) {
+                        { Text("Required: Patient full name (at least 2 characters)", color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
+                    } else null,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(nameFocus)
+                        .onGloballyPositioned { nameFieldY = it.positionInRoot().y.toInt() },
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                OutlinedTextField(
+                    value = mobileNumber,
+                    onValueChange = {
+                        if (it.length <= 10 && it.all { ch -> ch.isDigit() }) mobileNumber = it
+                        if (errorMessage != null) errorMessage = null
+                    },
+                    label = { Text("Mobile Number (+977) *") },
+                    placeholder = { Text("98xxxxxxxx (10 digits)") },
+                    leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
+                    isError = isPhoneError,
+                    supportingText = if (isPhoneError) {
+                        { Text("Required: Exactly 10 digits starting with 9", color = MaterialTheme.colorScheme.error, fontSize = 11.sp) }
+                    } else null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(phoneFocus)
+                        .onGloballyPositioned { phoneFieldY = it.positionInRoot().y.toInt() },
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedTextField(
+                        value = age,
+                        onValueChange = {
+                            if (it.length <= 3 && it.all { ch -> ch.isDigit() }) age = it
+                            if (errorMessage != null) errorMessage = null
+                        },
+                        label = { Text("Age *") },
+                        placeholder = { Text("e.g. 35") },
+                        isError = isAgeError,
+                        supportingText = if (isAgeError) {
+                            { Text("Age: 1-120", color = MaterialTheme.colorScheme.error, fontSize = 10.sp) }
+                        } else null,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier
+                            .weight(1f)
+                            .focusRequester(ageFocus)
+                            .onGloballyPositioned { ageFieldY = it.positionInRoot().y.toInt() },
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    Column(
+                        modifier = Modifier
+                            .weight(2f)
+                            .onGloballyPositioned { genderFieldY = it.positionInRoot().y.toInt() }
+                    ) {
+                        Text(
+                            text = "Gender *" + if (isGenderError) " (Required)" else "",
+                            fontSize = 12.sp,
+                            color = if (isGenderError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (isGenderError) FontWeight.Bold else FontWeight.Normal
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf("Male", "Female", "Other").forEach { gender ->
+                                FilterChip(
+                                    selected = selectedGender == gender,
+                                    onClick = {
+                                        selectedGender = gender
+                                        if (errorMessage != null) errorMessage = null
+                                    },
+                                    label = { Text(gender, fontSize = 12.sp) },
+                                    border = if (isGenderError) BorderStroke(1.dp, MaterialTheme.colorScheme.error) else null
+                                )
+                            }
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it },
+                    label = { Text("Email (Optional for Future Sync)") },
+                    placeholder = { Text("patient@example.com") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                if (affiliatedDoctors.isNotEmpty()) {
+                    Text("Select Attending Doctor", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Row(
+                        modifier = Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        for (doc in affiliatedDoctors) {
+                            FilterChip(
+                                selected = selectedDoctor?.id == doc.id,
+                                onClick = {
+                                    selectedDoctor = doc
+                                    if (!isFollowUpVisit) {
+                                        feeAmount = (doc.consultationFee ?: 500.0).toInt().toString()
+                                    }
+                                },
+                                label = { Text("Dr. ${doc.fullName} (${doc.specialty})", fontSize = 12.sp) }
+                            )
+                        }
                     }
                 }
             }
@@ -933,36 +1164,44 @@ fun WalkinBookingScreen(
             Button(
                 onClick = {
                     validationTriggered = true
-                    if (patientName.trim().length < 2) {
-                        errorMessage = "Please enter patient name (at least 2 characters)."
-                        coroutineScope.launch {
-                            scrollState.animateScrollTo((nameFieldY - 150).coerceAtLeast(0))
-                            runCatching { nameFocus.requestFocus() }
+                    if (isFollowUpVisit) {
+                        if (returningPatientRecord == null) {
+                            errorMessage = "Please enter a valid 10-digit appointment code to retrieve patient details before fixing appointment."
+                            coroutineScope.launch { scrollState.animateScrollTo(0) }
+                            return@Button
                         }
-                        return@Button
-                    }
-                    if (cleanPhone.length != 10 || !cleanPhone.startsWith("9")) {
-                        errorMessage = "Mobile number must be exactly 10 digits starting with 9."
-                        coroutineScope.launch {
-                            scrollState.animateScrollTo((phoneFieldY - 150).coerceAtLeast(0))
-                            runCatching { phoneFocus.requestFocus() }
+                    } else {
+                        if (patientName.trim().length < 2) {
+                            errorMessage = "Please enter patient name (at least 2 characters)."
+                            coroutineScope.launch {
+                                scrollState.animateScrollTo((nameFieldY - 150).coerceAtLeast(0))
+                                runCatching { nameFocus.requestFocus() }
+                            }
+                            return@Button
                         }
-                        return@Button
-                    }
-                    if (parsedAge == null || parsedAge !in 1..120) {
-                        errorMessage = "Please enter a valid age between 1 and 120."
-                        coroutineScope.launch {
-                            scrollState.animateScrollTo((ageFieldY - 150).coerceAtLeast(0))
-                            runCatching { ageFocus.requestFocus() }
+                        if (cleanPhone.length != 10 || !cleanPhone.startsWith("9")) {
+                            errorMessage = "Mobile number must be exactly 10 digits starting with 9."
+                            coroutineScope.launch {
+                                scrollState.animateScrollTo((phoneFieldY - 150).coerceAtLeast(0))
+                                runCatching { phoneFocus.requestFocus() }
+                            }
+                            return@Button
                         }
-                        return@Button
-                    }
-                    if (selectedGender.isBlank()) {
-                        errorMessage = "Please select patient gender."
-                        coroutineScope.launch {
-                            scrollState.animateScrollTo((genderFieldY - 150).coerceAtLeast(0))
+                        if (parsedAge == null || parsedAge !in 1..120) {
+                            errorMessage = "Please enter a valid age between 1 and 120."
+                            coroutineScope.launch {
+                                scrollState.animateScrollTo((ageFieldY - 150).coerceAtLeast(0))
+                                runCatching { ageFocus.requestFocus() }
+                            }
+                            return@Button
                         }
-                        return@Button
+                        if (selectedGender.isBlank()) {
+                            errorMessage = "Please select patient gender."
+                            coroutineScope.launch {
+                                scrollState.animateScrollTo((genderFieldY - 150).coerceAtLeast(0))
+                            }
+                            return@Button
+                        }
                     }
                     if (isLabClinic && availableLabTests.isNotEmpty() && selectedLabTests.isEmpty()) {
                         errorMessage = "Please select at least one diagnostic lab test / report."
@@ -1135,12 +1374,14 @@ fun WalkinBookingScreen(
                     .fillMaxWidth()
                     .height(52.dp),
                 shape = RoundedCornerShape(14.dp),
-                enabled = !isSubmitting
+                enabled = !isSubmitting && (!isFollowUpVisit || returningPatientRecord != null)
             ) {
                 Text(
                     text = when {
                         isSubmitting && isSelectedSlotOverbooked -> "Overbooking Walk-In..."
                         isSubmitting -> "Booking Walk-In..."
+                        isFollowUpVisit && isSelectedSlotOverbooked -> "Confirm & Overbook Follow-Up (Free Rs. 0)"
+                        isFollowUpVisit -> "Fix Follow-Up Appointment (Free Rs. 0)"
                         isSelectedSlotOverbooked -> "Confirm & Overbook Walk-In Patient"
                         else -> "Confirm Walk-In & Generate 10-Digit Code"
                     },

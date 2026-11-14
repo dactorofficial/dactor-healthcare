@@ -73,6 +73,11 @@ class QueueRepository @Inject constructor(
         return clinicQueueCache[clinicId]?.second ?: emptyList()
     }
 
+    fun clearCache() {
+        clinicQueueCache.clear()
+        doctorQueueCache.clear()
+    }
+
     suspend fun getLocalOrCachedQueueForClinic(clinicId: String): List<QueueEntry> = withContext(Dispatchers.IO) {
         if (clinicId.isBlank()) return@withContext emptyList()
         clinicQueueCache[clinicId]?.second?.let { if (it.isNotEmpty()) return@withContext it }
@@ -86,11 +91,66 @@ class QueueRepository @Inject constructor(
         emptyList()
     }
 
+    /**
+     * Fast, lightweight delta synchronization for live queue display.
+     * Fetches only active/changing queue entries from the server and persists them to the local Room DB,
+     * completely bypassing heavy master queries, rogue sweeps, and background audits.
+     */
+    suspend fun syncQueueDeltaForClinic(clinicId: String): List<QueueEntry> = withContext(Dispatchers.IO) {
+        if (clinicId.isBlank()) return@withContext emptyList()
+        try {
+            val entries = supabaseClient.postgrest["queue_entries"]
+                .select {
+                    filter {
+                        eq("clinic_id", clinicId)
+                    }
+                }.decodeList<QueueEntry>()
+
+            val sorted = entries.sortedBy { it.queuePosition }
+            clinicQueueCache[clinicId] = Pair(System.currentTimeMillis(), sorted)
+            try {
+                queueDao?.upsertAll(
+                    sorted.map { com.dactor.clinic.data.local.entity.QueueEntryEntity.fromDomainModel(it, syncStatus = "synced") }
+                )
+            } catch (_: Exception) {}
+            sorted
+        } catch (e: Exception) {
+            getLocalOrCachedQueueForClinic(clinicId)
+        }
+    }
+
+    suspend fun syncQueueDeltaForDoctor(doctorId: String): List<QueueEntry> = withContext(Dispatchers.IO) {
+        if (doctorId.isBlank()) return@withContext emptyList()
+        try {
+            val entries = supabaseClient.postgrest["queue_entries"]
+                .select {
+                    filter {
+                        eq("doctor_id", doctorId)
+                    }
+                }.decodeList<QueueEntry>()
+
+            val sorted = entries.sortedBy { it.queuePosition }
+            doctorQueueCache[doctorId] = Pair(System.currentTimeMillis(), sorted)
+            try {
+                queueDao?.upsertAll(
+                    sorted.map { com.dactor.clinic.data.local.entity.QueueEntryEntity.fromDomainModel(it, syncStatus = "synced") }
+                )
+            } catch (_: Exception) {}
+            sorted
+        } catch (e: Exception) {
+            try {
+                doctorQueueCache[doctorId]?.second
+                    ?: queueDao?.getQueueForDoctorOnlyList(doctorId)?.map { it.toDomainModel() }
+                    ?: emptyList()
+            } catch (_: Exception) { emptyList() }
+        }
+    }
+
     suspend fun getQueueForClinic(clinicId: String, forceRefresh: Boolean = false): List<QueueEntry> = withContext(Dispatchers.IO) {
         if (clinicId.isBlank()) return@withContext emptyList()
         if (!forceRefresh) {
             val cached = clinicQueueCache[clinicId]
-            if (cached != null && (System.currentTimeMillis() - cached.first) < 2500L) {
+            if (cached != null && (System.currentTimeMillis() - cached.first) < 15_000L) {
                 return@withContext cached.second
             }
         }
@@ -238,7 +298,7 @@ class QueueRepository @Inject constructor(
         if (doctorId.isBlank()) return@withContext emptyList()
         if (!forceRefresh) {
             val cached = doctorQueueCache[doctorId]
-            if (cached != null && (System.currentTimeMillis() - cached.first) < 2500L) {
+            if (cached != null && (System.currentTimeMillis() - cached.first) < 15_000L) {
                 return@withContext cached.second
             }
         }

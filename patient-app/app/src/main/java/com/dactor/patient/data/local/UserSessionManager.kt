@@ -645,6 +645,51 @@ class UserSessionManager @Inject constructor(
         }
     }
 
+    @kotlinx.serialization.Serializable
+    data class TrackerMasterCache(
+        val appointment: com.dactor.patient.data.model.Appointment,
+        val clinic: com.dactor.patient.data.model.Clinic? = null,
+        val doctor: com.dactor.patient.data.model.Doctor? = null,
+        val cachedAtMs: Long = System.currentTimeMillis()
+    )
+
+    fun saveCachedTrackerMaster(
+        code: String,
+        appt: com.dactor.patient.data.model.Appointment,
+        clinic: com.dactor.patient.data.model.Clinic? = null,
+        doctor: com.dactor.patient.data.model.Doctor? = null
+    ) {
+        if (code.isBlank()) return
+        try {
+            val cache = TrackerMasterCache(
+                appointment = appt,
+                clinic = clinic,
+                doctor = doctor,
+                cachedAtMs = System.currentTimeMillis()
+            )
+            val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; encodeDefaults = true }
+            val serialized = json.encodeToString(TrackerMasterCache.serializer(), cache)
+            prefs.edit().putString("local_cached_tracker_master_${code.trim()}", serialized).apply()
+            if (appt.id.isNotBlank() && appt.id != code.trim()) {
+                prefs.edit().putString("local_cached_tracker_master_${appt.id.trim()}", serialized).apply()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun getCachedTrackerMaster(code: String): TrackerMasterCache? {
+        if (code.isBlank()) return null
+        val raw = prefs.getString("local_cached_tracker_master_${code.trim()}", null) ?: return null
+        if (raw.isBlank()) return null
+        return try {
+            val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+            json.decodeFromString(TrackerMasterCache.serializer(), raw)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     fun saveCachedQueueStatus(code: String, entry: com.dactor.patient.data.model.QueueEntry) {
         if (code.isBlank()) return
         try {

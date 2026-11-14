@@ -79,15 +79,21 @@ fun QueueStatusScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    val cachedPrewarmAppt = remember(appointmentIdOrCode) {
+    val cachedMaster = remember(appointmentIdOrCode) {
         val query = appointmentIdOrCode.trim()
-        if (query.isBlank()) null
-        else {
-            val list = appointmentRepository?.getCachedAppointments().orEmpty() +
-                appointmentRepository?.getCachedRecords().orEmpty() +
-                (sessionManager?.getCachedActiveAppointments() ?: emptyList()) +
-                (sessionManager?.getCachedRecords() ?: emptyList())
-            list.firstOrNull { it.id == query || it.trackingCode10Digit == query }
+        if (query.isBlank()) null else sessionManager?.getCachedTrackerMaster(query)
+    }
+    val cachedPrewarmAppt = remember(appointmentIdOrCode, cachedMaster) {
+        cachedMaster?.appointment ?: run {
+            val query = appointmentIdOrCode.trim()
+            if (query.isBlank()) null
+            else {
+                val list = appointmentRepository?.getCachedAppointments().orEmpty() +
+                    appointmentRepository?.getCachedRecords().orEmpty() +
+                    (sessionManager?.getCachedActiveAppointments() ?: emptyList()) +
+                    (sessionManager?.getCachedRecords() ?: emptyList())
+                list.firstOrNull { it.id == query || it.trackingCode10Digit == query }
+            }
         }
     }
     val cachedPrewarmQueue = remember(appointmentIdOrCode, cachedPrewarmAppt) {
@@ -95,10 +101,13 @@ fun QueueStatusScreen(
         sessionManager?.getCachedQueueStatus(query)
             ?: cachedPrewarmAppt?.let { sessionManager?.getCachedQueueStatus(it.id) }
     }
-    val cachedPrewarmClinic = remember(cachedPrewarmAppt) {
-        cachedPrewarmAppt?.clinicId?.takeIf { it.isNotBlank() }?.let {
+    val cachedPrewarmClinic = remember(cachedPrewarmAppt, cachedMaster) {
+        cachedMaster?.clinic ?: cachedPrewarmAppt?.clinicId?.takeIf { it.isNotBlank() }?.let {
             clinicRepository?.getCachedClinicById(it)
         }
+    }
+    val cachedPrewarmDoctor = remember(cachedMaster) {
+        cachedMaster?.doctor
     }
 
     var appointment by remember { mutableStateOf<Appointment?>(cachedPrewarmAppt) }
@@ -112,10 +121,10 @@ fun QueueStatusScreen(
     var liveTimingEstimate by remember { mutableStateOf<LiveQueueTimingEstimate?>(null) }
     var multiSlotResult by remember { mutableStateOf<com.dactor.patient.data.repository.MultiSlotPositionResult?>(null) }
 
-    var doctorName by remember { mutableStateOf("") }
-    var doctorSpecialty by remember { mutableStateOf("") }
-    var doctorPhotoUrl by remember { mutableStateOf<String?>(null) }
-    var isDoctorInClinic by remember { mutableStateOf(false) }
+    var doctorName by remember { mutableStateOf(cachedPrewarmDoctor?.fullName ?: "") }
+    var doctorSpecialty by remember { mutableStateOf(cachedPrewarmDoctor?.specialty ?: "") }
+    var doctorPhotoUrl by remember { mutableStateOf<String?>(cachedPrewarmDoctor?.resolvedProfilePictureUrl ?: cachedPrewarmDoctor?.profilePictureUrl) }
+    var isDoctorInClinic by remember { mutableStateOf(cachedPrewarmDoctor?.isInClinic ?: false) }
 
     var tokenNumber by remember { mutableIntStateOf(cachedPrewarmQueue?.queuePosition ?: 0) }
     var patientsAhead by remember { mutableIntStateOf(if (cachedPrewarmQueue != null) (cachedPrewarmQueue.queuePosition - 1).coerceAtLeast(0) else -1) } // -1 = not yet loaded
@@ -232,13 +241,17 @@ fun QueueStatusScreen(
         }
     }
 
-    suspend fun refreshData() {
+    suspend fun refreshData(isDeltaOnly: Boolean = false) {
         val queryCode = appointmentIdOrCode.trim()
         if (queryCode.isBlank()) return
 
         try {
-            val appt = appointmentRepository?.getAppointmentByTrackingCode(queryCode)
-                ?: appointmentRepository?.getAppointmentById(queryCode)
+            val appt = if (isDeltaOnly && appointment != null) {
+                appointment
+            } else {
+                appointmentRepository?.getAppointmentByTrackingCode(queryCode)
+                    ?: appointmentRepository?.getAppointmentById(queryCode)
+            }
 
             if (appt != null) {
                 appointment = appt
@@ -253,8 +266,10 @@ fun QueueStatusScreen(
                     sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} \u2022 ${appt.appointmentDate}")
                 }
 
-                // Always load lab reports so live workflow stage (Processing / Prepared) is accurate
-                loadConfidentialDetails(appt)
+                // Load confidential details and lab reports only on initial full load or manual refresh
+                if (!isDeltaOnly) {
+                    loadConfidentialDetails(appt)
+                }
 
                 // Auto-unlock only when signed-in account explicitly matches email or userId
                 val savedEmail = sessionManager?.getSavedEmail()?.trim()?.lowercase()
@@ -267,8 +282,8 @@ fun QueueStatusScreen(
                     isSavedToProfile = true
                 }
 
-                // Fetch clinic info
-                if (appt.clinicId.isNotBlank()) {
+                // Fetch clinic info (only when missing or on full refresh)
+                if (appt.clinicId.isNotBlank() && (!isDeltaOnly || clinicObj == null)) {
                     val clinic = clinicRepository?.getClinicById(appt.clinicId, forceRefresh = (clinicObj == null))
                     clinicObj = clinic
                     if (clinic != null) {
@@ -282,9 +297,11 @@ fun QueueStatusScreen(
                     }
                 }
 
-                // Fetch doctor info
-                if (!appt.doctorId.isNullOrBlank() && (doctorName.isBlank() || doctorPhotoUrl == null)) {
+                // Fetch doctor info (only when missing or on full refresh)
+                var resolvedDoc: com.dactor.patient.data.model.Doctor? = null
+                if (!appt.doctorId.isNullOrBlank() && (!isDeltaOnly || doctorName.isBlank() || doctorPhotoUrl == null)) {
                     val doctor = doctorRepository?.getDoctorById(appt.doctorId)
+                    resolvedDoc = doctor
                     if (doctor != null) {
                         doctorName = doctor.fullName
                         doctorSpecialty = doctor.specialty ?: "General Physician"
@@ -295,33 +312,35 @@ fun QueueStatusScreen(
 
                 // Strictly isolate appointments by the exact same 10-digit Appointment ID (trackingCode10Digit)
                 // Appointments with different appointment IDs from the same clinic must NEVER be grouped or shown together
-                val targetCode = appt.trackingCode10Digit
-                try {
-                    val sameCodeVisits = if (targetCode.isNotBlank() && appointmentRepository != null) {
-                        try {
-                            appointmentRepository.getAllAppointmentsByTrackingCode(targetCode)
-                        } catch (_: Exception) {
-                            listOf(appt)
-                        }
-                    } else listOf(appt)
-                    val combined = (sameCodeVisits + listOf(appt))
-                        .distinctBy { it.id }
-                        .filter { it.trackingCode10Digit == targetCode }
-                    val sorted = combined.sortedWith(
-                        compareByDescending<Appointment> { it.appointmentDate }
-                            .thenByDescending { it.appointmentTime }
-                    )
-                    multiClinicAppointments = sorted
-                    val apptIds = sorted.map { it.id }
-                    val invMap = appointmentRepository?.getInvoicesForAppointments(apptIds) ?: emptyMap()
-                    appointmentInvoicesMap = invMap
-                } catch (e: Exception) {
-                    multiClinicAppointments = listOf(appt)
+                if (!isDeltaOnly) {
+                    val targetCode = appt.trackingCode10Digit
+                    try {
+                        val sameCodeVisits = if (targetCode.isNotBlank() && appointmentRepository != null) {
+                            try {
+                                appointmentRepository.getAllAppointmentsByTrackingCode(targetCode)
+                            } catch (_: Exception) {
+                                listOf(appt)
+                            }
+                        } else listOf(appt)
+                        val combined = (sameCodeVisits + listOf(appt))
+                            .distinctBy { it.id }
+                            .filter { it.trackingCode10Digit == targetCode }
+                        val sorted = combined.sortedWith(
+                            compareByDescending<Appointment> { it.appointmentDate }
+                                .thenByDescending { it.appointmentTime }
+                        )
+                        multiClinicAppointments = sorted
+                        val apptIds = sorted.map { it.id }
+                        val invMap = appointmentRepository?.getInvoicesForAppointments(apptIds) ?: emptyMap()
+                        appointmentInvoicesMap = invMap
+                    } catch (e: Exception) {
+                        multiClinicAppointments = listOf(appt)
+                    }
                 }
 
                 // Fetch queue token and live status (combining queue_entries, appointment checkin_status, and lab_reports)
                 val isPendingClinicApproval = (!appt.status.equals("APPROVED", ignoreCase = true) && !appt.status.equals("confirmed", ignoreCase = true)) || appt.status == "WAITING_FOR_APPROVAL" || appt.status == "pending_payment"
-                var qEntry = if (isPendingClinicApproval) null else queueRepository?.getQueueStatus(appt.id)
+                var qEntry = if (isPendingClinicApproval) null else queueRepository?.getQueueStatus(appt.id, forceRefresh = isDeltaOnly)
                 val isUpcomingOrToday = !isPendingClinicApproval && appt.appointmentDate >= today && appt.checkinStatus.lowercase() in listOf("waiting", "checked_in", "in_queue", "confirmed", "booked")
                 val isAlreadyDone = qEntry?.status?.lowercase() in listOf("done", "completed") || appt.checkinStatus.lowercase() in listOf("done", "completed")
                 if (isUpcomingOrToday && !isAlreadyDone && qEntry == null) {
@@ -368,17 +387,26 @@ fun QueueStatusScreen(
                     else -> "waiting"
                 }
 
-                // Multi-slot cumulative position across the appointment's date
-                val slotResult = if (isPendingClinicApproval) null else queueRepository?.calculateMultiSlotDailyPosition(
-                    clinicId = appt.clinicId,
-                    doctorId = appt.doctorId,
-                    appointmentDate = appt.appointmentDate,
-                    targetAppointmentId = appt.id,
-                    targetSlotId = appt.slotId,
-                    targetAppointmentTime = appt.appointmentTime,
-                    avgConsultationMinutes = clinicAvgTimeMinutes
-                )
-                multiSlotResult = slotResult
+                // Multi-slot cumulative position across the appointment's date (calculate only once or on full refresh)
+                if (!isDeltaOnly || multiSlotResult == null) {
+                    val slotResult = if (isPendingClinicApproval) null else queueRepository?.calculateMultiSlotDailyPosition(
+                        clinicId = appt.clinicId,
+                        doctorId = appt.doctorId,
+                        appointmentDate = appt.appointmentDate,
+                        targetAppointmentId = appt.id,
+                        targetSlotId = appt.slotId,
+                        targetAppointmentTime = appt.appointmentTime,
+                        avgConsultationMinutes = clinicAvgTimeMinutes
+                    )
+                    multiSlotResult = slotResult
+                }
+
+                val slotResult = multiSlotResult
+
+                // Save master cache on initial full refresh
+                if (!isDeltaOnly) {
+                    sessionManager?.saveCachedTrackerMaster(queryCode, appt, clinicObj, resolvedDoc)
+                }
 
                 val parsedApptDate = com.dactor.patient.data.repository.QueueRepository.parseLocalDateSafe(appt.appointmentDate)
                 val isAppointmentToday = (parsedApptDate?.isEqual(java.time.LocalDate.now()) == true) || (appt.appointmentDate.trim().take(10) == java.time.LocalDate.now().toString())
@@ -585,9 +613,12 @@ fun QueueStatusScreen(
     }
 
     LaunchedEffect(appointmentIdOrCode) {
+        // Initial full load & master sync
+        refreshData(isDeltaOnly = false)
         while (isActive) {
-            refreshData()
             delay(4000L) // auto-refresh queue position and doctor status every 4 seconds
+            // Lightweight operational delta sync: only token, ahead count, and timing
+            refreshData(isDeltaOnly = true)
         }
     }
 

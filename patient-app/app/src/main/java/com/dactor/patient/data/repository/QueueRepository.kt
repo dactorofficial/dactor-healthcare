@@ -73,11 +73,16 @@ class QueueRepository @Inject constructor(
     private val queueEntriesForClinicCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<QueueEntry>>>()
     private val queueStatusCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, QueueEntry>>()
 
+    fun clearCache() {
+        queueEntriesForClinicCache.clear()
+        queueStatusCache.clear()
+    }
+
     suspend fun getQueueStatus(appointmentId: String, forceRefresh: Boolean = false): QueueEntry? {
         if (appointmentId.isBlank()) return null
         if (!forceRefresh) {
             val cached = queueStatusCache[appointmentId]
-            if (cached != null && (System.currentTimeMillis() - cached.first) < 2500L) {
+            if (cached != null && (System.currentTimeMillis() - cached.first) < 15_000L) {
                 return cached.second
             }
         }
@@ -213,7 +218,7 @@ class QueueRepository @Inject constructor(
         if (clinicId.isBlank()) return emptyList()
         if (!forceRefresh) {
             val cached = queueEntriesForClinicCache[clinicId]
-            if (cached != null && (System.currentTimeMillis() - cached.first) < 2500L) {
+            if (cached != null && (System.currentTimeMillis() - cached.first) < 15_000L) {
                 return cached.second
             }
         }

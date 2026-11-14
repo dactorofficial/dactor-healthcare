@@ -126,6 +126,17 @@ fun DashboardScreen(
         )
     }
 
+    fun performLogout() {
+        coroutineScope.launch {
+            try {
+                com.dactor.clinic.data.cache.AppCacheManager.getInstance(context).clearAllCache()
+            } catch (_: Exception) {}
+            navController.navigate(NavRoutes.ClinicLogin) {
+                popUpTo(0) { inclusive = true }
+            }
+        }
+    }
+
     fun loadClinic() {
         coroutineScope.launch {
             if (clinicRepository != null) {
@@ -290,21 +301,7 @@ fun DashboardScreen(
                     },
                     actions = {
                         IconButton(
-                            onClick = {
-                                sessionManager.clearSession()
-                                clinicRepository?.clearCache()
-                                doctorRepository?.clearCache()
-                                try {
-                                    com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
-                                        context,
-                                        com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                                    ).signOut()
-                                    com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                                } catch (ignored: Exception) {}
-                                navController.navigate(NavRoutes.ClinicLogin) {
-                                    popUpTo(0) { inclusive = true }
-                                }
-                            }
+                            onClick = { performLogout() }
                         ) {
                             Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Sign Out", tint = MaterialTheme.colorScheme.error)
                         }
@@ -353,14 +350,7 @@ fun DashboardScreen(
                     Spacer(Modifier.height(24.dp))
 
                     Button(
-                        onClick = {
-                            sessionManager.clearSession()
-                            clinicRepository?.clearCache()
-                            doctorRepository?.clearCache()
-                            navController.navigate(NavRoutes.ClinicLogin) {
-                                popUpTo(0) { inclusive = true }
-                            }
-                        },
+                        onClick = { performLogout() },
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text("Exit to Login")
@@ -480,21 +470,7 @@ fun DashboardScreen(
                     Spacer(Modifier.height(12.dp))
 
                     OutlinedButton(
-                        onClick = {
-                            sessionManager.clearSession()
-                            clinicRepository?.clearCache()
-                            doctorRepository?.clearCache()
-                            try {
-                                com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
-                                    context,
-                                    com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                                ).signOut()
-                                com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                            } catch (ignored: Exception) {}
-                            navController.navigate(NavRoutes.ClinicLogin) {
-                                popUpTo(0) { inclusive = true }
-                            }
-                        },
+                        onClick = { performLogout() },
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth().height(50.dp)
                     ) {
@@ -761,21 +737,7 @@ fun DashboardScreen(
                 }
 
                 OutlinedButton(
-                    onClick = {
-                        sessionManager.clearSession()
-                        clinicRepository?.clearCache()
-                        doctorRepository?.clearCache()
-                        try {
-                            com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
-                                context,
-                                com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                            ).signOut()
-                            com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                        } catch (ignored: Exception) {}
-                        navController.navigate(NavRoutes.ClinicLogin) {
-                            popUpTo(0) { inclusive = true }
-                        }
-                    },
+                    onClick = { performLogout() },
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -831,21 +793,7 @@ fun DashboardScreen(
                     Spacer(Modifier.height(12.dp))
 
                     OutlinedButton(
-                        onClick = {
-                            sessionManager.clearSession()
-                            clinicRepository?.clearCache()
-                            doctorRepository?.clearCache()
-                            try {
-                                com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
-                                    context,
-                                    com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                                ).signOut()
-                                com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                            } catch (ignored: Exception) {}
-                            navController.navigate(NavRoutes.ClinicLogin) {
-                                popUpTo(0) { inclusive = true }
-                            }
-                        },
+                        onClick = { performLogout() },
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2134,21 +2082,7 @@ fun DashboardScreen(
 
                 // 8. SIGN OUT BUTTON
                 OutlinedButton(
-                    onClick = {
-                        sessionManager.clearSession()
-                        clinicRepository?.clearCache()
-                        doctorRepository?.clearCache()
-                        try {
-                            com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
-                                context,
-                                com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                            ).signOut()
-                            com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                        } catch (ignored: Exception) {}
-                        navController.navigate(NavRoutes.ClinicLogin) {
-                            popUpTo(0) { inclusive = true }
-                        }
-                    },
+                    onClick = { performLogout() },
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .fillMaxWidth()

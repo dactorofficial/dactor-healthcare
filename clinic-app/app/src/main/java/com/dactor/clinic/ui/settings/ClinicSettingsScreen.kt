@@ -136,6 +136,17 @@ fun ClinicSettingsScreen(
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
+    fun performLogout() {
+        coroutineScope.launch {
+            try {
+                com.dactor.clinic.data.cache.AppCacheManager.getInstance(context).clearAllCache()
+            } catch (_: Exception) {}
+            navController.navigate(NavRoutes.ClinicLogin) {
+                popUpTo(0) { inclusive = true }
+            }
+        }
+    }
+
     // File Pickers
     val connectIpsPfxLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -397,15 +408,8 @@ fun ClinicSettingsScreen(
                     }
                 } catch (ignored: Exception) {}
 
-                // Immediately logout from mobile device
-                sessionManager.clearSession()
-                try {
-                    com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
-                        context,
-                        com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                    ).signOut()
-                    com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                } catch (ignored: Exception) {}
+                // Immediately logout from mobile device and clear all cache
+                performLogout()
 
                 showDeleteAccountDialog = false
                 Toast.makeText(
@@ -598,19 +602,7 @@ fun ClinicSettingsScreen(
 
                 // Sign Out Button
                 OutlinedButton(
-                    onClick = {
-                        sessionManager.clearSession()
-                        try {
-                            com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
-                                context,
-                                com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                            ).signOut()
-                            com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                        } catch (ignored: Exception) {}
-                        navController.navigate(NavRoutes.ClinicLogin) {
-                            popUpTo(0) { inclusive = true }
-                        }
-                    },
+                    onClick = { performLogout() },
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2199,19 +2191,7 @@ fun ClinicSettingsScreen(
                         )
 
                         OutlinedButton(
-                            onClick = {
-                                sessionManager.clearSession()
-                                try {
-                                    com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
-                                        context,
-                                        com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                                    ).signOut()
-                                    com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                                } catch (ignored: Exception) {}
-                                navController.navigate(NavRoutes.ClinicLogin) {
-                                    popUpTo(0) { inclusive = true }
-                                }
-                            },
+                            onClick = { performLogout() },
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
                             shape = RoundedCornerShape(12.dp),

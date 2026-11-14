@@ -198,6 +198,7 @@ import {
   onFirebaseAuthStateChanged,
   deleteFirebaseUserAccount,
 } from '../lib/firebase'
+import { clearAllAppCache } from '../utils/cacheCleaner'
 import { supabase } from '../lib/supabase'
 import {
   matchClinic,
@@ -2950,24 +2951,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   }
 
   const handleLogout = () => {
-    firebaseSignOut()
-    localStorage.removeItem('dactor_patient_email')
-    localStorage.removeItem('dactor_patient_session')
-    localStorage.removeItem('dactor_patient_logged_in')
-    localStorage.removeItem('dactor_last_active_role')
-    localStorage.removeItem('dactor_last_active_portal')
-    localStorage.removeItem('dactor_patient_tracking_codes')
-    localStorage.removeItem('dactor_patient_hidden_records')
-    localStorage.removeItem('dactor_patient_payment_session')
-    localStorage.removeItem('dactor_pending_online_payment')
-    localStorage.removeItem('dactor_pending_esewa_payment')
-    localStorage.removeItem('dactor_pending_booking_redirect')
-    localStorage.removeItem('dactor_booking_login_notice')
+    clearAllAppCache().catch(() => {})
     setPatientUser(null)
     setMyAppointments([])
     setTransactions([])
     setGuestCodesVersion((v) => v + 1)
-    window.dispatchEvent(new Event('storage'))
   }
 
   // Filter Active vs Past appointments and arrange Active as:

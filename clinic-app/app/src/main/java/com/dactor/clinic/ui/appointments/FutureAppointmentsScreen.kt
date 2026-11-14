@@ -3,6 +3,7 @@ package com.dactor.clinic.ui.appointments
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -44,7 +45,7 @@ import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun FutureAppointmentsScreen(
     navController: NavController,
@@ -335,379 +336,399 @@ fun FutureAppointmentsScreen(
             )
         }
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(padding),
+            contentPadding = PaddingValues(bottom = 80.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // Action banner
             if (actionMessage != null) {
-                Card(
-                    shape = RoundedCornerShape(10.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFD1FAE5)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                            .fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.weight(1f)
+                item(key = "action_banner") {
+                    Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                        Card(
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFD1FAE5)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
                         ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(16.dp))
-                            Text(actionMessage ?: "", fontSize = 12.sp, color = Color(0xFF065F46), fontWeight = FontWeight.SemiBold)
-                        }
-                        IconButton(onClick = { actionMessage = null }, modifier = Modifier.size(24.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = Color(0xFF065F46), modifier = Modifier.size(14.dp))
+                            Row(
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    .fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(16.dp))
+                                    Text(actionMessage ?: "", fontSize = 12.sp, color = Color(0xFF065F46), fontWeight = FontWeight.SemiBold)
+                                }
+                                IconButton(onClick = { actionMessage = null }, modifier = Modifier.size(24.dp)) {
+                                    Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = Color(0xFF065F46), modifier = Modifier.size(14.dp))
+                                }
+                            }
                         }
                     }
                 }
             }
 
             // Description
-            Text(
-                text = "Tap any date to inspect booked appointments, declare clinic holidays, or edit visit remarks.",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .padding(horizontal = 16.dp)
-                    .padding(vertical = 4.dp)
-            )
+            item(key = "description") {
+                Text(
+                    text = "Tap any date to inspect booked appointments, declare clinic holidays, or edit visit remarks.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp)
+                        .padding(vertical = 4.dp)
+                )
+            }
 
             // Month Navigation
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+            item(key = "month_nav") {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    IconButton(onClick = { displayedMonth = displayedMonth.minusMonths(1) }) {
-                        Icon(Icons.Default.KeyboardArrowLeft, contentDescription = "Previous Month", modifier = Modifier.size(28.dp))
-                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = { displayedMonth = displayedMonth.minusMonths(1) }) {
+                            Icon(Icons.Default.KeyboardArrowLeft, contentDescription = "Previous Month", modifier = Modifier.size(28.dp))
+                        }
 
-                    Text(
-                        text = displayedMonth.format(monthFormatter),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                        Text(
+                            text = displayedMonth.format(monthFormatter),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
 
-                    IconButton(onClick = { displayedMonth = displayedMonth.plusMonths(1) }) {
-                        Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Next Month", modifier = Modifier.size(28.dp))
+                        IconButton(onClick = { displayedMonth = displayedMonth.plusMonths(1) }) {
+                            Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Next Month", modifier = Modifier.size(28.dp))
+                        }
                     }
                 }
             }
 
             // Day Strip
-            LazyRow(
-                state = dayListState,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                itemsIndexed(daysInMonth, key = { _, d -> d.toString() }) { _, date ->
-                    val dateStr = date.toString()
-                    val isSelected = selectedDate == dateStr
-                    val isToday = date == today
-                    val isHolidayDate = declaredHolidays.contains(dateStr)
-                    val hasAppts = appointments.any { it.appointmentDate == dateStr }
-                    val hasCompleted = appointments.any { it.appointmentDate == dateStr && it.checkinStatus == "completed" }
-                    val hasSlots = allClinicSlots.any { it.slotDate == dateStr }
+            item(key = "day_strip") {
+                LazyRow(
+                    state = dayListState,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    itemsIndexed(daysInMonth, key = { _, d -> d.toString() }) { _, date ->
+                        val dateStr = date.toString()
+                        val isSelected = selectedDate == dateStr
+                        val isToday = date == today
+                        val isHolidayDate = declaredHolidays.contains(dateStr)
+                        val hasAppts = appointments.any { it.appointmentDate == dateStr }
+                        val hasCompleted = appointments.any { it.appointmentDate == dateStr && it.checkinStatus == "completed" }
+                        val hasSlots = allClinicSlots.any { it.slotDate == dateStr }
 
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Text(
-                            text = date.format(dayNameFormatter),
-                            fontSize = 9.sp,
-                            color = when {
-                                isHolidayDate -> Color(0xFFDC2626)
-                                isSelected -> Color(0xFF0097A7)
-                                else -> MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            fontWeight = if (isToday || isHolidayDate) FontWeight.Bold else FontWeight.Normal
-                        )
-
-                        Surface(
-                            onClick = { selectedDate = dateStr },
-                            shape = CircleShape,
-                            color = when {
-                                isSelected && isHolidayDate -> Color(0xFFDC2626)
-                                isSelected -> Color(0xFF0097A7)
-                                isHolidayDate -> Color(0xFFFEE2E2)
-                                isToday -> MaterialTheme.colorScheme.primaryContainer
-                                else -> MaterialTheme.colorScheme.surface
-                            },
-                            border = when {
-                                isHolidayDate && !isSelected -> BorderStroke(1.dp, Color(0xFFDC2626))
-                                isToday && !isSelected -> BorderStroke(1.dp, Color(0xFF0097A7))
-                                else -> null
-                            },
-                            modifier = Modifier.size(40.dp)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
-                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                                Text(
-                                    text = date.dayOfMonth.toString(),
-                                    fontWeight = if (isSelected || isToday || isHolidayDate) FontWeight.Bold else FontWeight.Normal,
-                                    fontSize = 14.sp,
-                                    color = when {
-                                        isSelected -> Color.White
-                                        isHolidayDate -> Color(0xFFB91C1C)
-                                        isToday -> MaterialTheme.colorScheme.primary
-                                        else -> MaterialTheme.colorScheme.onSurface
-                                    }
-                                )
-                            }
-                        }
+                            Text(
+                                text = date.format(dayNameFormatter),
+                                fontSize = 9.sp,
+                                color = when {
+                                    isHolidayDate -> Color(0xFFDC2626)
+                                    isSelected -> Color(0xFF0097A7)
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                fontWeight = if (isToday || isHolidayDate) FontWeight.Bold else FontWeight.Normal
+                            )
 
-                        // Appointment / Completed / Holiday / Published Slots Dot
-                        Surface(
-                            shape = CircleShape,
-                            color = when {
-                                isHolidayDate -> Color(0xFFDC2626)
-                                hasCompleted -> Color(0xFF10B981)
-                                hasAppts -> Color(0xFF0097A7)
-                                hasSlots -> Color(0xFF38BDF8)
-                                else -> Color.Transparent
-                            },
-                            modifier = Modifier.size(5.dp)
-                        ) {}
+                            Surface(
+                                onClick = { selectedDate = dateStr },
+                                shape = CircleShape,
+                                color = when {
+                                    isSelected && isHolidayDate -> Color(0xFFDC2626)
+                                    isSelected -> Color(0xFF0097A7)
+                                    isHolidayDate -> Color(0xFFFEE2E2)
+                                    isToday -> MaterialTheme.colorScheme.primaryContainer
+                                    else -> MaterialTheme.colorScheme.surface
+                                },
+                                border = when {
+                                    isHolidayDate && !isSelected -> BorderStroke(1.dp, Color(0xFFDC2626))
+                                    isToday && !isSelected -> BorderStroke(1.dp, Color(0xFF0097A7))
+                                    else -> null
+                                },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                    Text(
+                                        text = date.dayOfMonth.toString(),
+                                        fontWeight = if (isSelected || isToday || isHolidayDate) FontWeight.Bold else FontWeight.Normal,
+                                        fontSize = 14.sp,
+                                        color = when {
+                                            isSelected -> Color.White
+                                            isHolidayDate -> Color(0xFFB91C1C)
+                                            isToday -> MaterialTheme.colorScheme.primary
+                                            else -> MaterialTheme.colorScheme.onSurface
+                                        }
+                                    )
+                                }
+                            }
+
+                            // Appointment / Completed / Holiday / Published Slots Dot
+                            Surface(
+                                shape = CircleShape,
+                                color = when {
+                                    isHolidayDate -> Color(0xFFDC2626)
+                                    hasCompleted -> Color(0xFF10B981)
+                                    hasAppts -> Color(0xFF0097A7)
+                                    hasSlots -> Color(0xFF38BDF8)
+                                    else -> Color.Transparent
+                                },
+                                modifier = Modifier.size(5.dp)
+                            ) {}
+                        }
                     }
                 }
             }
 
             // Declare Holiday (Closed on Selected Date) Toggle Card
             val isHolidaySelected = declaredHolidays.contains(selectedDate)
-            Card(
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isHolidaySelected) Color(0xFFFEF2F2) else Color.White
-                ),
-                border = BorderStroke(
-                    1.dp,
-                    if (isHolidaySelected) Color(0xFFFCA5A5) else Color(0xFFE2E8F0)
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.weight(1f)
+            item(key = "declare_holiday_card") {
+                Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    Card(
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isHolidaySelected) Color(0xFFFEF2F2) else Color.White
+                        ),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isHolidaySelected) Color(0xFFFCA5A5) else Color(0xFFE2E8F0)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
                     ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = if (isHolidaySelected) Color(0xFFFEE2E2) else Color(0xFFF1F5F9),
-                            modifier = Modifier.size(34.dp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    if (isHolidaySelected) Icons.Default.EventBusy else Icons.Default.EventAvailable,
-                                    contentDescription = null,
-                                    tint = if (isHolidaySelected) Color(0xFFDC2626) else Color(0xFF0097A7),
-                                    modifier = Modifier.size(18.dp)
-                                )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (isHolidaySelected) Color(0xFFFEE2E2) else Color(0xFFF1F5F9),
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            if (isHolidaySelected) Icons.Default.EventBusy else Icons.Default.EventAvailable,
+                                            contentDescription = null,
+                                            tint = if (isHolidaySelected) Color(0xFFDC2626) else Color(0xFF0097A7),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                                Column {
+                                    Text(
+                                        text = if (isHolidaySelected) {
+                                            "Clinic Closed on $selectedDate (Declared Holiday)"
+                                        } else {
+                                            "Declare Holiday for $selectedDate"
+                                        },
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = if (isHolidaySelected) Color(0xFF991B1B) else Color(0xFF0F172A)
+                                    )
+                                    Text(
+                                        text = if (isHolidaySelected) {
+                                            "Patients checking appointments on $selectedDate will see Clinic is Closed."
+                                        } else {
+                                            "Toggle ON to mark clinic closed on $selectedDate for patients."
+                                        },
+                                        fontSize = 11.sp,
+                                        color = if (isHolidaySelected) Color(0xFFB91C1C) else Color(0xFF64748B)
+                                    )
+                                }
                             }
-                        }
-                        Column {
-                            Text(
-                                text = if (isHolidaySelected) {
-                                    "Clinic Closed on $selectedDate (Declared Holiday)"
-                                } else {
-                                    "Declare Holiday for $selectedDate"
+
+                            Switch(
+                                checked = isHolidaySelected,
+                                onCheckedChange = { checked ->
+                                    val targetDate = selectedDate
+                                    val nowMs = System.currentTimeMillis()
+                                    pendingHolidayToggles = pendingHolidayToggles + (targetDate to (checked to nowMs))
+                                    declaredHolidays = if (checked) {
+                                        declaredHolidays + targetDate
+                                    } else {
+                                        declaredHolidays - targetDate
+                                    }
+                                    coroutineScope.launch {
+                                        val ok = clinicRepository?.toggleClinicHoliday(
+                                            clinicId = effectiveClinicId,
+                                            dateStr = targetDate,
+                                            isHoliday = checked
+                                        ) != null
+                                        if (ok) {
+                                            actionMessage = if (checked) {
+                                                "🏖️ Declared Holiday on $targetDate \u2014 Patients will see Clinic is Closed on this day."
+                                            } else {
+                                                "✓ Removed Holiday on $targetDate \u2014 Clinic is marked Open."
+                                            }
+                                        } else {
+                                            val lockEntry = pendingHolidayToggles[targetDate]
+                                            if (lockEntry == null || System.currentTimeMillis() - lockEntry.second >= 12_000L) {
+                                                declaredHolidays = if (checked) declaredHolidays - targetDate else declaredHolidays + targetDate
+                                            }
+                                        }
+                                    }
                                 },
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = if (isHolidaySelected) Color(0xFF991B1B) else Color(0xFF0F172A)
-                            )
-                            Text(
-                                text = if (isHolidaySelected) {
-                                    "Patients checking appointments on $selectedDate will see Clinic is Closed."
-                                } else {
-                                    "Toggle ON to mark clinic closed on $selectedDate for patients."
-                                },
-                                fontSize = 11.sp,
-                                color = if (isHolidaySelected) Color(0xFFB91C1C) else Color(0xFF64748B)
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = Color(0xFFDC2626)
+                                )
                             )
                         }
                     }
-
-                    Switch(
-                        checked = isHolidaySelected,
-                        onCheckedChange = { checked ->
-                            val targetDate = selectedDate
-                            val nowMs = System.currentTimeMillis()
-                            pendingHolidayToggles = pendingHolidayToggles + (targetDate to (checked to nowMs))
-                            declaredHolidays = if (checked) {
-                                declaredHolidays + targetDate
-                            } else {
-                                declaredHolidays - targetDate
-                            }
-                            coroutineScope.launch {
-                                val ok = clinicRepository?.toggleClinicHoliday(
-                                    clinicId = effectiveClinicId,
-                                    dateStr = targetDate,
-                                    isHoliday = checked
-                                ) != null
-                                if (ok) {
-                                    actionMessage = if (checked) {
-                                        "🏖️ Declared Holiday on $targetDate \u2014 Patients will see Clinic is Closed on this day."
-                                    } else {
-                                        "✓ Removed Holiday on $targetDate \u2014 Clinic is marked Open."
-                                    }
-                                } else {
-                                    val lockEntry = pendingHolidayToggles[targetDate]
-                                    if (lockEntry == null || System.currentTimeMillis() - lockEntry.second >= 12_000L) {
-                                        declaredHolidays = if (checked) declaredHolidays - targetDate else declaredHolidays + targetDate
-                                    }
-                                }
-                            }
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFFDC2626)
-                        )
-                    )
                 }
             }
 
             // Published OPD Slots for Selected Date Card
-            Card(
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (slots.isNotEmpty()) Color(0xFFF0FDF4) else Color(0xFFF8FAFC)
-                ),
-                border = BorderStroke(
-                    1.dp,
-                    if (slots.isNotEmpty()) Color(0xFFBBF7D0) else Color(0xFFE2E8F0)
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+            item(key = "published_slots_card") {
+                Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                    Card(
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (slots.isNotEmpty()) Color(0xFFF0FDF4) else Color(0xFFF8FAFC)
+                        ),
+                        border = BorderStroke(
+                            1.dp,
+                            if (slots.isNotEmpty()) Color(0xFFBBF7D0) else Color(0xFFE2E8F0)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(
-                                Icons.Default.AccessTime,
-                                contentDescription = null,
-                                tint = if (slots.isNotEmpty()) Color(0xFF16A34A) else Color(0xFF0097A7),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                "Published OPD Slots for $selectedDate",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
-                                color = if (slots.isNotEmpty()) Color(0xFF166534) else Color(0xFF0F172A)
-                            )
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (slots.isNotEmpty()) Color(0xFFDCFCE7) else Color(0xFFE2E8F0)
-                        ) {
-                            Text(
-                                text = "${slots.size} slot${if (slots.size == 1) "" else "s"}",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (slots.isNotEmpty()) Color(0xFF15803D) else Color(0xFF64748B),
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-
-                    if (slots.isEmpty()) {
-                        Text(
-                            text = "No OPD slots configured for this date. Tap '+ Add slot' below to add patient booking slots.",
-                            fontSize = 11.5.sp,
-                            color = Color(0xFF64748B)
-                        )
-                    } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            slots.forEach { slot ->
-                                val slotDoc = doctors.find { it.id == slot.doctorId }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.AccessTime,
+                                        contentDescription = null,
+                                        tint = if (slots.isNotEmpty()) Color(0xFF16A34A) else Color(0xFF0097A7),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        "Published OPD Slots for $selectedDate",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = if (slots.isNotEmpty()) Color(0xFF166534) else Color(0xFF0F172A)
+                                    )
+                                }
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
-                                    color = Color.White,
-                                    border = BorderStroke(1.dp, Color(0xFFD1D5DB)),
-                                    modifier = Modifier.fillMaxWidth()
+                                    color = if (slots.isNotEmpty()) Color(0xFFDCFCE7) else Color(0xFFE2E8F0)
                                 ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = "${slots.size} slot${if (slots.size == 1) "" else "s"}",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (slots.isNotEmpty()) Color(0xFF15803D) else Color(0xFF64748B),
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            if (slots.isEmpty()) {
+                                Text(
+                                    text = "No OPD slots configured for this date. Tap '+ Add slot' below to add patient booking slots.",
+                                    fontSize = 11.5.sp,
+                                    color = Color(0xFF64748B)
+                                )
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    slots.forEach { slot ->
+                                        val slotDoc = doctors.find { it.id == slot.doctorId }
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = Color.White,
+                                            border = BorderStroke(1.dp, Color(0xFFD1D5DB)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
                                             Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Text(
-                                                    text = "${format12h(slot.startTime)} - ${format12h(slot.endTime)}",
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 13.sp,
-                                                    color = Color(0xFF0F172A)
-                                                )
-                                                if (slotDoc != null) {
+                                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = "${format12h(slot.startTime)} - ${format12h(slot.endTime)}",
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 13.sp,
+                                                            color = Color(0xFF0F172A)
+                                                        )
+                                                        if (slotDoc != null) {
+                                                            Text(
+                                                                text = "\u2022 Dr. ${slotDoc.fullName}",
+                                                                fontSize = 11.sp,
+                                                                color = Color(0xFF0097A7),
+                                                                fontWeight = FontWeight.SemiBold
+                                                            )
+                                                        }
+                                                    }
                                                     Text(
-                                                        text = "\u2022 Dr. ${slotDoc.fullName}",
+                                                        text = "Capacity: ${slot.maxCapacity} patients \u2022 Booked: ${slot.bookedCount}",
                                                         fontSize = 11.sp,
-                                                        color = Color(0xFF0097A7),
-                                                        fontWeight = FontWeight.SemiBold
+                                                        color = Color(0xFF64748B)
+                                                    )
+                                                }
+
+                                                IconButton(
+                                                    onClick = { slotToDelete = slot },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Delete,
+                                                        contentDescription = "Delete Slot",
+                                                        tint = Color(0xFFEF4444),
+                                                        modifier = Modifier.size(16.dp)
                                                     )
                                                 }
                                             }
-                                            Text(
-                                                text = "Capacity: ${slot.maxCapacity} patients \u2022 Booked: ${slot.bookedCount}",
-                                                fontSize = 11.sp,
-                                                color = Color(0xFF64748B)
-                                            )
-                                        }
-
-                                        IconButton(
-                                            onClick = { slotToDelete = slot },
-                                            modifier = Modifier.size(28.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Delete,
-                                                contentDescription = "Delete Slot",
-                                                tint = Color(0xFFEF4444),
-                                                modifier = Modifier.size(16.dp)
-                                            )
                                         }
                                     }
                                 }
@@ -717,47 +738,49 @@ fun FutureAppointmentsScreen(
                 }
             }
 
-            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
-
-            // Sub-Filters on Selected Date
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                FilterChip(
-                    selected = selectedSubFilter == "All",
-                    onClick = { selectedSubFilter = "All" },
-                    label = { Text("All (${currentAppointments.size})", fontSize = 11.sp) }
-                )
-                FilterChip(
-                    selected = selectedSubFilter == "Completed Queue",
-                    onClick = { selectedSubFilter = "Completed Queue" },
-                    label = { Text("Completed Queue (${completedQueueList.size})", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                    leadingIcon = {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(13.dp))
+            // Sticky Header: Sub-Filters on Selected Date
+            stickyHeader(key = "sub_filters_and_date") {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 2.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        FilterChip(
+                            selected = selectedSubFilter == "All",
+                            onClick = { selectedSubFilter = "All" },
+                            label = { Text("All (${currentAppointments.size})", fontSize = 11.sp) }
+                        )
+                        FilterChip(
+                            selected = selectedSubFilter == "Completed Queue",
+                            onClick = { selectedSubFilter = "Completed Queue" },
+                            label = { Text("Completed Queue (${completedQueueList.size})", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                            leadingIcon = {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(13.dp))
+                            }
+                        )
+                        FilterChip(
+                            selected = selectedSubFilter == "Waiting / Active",
+                            onClick = { selectedSubFilter = "Waiting / Active" },
+                            label = { Text("Waiting (${activeWaitingList.size})", fontSize = 11.sp) }
+                        )
                     }
-                )
-                FilterChip(
-                    selected = selectedSubFilter == "Waiting / Active",
-                    onClick = { selectedSubFilter = "Waiting / Active" },
-                    label = { Text("Waiting (${activeWaitingList.size})", fontSize = 11.sp) }
-                )
+                }
             }
 
             // Appointment List / Completed Queue Details
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp)
-            ) {
-                if (displayedAppointments.isEmpty()) {
+            if (displayedAppointments.isEmpty()) {
+                item(key = "empty_appointments") {
                     Box(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(bottom = 70.dp),
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 24.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(
@@ -782,13 +805,10 @@ fun FutureAppointmentsScreen(
                             }
                         }
                     }
-                } else {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        contentPadding = PaddingValues(bottom = 80.dp),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        itemsIndexed(displayedAppointments, key = { _, it -> it.id }) { index, appt ->
+                }
+            } else {
+                itemsIndexed(displayedAppointments, key = { _, it -> it.id }) { index, appt ->
+                    Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                             val isCompleted = appt.checkinStatus == "completed"
                             val assignedDoctor = doctors.find { it.id == appt.doctorId }
                             val curRemark = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarksMap[appt.id])

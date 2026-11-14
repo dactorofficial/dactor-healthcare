@@ -1,0 +1,37 @@
+{
+  "name": "Dactor Healthcare - OPD Queue & Clinic Portal",
+  "short_name": "Dactor",
+  "description": "Nepal's Realtime Healthcare OPD Queue Tracker, Clinic Booking & Diagnostic Lab Ecosystem",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f8fafc",
+  "theme_color": "#0284c7",
+  "categories": [
+    "health",
+    "medical",
+    "lifestyle"
+  ],
+  "lang": "en",
+  "dir": "ltr",
+  "icons": [
+    {
+      "src": "./app_logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./app_logo.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./favicon.png",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/png"
+    }
+  ]
+}

@@ -255,18 +255,8 @@ fun ProfileScreen(
     fun performSignOut() {
         coroutineScope.launch {
             try {
-                val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(
-                    com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                ).requestEmail().build()
-                val gsc = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso)
-                com.google.android.gms.tasks.Tasks.await(gsc.signOut(), 3, java.util.concurrent.TimeUnit.SECONDS)
+                com.dactor.patient.data.cache.AppCacheManager.getInstance(context).clearAllCache()
             } catch (_: Exception) {}
-            try {
-                com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-            } catch (_: Exception) {}
-            authRepository?.signOut()
-            appointmentRepository?.clearCache()
-            sessionManager?.clearSession()
             sessionManager?.setGuestMode(true)
             isLoggedIn = false
             userEmail = null
@@ -338,19 +328,9 @@ fun ProfileScreen(
                     }
                 } catch (ignored: Exception) {}
 
-                sessionManager?.clearSession()
                 try {
-                    val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(
-                        com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                    ).requestEmail().build()
-                    val gsc = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso)
-                    com.google.android.gms.tasks.Tasks.await(gsc.signOut(), 3, java.util.concurrent.TimeUnit.SECONDS)
+                    com.dactor.patient.data.cache.AppCacheManager.getInstance(context).clearAllCache()
                 } catch (ignored: Exception) {}
-                try {
-                    com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                } catch (ignored: Exception) {}
-                authRepository?.signOut()
-                appointmentRepository?.clearCache()
 
                 showDeleteAccountDialog = false
                 sessionManager?.setGuestMode(true)

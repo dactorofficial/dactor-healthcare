@@ -201,6 +201,7 @@ class DoctorRepository @Inject constructor(
     fun clearCache() {
         cachedDoctorsByClinic.clear()
         cachedAllDoctors = emptyList()
+        lastPresenceBroadcastMap.clear()
     }
 
     private fun enrichDoctor(doctor: Doctor): Doctor {

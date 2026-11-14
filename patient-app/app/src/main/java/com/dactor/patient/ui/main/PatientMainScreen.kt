@@ -9907,18 +9907,8 @@ fun ProfileTab(
                         showSignOutDialog = false
                         coroutineScope.launch {
                             try {
-                                val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(
-                                    com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                                ).requestEmail().build()
-                                val gsc = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso)
-                                com.google.android.gms.tasks.Tasks.await(gsc.signOut(), 3, java.util.concurrent.TimeUnit.SECONDS)
+                                com.dactor.patient.data.cache.AppCacheManager.getInstance(context).clearAllCache()
                             } catch (_: Exception) {}
-                            try {
-                                com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                            } catch (_: Exception) {}
-                            authRepository?.signOut()
-                            appointmentRepository?.clearCache()
-                            sessionManager?.clearSession()
                             sessionManager?.setGuestMode(true)
                             isUserLoggedIn = false
                             userName = "Patient"
@@ -9980,18 +9970,8 @@ fun ProfileTab(
                                 e.printStackTrace()
                             }
                             try {
-                                val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(
-                                    com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                                ).requestEmail().build()
-                                val gsc = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso)
-                                com.google.android.gms.tasks.Tasks.await(gsc.signOut(), 3, java.util.concurrent.TimeUnit.SECONDS)
+                                com.dactor.patient.data.cache.AppCacheManager.getInstance(context).clearAllCache()
                             } catch (ignored: Exception) {}
-                            try {
-                                com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                            } catch (ignored: Exception) {}
-                            authRepository?.signOut()
-                            appointmentRepository?.clearCache()
-                            sessionManager?.clearSession()
                             sessionManager?.setArchivedStatus(true, scheduledDate)
                             sessionManager?.setGuestMode(true)
                             isUserLoggedIn = false

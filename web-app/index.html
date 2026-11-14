@@ -11,6 +11,7 @@
     <meta name="keywords" content="book doctor appointment Nepal, doctor appointment Kathmandu, online clinic booking Nepal, Patan clinic doctor booking, Dr kshitiz eye specialist Kathmandu, ophthalmologist Nepal, find clinic near me Nepal, live OPD queue tracker Nepal, live token queue, pathology lab reports Nepal, Kathmandu OPD doctor, health tech Nepal, Dactor" />
     <meta name="author" content="Dactor Health Technologies" />
     <meta name="theme-color" content="#0284c7" />
+    <link rel="manifest" href="./manifest.json" />
     <link rel="canonical" href="https://dactorofficial.github.io/dactor/" />
     <meta name="google-site-verification" content="MBuPJoy49gmL3v8DrUGKbEUjkqcVPc8hIP8rfbWBUyk" />
 
@@ -56,188 +57,1254 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
     <!-- Schema.org JSON-LD Structured Data for Google Knowledge Graph, Rich Snippets & AI Search -->
-    <script type="application/ld+json">
+    <!-- STATIC_SCHEMA_START -->
+    <script type="application/ld+json" id="dactor-static-schema">
+{
+  "@context": "https://schema.org",
+  "@graph": [
     {
-      "@context": "https://schema.org",
-      "@graph": [
+      "@type": "MedicalOrganization",
+      "@id": "https://dactorofficial.github.io/dactor/#organization",
+      "name": "Dactor Health",
+      "url": "https://dactorofficial.github.io/dactor/",
+      "logo": "https://dactorofficial.github.io/dactor/app_logo.svg",
+      "description": "Nepal's premier real-time healthcare queue management, clinic portal, and diagnostic pathology laboratory platform.",
+      "address": {
+        "@type": "PostalAddress",
+        "addressCountry": "Nepal",
+        "addressLocality": "Kathmandu"
+      },
+      "medicalSpecialty": [
+        "GeneralPractice",
+        "Cardiovascular",
+        "Pathology",
+        "Pediatric",
+        "Dermatologic",
+        "Orthopedic",
+        "Gynecologic",
+        "Radiology",
+        "Ophthalmologic"
+      ]
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://dactorofficial.github.io/dactor/#website",
+      "url": "https://dactorofficial.github.io/dactor/",
+      "name": "Dactor Healthcare Ecosystem",
+      "description": "Realtime OPD Token Queue Tracker, Doctor Appointments & Diagnostic Lab Results",
+      "publisher": {
+        "@id": "https://dactorofficial.github.io/dactor/#organization"
+      },
+      "potentialAction": [
         {
-          "@type": "MedicalOrganization",
-          "@id": "https://dactorofficial.github.io/dactor/#organization",
-          "name": "Dactor Health",
-          "url": "https://dactorofficial.github.io/dactor/",
-          "logo": "https://dactorofficial.github.io/dactor/app_logo.svg",
-          "description": "Nepal's premier real-time healthcare queue management, clinic portal, and diagnostic pathology laboratory platform.",
-          "address": {
-            "@type": "PostalAddress",
-            "addressCountry": "Nepal",
-            "addressLocality": "Kathmandu"
-          },
-          "medicalSpecialty": [
-            "GeneralPractice",
-            "Cardiovascular",
-            "Pathology",
-            "Pediatric",
-            "Dermatologic",
-            "Orthopedic",
-            "Gynecologic",
-            "Radiology"
-          ]
+          "@type": "SearchAction",
+          "target": "https://dactorofficial.github.io/dactor/?tab=clinics&q={search_term_string}",
+          "query-input": "required name=search_term_string"
         },
         {
-          "@type": "WebSite",
-          "@id": "https://dactorofficial.github.io/dactor/#website",
-          "url": "https://dactorofficial.github.io/dactor/",
-          "name": "Dactor Healthcare Ecosystem",
-          "description": "Realtime OPD Token Queue Tracker, Doctor Appointments & Diagnostic Lab Results",
-          "publisher": {
-            "@id": "https://dactorofficial.github.io/dactor/#organization"
+          "@type": "ReserveAction",
+          "target": {
+            "@type": "EntryPoint",
+            "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic={clinic_id}&action=book",
+            "inLanguage": "en",
+            "actionPlatform": [
+              "http://schema.org/DesktopWebPlatform",
+              "http://schema.org/MobileWebPlatform",
+              "http://schema.org/AndroidPlatform"
+            ]
           },
-          "potentialAction": [
-            {
-              "@type": "SearchAction",
-              "target": "https://dactorofficial.github.io/dactor/?tab=clinics&q={search_term_string}",
-              "query-input": "required name=search_term_string"
-            },
-            {
-              "@type": "ReserveAction",
-              "target": {
-                "@type": "EntryPoint",
-                "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic={clinic_id}&action=book",
-                "inLanguage": "en",
-                "actionPlatform": [
-                  "http://schema.org/DesktopWebPlatform",
-                  "http://schema.org/MobileWebPlatform",
-                  "http://schema.org/AndroidPlatform"
-                ]
-              },
-              "result": {
-                "@type": "MedicalReservation",
-                "name": "Book OPD Doctor Appointment"
-              }
-            }
-          ]
-        },
-        {
-          "@type": "FAQPage",
-          "@id": "https://dactorofficial.github.io/dactor/#faq",
-          "mainEntity": [
-            {
-              "@type": "Question",
-              "name": "How do I book a doctor appointment online in Nepal on Dactor?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "Search for your preferred clinic, polyclinic, or specialist doctor on Dactor, choose an available date and time slot, enter patient details, and confirm your booking. You will instantly receive a live 10-digit OPD tracking code to monitor real-time queue position."
-              }
-            },
-            {
-              "@type": "Question",
-              "name": "How does Dactor live OPD queue tracking work?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "Every booked patient receives a 10-digit tracking code. Enter this code into the Dactor Live Queue tracker to view current consulting token numbers, estimated wait time in minutes, doctor availability, and real-time live delays."
-              }
-            },
-            {
-              "@type": "Question",
-              "name": "Can I book diagnostic lab tests like MRI, CT Scan, and Blood Tests on Dactor?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "Yes, Dactor supports verified diagnostic pathology laboratories across Nepal. Select your required scans or tests, book a time slot, and download certified medical reports directly from the portal."
-              }
-            }
-          ]
-        },
-        {
-          "@type": "SoftwareApplication",
-          "name": "Dactor OPD Queue & Clinic Portal",
-          "operatingSystem": "All Web Browsers, Android",
-          "applicationCategory": "HealthApplication",
-          "offers": {
-            "@type": "Offer",
-            "price": "0",
-            "priceCurrency": "NPR"
-          }
-        },
-        {
-          "@type": ["MedicalClinic", "MedicalBusiness", "LocalBusiness"],
-          "@id": "https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27#clinic",
-          "name": "Patan Clinic",
-          "description": "Multi-specialty OPD clinic and diagnostic laboratory in Nepal. Book doctor appointments online and track live queue token numbers in real time.",
-          "url": "https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27",
-          "telephone": "+9779885665578",
-          "currenciesAccepted": "NPR",
-          "paymentAccepted": "Cash, eSewa, Khalti, Mobile Banking, Credit Card",
-          "priceRange": "NPR 100 - 1500",
-          "isAcceptingNewPatients": true,
-          "address": {
-            "@type": "PostalAddress",
-            "streetAddress": "7X8P+422, Patan / Varanasi Division",
-            "addressLocality": "Kathmandu",
-            "addressCountry": "NP"
-          },
-          "potentialAction": {
-            "@type": "ReserveAction",
-            "name": "Book Appointment at Patan Clinic",
-            "target": {
-              "@type": "EntryPoint",
-              "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&action=book",
-              "inLanguage": "en",
-              "actionPlatform": [
-                "http://schema.org/DesktopWebPlatform",
-                "http://schema.org/MobileWebPlatform",
-                "http://schema.org/AndroidPlatform"
-              ]
-            },
-            "result": {
-              "@type": "MedicalReservation",
-              "name": "OPD Appointment at Patan Clinic"
-            }
-          }
-        },
-        {
-          "@type": ["Physician", "Person"],
-          "@id": "https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27#doctor-0cef6ace-aeb2-4c65-91dc-7d15dc3791ea",
-          "name": "Dr. kshitiz",
-          "honorificPrefix": "Dr.",
-          "jobTitle": "Ophthalmology (Eye Care Specialist)",
-          "medicalSpecialty": ["https://schema.org/Ophthalmologic"],
-          "worksFor": {
-            "@type": "MedicalClinic",
-            "name": "Patan Clinic",
-            "url": "https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27"
-          },
-          "currenciesAccepted": "NPR",
-          "priceRange": "NPR 500",
-          "isAcceptingNewPatients": true,
-          "knowsLanguage": ["ne", "en", "hi"],
-          "offers": {
-            "@type": "Offer",
-            "price": 500,
-            "priceCurrency": "NPR",
-            "availability": "https://schema.org/InStock"
-          },
-          "potentialAction": {
-            "@type": "ReserveAction",
-            "name": "Book Consultation with Dr. kshitiz",
-            "target": {
-              "@type": "EntryPoint",
-              "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&doctor=0cef6ace-aeb2-4c65-91dc-7d15dc3791ea&action=book",
-              "inLanguage": "en",
-              "actionPlatform": [
-                "http://schema.org/DesktopWebPlatform",
-                "http://schema.org/MobileWebPlatform",
-                "http://schema.org/AndroidPlatform"
-              ]
-            },
-            "result": {
-              "@type": "MedicalReservation",
-              "name": "Doctor Consultation with Dr. kshitiz"
-            }
+          "result": {
+            "@type": "MedicalReservation",
+            "name": "Book OPD Doctor Appointment"
           }
         }
       ]
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://dactorofficial.github.io/dactor/#faq",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "How do I book a doctor appointment online in Nepal on Dactor?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Search for your preferred clinic, polyclinic, or specialist doctor on Dactor, choose an available date and time slot, enter patient details, and confirm your booking. You will instantly receive a live 10-digit OPD tracking code to monitor real-time queue position."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How does Dactor live OPD queue tracking work?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Every booked patient receives a 10-digit tracking code. Enter this code into the Dactor Live Queue tracker to view current consulting token numbers, estimated wait time in minutes, doctor availability, and real-time live delays."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I book diagnostic lab tests like MRI, CT Scan, and Blood Tests on Dactor?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes, Dactor supports verified diagnostic pathology laboratories across Nepal. Select your required scans or tests, book a time slot, and download certified medical reports directly from the portal."
+          }
+        }
+      ]
+    },
+    {
+      "@type": "SoftwareApplication",
+      "name": "Dactor OPD Queue & Clinic Portal",
+      "operatingSystem": "All Web Browsers, Android",
+      "applicationCategory": "HealthApplication",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "NPR"
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=e080b696-3dd3-4c0c-acd7-9afb799ae7ca#physician",
+      "name": "Dr. Aubrey Knight",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "General Medicine & Physician",
+      "medicalSpecialty": [
+        "General Medicine & Physician"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 500",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 500,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. Aubrey Knight",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=&doctor=e080b696-3dd3-4c0c-acd7-9afb799ae7ca&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. Aubrey Knight"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #12345",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=e44eb431-ec13-4287-8a57-8ab47c4b87d8#physician",
+      "name": "Dr. Dr ankit jha",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "Orthopedics & Joint Care",
+      "medicalSpecialty": [
+        "Orthopedics & Joint Care"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 500",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 500,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. Dr ankit jha",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=7ba2423a-740e-477c-9ffc-2a9316abbb04&doctor=e44eb431-ec13-4287-8a57-8ab47c4b87d8&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. Dr ankit jha"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #13547",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=fc3586d7-1939-4eb5-aa52-5e616139ffbb#physician",
+      "name": "Dr. Sandra Lambert",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "Cardiology (Heart Care)",
+      "medicalSpecialty": [
+        "Cardiology (Heart Care)"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 500",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 500,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. Sandra Lambert",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=&doctor=fc3586d7-1939-4eb5-aa52-5e616139ffbb&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. Sandra Lambert"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #123456",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=177ec1c5-e9c5-4480-bfab-b13b4090a30e#physician",
+      "name": "Dr. Babu kurau mile na",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "Cardiology (Heart Care)",
+      "medicalSpecialty": [
+        "Cardiology (Heart Care)"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 500",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 500,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. Babu kurau mile na",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=&doctor=177ec1c5-e9c5-4480-bfab-b13b4090a30e&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. Babu kurau mile na"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #9829291429",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=ba483682-c641-4c7e-8a51-edec0500e36b#physician",
+      "name": "Dr. Smith",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "Cardiology (Heart Care)",
+      "medicalSpecialty": [
+        "Cardiology (Heart Care)"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 500",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 500,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. Smith",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=&doctor=ba483682-c641-4c7e-8a51-edec0500e36b&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. Smith"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #12345",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=7c80055b-8dc6-45ef-93ac-2eb79d66b8de#physician",
+      "name": "Dr. Harsh",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "Medical Lab Technician (MLT)",
+      "medicalSpecialty": [
+        "Medical Lab Technician (MLT)"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 500",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 500,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. Harsh",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=&doctor=7c80055b-8dc6-45ef-93ac-2eb79d66b8de&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. Harsh"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #NHP",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=26fea128-2826-476a-9563-cfdbd55bdd1e#physician",
+      "name": "Dr. Beta Verma",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "Orthopedics",
+      "medicalSpecialty": [
+        "Orthopedics"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 500",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 500,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. Beta Verma",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=6cbc1c49-11b3-4aa9-a4f5-07599afddd70&doctor=26fea128-2826-476a-9563-cfdbd55bdd1e&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. Beta Verma"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #NMC67890",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=e98b2ae0-8525-4d6d-804d-599a5b2a96b0#physician",
+      "name": "Dr. bhbbjjhhg",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "Orthopedics & Joint Care",
+      "medicalSpecialty": [
+        "Orthopedics & Joint Care"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 500",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 500,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. bhbbjjhhg",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=&doctor=e98b2ae0-8525-4d6d-804d-599a5b2a96b0&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. bhbbjjhhg"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #cyyhnu",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=5e8ca833-06fb-4c20-aaa6-cd7ccc4c4cd9#physician",
+      "name": "Dr. Alpha Sharma",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "Cardiology",
+      "medicalSpecialty": [
+        "Cardiology"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 500",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 500,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. Alpha Sharma",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=6cbc1c49-11b3-4aa9-a4f5-07599afddd70&doctor=5e8ca833-06fb-4c20-aaa6-cd7ccc4c4cd9&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. Alpha Sharma"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #NMC12345",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=bdc524c6-7a3b-437f-b8ed-e755876f0c9d#physician",
+      "name": "Dr. Mark Harvey",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "General Medicine & Physician",
+      "medicalSpecialty": [
+        "General Medicine & Physician"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 500",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 500,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. Mark Harvey",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=&doctor=bdc524c6-7a3b-437f-b8ed-e755876f0c9d&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. Mark Harvey"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #12345",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=24f522f3-01d6-4e50-8a3b-983da7b7eeea#physician",
+      "name": "Dr. Rajan Nepali",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "Neurology (Brain & Nerve)",
+      "medicalSpecialty": [
+        "Neurology (Brain & Nerve)"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 500",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 500,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. Rajan Nepali",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=5cd6f90f-377b-4d2b-9bfc-4e1478f41772&doctor=24f522f3-01d6-4e50-8a3b-983da7b7eeea&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. Rajan Nepali"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #NMC - 14520",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=24070d0f-4734-4f9e-970d-5cb0c714a9ce#physician",
+      "name": "Dr. Tech. Suman Thapa",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "Pathology & Hematology Specialist",
+      "medicalSpecialty": [
+        "Pathology & Hematology Specialist"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 500",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 500,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. Tech. Suman Thapa",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=&doctor=24070d0f-4734-4f9e-970d-5cb0c714a9ce&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. Tech. Suman Thapa"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #LAB12345",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=035feee1-cab6-40e0-b335-6bf0bdd1d85f#physician",
+      "name": "Dr. John Doe",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "Cardiology (Heart Care)",
+      "medicalSpecialty": [
+        "Cardiology (Heart Care)"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 500",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 500,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. John Doe",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=&doctor=035feee1-cab6-40e0-b335-6bf0bdd1d85f&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. John Doe"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #12345",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=b118a527-10c0-4d55-9a39-7904a29d7970#physician",
+      "name": "Dr. Gilberto Holt",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "Cardiology (Heart Care)",
+      "medicalSpecialty": [
+        "Cardiology (Heart Care)"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 500",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 500,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. Gilberto Holt",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=&doctor=b118a527-10c0-4d55-9a39-7904a29d7970&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. Gilberto Holt"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #12345",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=f743ef88-f810-4de0-a5fd-b94580b543ae#physician",
+      "name": "Dr. Tech. Suman Thapa",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "Medical Lab Technician (MLT)",
+      "medicalSpecialty": [
+        "Medical Lab Technician (MLT)"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 500",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 500,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. Tech. Suman Thapa",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=&doctor=f743ef88-f810-4de0-a5fd-b94580b543ae&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. Tech. Suman Thapa"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #MLT12345",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=b6d6d7d6-8a30-4103-8456-27d0865eb36e#physician",
+      "name": "Dr. Jake Diaz",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "General Medicine & Physician",
+      "medicalSpecialty": [
+        "General Medicine & Physician"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 500",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 500,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. Jake Diaz",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=&doctor=b6d6d7d6-8a30-4103-8456-27d0865eb36e&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. Jake Diaz"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #12345",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=ca9b5997-ce5b-4dd9-ae90-33d773e479da#physician",
+      "name": "Dr. Ram Kumar Yadav",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "General Medicine & Physician",
+      "medicalSpecialty": [
+        "General Medicine & Physician"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 200",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 200,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. Ram Kumar Yadav",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=b5ea381f-b55e-46c8-b555-ade3e2818d07&doctor=ca9b5997-ce5b-4dd9-ae90-33d773e479da&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. Ram Kumar Yadav"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #123456789",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=16a3a2ee-a993-44af-85e6-48c7ea94ba8c#physician",
+      "name": "Dr. Alex Smith",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "Medical Lab Technician (MLT)",
+      "medicalSpecialty": [
+        "Medical Lab Technician (MLT)"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 500",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 500,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. Alex Smith",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=&doctor=16a3a2ee-a993-44af-85e6-48c7ea94ba8c&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. Alex Smith"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #NHPC12345",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
+    },
+    {
+      "@type": [
+        "Physician",
+        "Person"
+      ],
+      "@id": "https://dactorofficial.github.io/dactor/?doctor=fdda394a-6283-4246-b9b2-0af375007692#physician",
+      "name": "Dr. John Doe",
+      "honorificPrefix": "Dr.",
+      "jobTitle": "General Medicine & Physician",
+      "medicalSpecialty": [
+        "General Medicine & Physician"
+      ],
+      "worksFor": {
+        "@type": "MedicalClinic",
+        "name": "Verified Clinic",
+        "url": "https://dactorofficial.github.io/dactor"
+      },
+      "currenciesAccepted": "NPR",
+      "priceRange": "NPR 500",
+      "isAcceptingNewPatients": true,
+      "knowsLanguage": [
+        "ne",
+        "en",
+        "hi"
+      ],
+      "offers": {
+        "@type": "Offer",
+        "price": 500,
+        "priceCurrency": "NPR",
+        "availability": "https://schema.org/InStock"
+      },
+      "potentialAction": {
+        "@type": "ReserveAction",
+        "name": "Book Consultation with Dr. John Doe",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://dactorofficial.github.io/dactor/?clinic=&doctor=fdda394a-6283-4246-b9b2-0af375007692&action=book",
+          "inLanguage": "en",
+          "actionPlatform": [
+            "http://schema.org/DesktopWebPlatform",
+            "http://schema.org/MobileWebPlatform",
+            "http://schema.org/AndroidPlatform"
+          ]
+        },
+        "result": {
+          "@type": "MedicalReservation",
+          "name": "Doctor Consultation with Dr. John Doe"
+        }
+      },
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "MedicalLicense",
+        "name": "NMC Registration #12345",
+        "recognizedBy": {
+          "@type": "MedicalOrganization",
+          "name": "Nepal Medical Council",
+          "url": "https://nmc.org.np"
+        }
+      }
     }
+  ]
+}
     </script>
+    <!-- STATIC_SCHEMA_END -->
 
     <!-- Single Page Apps for GitHub Pages redirect receiver -->
     <script type="text/javascript">
@@ -281,40 +1348,130 @@
 
   </head>
   <body class="bg-slate-50 text-slate-900 antialiased selection:bg-sky-500 selection:text-white font-sans">
+    <!-- STATIC_NOSCRIPT_START -->
     <noscript>
       <div style="padding: 24px; font-family: sans-serif; max-width: 800px; margin: 0 auto; line-height: 1.6;">
         <h1>Dactor - Nepal Healthcare OPD Queue Tracker & Clinic Booking Portal</h1>
         <p>Dactor connects patients with verified clinics, specialist doctors, and diagnostic pathology laboratories across Nepal. Book online OPD consultations and track real-time queue numbers.</p>
         
-        <h2>Verified Doctors & Clinics in Nepal</h2>
+        <h2>Verified Clinics & Healthcare Centers in Nepal</h2>
+        <ul>
+        </ul>
+
+        <h2>Specialist Doctors Available for Online Consultation</h2>
         <ul>
           <li>
-            <strong>Dr. kshitiz - Eye Specialist / Ophthalmologist</strong> (Consultation Fee: NPR 500)<br />
-            Clinic: Patan Clinic<br />
-            <a href="https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&doctor=0cef6ace-aeb2-4c65-91dc-7d15dc3791ea&action=book">Book Online Consultation with Dr. kshitiz</a>
+            <strong>Dr. Aubrey Knight - General Medicine &amp; Physician</strong> (Fee: NPR 500)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=&amp;doctor=e080b696-3dd3-4c0c-acd7-9afb799ae7ca&amp;action=book">Book Appointment with Dr. Aubrey Knight</a>
           </li>
           <li>
-            <strong>Patan Clinic (Multi-Specialty OPD & Diagnostic Center)</strong><br />
-            Specialties: Ophthalmology, General OPD, Pathology Diagnostics<br />
-            Phone: +977-9885665578<br />
-            <a href="https://dactorofficial.github.io/dactor/?clinic=9b9a71b4-105d-49c1-83ae-f11034ce4a27&action=book">Book Appointment at Patan Clinic</a>
+            <strong>Dr. Dr ankit jha - Orthopedics &amp; Joint Care</strong> (Fee: NPR 500)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=7ba2423a-740e-477c-9ffc-2a9316abbb04&amp;doctor=e44eb431-ec13-4287-8a57-8ab47c4b87d8&amp;action=book">Book Appointment with Dr. Dr ankit jha</a>
+          </li>
+          <li>
+            <strong>Dr. Sandra Lambert - Cardiology (Heart Care)</strong> (Fee: NPR 500)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=&amp;doctor=fc3586d7-1939-4eb5-aa52-5e616139ffbb&amp;action=book">Book Appointment with Dr. Sandra Lambert</a>
+          </li>
+          <li>
+            <strong>Dr. Babu kurau mile na - Cardiology (Heart Care)</strong> (Fee: NPR 500)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=&amp;doctor=177ec1c5-e9c5-4480-bfab-b13b4090a30e&amp;action=book">Book Appointment with Dr. Babu kurau mile na</a>
+          </li>
+          <li>
+            <strong>Dr. Smith - Cardiology (Heart Care)</strong> (Fee: NPR 500)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=&amp;doctor=ba483682-c641-4c7e-8a51-edec0500e36b&amp;action=book">Book Appointment with Dr. Smith</a>
+          </li>
+          <li>
+            <strong>Dr. Harsh - Medical Lab Technician (MLT)</strong> (Fee: NPR 500)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=&amp;doctor=7c80055b-8dc6-45ef-93ac-2eb79d66b8de&amp;action=book">Book Appointment with Dr. Harsh</a>
+          </li>
+          <li>
+            <strong>Dr. Beta Verma - Orthopedics</strong> (Fee: NPR 500)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=6cbc1c49-11b3-4aa9-a4f5-07599afddd70&amp;doctor=26fea128-2826-476a-9563-cfdbd55bdd1e&amp;action=book">Book Appointment with Dr. Beta Verma</a>
+          </li>
+          <li>
+            <strong>Dr. bhbbjjhhg - Orthopedics &amp; Joint Care</strong> (Fee: NPR 500)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=&amp;doctor=e98b2ae0-8525-4d6d-804d-599a5b2a96b0&amp;action=book">Book Appointment with Dr. bhbbjjhhg</a>
+          </li>
+          <li>
+            <strong>Dr. Alpha Sharma - Cardiology</strong> (Fee: NPR 500)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=6cbc1c49-11b3-4aa9-a4f5-07599afddd70&amp;doctor=5e8ca833-06fb-4c20-aaa6-cd7ccc4c4cd9&amp;action=book">Book Appointment with Dr. Alpha Sharma</a>
+          </li>
+          <li>
+            <strong>Dr. Mark Harvey - General Medicine &amp; Physician</strong> (Fee: NPR 500)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=&amp;doctor=bdc524c6-7a3b-437f-b8ed-e755876f0c9d&amp;action=book">Book Appointment with Dr. Mark Harvey</a>
+          </li>
+          <li>
+            <strong>Dr. Rajan Nepali - Neurology (Brain &amp; Nerve)</strong> (Fee: NPR 500)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=5cd6f90f-377b-4d2b-9bfc-4e1478f41772&amp;doctor=24f522f3-01d6-4e50-8a3b-983da7b7eeea&amp;action=book">Book Appointment with Dr. Rajan Nepali</a>
+          </li>
+          <li>
+            <strong>Dr. Tech. Suman Thapa - Pathology &amp; Hematology Specialist</strong> (Fee: NPR 500)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=&amp;doctor=24070d0f-4734-4f9e-970d-5cb0c714a9ce&amp;action=book">Book Appointment with Dr. Tech. Suman Thapa</a>
+          </li>
+          <li>
+            <strong>Dr. John Doe - Cardiology (Heart Care)</strong> (Fee: NPR 500)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=&amp;doctor=035feee1-cab6-40e0-b335-6bf0bdd1d85f&amp;action=book">Book Appointment with Dr. John Doe</a>
+          </li>
+          <li>
+            <strong>Dr. Gilberto Holt - Cardiology (Heart Care)</strong> (Fee: NPR 500)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=&amp;doctor=b118a527-10c0-4d55-9a39-7904a29d7970&amp;action=book">Book Appointment with Dr. Gilberto Holt</a>
+          </li>
+          <li>
+            <strong>Dr. Tech. Suman Thapa - Medical Lab Technician (MLT)</strong> (Fee: NPR 500)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=&amp;doctor=f743ef88-f810-4de0-a5fd-b94580b543ae&amp;action=book">Book Appointment with Dr. Tech. Suman Thapa</a>
+          </li>
+          <li>
+            <strong>Dr. Jake Diaz - General Medicine &amp; Physician</strong> (Fee: NPR 500)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=&amp;doctor=b6d6d7d6-8a30-4103-8456-27d0865eb36e&amp;action=book">Book Appointment with Dr. Jake Diaz</a>
+          </li>
+          <li>
+            <strong>Dr. Ram Kumar Yadav - General Medicine &amp; Physician</strong> (Fee: NPR 200)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=b5ea381f-b55e-46c8-b555-ade3e2818d07&amp;doctor=ca9b5997-ce5b-4dd9-ae90-33d773e479da&amp;action=book">Book Appointment with Dr. Ram Kumar Yadav</a>
+          </li>
+          <li>
+            <strong>Dr. Alex Smith - Medical Lab Technician (MLT)</strong> (Fee: NPR 500)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=&amp;doctor=16a3a2ee-a993-44af-85e6-48c7ea94ba8c&amp;action=book">Book Appointment with Dr. Alex Smith</a>
+          </li>
+          <li>
+            <strong>Dr. John Doe - General Medicine &amp; Physician</strong> (Fee: NPR 500)<br />
+            Clinic: Verified Clinic<br />
+            <a href="https://dactorofficial.github.io/dactor/?clinic=&amp;doctor=fdda394a-6283-4246-b9b2-0af375007692&amp;action=book">Book Appointment with Dr. John Doe</a>
           </li>
         </ul>
 
         <h2>Diagnostic Pathology & Imaging Services</h2>
         <p>Book medical tests and diagnostic scans across Nepal:</p>
         <ul>
-          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&filter=lab&q=mri">Magnetic Resonance Imaging (MRI Scan)</a></li>
-          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&filter=lab&q=ct+scan">Computed Tomography (CT Scan)</a></li>
-          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&filter=lab&q=ultrasound">Ultrasonography (USG / Ultrasound)</a></li>
-          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&filter=lab&q=xray">Digital X-Ray</a></li>
-          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&filter=lab&q=blood+test">Pathology Blood Tests (CBC, LFT, KFT, Lipid Profile, Thyroid Panel)</a></li>
+          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&amp;filter=lab&amp;q=mri">Magnetic Resonance Imaging (MRI Scan)</a></li>
+          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&amp;filter=lab&amp;q=ct+scan">Computed Tomography (CT Scan)</a></li>
+          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&amp;filter=lab&amp;q=ultrasound">Ultrasonography (USG / Ultrasound)</a></li>
+          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&amp;filter=lab&amp;q=xray">Digital X-Ray</a></li>
+          <li><a href="https://dactorofficial.github.io/dactor/?tab=clinics&amp;filter=lab&amp;q=blood+test">Pathology Blood Tests (CBC, LFT, KFT, Lipid Profile, Thyroid Panel)</a></li>
         </ul>
 
         <h2>Live OPD Queue Token Tracking</h2>
         <p>Track your token position, doctor status, and estimated wait times in real time: <a href="https://dactorofficial.github.io/dactor/?tab=live-queue">Dactor Live Queue Tracker</a>.</p>
       </div>
     </noscript>
+    <!-- STATIC_NOSCRIPT_END -->
     <div id="root"></div>
 
     <!-- Firebase Web SDK (project: dactor-ea1e1) -->

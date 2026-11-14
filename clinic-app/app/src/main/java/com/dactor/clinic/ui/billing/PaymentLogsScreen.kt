@@ -4,11 +4,13 @@ import android.app.DatePickerDialog
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -44,7 +46,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun PaymentLogsScreen(
     navController: NavController,
@@ -384,40 +386,53 @@ fun PaymentLogsScreen(
                 CircularProgressIndicator(color = Color(0xFF0D9488))
             }
         } else {
-            Column(
+            val grossCollected = filteredLogs.sumOf { it.amount }
+            val freeFollowupCount = filteredLogs.count { !it.isNewPatientForDoctor }
+            val newPaidCount = filteredLogs.count { it.isNewPatientForDoctor }
+            val platformCommission = filteredLogs.sumOf { it.serviceChargeAmount }
+            val totalExpenses = filteredExpenses.sumOf { it.amount }
+            val netClinicPayout = grossCollected - platformCommission
+            val netClinicProfit = netClinicPayout - totalExpenses
+
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues)
+                    .padding(paddingValues),
+                contentPadding = PaddingValues(bottom = 80.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // Scope selector pills (Daily / Monthly / Yearly / Custom / All)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    listOf(
-                        "daily" to "Daily",
-                        "monthly" to "Monthly",
-                        "yearly" to "Yearly",
-                        "custom" to "Custom Range",
-                        "all" to "All-Time"
-                    ).forEach { (scopeKey, scopeName) ->
-                        FilterChip(
-                            selected = periodScope == scopeKey,
-                            onClick = { periodScope = scopeKey },
-                            label = { Text(scopeName, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(0xFF0D9488),
-                                selectedLabelColor = Color.White
+                item(key = "scope_selector_pills") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        listOf(
+                            "daily" to "Daily",
+                            "monthly" to "Monthly",
+                            "yearly" to "Yearly",
+                            "custom" to "Custom Range",
+                            "all" to "All-Time"
+                        ).forEach { (scopeKey, scopeName) ->
+                            FilterChip(
+                                selected = periodScope == scopeKey,
+                                onClick = { periodScope = scopeKey },
+                                label = { Text(scopeName, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF0D9488),
+                                    selectedLabelColor = Color.White
+                                )
                             )
-                        )
+                        }
                     }
                 }
 
                 // Date Stepper / Picker Bar
+                item(key = "date_stepper_bar") {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -606,22 +621,16 @@ fun PaymentLogsScreen(
                         }
                     }
                 }
+                }
 
                 // 4 Financial & Clinical KPI Summary Cards (2x2 Grid)
-                val grossCollected = filteredLogs.sumOf { it.amount }
-                val freeFollowupCount = filteredLogs.count { !it.isNewPatientForDoctor }
-                val newPaidCount = filteredLogs.count { it.isNewPatientForDoctor }
-                val platformCommission = filteredLogs.sumOf { it.serviceChargeAmount }
-                val totalExpenses = filteredExpenses.sumOf { it.amount }
-                val netClinicPayout = grossCollected - platformCommission
-                val netClinicProfit = netClinicPayout - totalExpenses
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
+                item(key = "kpi_summary_cards") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                     // Row 1: Collections & Expenses
                     Row(
                         modifier = Modifier.fillMaxWidth(),

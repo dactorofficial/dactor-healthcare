@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var draftManager: RegistrationDraftManager
     @Inject lateinit var sessionManager: com.dactor.clinic.data.local.UserSessionManager
     @Inject lateinit var appUpdateRepository: AppUpdateRepository
+    @Inject lateinit var patientRepository: PatientRepository
 
     private val seenNotifIds = mutableSetOf<String>()
 
@@ -185,7 +186,8 @@ class MainActivity : ComponentActivity() {
                                 slotRepository = slotRepository,
                                 invitationRepository = invitationRepository,
                                 draftManager = draftManager,
-                                sessionManager = sessionManager
+                                sessionManager = sessionManager,
+                                patientRepository = patientRepository
                             )
                         }
                     }

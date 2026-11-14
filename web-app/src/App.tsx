@@ -20,6 +20,7 @@ import { NotificationModal } from './components/NotificationModal'
 import { getPatientNotifications, getDoctorById, getLoggedInUserSession, refreshOnlinePayment } from './services/db'
 import { supabase } from './lib/supabase'
 import { LiquidAuroraBackground } from './components/glass'
+import { clearAllAppCache } from './utils/cacheCleaner'
 
 // Helper to normalize tab aliases to canonical router views
 export const normalizeTab = (tab: string): string => {
@@ -747,33 +748,12 @@ export const App: React.FC = () => {
   // Handle logout
   const handleLogout = () => {
     try {
-      const activeSession = getLoggedInUserSession()
-      const roleToLogout = authRole || activeSession?.role
-
-      if (roleToLogout === 'clinic_manager' || activeTab === 'portal') {
-        localStorage.removeItem('dactor_clinic_logged_in')
-        localStorage.removeItem('dactor_clinic_email')
-        localStorage.removeItem('dactor_clinic_role')
-        localStorage.removeItem('dactor_pending_verification')
-      } else if (roleToLogout === 'doctor' || activeTab === 'doctor-portal') {
-        localStorage.removeItem('dactor_doctor_session')
-        localStorage.removeItem('dactor_doctor_email')
-        localStorage.removeItem('dactor_doctor_logged_in')
-        localStorage.removeItem('dactor_doctor_pending_kyc')
-      } else {
-        localStorage.removeItem('dactor_patient_session')
-        localStorage.removeItem('dactor_patient_email')
-        localStorage.removeItem('dactor_patient_logged_in')
-      }
-      try {
-        sessionStorage.removeItem('dactor_explicit_home')
-        sessionStorage.removeItem('dactor_allow_home')
-      } catch {}
+      clearAllAppCache().catch(() => {})
 
       const st = getTabAuthState(activeTab)
-      setIsLoggedIn(st.isLoggedIn)
-      setCurrentUserEmail(st.currentUserEmail)
-      setAuthRole(st.authRole)
+      setIsLoggedIn(false)
+      setCurrentUserEmail(null)
+      setAuthRole(null)
       window.dispatchEvent(new Event('storage'))
     } catch {}
   }

@@ -85,6 +85,7 @@ import {
   checkRedirectGoogleUser,
   onFirebaseAuthStateChanged,
 } from '../lib/firebase'
+import { clearAllAppCache } from '../utils/cacheCleaner'
 import dactorLogo from '../assets/logo.svg'
 
 interface DoctorPortalProps {
@@ -1008,14 +1009,9 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
 
   // Logout
   const handleLogout = () => {
-    localStorage.removeItem('dactor_doctor_session')
-    localStorage.removeItem('dactor_doctor_email')
-    localStorage.removeItem('dactor_doctor_logged_in')
-    localStorage.removeItem('dactor_doctor_pending_kyc')
+    clearAllAppCache().catch(() => {})
     setCurrentDoctor(null)
     setCurrentView('auth_screen')
-    signOutFirebase().catch(() => {})
-    window.dispatchEvent(new Event('storage'))
     if (onLogout) onLogout()
   }
 

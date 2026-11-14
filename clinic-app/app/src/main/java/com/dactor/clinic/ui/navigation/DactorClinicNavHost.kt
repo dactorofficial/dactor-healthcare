@@ -38,7 +38,8 @@ fun DactorClinicNavHost(
     slotRepository: SlotRepository? = null,
     invitationRepository: InvitationRepository? = null,
     draftManager: RegistrationDraftManager? = null,
-    sessionManager: com.dactor.clinic.data.local.UserSessionManager? = null
+    sessionManager: com.dactor.clinic.data.local.UserSessionManager? = null,
+    patientRepository: PatientRepository? = null
 ) {
     val navController = rememberNavController()
 
@@ -223,7 +224,8 @@ fun DactorClinicNavHost(
                 clinicRepository = clinicRepository,
                 slotRepository = slotRepository,
                 sessionManager = sessionManager,
-                queueRepository = queueRepository
+                queueRepository = queueRepository,
+                patientRepository = patientRepository
             )
         }
         composable("${NavRoutes.PatientDirectory}/{clinicId}") { backStackEntry ->
@@ -238,7 +240,8 @@ fun DactorClinicNavHost(
                 clinicRepository = clinicRepository,
                 slotRepository = slotRepository,
                 sessionManager = sessionManager,
-                queueRepository = queueRepository
+                queueRepository = queueRepository,
+                patientRepository = patientRepository
             )
         }
         composable(NavRoutes.PatientDetail) {

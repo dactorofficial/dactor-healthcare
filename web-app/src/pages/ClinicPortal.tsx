@@ -153,6 +153,7 @@ import {
   checkEmailPortalAssociation,
   getClinicPatientDirectory,
   buildClinicPatientDirectory,
+  refreshPatientChangeableData,
   ClinicPatientDirectoryEntry,
   PatientDirectoryConsultation,
   getSupportUrl,
@@ -209,6 +210,7 @@ import {
   checkRedirectGoogleUser,
   onFirebaseAuthStateChanged,
 } from '../lib/firebase'
+import { clearAllAppCache } from '../utils/cacheCleaner'
 
 interface ClinicPortalProps {
   onLogout?: () => void
@@ -959,10 +961,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [scheduleNextDoctorId, setScheduleNextDoctorId] = useState('')
   const [scheduleNextDate, setScheduleNextDate] = useState(() => {
     const d = new Date()
-    d.setDate(d.getDate() + 1)
     return d.toISOString().split('T')[0]
   })
   const [scheduleNextTime, setScheduleNextTime] = useState('10:00 AM')
+  const [scheduleNextSlotId, setScheduleNextSlotId] = useState('')
+  const [scheduleNextSlots, setScheduleNextSlots] = useState<Slot[]>([])
+  const [isLoadingScheduleNextSlots, setIsLoadingScheduleNextSlots] = useState(false)
   const [scheduleNextRemarks, setScheduleNextRemarks] = useState('Follow-up consultation')
   const [isSchedulingNextVisit, setIsSchedulingNextVisit] = useState(false)
 
@@ -1702,16 +1706,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     setPendingEntity(null)
     setCurrentView('auth_choice')
     try {
-      localStorage.removeItem('dactor_clinic_logged_in')
-      localStorage.removeItem('dactor_clinic_email')
-      localStorage.removeItem('dactor_clinic_role')
-      localStorage.removeItem('dactor_pending_verification')
-      if (localStorage.getItem('dactor_last_active_role') === 'clinic_manager') {
-        localStorage.removeItem('dactor_last_active_role')
-        localStorage.removeItem('dactor_last_active_portal')
-      }
-      firebaseSignOut()
-      window.dispatchEvent(new Event('storage'))
+      clearAllAppCache().catch(() => {})
+      if (onLogout) onLogout()
     } catch {}
   }
 
@@ -2564,10 +2560,16 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const handleWalkinSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const errors: { [key: string]: string } = {}
-    if (!walkinName.trim()) errors.name = 'Patient name is required.'
-    if (!walkinAge || Number(walkinAge) <= 0) errors.age = 'Valid age is required.'
-    if (walkinMobile.trim() && walkinMobile.replace(/\D/g, '').length < 8) {
-      errors.mobile = 'Mobile number must be 8-10 digits if provided.'
+    if (walkinIsFollowup) {
+      if (!walkinRetainedAppt) {
+        errors.followup = 'Please enter a valid 10-digit code to retrieve patient details before fixing appointment.'
+      }
+    } else {
+      if (!walkinName.trim()) errors.name = 'Patient name is required.'
+      if (!walkinAge || Number(walkinAge) <= 0) errors.age = 'Valid age is required.'
+      if (walkinMobile.trim() && walkinMobile.replace(/\D/g, '').length < 8) {
+        errors.mobile = 'Mobile number must be 8-10 digits if provided.'
+      }
     }
     if (isLabClinic && walkinSelectedTests.length === 0) {
       errors.tests = 'Please select at least one diagnostic lab test.'
@@ -3577,13 +3579,50 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
   }
 
+  // Fetch published slots for Direct Patient Appointment Booking / Schedule Next Visit
+  useEffect(() => {
+    if (!scheduleNextModalOpen || !selectedClinic?.id || !scheduleNextDate) {
+      setScheduleNextSlots([])
+      return
+    }
+    let active = true
+    setIsLoadingScheduleNextSlots(true)
+    getSlots(selectedClinic.id, scheduleNextDate)
+      .then((slots) => {
+        if (!active) return
+        const published = slots.filter((s) => s.isPublished)
+        const docFiltered = scheduleNextDoctorId
+          ? published.filter((s) => s.doctorId === scheduleNextDoctorId || !s.doctorId)
+          : published
+        const valid = docFiltered.filter((s) => !isSlotTimeExpired(s.endTime, scheduleNextDate, s.startTime))
+        setScheduleNextSlots(valid)
+        if (valid.length > 0) {
+          const firstOpen = valid.find((s) => s.bookedCount < s.maxCapacity) || valid[0]
+          setScheduleNextSlotId(firstOpen.id)
+          setScheduleNextTime(`${firstOpen.startTime} - ${firstOpen.endTime}`)
+        } else {
+          setScheduleNextSlotId('')
+        }
+      })
+      .catch((err) => {
+        console.error('Error fetching slots for schedule next visit:', err)
+        if (active) setScheduleNextSlots([])
+      })
+      .finally(() => {
+        if (active) setIsLoadingScheduleNextSlots(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [scheduleNextModalOpen, selectedClinic?.id, scheduleNextDate, scheduleNextDoctorId])
+
   // Schedule Next Follow-Up Visit
   const handleOpenScheduleNextVisit = (pat: any) => {
     setScheduleNextPatient(pat)
     setScheduleNextDoctorId(clinicDoctors[0]?.id || selectedDoctor?.id || '')
     const d = new Date()
-    d.setDate(d.getDate() + 1)
     setScheduleNextDate(d.toISOString().split('T')[0])
+    setScheduleNextSlotId('')
     setScheduleNextTime('10:00 AM')
     setScheduleNextRemarks('Follow-up consultation')
     setScheduleNextModalOpen(true)
@@ -3601,6 +3640,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       const created = await createAppointment({
         clinicId: selectedClinic.id,
         doctorId: scheduleNextDoctorId,
+        slotId: scheduleNextSlotId || undefined,
         patientName: scheduleNextPatient.fullName,
         patientMobile: scheduleNextPatient.phone !== 'N/A' ? scheduleNextPatient.phone : '',
         patientGender: scheduleNextPatient.gender || 'Male',
@@ -6746,17 +6786,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     Diagnostic Pathology Center Desk: Select tests to register sample collection token.
                   </span>
                 </div>
-              ) : isSingleDoctorClinic ? (
-                <div className="p-3.5 bg-emerald-50/80 backdrop-blur-md border border-emerald-200/80 rounded-2xl flex items-center space-x-2.5 text-xs text-emerald-900">
-                  <Stethoscope className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span className="font-semibold">
-                    Single-Visit Clinic: Auto-assigning verified attending specialist.
-                  </span>
-                </div>
               ) : (
-                /* Polyclinic Consultation Type Toggle */
+                /* OPD Consultation Type Toggle (All OPD clinics including Single-Doctor & Polyclinic) */
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-700 block">Consultation Type</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700 block">Consultation Type</label>
+                    {isSingleDoctorClinic && (
+                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/70 px-2 py-0.5 rounded-full border border-emerald-200">
+                        {clinicDoctors[0]?.fullName || 'Attending Specialist'}
+                      </span>
+                    )}
+                  </div>
                   <div className="grid grid-cols-2 gap-2.5">
                     <button
                       type="button"
@@ -6793,258 +6833,297 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </div>
               )}
 
-              {/* Polyclinic Follow-Up 10-Digit Code Lookup */}
-              {isPolyclinic && walkinIsFollowup && (
-                <div className="p-3.5 bg-emerald-50/75 backdrop-blur-md border border-emerald-200/80 rounded-2xl space-y-2">
-                  <label className="text-xs font-bold text-emerald-900 block">
-                    Enter Previous 10-Digit Appointment ID *
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      maxLength={10}
-                      value={walkinFollowupCode}
-                      onChange={(e) => setWalkinFollowupCode(e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase())}
-                      placeholder="e.g. 1234567890 or 982DCE95B6"
-                      className="w-full px-3.5 py-2 rounded-xl text-sm font-mono font-black border border-emerald-300 bg-white/85 backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    {walkinLookupLoading && (
-                      <RefreshCw className="w-4 h-4 animate-spin text-emerald-600 absolute right-3 top-1/2 -translate-y-1/2" />
-                    )}
-                  </div>
-                  {walkinLookupError && (
-                    <p className="text-[11px] text-rose-600 font-bold">{walkinLookupError}</p>
-                  )}
-                  {walkinRetainedAppt && (
-                    <div className="p-2.5 bg-white/85 backdrop-blur-md border border-emerald-300 rounded-xl flex items-start space-x-2 text-xs text-emerald-900">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                      <div>
-                        <strong>Verified Patient: {walkinRetainedAppt.patientName}</strong>
-                        <div className="text-[10px] text-slate-500">
-                          Previous Visit: {walkinRetainedAppt.appointmentDate} • Token #{walkinRetainedAppt.trackingCode10Digit}
-                        </div>
-                        <div className="text-[10px] font-bold text-emerald-700">✓ 100% Free Follow-Up Fee (Rs. 0)</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Patient Full Name */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Patient Full Name <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={walkinName}
-                  onChange={(e) => {
-                    setWalkinName(e.target.value)
-                    if (walkinErrors.name) setWalkinErrors({ ...walkinErrors, name: '' })
-                  }}
-                  placeholder="Enter Patient Full Name"
-                  className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
-                    walkinErrors.name ? 'border-rose-500 bg-rose-50/50' : 'liquid-glass-input'
-                  } focus:outline-none focus:ring-2 focus:ring-brand-500`}
-                />
-                {walkinErrors.name && (
-                  <p className="text-[11px] text-rose-600 font-bold mt-1">{walkinErrors.name}</p>
-                )}
-              </div>
-
-              {/* Age and Gender */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    Age <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    value={walkinAge}
-                    onChange={(e) => {
-                      setWalkinAge(e.target.value)
-                      if (walkinErrors.age) setWalkinErrors({ ...walkinErrors, age: '' })
-                    }}
-                    placeholder="e.g. 28"
-                    className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
-                      walkinErrors.age ? 'border-rose-500 bg-rose-50/50' : 'liquid-glass-input'
-                    } focus:outline-none focus:ring-2 focus:ring-brand-500`}
-                  />
-                  {walkinErrors.age && (
-                    <p className="text-[11px] text-rose-600 font-bold mt-1">{walkinErrors.age}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Gender</label>
-                  <select
-                    value={walkinGender}
-                    onChange={(e) => setWalkinGender(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  >
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Mobile Number */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Mobile Number <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="tel"
-                  value={walkinMobile}
-                  onChange={(e) => {
-                    setWalkinMobile(e.target.value)
-                    if (walkinErrors.mobile) setWalkinErrors({ ...walkinErrors, mobile: '' })
-                  }}
-                  placeholder="e.g. 98XXXXXXXX"
-                  className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
-                    walkinErrors.mobile ? 'border-rose-500 bg-rose-50/50' : 'liquid-glass-input'
-                  } focus:outline-none focus:ring-2 focus:ring-brand-500`}
-                />
-                {walkinErrors.mobile && (
-                  <p className="text-[11px] text-rose-600 font-bold mt-1">{walkinErrors.mobile}</p>
-                )}
-              </div>
-
-              {/* Email Address */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Email Address <span className="text-slate-400 font-normal">(Optional - auto-links to patient Google account)</span>
-                </label>
-                <input
-                  type="email"
-                  value={walkinEmail}
-                  onChange={(e) => setWalkinEmail(e.target.value)}
-                  placeholder="e.g. patient@gmail.com"
-                  className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
-                />
-              </div>
-
-              {/* Diagnostic Lab Tests Checklist vs Doctor Selector */}
-              {isLabClinic ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-slate-700 block">
-                      Select Diagnostic Pathology Tests <span className="text-rose-500">*</span>
+              {/* Streamlined Follow-Up Mode: ONLY ask for the 10-digit code */}
+              {!isLabClinic && walkinIsFollowup ? (
+                <div className="space-y-3">
+                  <div className="p-3.5 bg-emerald-50/75 backdrop-blur-md border border-emerald-200/80 rounded-2xl space-y-2">
+                    <label className="text-xs font-bold text-emerald-900 block">
+                      Enter Previous 10-Digit Appointment ID *
                     </label>
-                    <span className="text-xs font-bold text-purple-700">
-                      Total: Rs. {walkinSelectedTests.reduce((acc, t) => acc + (t.price || 0), 0)}
-                    </span>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        maxLength={10}
+                        value={walkinFollowupCode}
+                        onChange={(e) => setWalkinFollowupCode(e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase())}
+                        placeholder="e.g. 1234567890 or 982DCE95B6"
+                        className="w-full px-3.5 py-2.5 rounded-xl text-sm font-mono font-black border border-emerald-300 bg-white/85 backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                      {walkinLookupLoading && (
+                        <RefreshCw className="w-4 h-4 animate-spin text-emerald-600 absolute right-3 top-1/2 -translate-y-1/2" />
+                      )}
+                    </div>
+                    {walkinLookupError && (
+                      <p className="text-[11px] text-rose-600 font-bold">{walkinLookupError}</p>
+                    )}
+                    {walkinErrors.followup && (
+                      <p className="text-[11px] text-rose-600 font-bold">{walkinErrors.followup}</p>
+                    )}
+                    <p className="text-[10.5px] text-slate-500 font-medium">
+                      Enter code from patient receipt or SMS. Patient information, attending doctor, and available slot will be retrieved automatically.
+                    </p>
                   </div>
 
-                  {services.length === 0 ? (
-                    <div className="p-3 liquid-glass-subtle rounded-xl border border-white/70 text-xs text-slate-600 space-y-1.5">
-                      {[
-                        { id: 's1', serviceName: 'Complete Blood Count (CBC)', price: 450 },
-                        { id: 's2', serviceName: 'Lipid Profile', price: 900 },
-                        { id: 's3', serviceName: 'Liver Function Test (LFT)', price: 1100 },
-                        { id: 's4', serviceName: 'Thyroid Function Test (TSH)', price: 1200 },
-                        { id: 's5', serviceName: 'Fasting Blood Sugar (FBS)', price: 200 },
-                      ].map((item) => {
-                        const isChecked = walkinSelectedTests.some((t) => t.id === item.id)
-                        return (
-                          <div
-                            key={item.id}
-                            onClick={() => {
-                              if (isChecked) {
-                                setWalkinSelectedTests(walkinSelectedTests.filter((t) => t.id !== item.id))
-                              } else {
-                                setWalkinSelectedTests([...walkinSelectedTests, item as any])
-                              }
-                            }}
-                            className={`p-2.5 rounded-lg border flex items-center justify-between cursor-pointer transition ${
-                              isChecked ? 'bg-purple-50/85 border-purple-400 shadow-glass-sm' : 'bg-white/75 border-white/80'
-                            }`}
-                          >
-                            <span className="font-semibold text-xs text-slate-800">{item.serviceName}</span>
-                            <span className="font-bold text-xs text-slate-900">Rs. {item.price}</span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                      {services.map((s) => {
-                        const isChecked = walkinSelectedTests.some((t) => t.id === s.id)
-                        return (
-                          <div
-                            key={s.id}
-                            onClick={() => {
-                              if (isChecked) {
-                                setWalkinSelectedTests(walkinSelectedTests.filter((t) => t.id !== s.id))
-                              } else {
-                                setWalkinSelectedTests([...walkinSelectedTests, s])
-                              }
-                            }}
-                            className={`p-2.5 rounded-lg border flex items-center justify-between cursor-pointer transition ${
-                              isChecked ? 'bg-purple-50/85 border-purple-400 shadow-glass-sm' : 'bg-white/75 border-white/80'
-                            }`}
-                          >
-                            <span className="font-semibold text-xs text-slate-800">{s.serviceName}</span>
-                            <span className="font-bold text-xs text-slate-900">Rs. {s.price || 500}</span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                  {walkinErrors.tests && (
-                    <p className="text-[11px] text-rose-600 font-bold">{walkinErrors.tests}</p>
-                  )}
-                </div>
-              ) : isSingleDoctorClinic ? (
-                /* Single Doctor Card */
-                <div className="p-3.5 bg-emerald-50/75 backdrop-blur-md border border-emerald-200/80 rounded-2xl space-y-1">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 block">
-                    Attending Specialist Doctor
-                  </span>
-                  <div className="flex items-center justify-between text-xs">
-                    <div>
-                      <strong className="text-slate-900 text-sm">
-                        {clinicDoctors[0]?.fullName || 'Verified Attending Specialist'}
-                      </strong>
-                      <div className="text-emerald-700 font-semibold">
-                        {clinicDoctors[0]?.specialty || 'General Medicine'} • {clinicDoctors[0]?.education || 'MBBS, MD'}
+                  {/* Verified Patient Profile Card */}
+                  {walkinRetainedAppt && (
+                    <div className="p-3.5 bg-white/90 backdrop-blur-md border border-emerald-300 rounded-2xl space-y-2.5 shadow-glass-sm">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          <span className="text-xs font-bold text-emerald-900">Verified Returning Patient</span>
+                        </div>
+                        <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full border border-emerald-200">
+                          100% Free (Rs. 0)
+                        </span>
+                      </div>
+                      <div>
+                        <div className="text-sm font-black text-slate-900">{walkinRetainedAppt.patientName}</div>
+                        <div className="text-xs text-slate-600 font-medium mt-0.5">
+                          {walkinRetainedAppt.patientAge ? `${walkinRetainedAppt.patientAge} yrs • ` : ''}
+                          {walkinRetainedAppt.patientGender || 'Male'} • +977 {walkinRetainedAppt.patientMobile || '–'}
+                        </div>
+                        {walkinRetainedAppt.patientEmail && (
+                          <div className="text-[11px] text-slate-500">{walkinRetainedAppt.patientEmail}</div>
+                        )}
+                      </div>
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                        <span className="text-slate-500">
+                          Prior Visit: <strong>{walkinRetainedAppt.appointmentDate}</strong> (Token #{walkinRetainedAppt.trackingCode10Digit})
+                        </span>
+                        <span className="font-bold text-brand-700">
+                          Dr. {clinicDoctors.find(d => d.id === walkinDoctorId)?.fullName || walkinRetainedAppt.doctor?.fullName || 'Doctor'}
+                        </span>
                       </div>
                     </div>
-                    <span className="font-black text-emerald-900 text-sm bg-white/85 px-2.5 py-1 rounded-lg border border-emerald-200">
-                      Rs. {clinicDoctors[0]?.consultationFee || 500}
-                    </span>
-                  </div>
-                </div>
-              ) : clinicDoctors.length === 0 ? (
-                /* General / Facility Clinic Card (No Doctors Listed) */
-                <div className="p-3.5 bg-blue-50/75 backdrop-blur-md border border-blue-200/80 rounded-2xl flex items-center justify-between text-xs">
-                  <div>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-blue-800 block">
-                      Clinic Reception Counter
-                    </span>
-                    <strong className="text-slate-900 text-sm">General Consultation Queue</strong>
-                  </div>
-                  <span className="font-black text-blue-900 text-sm bg-white/85 px-2.5 py-1 rounded-lg border border-blue-200">
-                    Rs. 500
-                  </span>
+                  )}
+
+                  {!walkinRetainedAppt && !walkinLookupLoading && (
+                    <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl flex items-center space-x-2 text-xs text-blue-900">
+                      <AlertCircle className="w-4 h-4 text-blue-600 shrink-0" />
+                      <span>Please enter the patient's 10-digit code above. Patient details and the next available slot will be retrieved automatically.</span>
+                    </div>
+                  )}
                 </div>
               ) : (
-                /* Polyclinic Doctor Dropdown */
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Attending Specialist Doctor</label>
-                  <select
-                    value={walkinDoctorId}
-                    onChange={(e) => setWalkinDoctorId(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  >
-                    {clinicDoctors.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.fullName} ({d.specialty || 'General'}) – {walkinIsFollowup && walkinRetainedAppt ? 'FREE' : `Rs. ${d.consultationFee || 500}`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                /* Standard New Patient Form or Diagnostic Lab Checklist */
+                <>
+                  {/* Patient Full Name */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">
+                      Patient Full Name <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={walkinName}
+                      onChange={(e) => {
+                        setWalkinName(e.target.value)
+                        if (walkinErrors.name) setWalkinErrors({ ...walkinErrors, name: '' })
+                      }}
+                      placeholder="Enter Patient Full Name"
+                      className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
+                        walkinErrors.name ? 'border-rose-500 bg-rose-50/50' : 'liquid-glass-input'
+                      } focus:outline-none focus:ring-2 focus:ring-brand-500`}
+                    />
+                    {walkinErrors.name && (
+                      <p className="text-[11px] text-rose-600 font-bold mt-1">{walkinErrors.name}</p>
+                    )}
+                  </div>
+
+                  {/* Age and Gender */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">
+                        Age <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        value={walkinAge}
+                        onChange={(e) => {
+                          setWalkinAge(e.target.value)
+                          if (walkinErrors.age) setWalkinErrors({ ...walkinErrors, age: '' })
+                        }}
+                        placeholder="e.g. 28"
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
+                          walkinErrors.age ? 'border-rose-500 bg-rose-50/50' : 'liquid-glass-input'
+                        } focus:outline-none focus:ring-2 focus:ring-brand-500`}
+                      />
+                      {walkinErrors.age && (
+                        <p className="text-[11px] text-rose-600 font-bold mt-1">{walkinErrors.age}</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Gender</label>
+                      <select
+                        value={walkinGender}
+                        onChange={(e) => setWalkinGender(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      >
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Mobile Number */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">
+                      Mobile Number <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="tel"
+                      value={walkinMobile}
+                      onChange={(e) => {
+                        setWalkinMobile(e.target.value)
+                        if (walkinErrors.mobile) setWalkinErrors({ ...walkinErrors, mobile: '' })
+                      }}
+                      placeholder="e.g. 98XXXXXXXX"
+                      className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
+                        walkinErrors.mobile ? 'border-rose-500 bg-rose-50/50' : 'liquid-glass-input'
+                      } focus:outline-none focus:ring-2 focus:ring-brand-500`}
+                    />
+                    {walkinErrors.mobile && (
+                      <p className="text-[11px] text-rose-600 font-bold mt-1">{walkinErrors.mobile}</p>
+                    )}
+                  </div>
+
+                  {/* Email Address */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">
+                      Email Address <span className="text-slate-400 font-normal">(Optional - auto-links to patient Google account)</span>
+                    </label>
+                    <input
+                      type="email"
+                      value={walkinEmail}
+                      onChange={(e) => setWalkinEmail(e.target.value)}
+                      placeholder="e.g. patient@gmail.com"
+                      className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                  </div>
+
+                  {/* Diagnostic Lab Tests Checklist vs Doctor Selector */}
+                  {isLabClinic ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-slate-700 block">
+                          Select Diagnostic Pathology Tests <span className="text-rose-500">*</span>
+                        </label>
+                        <span className="text-xs font-bold text-purple-700">
+                          Total: Rs. {walkinSelectedTests.reduce((acc, t) => acc + (t.price || 0), 0)}
+                        </span>
+                      </div>
+
+                      {services.length === 0 ? (
+                        <div className="p-3 liquid-glass-subtle rounded-xl border border-white/70 text-xs text-slate-600 space-y-1.5">
+                          {[
+                            { id: 's1', serviceName: 'Complete Blood Count (CBC)', price: 450 },
+                            { id: 's2', serviceName: 'Lipid Profile', price: 900 },
+                            { id: 's3', serviceName: 'Liver Function Test (LFT)', price: 1100 },
+                            { id: 's4', serviceName: 'Thyroid Function Test (TSH)', price: 1200 },
+                            { id: 's5', serviceName: 'Fasting Blood Sugar (FBS)', price: 200 },
+                          ].map((item) => {
+                            const isChecked = walkinSelectedTests.some((t) => t.id === item.id)
+                            return (
+                              <div
+                                key={item.id}
+                                onClick={() => {
+                                  if (isChecked) {
+                                    setWalkinSelectedTests(walkinSelectedTests.filter((t) => t.id !== item.id))
+                                  } else {
+                                    setWalkinSelectedTests([...walkinSelectedTests, item as any])
+                                  }
+                                }}
+                                className={`p-2.5 rounded-lg border flex items-center justify-between cursor-pointer transition ${
+                                  isChecked ? 'bg-purple-50/85 border-purple-400 shadow-glass-sm' : 'bg-white/75 border-white/80'
+                                }`}
+                              >
+                                <span className="font-semibold text-xs text-slate-800">{item.serviceName}</span>
+                                <span className="font-bold text-xs text-slate-900">Rs. {item.price}</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                          {services.map((s) => {
+                            const isChecked = walkinSelectedTests.some((t) => t.id === s.id)
+                            return (
+                              <div
+                                key={s.id}
+                                onClick={() => {
+                                  if (isChecked) {
+                                    setWalkinSelectedTests(walkinSelectedTests.filter((t) => t.id !== s.id))
+                                  } else {
+                                    setWalkinSelectedTests([...walkinSelectedTests, s])
+                                  }
+                                }}
+                                className={`p-2.5 rounded-lg border flex items-center justify-between cursor-pointer transition ${
+                                  isChecked ? 'bg-purple-50/85 border-purple-400 shadow-glass-sm' : 'bg-white/75 border-white/80'
+                                }`}
+                              >
+                                <span className="font-semibold text-xs text-slate-800">{s.serviceName}</span>
+                                <span className="font-bold text-xs text-slate-900">Rs. {s.price || 500}</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                      {walkinErrors.tests && (
+                        <p className="text-[11px] text-rose-600 font-bold">{walkinErrors.tests}</p>
+                      )}
+                    </div>
+                  ) : isSingleDoctorClinic ? (
+                    /* Single Doctor Card */
+                    <div className="p-3.5 bg-emerald-50/75 backdrop-blur-md border border-emerald-200/80 rounded-2xl space-y-1">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 block">
+                        Attending Specialist Doctor
+                      </span>
+                      <div className="flex items-center justify-between text-xs">
+                        <div>
+                          <strong className="text-slate-900 text-sm">
+                            {clinicDoctors[0]?.fullName || 'Verified Attending Specialist'}
+                          </strong>
+                          <div className="text-emerald-700 font-semibold">
+                            {clinicDoctors[0]?.specialty || 'General Medicine'} • {clinicDoctors[0]?.education || 'MBBS, MD'}
+                          </div>
+                        </div>
+                        <span className="font-black text-emerald-900 text-sm bg-white/85 px-2.5 py-1 rounded-lg border border-emerald-200">
+                          Rs. {clinicDoctors[0]?.consultationFee || 500}
+                        </span>
+                      </div>
+                    </div>
+                  ) : clinicDoctors.length === 0 ? (
+                    /* General / Facility Clinic Card (No Doctors Listed) */
+                    <div className="p-3.5 bg-blue-50/75 backdrop-blur-md border border-blue-200/80 rounded-2xl flex items-center justify-between text-xs">
+                      <div>
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-blue-800 block">
+                          Clinic Reception Counter
+                        </span>
+                        <strong className="text-slate-900 text-sm">General Consultation Queue</strong>
+                      </div>
+                      <span className="font-black text-blue-900 text-sm bg-white/85 px-2.5 py-1 rounded-lg border border-blue-200">
+                        Rs. 500
+                      </span>
+                    </div>
+                  ) : (
+                    /* Polyclinic Doctor Dropdown */
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Attending Specialist Doctor</label>
+                      <select
+                        value={walkinDoctorId}
+                        onChange={(e) => setWalkinDoctorId(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      >
+                        {clinicDoctors.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.fullName} ({d.specialty || 'General'}) – {walkinIsFollowup && walkinRetainedAppt ? 'FREE' : `Rs. ${d.consultationFee || 500}`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </>
               )}
 
               {/* Appointment Date */}
@@ -7215,20 +7294,26 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               {/* Submit Button */}
               {(() => {
                 const isOverbookingSlot = walkinAvailableSlots.some(s => s.id === walkinSlotId && (s.bookedCount || 0) >= (s.maxCapacity || 5))
+                const isFollowUpDisabled = walkinIsFollowup && !walkinRetainedAppt
                 return (
                   <GlassButton
                     type="submit"
                     variant="primary"
                     size="lg"
                     fullWidth
+                    disabled={loading || isFollowUpDisabled}
                     rightIcon={<ChevronRight className="w-4 h-4" />}
                   >
                     {isLabClinic
                       ? isOverbookingSlot
                         ? `Confirm & Overbook Lab Token (Rs. ${walkinSelectedTests.reduce((acc, t) => acc + (t.price || 0), 0)})`
                         : `Issue Diagnostic Lab Token (Rs. ${walkinSelectedTests.reduce((acc, t) => acc + (t.price || 0), 0)})`
-                      : walkinIsFollowup && walkinRetainedAppt
-                      ? 'Issue Live OPD Token (100% FREE Follow-Up)'
+                      : walkinIsFollowup
+                      ? walkinRetainedAppt
+                        ? isOverbookingSlot
+                          ? 'Confirm & Overbook Follow-Up (100% FREE)'
+                          : 'Fix Follow-Up Appointment (100% FREE)'
+                        : 'Enter Valid 10-Digit Code to Fix Appointment'
                       : isOverbookingSlot
                       ? 'Confirm & Overbook Live OPD Token'
                       : 'Issue Live OPD Token'}
@@ -9464,10 +9549,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                   type="button"
                                   onClick={() => handleOpenScheduleNextVisit(pat)}
                                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-[11px] shadow-xs transition-colors cursor-pointer"
-                                  title="Schedule Next Follow-Up Visit"
+                                  title="Book New Appointment / Schedule Visit"
                                 >
                                   <CalendarPlus className="w-3 h-3" />
-                                  <span>Next Visit</span>
+                                  <span>Book Appt</span>
                                 </button>
                                 <button
                                   type="button"
@@ -9480,7 +9565,29 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => setExpandedPatientId(isExpanded ? null : pat.id)}
+                                  onClick={async () => {
+                                    const nextExpanded = isExpanded ? null : pat.id
+                                    setExpandedPatientId(nextExpanded)
+                                    if (nextExpanded) {
+                                      // ON-DEMAND LAZY SYNC: Retrieve changeable information (new appointments, bills) for checked patient
+                                      try {
+                                        const freshData = await refreshPatientChangeableData(
+                                          pat.trackingCodes || [],
+                                          pat.phone,
+                                          selectedClinic?.id
+                                        )
+                                        if (freshData.appointments && freshData.appointments.length > 0) {
+                                          setAppointments((prev) => {
+                                            const map = new Map(prev.map((a) => [a.id, a]))
+                                            freshData.appointments.forEach((a) => map.set(a.id, a))
+                                            return Array.from(map.values())
+                                          })
+                                        }
+                                      } catch (err) {
+                                        console.error('Failed to lazy load patient changeable data:', err)
+                                      }
+                                    }
+                                  }}
                                   className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/80 hover:bg-white text-slate-700 font-bold text-[11px] border border-slate-300 transition-colors cursor-pointer"
                                   title="View Consultations Timeline"
                                 >
@@ -12381,7 +12488,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-3">
                 <div>
                   <label className="text-xs font-bold text-slate-700 block mb-1">
                     Visit Date <span className="text-rose-500">*</span>
@@ -12389,21 +12496,72 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <input
                     type="date"
                     value={scheduleNextDate}
-                    onChange={(e) => setScheduleNextDate(e.target.value)}
+                    onChange={(e) => {
+                      setScheduleNextDate(e.target.value)
+                      setScheduleNextSlotId('')
+                    }}
                     min={new Date().toISOString().split('T')[0]}
                     className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-bold focus:outline-none focus:ring-2 focus:ring-cyan-500"
                     required
                   />
                 </div>
+
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Time Slot</label>
-                  <input
-                    type="text"
-                    value={scheduleNextTime}
-                    onChange={(e) => setScheduleNextTime(e.target.value)}
-                    placeholder="10:00 AM"
-                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-700 block">
+                      Select Available OPD Slot <span className="text-rose-500">*</span>
+                    </label>
+                    {isLoadingScheduleNextSlots && (
+                      <span className="text-[10px] text-teal-600 font-semibold animate-pulse">Loading slots...</span>
+                    )}
+                  </div>
+
+                  {isLoadingScheduleNextSlots ? (
+                    <div className="p-3 bg-slate-50/70 border border-slate-200/80 rounded-xl text-center text-xs text-slate-500">
+                      Loading published OPD slots for {scheduleNextDate}...
+                    </div>
+                  ) : scheduleNextSlots.length > 0 ? (
+                    <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto p-1 border border-slate-200/70 rounded-xl bg-white/40">
+                      {scheduleNextSlots.map((slot) => {
+                        const isSelected = scheduleNextSlotId === slot.id
+                        const spotsLeft = Math.max(0, slot.maxCapacity - slot.bookedCount)
+                        const isFull = slot.bookedCount >= slot.maxCapacity
+                        return (
+                          <button
+                            type="button"
+                            key={slot.id}
+                            onClick={() => {
+                              setScheduleNextSlotId(slot.id)
+                              setScheduleNextTime(`${slot.startTime} - ${slot.endTime}`)
+                            }}
+                            className={`p-2 rounded-xl text-left border transition-all text-xs cursor-pointer ${
+                              isSelected
+                                ? 'bg-teal-600 text-white border-teal-700 shadow-sm'
+                                : isFull
+                                ? 'bg-amber-50 text-slate-800 border-amber-300 hover:border-amber-400'
+                                : 'bg-white/80 text-slate-800 border-slate-200 hover:border-teal-400'
+                            }`}
+                          >
+                            <div className="font-bold text-[11px]">{slot.startTime} - {slot.endTime}</div>
+                            <div className={`text-[10px] ${isSelected ? 'text-teal-100' : isFull ? 'text-amber-700 font-bold' : 'text-slate-500'}`}>
+                              {isFull ? 'Full (Overbooking)' : `${spotsLeft} spots left`}
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-[11px] text-slate-500 mb-1.5">No published slots for this date. Enter custom appointment time:</p>
+                      <input
+                        type="text"
+                        value={scheduleNextTime}
+                        onChange={(e) => setScheduleNextTime(e.target.value)}
+                        placeholder="10:00 AM"
+                        className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 

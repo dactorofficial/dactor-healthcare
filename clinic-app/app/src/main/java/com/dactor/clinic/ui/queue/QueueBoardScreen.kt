@@ -439,23 +439,25 @@ fun QueueBoardScreen(
         }
     }
 
-    suspend fun loadQueue() {
+    suspend fun loadQueue(isDeltaOnly: Boolean = false) {
         if (queueRepository != null && effectiveClinicId.isNotBlank()) {
-            // Offload background audits so they never delay UI rendering
-            coroutineScope.launch {
-                try {
-                    queueRepository.autoTransferUncompletedQueueToNoShow(effectiveClinicId, includeTodayExpired = false)
-                } catch (_: Exception) {}
-                try {
-                    avgCalculationDetails = queueRepository.getClinicAverageTimeDetails(effectiveClinicId)
-                } catch (_: Exception) {}
+            if (!isDeltaOnly) {
+                // Offload background audits so they never delay UI rendering
+                coroutineScope.launch {
+                    try {
+                        queueRepository.autoTransferUncompletedQueueToNoShow(effectiveClinicId, includeTodayExpired = false)
+                    } catch (_: Exception) {}
+                    try {
+                        avgCalculationDetails = queueRepository.getClinicAverageTimeDetails(effectiveClinicId)
+                    } catch (_: Exception) {}
+                }
             }
 
-            // Concurrent execution for UI-critical data (Queue + Appts + Doctors + Clinic in parallel)
+            // Concurrent execution for UI-critical data
             coroutineScope {
                 val nowTime = System.currentTimeMillis()
-                val needClinic = currentClinic == null || (nowTime - lastClinicMetaFetchMs > 40_000L)
-                val needDocs = clinicDoctors.isEmpty() || (nowTime - lastDoctorsFetchMs > 40_000L)
+                val needClinic = !isDeltaOnly && (currentClinic == null || (nowTime - lastClinicMetaFetchMs > 120_000L))
+                val needDocs = !isDeltaOnly && (clinicDoctors.isEmpty() || (nowTime - lastDoctorsFetchMs > 120_000L))
 
                 val clinicDeferred = async<Clinic?> {
                     if (!needClinic) return@async currentClinic
@@ -471,12 +473,22 @@ fun QueueBoardScreen(
                 }
                 val entriesDeferred = async<List<QueueEntry>> {
                     try {
-                        queueRepository.getQueueForClinic(effectiveClinicId)
+                        if (isDeltaOnly) {
+                            queueRepository.syncQueueDeltaForClinic(effectiveClinicId)
+                        } else {
+                            queueRepository.getQueueForClinic(effectiveClinicId)
+                        }
                     } catch (_: Exception) { emptyList() }
                 }
                 val apptsDeferred = async<List<Appointment>> {
                     try {
-                        appointmentRepository?.getAppointmentsByClinic(effectiveClinicId) ?: emptyList()
+                        if (isDeltaOnly) {
+                            appointmentRepository?.getCachedClinicAppointments(effectiveClinicId)?.takeIf { it.isNotEmpty() }
+                                ?: appointmentRepository?.getAppointmentsByClinic(effectiveClinicId)
+                                ?: emptyList()
+                        } else {
+                            appointmentRepository?.getAppointmentsByClinic(effectiveClinicId) ?: emptyList()
+                        }
                     } catch (_: Exception) { emptyList() }
                 }
 
@@ -646,9 +658,12 @@ fun QueueBoardScreen(
     }
 
     LaunchedEffect(effectiveClinicId) {
+        // Initial full sync of clinic, doctors, and appointments
+        loadQueue(isDeltaOnly = false)
         while (isActive) {
-            loadQueue()
             delay(4000L)
+            // Lightweight operational delta sync: only queue entries without heavy table scans
+            loadQueue(isDeltaOnly = true)
         }
     }
 
