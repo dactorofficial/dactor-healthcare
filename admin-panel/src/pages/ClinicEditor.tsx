@@ -277,7 +277,7 @@ export default function ClinicEditor() {
         is_direct_payment_enabled: selectedClinic.is_direct_payment_enabled,
         payment_gateway_provider: selectedClinic.payment_gateway_provider,
         payment_api_key: selectedClinic.payment_api_key,
-        payment_secret_key: selectedClinic.payment_secret_key,
+        payment_secret_key: null,
         merchant_id: selectedClinic.merchant_id,
         specialties: selectedClinic.specialties || [],
         logo_url: finalLogo,

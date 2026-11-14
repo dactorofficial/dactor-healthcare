@@ -355,16 +355,55 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
         )}
 
         {/* OPD Appointment Result Card */}
-        {searched && appointment && (
+        {searched && appointment && (() => {
+          const todayStr = new Date().toISOString().slice(0, 10)
+          const apptDate = appointment.appointmentDate?.trim().slice(0, 10) || ''
+          const isToday = apptDate === todayStr
+          const isPast = apptDate < todayStr && !isToday
+          const isFuture = apptDate > todayStr
+          const isCompleted = ['completed', 'done'].includes(appointment.checkinStatus?.toLowerCase() || '')
+
+          return (
           <div className="mt-4 sm:mt-6 p-4 sm:p-5 liquid-glass-base border border-white/80 dark:border-white/10 rounded-2xl sm:rounded-3xl space-y-3.5 sm:space-y-4 animate-in slide-in-from-bottom duration-200 shadow-glass-md">
             <div className="text-center py-1 sm:py-2 space-y-1.5 sm:space-y-2">
-              <div className="inline-flex flex-col items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-tr from-brand-600 via-sky-500 to-cyan-400 text-white shadow-glass-brand border border-white/40">
-                <span className="text-[9px] sm:text-[10px] font-bold tracking-wider uppercase text-cyan-100">TOKEN</span>
-                <span className="text-xl sm:text-2xl font-black">#{(appointment as any).queuePosition || 1}</span>
+              <div className={`inline-flex flex-col items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-full text-white shadow-glass-brand border border-white/40 ${
+                isCompleted
+                  ? 'bg-gradient-to-tr from-emerald-600 to-teal-500'
+                  : isPast
+                  ? 'bg-gradient-to-tr from-slate-600 to-slate-700'
+                  : 'bg-gradient-to-tr from-brand-600 via-sky-500 to-cyan-400'
+              }`}>
+                <span className="text-[9px] sm:text-[10px] font-bold tracking-wider uppercase text-cyan-100">
+                  {isCompleted ? 'VISIT' : isPast ? 'PAST' : isFuture ? 'SCHEDULED' : 'TOKEN'}
+                </span>
+                <span className="text-xl sm:text-2xl font-black">
+                  {isCompleted ? '✓' : isPast ? '—' : `#${(appointment as any).queuePosition || appointment.queueNumber || 1}`}
+                </span>
               </div>
-              <h4 className="text-xs sm:text-sm font-bold text-amber-800 dark:text-amber-300">
-                You are in Live OPD Queue
+              <h4 className={`text-xs sm:text-sm font-bold ${
+                isCompleted
+                  ? 'text-emerald-700 dark:text-emerald-300'
+                  : isPast
+                  ? 'text-slate-600 dark:text-slate-400'
+                  : isFuture
+                  ? 'text-sky-700 dark:text-sky-300'
+                  : 'text-amber-800 dark:text-amber-300'
+              }`}>
+                {isCompleted
+                  ? `Consultation Completed • ${appointment.appointmentDate}`
+                  : isPast
+                  ? `Past Visit • ${appointment.appointmentDate}`
+                  : isFuture
+                  ? `Advance Booking • ${appointment.appointmentDate}`
+                  : 'You are in Live OPD Queue'}
               </h4>
+              {isPast && !isCompleted && (
+                <div className="pt-1">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800 text-[11px] font-bold">
+                    <span>⏱ Past Appointment • Live queue tracking was active on visit day</span>
+                  </span>
+                </div>
+              )}
               <div className="inline-flex items-center gap-2">
                 <div className="inline-block px-3 py-1 rounded-full bg-brand-50/80 dark:bg-slate-800 text-brand-900 dark:text-cyan-300 border border-brand-200/60 dark:border-white/10 font-mono font-bold text-[11px] sm:text-xs backdrop-blur-xs break-all">
                   10-DIGIT CODE: #{appointment.trackingCode10Digit}
@@ -498,7 +537,8 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
-        )}
+          )
+        })()}
 
         {/* Support Ticket Result Card */}
         {searched && ticket && (

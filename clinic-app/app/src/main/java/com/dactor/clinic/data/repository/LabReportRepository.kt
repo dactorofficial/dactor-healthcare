@@ -4,6 +4,7 @@ import com.dactor.clinic.data.model.LabReport
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.storage.storage
+import kotlin.time.Duration.Companion.days
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
@@ -263,7 +264,7 @@ class LabReportRepository @Inject constructor(
     }
 
     suspend fun uploadReportDocument(reportId: String, fileName: String, bytes: ByteArray): String? = withContext(Dispatchers.IO) {
-        val candidateBuckets = listOf("clinic_photos", "doctor_photos")
+        val candidateBuckets = listOf("lab-reports-private", "clinic-docs-private")
         val compressed = com.dactor.clinic.domain.util.FileCompressor.compressBytes(bytes, fileName)
         val cleanName = compressed.fileName.replace("\\s+".toRegex(), "_")
         val path = "lab_reports/${reportId}_$cleanName"
@@ -271,7 +272,15 @@ class LabReportRepository @Inject constructor(
             try {
                 val bucket = supabaseClient.storage[bName]
                 bucket.upload(path, compressed.bytes, upsert = true)
-                val url = bucket.publicUrl(path)
+                val url = try {
+                    bucket.createSignedUrl(path, expiresIn = 7.days)
+                } catch (_: Exception) {
+                    try {
+                        bucket.authenticatedUrl(path)
+                    } catch (_: Exception) {
+                        bucket.publicUrl(path)
+                    }
+                }
                 if (!url.isNullOrBlank()) {
                     return@withContext url
                 }

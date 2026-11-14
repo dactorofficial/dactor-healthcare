@@ -107,7 +107,7 @@ class ClinicRepository @Inject constructor(
                     deletionScheduledAt = clinic.deletionScheduledAt ?: meta.deletion_scheduled_at,
                     paymentGatewayProvider = meta.payment_gateway_provider ?: clinic.paymentGatewayProvider,
                     paymentApiKey = meta.payment_api_key ?: clinic.paymentApiKey,
-                    paymentSecretKey = meta.payment_secret_key ?: clinic.paymentSecretKey,
+                    paymentSecretKey = null,
                     merchantId = meta.merchant_id ?: clinic.merchantId,
                     isDirectPaymentEnabled = meta.is_direct_payment_enabled ?: clinic.isDirectPaymentEnabled,
                     paymentGatewaysJson = clinic.paymentGatewaysJson ?: meta.payment_gateways_json,
