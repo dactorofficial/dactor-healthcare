@@ -3456,6 +3456,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                               ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20'
                               : isMissed
                               ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                              : appt.clinic?.isOpen === false && isToday
+                              ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20'
                               : appt.checkinStatus === 'completed'
                               ? 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/20'
                               : appt.checkinStatus === 'in_consultation'
@@ -3475,6 +3477,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                             ? 'Cancelled'
                             : isMissed
                             ? 'Missed Appointment'
+                            : appt.clinic?.isOpen === false && isToday
+                            ? 'Clinic Closed'
                             : appt.checkinStatus === 'in_consultation'
                             ? 'Inside Chamber'
                             : appt.checkinStatus === 'completed'
