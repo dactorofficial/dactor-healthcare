@@ -212,6 +212,9 @@ fun LoginScreen(
                         linkedAppts
                     }
 
+                    sessionManager?.clearSavedTrackingCodes()
+                    appointmentRepository?.clearCache()
+
                     for (appt in allLinkedAppts) {
                         if (appt.trackingCode10Digit.isNotBlank()) {
                             sessionManager?.saveTrackingCode(
@@ -342,11 +345,12 @@ fun LoginScreen(
         errorMessage = null
         statusInfo = "Opening Google Sign-In..."
 
-        try {
-            googleSignInClient.signOut().addOnCompleteListener {
-                googleSignInLauncher.launch(googleSignInClient.signInIntent)
-            }
-        } catch (e: Exception) {
+        coroutineScope.launch {
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(1500) {
+                    com.google.android.gms.tasks.Tasks.await(googleSignInClient.signOut())
+                }
+            } catch (_: Exception) {}
             try {
                 googleSignInLauncher.launch(googleSignInClient.signInIntent)
             } catch (e2: Exception) {
@@ -500,6 +504,9 @@ fun LoginScreen(
                 } catch (e: Exception) {
                     emptyList()
                 }
+                sessionManager?.clearSavedTrackingCodes()
+                appointmentRepository?.clearCache()
+
                 for (appt in linkedAppts) {
                     if (appt.trackingCode10Digit.isNotBlank()) {
                         sessionManager?.saveTrackingCode(
@@ -785,6 +792,7 @@ fun LoginScreen(
                 if (!hasPendingBooking) {
                     OutlinedButton(
                         onClick = {
+                            sessionManager?.setGuestMode(true)
                             navController.navigate(NavRoutes.Discovery.route) {
                                 popUpTo(NavRoutes.Login.route) { inclusive = true }
                             }

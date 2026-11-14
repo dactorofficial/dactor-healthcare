@@ -70,18 +70,31 @@ data class MultiSlotPositionResult(
 class QueueRepository @Inject constructor(
     private val supabaseClient: SupabaseClient
 ) {
-    suspend fun getQueueStatus(appointmentId: String): QueueEntry? {
+    private val queueEntriesForClinicCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<QueueEntry>>>()
+    private val queueStatusCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, QueueEntry>>()
+
+    suspend fun getQueueStatus(appointmentId: String, forceRefresh: Boolean = false): QueueEntry? {
         if (appointmentId.isBlank()) return null
+        if (!forceRefresh) {
+            val cached = queueStatusCache[appointmentId]
+            if (cached != null && (System.currentTimeMillis() - cached.first) < 2500L) {
+                return cached.second
+            }
+        }
         return try {
             val list = supabaseClient.postgrest["queue_entries"]
                 .select { filter { eq("appointment_id", appointmentId) } }
                 .decodeList<QueueEntry>()
-            list.firstOrNull { it.status.lowercase() in listOf("waiting", "inside", "in_consultation") }
+            val found = list.firstOrNull { it.status.lowercase() in listOf("waiting", "inside", "in_consultation") }
                 ?: list.firstOrNull { it.status.lowercase() in listOf("done", "completed") }
                 ?: list.lastOrNull()
+            if (found != null) {
+                queueStatusCache[appointmentId] = Pair(System.currentTimeMillis(), found)
+            }
+            found
         } catch (e: Exception) {
             e.printStackTrace()
-            null
+            queueStatusCache[appointmentId]?.second
         }
     }
 
@@ -196,15 +209,23 @@ class QueueRepository @Inject constructor(
         }
     }
 
-    suspend fun getQueueEntriesForClinic(clinicId: String): List<QueueEntry> {
+    suspend fun getQueueEntriesForClinic(clinicId: String, forceRefresh: Boolean = false): List<QueueEntry> {
         if (clinicId.isBlank()) return emptyList()
+        if (!forceRefresh) {
+            val cached = queueEntriesForClinicCache[clinicId]
+            if (cached != null && (System.currentTimeMillis() - cached.first) < 2500L) {
+                return cached.second
+            }
+        }
         return try {
-            supabaseClient.postgrest["queue_entries"]
+            val list = supabaseClient.postgrest["queue_entries"]
                 .select { filter { eq("clinic_id", clinicId) } }
                 .decodeList<QueueEntry>()
+            queueEntriesForClinicCache[clinicId] = Pair(System.currentTimeMillis(), list)
+            list
         } catch (e: Exception) {
             e.printStackTrace()
-            emptyList()
+            queueEntriesForClinicCache[clinicId]?.second ?: emptyList()
         }
     }
 

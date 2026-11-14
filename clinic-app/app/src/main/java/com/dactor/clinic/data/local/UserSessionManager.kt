@@ -184,6 +184,35 @@ class UserSessionManager @Inject constructor(
     fun markNotificationSeen(id: String) {
         prefs.edit().putBoolean("seen_notif_$id", true).apply()
     }
+
+    fun getReadNotificationIds(): Set<String> {
+        return prefs.getStringSet("read_notification_ids", emptySet()) ?: emptySet()
+    }
+
+    fun isNotificationRead(id: String): Boolean {
+        if (id.isBlank()) return false
+        val set = prefs.getStringSet("read_notification_ids", null)
+        return set?.contains(id) == true
+    }
+
+    fun markNotificationRead(id: String) {
+        if (id.isBlank()) return
+        val current = prefs.getStringSet("read_notification_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
+        current.add(id)
+        prefs.edit().putStringSet("read_notification_ids", current).apply()
+    }
+
+    fun markNotificationsRead(ids: Collection<String>) {
+        val validIds = ids.filter { it.isNotBlank() }
+        if (validIds.isEmpty()) return
+        val current = prefs.getStringSet("read_notification_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
+        current.addAll(validIds)
+        prefs.edit().putStringSet("read_notification_ids", current).apply()
+    }
+
+    fun clearReadNotifications() {
+        prefs.edit().remove("read_notification_ids").apply()
+    }
 }
 
 typealias ClinicSessionManager = UserSessionManager

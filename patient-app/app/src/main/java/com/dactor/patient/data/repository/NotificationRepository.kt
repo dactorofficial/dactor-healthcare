@@ -297,38 +297,43 @@ class NotificationRepository @Inject constructor(
 
     suspend fun markAsRead(id: String): Boolean = withContext(Dispatchers.IO) {
         try {
+            val cleanId = id.trim()
+            if (cleanId.isBlank() || cleanId.startsWith("lab_notif_")) return@withContext true
             supabaseClient.postgrest["notifications"]
                 .update({
                     set("is_read", true)
                 }) {
                     filter {
-                        eq("id", id)
+                        eq("id", cleanId)
                     }
                 }
             true
         } catch (e: Exception) {
-            e.printStackTrace()
+            // Silently swallow RLS/network errors for broadcasts/guest sessions
             false
         }
     }
 
     suspend fun markAllAsRead(ids: List<String>): Boolean = withContext(Dispatchers.IO) {
         try {
-            val validIds = ids.filter { it.isNotBlank() }
+            val validIds = ids.map { it.trim() }.filter { it.isNotBlank() && !it.startsWith("lab_notif_") }
             if (validIds.isEmpty()) return@withContext true
             for (chunk in validIds.chunked(30)) {
-                supabaseClient.postgrest["notifications"]
-                    .update({
-                        set("is_read", true)
-                    }) {
-                        filter {
-                            isIn("id", chunk)
+                try {
+                    supabaseClient.postgrest["notifications"]
+                        .update({
+                            set("is_read", true)
+                        }) {
+                            filter {
+                                isIn("id", chunk)
+                            }
                         }
-                    }
+                } catch (_: Exception) {
+                    // Ignore broadcast RLS rejections
+                }
             }
             true
         } catch (e: Exception) {
-            e.printStackTrace()
             false
         }
     }

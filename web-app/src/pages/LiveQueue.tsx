@@ -160,6 +160,21 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     if (!silent) setLoading(true)
     setErrorMsg('')
 
+    // Try to hydrate from local session cache for instant 0ms render
+    try {
+      const cachedRaw = sessionStorage.getItem(`dactor_queue_cache_${clean}`)
+      if (cachedRaw && !silent) {
+        const cached = JSON.parse(cachedRaw)
+        if (cached.appointment) setAppointment(cached.appointment)
+        if (cached.clinic) setClinic(cached.clinic)
+        if (cached.doctor) setDoctor(cached.doctor)
+        if (cached.clinicQueue) setClinicQueue(cached.clinicQueue)
+        if (cached.multiSlotResult) setMultiSlotResult(cached.multiSlotResult)
+        if (cached.labReports) setLabReports(cached.labReports)
+        setLoading(false)
+      }
+    } catch (_) {}
+
     try {
       if (!/^\d{10}$/.test(clean)) {
         setAppointment(null)
@@ -203,18 +218,24 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         const effectiveCode = appt.trackingCode10Digit || clean
         // Fetch clinic details
         if (appt.clinicId) {
-          const [clinicData, queueList, reportsData] = await Promise.all([
-            getClinicById(appt.clinicId),
+          const shouldFetchClinic = !clinic || clinic.id !== appt.clinicId
+          const shouldFetchDoc = appt.doctorId && (!doctor || doctor.id !== appt.doctorId)
+
+          const [clinicData, queueList, reportsData, docData] = await Promise.all([
+            shouldFetchClinic ? getClinicById(appt.clinicId) : Promise.resolve(clinic),
             getAppointmentsByClinic(appt.clinicId, appt.appointmentDate),
             getLabReportsByTrackingCode(effectiveCode),
+            shouldFetchDoc ? getDoctorById(appt.doctorId!) : Promise.resolve(doctor),
           ])
           setClinic(clinicData)
           setClinicQueue(queueList)
           setLabReports(reportsData)
+          if (docData) setDoctor(docData)
 
           const avgMins = clinicData?.avgConsultationTimeMinutes || 10
+          let multiSlot: MultiSlotPositionResult | null = null
           try {
-            const multiSlot = await calculateMultiSlotDailyPosition(
+            multiSlot = await calculateMultiSlotDailyPosition(
               appt.clinicId,
               appt.doctorId,
               appt.appointmentDate,
@@ -229,13 +250,19 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             setMultiSlotResult(null)
           }
 
-          // Fetch attending doctor if linked
-          if (appt.doctorId) {
-            const doc = await getDoctorById(appt.doctorId)
-            setDoctor(doc)
-          } else if (clinicData && clinicData.type === 'single_doctor') {
-            // If single doctor clinic, doctor can be inferred from clinic roster
-          }
+          try {
+            sessionStorage.setItem(
+              `dactor_queue_cache_${clean}`,
+              JSON.stringify({
+                appointment: appt,
+                clinic: clinicData,
+                doctor: docData || doctor,
+                clinicQueue: queueList,
+                labReports: reportsData,
+                multiSlotResult: multiSlot,
+              })
+            )
+          } catch (_) {}
         }
       } else {
         setMultiSlotResult(null)
@@ -1531,7 +1558,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             )}
 
             {/* 3. DOCTOR PRESENCE / AWAY BANNER */}
-            {!isConsultancyCompleted && !isLabClinic && (
+            {!isConsultancyCompleted && !isLabClinic && appointment.doctorId && doctor && (
               <div
                 className={`p-3.5 rounded-2xl border text-xs flex items-center space-x-2.5 backdrop-blur-sm ${
                   isFutureOrTomorrow
@@ -1849,7 +1876,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
               </div>
 
               {/* Attending Doctor Profile (If applicable) */}
-              {doctor && (
+              {appointment.doctorId && doctor && (
                 <div className="pt-4 border-t border-slate-200/50 dark:border-white/10 flex items-start space-x-4">
                   <div className="w-12 h-12 rounded-2xl bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20 flex items-center justify-center font-black text-lg shrink-0 overflow-hidden">
                     {doctor.profilePictureUrl ? (

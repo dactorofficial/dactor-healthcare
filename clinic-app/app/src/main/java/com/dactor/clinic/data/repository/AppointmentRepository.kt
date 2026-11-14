@@ -106,6 +106,18 @@ class AppointmentRepository @Inject constructor(
     private val appointmentDao: AppointmentDao? = null,
     private val devicePrefixManager: DevicePrefixManager? = null
 ) {
+    private val clinicAppointmentsCache = java.util.concurrent.ConcurrentHashMap<String, List<Appointment>>()
+    private val doctorAppointmentsCache = java.util.concurrent.ConcurrentHashMap<String, List<Appointment>>()
+
+    fun getCachedClinicAppointments(clinicId: String): List<Appointment> {
+        if (clinicId.isBlank()) return emptyList()
+        return clinicAppointmentsCache[clinicId] ?: emptyList()
+    }
+
+    fun getCachedDoctorAppointments(doctorId: String): List<Appointment> {
+        if (doctorId.isBlank()) return emptyList()
+        return doctorAppointmentsCache[doctorId] ?: emptyList()
+    }
     private suspend fun attachQueueStatus(
         appointments: List<Appointment>,
         clinicId: String? = null,
@@ -180,7 +192,21 @@ class AppointmentRepository @Inject constructor(
         }
     }
 
-    suspend fun getAppointmentsByClinic(clinicId: String): List<Appointment> = withContext(Dispatchers.IO) {
+    suspend fun getAppointmentsByClinic(clinicId: String, forceRefresh: Boolean = false): List<Appointment> = withContext(Dispatchers.IO) {
+        if (clinicId.isBlank()) return@withContext emptyList()
+        if (!forceRefresh) {
+            val inMem = clinicAppointmentsCache[clinicId]
+            if (!inMem.isNullOrEmpty()) {
+                return@withContext inMem
+            }
+            try {
+                val local = appointmentDao?.getApprovedAppointmentsForClinicList(clinicId)?.map { it.toDomainModel() }
+                if (!local.isNullOrEmpty()) {
+                    clinicAppointmentsCache[clinicId] = local
+                    return@withContext local
+                }
+            } catch (_: Exception) {}
+        }
         try {
             val appts = supabaseClient.postgrest["appointments"]
                 .select {
@@ -188,10 +214,20 @@ class AppointmentRepository @Inject constructor(
                         eq("clinic_id", clinicId)
                     }
                 }.decodeList<Appointment>()
-            attachQueueStatus(appts, clinicId = clinicId)
+            val attached = attachQueueStatus(appts, clinicId = clinicId)
+            clinicAppointmentsCache[clinicId] = attached
+            try {
+                appointmentDao?.upsertAll(attached.map { AppointmentEntity.fromDomainModel(it, syncStatus = "synced") })
+            } catch (_: Exception) {}
+            attached
         } catch (e: Exception) {
             e.printStackTrace()
-            emptyList()
+            val cached = try {
+                clinicAppointmentsCache[clinicId]
+                    ?: appointmentDao?.getApprovedAppointmentsForClinicList(clinicId)?.map { it.toDomainModel() }
+                    ?: appointmentDao?.getAppointmentsForClinicList(clinicId)?.map { it.toDomainModel() }
+            } catch (_: Exception) { null }
+            cached ?: emptyList()
         }
     }
 
@@ -876,7 +912,24 @@ class AppointmentRepository @Inject constructor(
         }
     }
 
-    suspend fun getAppointmentsByDoctor(doctorId: String, date: String? = null): List<Appointment> = withContext(Dispatchers.IO) {
+    suspend fun getAppointmentsByDoctor(doctorId: String, date: String? = null, forceRefresh: Boolean = false): List<Appointment> = withContext(Dispatchers.IO) {
+        if (doctorId.isBlank()) return@withContext emptyList()
+        val cacheKey = if (date != null) "${doctorId}_$date" else doctorId
+        if (!forceRefresh) {
+            val inMem = doctorAppointmentsCache[cacheKey]
+            if (!inMem.isNullOrEmpty()) {
+                return@withContext inMem
+            }
+            if (date == null) {
+                try {
+                    val local = appointmentDao?.getAppointmentsForDoctorList(doctorId)?.map { it.toDomainModel() }
+                    if (!local.isNullOrEmpty()) {
+                        doctorAppointmentsCache[cacheKey] = local
+                        return@withContext local
+                    }
+                } catch (_: Exception) {}
+            }
+        }
         try {
             val appts = if (date != null) {
                 supabaseClient.postgrest["appointments"]
@@ -894,10 +947,17 @@ class AppointmentRepository @Inject constructor(
                         }
                     }.decodeList<Appointment>()
             }
-            attachQueueStatus(appts, doctorId = doctorId)
+            val attached = attachQueueStatus(appts, doctorId = doctorId)
+            doctorAppointmentsCache[cacheKey] = attached
+            try {
+                appointmentDao?.upsertAll(attached.map { AppointmentEntity.fromDomainModel(it, syncStatus = "synced") })
+            } catch (_: Exception) {}
+            attached
         } catch (e: Exception) {
             e.printStackTrace()
-            emptyList()
+            val fallback = doctorAppointmentsCache[cacheKey]
+                ?: if (date == null) appointmentDao?.getAppointmentsForDoctorList(doctorId)?.map { it.toDomainModel() } else null
+            fallback ?: emptyList()
         }
     }
 

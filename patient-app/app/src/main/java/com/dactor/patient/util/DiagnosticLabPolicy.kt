@@ -2,6 +2,7 @@ package com.dactor.patient.util
 
 import com.dactor.patient.data.model.Appointment
 import com.dactor.patient.data.model.Clinic
+import com.dactor.patient.data.model.ClinicService
 import com.dactor.patient.data.model.LabReport
 
 /**
@@ -70,6 +71,30 @@ object DiagnosticLabPolicy {
         val qLower = queueStatus?.trim()?.lowercase() ?: ""
         val cLower = appointment?.checkinStatus?.trim()?.lowercase() ?: ""
         return qLower in LAB_WORKFLOW_ONLY_STATUSES || cLower in LAB_WORKFLOW_ONLY_STATUSES
+    }
+
+    /**
+     * Determines whether a facility is a Diagnostic Lab, Pathology Lab, or Imaging Center.
+     * Evaluates clinic type, clinic name, specialties, and service listings.
+     */
+    fun isDiagnosticOrPathologyLab(
+        clinic: Clinic?,
+        services: List<ClinicService> = emptyList()
+    ): Boolean {
+        if (clinic == null) return false
+        val cType = clinic.type?.trim()?.lowercase(java.util.Locale.ROOT) ?: ""
+        if (cType == "diagnostic_lab" || cType.contains("lab") || cType.contains("patholog") || cType.contains("diagnostic")) return true
+        val name = clinic.name.lowercase(java.util.Locale.ROOT)
+        if (name.contains("lab") || name.contains("patholog") || name.contains("diagnostic")) return true
+        if (clinic.specialties.any { s ->
+            val l = s.lowercase(java.util.Locale.ROOT)
+            l.contains("lab") || l.contains("patholog") || l.contains("diagnostic") || l.contains("scan") || l.contains("radiolog")
+        }) return true
+        if (services.any { s ->
+            val n = s.serviceName.lowercase(java.util.Locale.ROOT)
+            n.contains("scan") || n.contains("test") || n.contains("lab") || n.contains("ray") || n.contains("mri") || n.contains("usg") || n.contains("patholog") || n.contains("blood")
+        }) return true
+        return false
     }
 
     /**

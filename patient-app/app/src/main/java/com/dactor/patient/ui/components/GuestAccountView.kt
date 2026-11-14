@@ -101,6 +101,9 @@ fun GuestAccountView(
                     ).orEmpty()
                 } catch (_: Exception) { emptyList() }
 
+                sessionManager?.clearSavedTrackingCodes()
+                appointmentRepository?.clearCache()
+
                 for (appt in linkedAppts) {
                     if (appt.trackingCode10Digit.isNotBlank()) {
                         sessionManager?.saveTrackingCode(
@@ -209,14 +212,15 @@ fun GuestAccountView(
         }
         if (isGoogleLoading) return
         isGoogleLoading = true
-        try {
-            googleSignInClient.signOut().addOnCompleteListener {
-                googleSignInLauncher.launch(googleSignInClient.signInIntent)
-            }
-        } catch (e: Exception) {
+        coroutineScope.launch {
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(1500) {
+                    com.google.android.gms.tasks.Tasks.await(googleSignInClient.signOut())
+                }
+            } catch (_: Exception) {}
             try {
                 googleSignInLauncher.launch(googleSignInClient.signInIntent)
-            } catch (e2: Exception) {
+            } catch (e: Exception) {
                 isGoogleLoading = false
                 onSignInClicked()
             }

@@ -821,7 +821,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [labVerifyError, setLabVerifyError] = useState<string | null>(null)
 
   // Operational Data State
-  const [appointments, setAppointments] = useState<Appointment[]>([])
+  const [appointments, setAppointments] = useState<Appointment[]>(() => {
+    try {
+      const raw = localStorage.getItem('dactor_clinic_cached_appts_' + (selectedClinic?.id || ''))
+      return raw ? JSON.parse(raw) : []
+    } catch {
+      return []
+    }
+  })
   const [invoices, setInvoices] = useState<BillingInvoice[]>([])
   const [labReports, setLabReports] = useState<LabReport[]>([])
   const [services, setServices] = useState<ClinicService[]>([])
@@ -1379,6 +1386,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           setDoctorInClinic(doc.isInClinic ?? true)
         }
         setAppointments(appts)
+        try {
+          if (selectedClinic?.id) {
+            localStorage.setItem('dactor_clinic_cached_appts_' + selectedClinic.id, JSON.stringify(appts))
+          }
+        } catch (_) {}
         setServices(srvs)
         setLabReports(reps)
         setInvoices(invs)
@@ -1506,6 +1518,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           getSlots(selectedClinic.id, appt.appointmentDate),
         ])
         setAppointments(appts)
+        try {
+          if (selectedClinic?.id) {
+            localStorage.setItem('dactor_clinic_cached_appts_' + selectedClinic.id, JSON.stringify(appts))
+          }
+        } catch (_) {}
         setPublishedSlots(
           isLabClinic
             ? liveSlots

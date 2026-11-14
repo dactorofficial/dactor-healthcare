@@ -1191,6 +1191,13 @@ export const Home: React.FC<HomeProps> = ({
                 (clinic.pictures && clinic.pictures.length > 0 ? clinic.pictures[0] : null) ||
                 clinic.logoUrl
 
+              const isLabFacility =
+                clinic.type === 'diagnostic_lab' ||
+                clinic.type?.includes('lab') ||
+                clinic.type?.includes('patholog') ||
+                clinic.name?.toLowerCase().includes('lab') ||
+                clinic.name?.toLowerCase().includes('patholog')
+
               return (
                 <div
                   key={clinic.id}
@@ -1221,7 +1228,7 @@ export const Home: React.FC<HomeProps> = ({
                       {/* Top Overlay Badges */}
                       <div className="absolute top-2.5 sm:top-3 left-2.5 sm:left-3 right-2.5 sm:right-3 flex flex-wrap items-center justify-between gap-1.5">
                         <span className="px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-bold bg-white/90 text-brand-900 backdrop-blur-md shadow-glass-sm border border-white/80">
-                          {clinic.type === 'diagnostic_lab'
+                          {isLabFacility
                             ? 'Diagnostic Lab'
                             : clinic.type === 'single_visit'
                             ? 'Single-Visit'
@@ -1275,7 +1282,7 @@ export const Home: React.FC<HomeProps> = ({
                           <div className="p-2 sm:p-2.5 rounded-xl liquid-glass-subtle border border-white/60 flex items-center space-x-2 text-slate-600">
                             <div className="w-2.5 h-2.5 rounded-full bg-slate-400 shrink-0" />
                             <span className="text-[11px] sm:text-xs font-semibold leading-tight">
-                              {clinic.type === 'diagnostic_lab'
+                              {isLabFacility
                                 ? 'Lab Open for Sample Collection'
                                 : 'Doctor Away • Check Published Slots'}
                             </span>
@@ -1285,7 +1292,7 @@ export const Home: React.FC<HomeProps> = ({
 
                       {/* Doctor & Schedule Info */}
                       <div className="space-y-2 pt-2 border-t border-slate-100/70">
-                        {clinic.type !== 'diagnostic_lab' && doc ? (
+                        {!isLabFacility && doc ? (
                           <div className="flex items-center space-x-2.5 text-xs font-bold text-slate-800">
                             <div className="w-8 h-8 rounded-xl bg-brand-50/80 text-brand-800 flex items-center justify-center font-black text-xs shrink-0 overflow-hidden border border-white/80 shadow-xs">
                               {doc.profilePictureUrl ? (
@@ -1314,7 +1321,7 @@ export const Home: React.FC<HomeProps> = ({
                           <div className="flex items-center space-x-2 text-xs font-semibold text-slate-600">
                             <Stethoscope className="w-4 h-4 text-brand-600 shrink-0" />
                             <span className="truncate">
-                              {clinic.type === 'diagnostic_lab'
+                              {isLabFacility
                                 ? '🧪 Diagnostic & Pathology Testing Facility'
                                 : clinic.specialties && clinic.specialties.length > 0
                                 ? clinic.specialties.slice(0, 2).join(' • ')

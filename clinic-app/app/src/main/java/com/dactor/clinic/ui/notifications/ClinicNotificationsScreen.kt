@@ -292,7 +292,11 @@ fun ClinicNotificationsScreen(
         if (queueRepository == null || clinicId.isBlank()) return
         isLoading = true
         try {
-            notifications = queueRepository.getClinicNotifications(clinicId)
+            val fetched = queueRepository.getClinicNotifications(clinicId)
+            val readIds = sessionManager?.getReadNotificationIds() ?: emptySet()
+            notifications = fetched.map { notif ->
+                if (notif.isRead || readIds.contains(notif.id)) notif.copy(isRead = true) else notif
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         } finally {
@@ -400,6 +404,62 @@ fun ClinicNotificationsScreen(
                         }
                     },
                     actions = {
+                        if (unreadCount > 0) {
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = NotifTealSoft,
+                                border = BorderStroke(1.dp, NotifTeal.copy(alpha = 0.35f)),
+                                modifier = Modifier
+                                    .padding(end = 4.dp)
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .clickable {
+                                        val unreadIds = notifications.filter { !it.isRead }.map { it.id }
+                                        if (unreadIds.isNotEmpty()) {
+                                            sessionManager?.markNotificationsRead(unreadIds)
+                                            notifications = notifications.map { it.copy(isRead = true) }
+                                            coroutineScope.launch {
+                                                try {
+                                                    queueRepository?.markAllAsRead(unreadIds)
+                                                } catch (e: Exception) {
+                                                    e.printStackTrace()
+                                                }
+                                            }
+                                        }
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.DoneAll,
+                                        contentDescription = null,
+                                        tint = NotifTealDark,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Text(
+                                        "Mark all read",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = NotifTealDark
+                                    )
+                                }
+                            }
+                        }
+                        IconButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    loadNotifications()
+                                }
+                            }
+                        ) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Refresh",
+                                tint = NotifSlateDark
+                            )
+                        }
                         IconButton(onClick = { showSendAlertDialog = true }) {
                             Icon(
                                 Icons.Default.Campaign,
@@ -521,8 +581,12 @@ fun ClinicNotificationsScreen(
                         DactorTemplateNotificationCard(
                             item = item,
                             onClick = {
+                                sessionManager?.markNotificationRead(item.id)
                                 notifications = notifications.map {
                                     if (it.id == item.id) it.copy(isRead = true) else it
+                                }
+                                coroutineScope.launch {
+                                    try { queueRepository?.markAsRead(item.id) } catch (_: Exception) {}
                                 }
                             }
                         )

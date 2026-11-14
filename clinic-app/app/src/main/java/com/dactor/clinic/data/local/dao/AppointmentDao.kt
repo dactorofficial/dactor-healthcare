@@ -17,6 +17,15 @@ interface AppointmentDao {
     @Query("SELECT * FROM appointments WHERE clinic_id = :clinicId AND appointment_date = :date AND is_deleted = 0 ORDER BY appointment_time ASC")
     suspend fun getAppointmentsForDateList(clinicId: String, date: String): List<AppointmentEntity>
 
+    @Query("SELECT * FROM appointments WHERE clinic_id = :clinicId AND is_deleted = 0 ORDER BY appointment_date DESC, appointment_time DESC")
+    suspend fun getAppointmentsForClinicList(clinicId: String): List<AppointmentEntity>
+
+    @Query("SELECT * FROM appointments WHERE clinic_id = :clinicId AND status = 'APPROVED' AND is_deleted = 0 ORDER BY appointment_date DESC, appointment_time DESC")
+    suspend fun getApprovedAppointmentsForClinicList(clinicId: String): List<AppointmentEntity>
+
+    @Query("SELECT * FROM appointments WHERE doctor_id = :doctorId AND is_deleted = 0 ORDER BY appointment_date DESC, appointment_time DESC")
+    suspend fun getAppointmentsForDoctorList(doctorId: String): List<AppointmentEntity>
+
     @Query("SELECT * FROM appointments WHERE clinic_id = :clinicId AND doctor_id = :doctorId AND appointment_date = :date AND is_deleted = 0 ORDER BY appointment_time ASC")
     fun getAppointmentsForDoctorAndDate(clinicId: String, doctorId: String, date: String): Flow<List<AppointmentEntity>>
 

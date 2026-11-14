@@ -114,11 +114,71 @@ fun QueueBoardScreen(
         if (effectiveClinicId.isNotBlank()) {
             doctorRepository?.getCachedDoctorsByClinic(effectiveClinicId)?.takeIf { it.isNotEmpty() }
         } else null
-    } ?: doctorRepository?.getLastCachedDoctors() ?: emptyList()
+    } ?: emptyList()
 
     var clinicDoctors by remember(effectiveClinicId) { mutableStateOf(initialCachedDocs) }
     var isDoctorsLoading by remember { mutableStateOf(initialCachedDocs.isEmpty()) }
-    var isQueueLoading by remember { mutableStateOf(true) }
+
+    val cachedInitialQueue = remember(effectiveClinicId) {
+        if (effectiveClinicId.isNotBlank()) {
+            queueRepository?.getCachedQueueForClinic(effectiveClinicId)?.takeIf { it.isNotEmpty() }
+        } else null
+    } ?: emptyList()
+
+    val cachedInitialAppts = remember(effectiveClinicId) {
+        if (effectiveClinicId.isNotBlank()) {
+            appointmentRepository?.getCachedClinicAppointments(effectiveClinicId)?.takeIf { it.isNotEmpty() }
+        } else null
+    } ?: emptyList()
+
+    val initialMappedQueueItems = remember(cachedInitialQueue, cachedInitialAppts, clinicDoctors) {
+        if (cachedInitialQueue.isEmpty() || cachedInitialAppts.isEmpty()) emptyList<QueueItemUi>()
+        else {
+            val apptMap = cachedInitialAppts.associateBy { it.id }
+            val docMap = clinicDoctors.associateBy { it.id }
+            cachedInitialQueue.filter { entry ->
+                val appt = apptMap[entry.appointmentId]
+                appt != null && appt.status.equals("APPROVED", ignoreCase = true) && appt.checkinStatus != "cancelled"
+            }.map { entry ->
+                val appt = apptMap[entry.appointmentId]
+                val apptCheckinLower = appt?.checkinStatus?.lowercase() ?: ""
+                val serverResolvedStatus = when {
+                    entry.status in listOf("waiting", "inside") && apptCheckinLower == "processing" -> "processing"
+                    entry.status in listOf("waiting", "inside") && apptCheckinLower == "sample_collected" -> "sample_collected"
+                    entry.status in listOf("waiting", "inside", "processing", "sample_collected") && apptCheckinLower == "report_prepared" -> "report_prepared"
+                    entry.status in listOf("waiting", "inside") && apptCheckinLower in listOf("completed", "done") -> "done"
+                    else -> entry.status
+                }
+                val rawTotal = appt?.let { if (it.totalAmount > 0.0) it.totalAmount else it.feeAmount } ?: 0.0
+                QueueItemUi(
+                    id = entry.id,
+                    appointmentId = entry.appointmentId,
+                    patientName = appt?.patientName ?: "Patient #${entry.queuePosition}",
+                    patientAge = appt?.patientAge ?: 0,
+                    patientGender = appt?.patientGender ?: "Registered",
+                    patientMobile = appt?.patientMobile ?: "",
+                    trackingCode = appt?.trackingCode10Digit ?: entry.appointmentId.take(8),
+                    queuePosition = entry.queuePosition,
+                    status = serverResolvedStatus,
+                    appointmentDate = appt?.appointmentDate ?: "",
+                    appointmentTime = appt?.appointmentTime ?: "",
+                    insideAt = entry.insideAt,
+                    calledAt = entry.calledAt,
+                    completedAt = entry.completedAt,
+                    consultationDurationSeconds = entry.consultationDurationSeconds,
+                    selectedLabTests = appt?.selectedLabTests,
+                    optInEarlyCall = appt?.optInEarlyCall ?: false,
+                    doctorId = entry.doctorId ?: appt?.doctorId,
+                    doctorName = docMap[entry.doctorId ?: appt?.doctorId]?.fullName,
+                    paymentMode = appt?.paymentMode,
+                    paymentStatus = appt?.paymentStatus,
+                    totalAmount = rawTotal
+                )
+            }.sortedWith(compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }.thenBy { it.queuePosition })
+        }
+    }
+
+    var isQueueLoading by remember { mutableStateOf(initialMappedQueueItems.isEmpty()) }
     var selectedDoctorFilterId by remember(savedDocId, initialDoctorId) {
         mutableStateOf<String?>(initialDoctorId?.takeIf { it.isNotBlank() } ?: savedDocId?.takeIf { it.isNotBlank() })
     }
@@ -146,7 +206,9 @@ fun QueueBoardScreen(
     var isLabClinic by remember(currentClinic) { mutableStateOf(isDiagnosticClinic(currentClinic)) }
     var isClinicOnBreak by remember(effectiveClinicId) { mutableStateOf(false) }
     var lastBreakToggleMs by remember { mutableLongStateOf(0L) }
-    var rawQueueEntries by remember(effectiveClinicId) { mutableStateOf<List<QueueEntry>>(emptyList()) }
+    var lastClinicMetaFetchMs by remember { mutableLongStateOf(0L) }
+    var lastDoctorsFetchMs by remember { mutableLongStateOf(0L) }
+    var rawQueueEntries by remember(effectiveClinicId) { mutableStateOf<List<QueueEntry>>(cachedInitialQueue) }
 
     LaunchedEffect(effectiveClinicId) {
         if (clinicRepository != null) {
@@ -177,7 +239,7 @@ fun QueueBoardScreen(
         }
     }
 
-    var queueItems by remember(effectiveClinicId) { mutableStateOf<List<QueueItemUi>>(emptyList()) }
+    var queueItems by remember(effectiveClinicId) { mutableStateOf<List<QueueItemUi>>(initialMappedQueueItems) }
     var selectedQueueTab by remember { mutableStateOf(0) } // 0: Live, 1: Completed
     val today = remember { LocalDate.now() }
     val parsedInitDate = remember(initialDate) {
@@ -391,12 +453,18 @@ fun QueueBoardScreen(
 
             // Concurrent execution for UI-critical data (Queue + Appts + Doctors + Clinic in parallel)
             coroutineScope {
+                val nowTime = System.currentTimeMillis()
+                val needClinic = currentClinic == null || (nowTime - lastClinicMetaFetchMs > 40_000L)
+                val needDocs = clinicDoctors.isEmpty() || (nowTime - lastDoctorsFetchMs > 40_000L)
+
                 val clinicDeferred = async<Clinic?> {
+                    if (!needClinic) return@async currentClinic
                     try {
                         clinicRepository?.getClinicById(effectiveClinicId)
                     } catch (_: Exception) { null }
                 }
                 val docsDeferred = async<List<Doctor>> {
+                    if (!needDocs) return@async clinicDoctors
                     try {
                         doctorRepository?.getDoctorsByClinic(effectiveClinicId) ?: emptyList()
                     } catch (_: Exception) { emptyList() }
@@ -415,14 +483,16 @@ fun QueueBoardScreen(
                 val c = clinicDeferred.await()
                 if (c != null) {
                     currentClinic = c
+                    lastClinicMetaFetchMs = nowTime
                     if (System.currentTimeMillis() - lastBreakToggleMs > 12_000L) {
                         isClinicOnBreak = c.isOnBreak == true
                     }
                 }
 
                 val docs = docsDeferred.await()
-                if (docs.isNotEmpty() || clinicDoctors.isEmpty()) {
+                if (docs.isNotEmpty()) {
                     clinicDoctors = docs
+                    lastDoctorsFetchMs = nowTime
                     if (selectedDoctorFilterId == null && docs.size == 1 && initialDoctorId.isNullOrBlank()) {
                         selectedDoctorFilterId = docs.first().id
                     }
@@ -497,7 +567,7 @@ fun QueueBoardScreen(
                             doctorName = docMap[entry.doctorId ?: appt?.doctorId]?.fullName,
                             paymentMode = appt?.paymentMode,
                             paymentStatus = appt?.paymentStatus,
-                            totalAmount = appt?.effectiveTotalAmount ?: 0.0
+                            totalAmount = appt?.let { if (it.totalAmount > 0.0) it.totalAmount else it.feeAmount } ?: 0.0
                         )
                     }
                     .sortedWith(

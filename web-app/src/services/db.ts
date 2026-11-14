@@ -2729,6 +2729,29 @@ export async function uploadDoctorPhoto(doctorId: string, fileBlob: Blob, origin
 // ==========================================
 // NOTIFICATIONS API
 // ==========================================
+function getLocalReadNotificationIds(): Set<string> {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem('dactor_read_notifications') : null
+    if (!raw) return new Set()
+    const arr = JSON.parse(raw)
+    return new Set(Array.isArray(arr) ? arr : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function saveLocalReadNotificationIds(ids: string[]): void {
+  try {
+    if (typeof window === 'undefined') return
+    const set = getLocalReadNotificationIds()
+    ids.forEach((id) => {
+      const clean = (id || '').trim()
+      if (clean) set.add(clean)
+    })
+    localStorage.setItem('dactor_read_notifications', JSON.stringify(Array.from(set)))
+  } catch {}
+}
+
 export async function getClinicNotifications(_clinicId: string): Promise<DactorNotification[]> {
   try {
     const { data, error } = await supabase
@@ -2738,7 +2761,14 @@ export async function getClinicNotifications(_clinicId: string): Promise<DactorN
       .limit(50)
 
     if (error) throw error
-    return (data || []).map(mapNotification)
+    const readSet = getLocalReadNotificationIds()
+    return (data || []).map((n) => {
+      const mapped = mapNotification(n)
+      if (readSet.has(mapped.id)) {
+        mapped.isRead = true
+      }
+      return mapped
+    })
   } catch (err) {
     console.error('Error fetching notifications:', err)
     return []
@@ -2785,7 +2815,14 @@ export async function getPatientNotifications(criteria?: {
       return false
     })
 
-    return filtered.map(mapNotification)
+    const readSet = getLocalReadNotificationIds()
+    return filtered.map((n) => {
+      const mapped = mapNotification(n)
+      if (readSet.has(mapped.id)) {
+        mapped.isRead = true
+      }
+      return mapped
+    })
   } catch (err) {
     console.error('Error fetching patient notifications:', err)
     return []
@@ -2793,11 +2830,15 @@ export async function getPatientNotifications(criteria?: {
 }
 
 export async function markNotificationAsRead(notificationId: string): Promise<boolean> {
+  const cleanId = (notificationId || '').trim()
+  if (!cleanId) return true
+  saveLocalReadNotificationIds([cleanId])
   try {
+    if (cleanId.startsWith('lab_notif_')) return true
     const { error } = await supabase
       .from('notifications')
       .update({ is_read: true })
-      .eq('id', notificationId)
+      .eq('id', cleanId)
     return !error
   } catch {
     return false
@@ -2805,12 +2846,15 @@ export async function markNotificationAsRead(notificationId: string): Promise<bo
 }
 
 export async function markAllNotificationsAsRead(notificationIds: string[]): Promise<boolean> {
+  if (!notificationIds || notificationIds.length === 0) return true
+  const validIds = notificationIds.map((id) => (id || '').trim()).filter((id) => id && !id.startsWith('lab_notif_'))
+  saveLocalReadNotificationIds(notificationIds)
+  if (validIds.length === 0) return true
   try {
-    if (!notificationIds || notificationIds.length === 0) return true
     const { error } = await supabase
       .from('notifications')
       .update({ is_read: true })
-      .in('id', notificationIds)
+      .in('id', validIds)
     return !error
   } catch {
     return false

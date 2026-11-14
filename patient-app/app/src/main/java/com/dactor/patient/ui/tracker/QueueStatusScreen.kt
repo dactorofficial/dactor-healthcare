@@ -79,38 +79,60 @@ fun QueueStatusScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var appointment by remember { mutableStateOf<Appointment?>(null) }
-    var clinicName by remember { mutableStateOf("") }
-    var clinicAddress by remember { mutableStateOf("") }
-    var clinicPhone by remember { mutableStateOf("") }
-    var clinicLatitude by remember { mutableDoubleStateOf(0.0) }
-    var clinicLongitude by remember { mutableDoubleStateOf(0.0) }
-    var clinicType by remember { mutableStateOf("single_visit") }
-    var clinicObj by remember { mutableStateOf<Clinic?>(null) }
+    val cachedPrewarmAppt = remember(appointmentIdOrCode) {
+        val query = appointmentIdOrCode.trim()
+        if (query.isBlank()) null
+        else {
+            val list = appointmentRepository?.getCachedAppointments().orEmpty() +
+                appointmentRepository?.getCachedRecords().orEmpty() +
+                (sessionManager?.getCachedActiveAppointments() ?: emptyList()) +
+                (sessionManager?.getCachedRecords() ?: emptyList())
+            list.firstOrNull { it.id == query || it.trackingCode10Digit == query }
+        }
+    }
+    val cachedPrewarmQueue = remember(appointmentIdOrCode, cachedPrewarmAppt) {
+        val query = appointmentIdOrCode.trim()
+        sessionManager?.getCachedQueueStatus(query)
+            ?: cachedPrewarmAppt?.let { sessionManager?.getCachedQueueStatus(it.id) }
+    }
+    val cachedPrewarmClinic = remember(cachedPrewarmAppt) {
+        cachedPrewarmAppt?.clinicId?.takeIf { it.isNotBlank() }?.let {
+            clinicRepository?.getCachedClinicById(it)
+        }
+    }
+
+    var appointment by remember { mutableStateOf<Appointment?>(cachedPrewarmAppt) }
+    var clinicName by remember { mutableStateOf(cachedPrewarmClinic?.name ?: "") }
+    var clinicAddress by remember { mutableStateOf(cachedPrewarmClinic?.addressText ?: "") }
+    var clinicPhone by remember { mutableStateOf(cachedPrewarmClinic?.contactPhone?.trim() ?: "") }
+    var clinicLatitude by remember { mutableDoubleStateOf(cachedPrewarmClinic?.latitude ?: 0.0) }
+    var clinicLongitude by remember { mutableDoubleStateOf(cachedPrewarmClinic?.longitude ?: 0.0) }
+    var clinicType by remember { mutableStateOf(cachedPrewarmClinic?.type ?: "single_visit") }
+    var clinicObj by remember { mutableStateOf<Clinic?>(cachedPrewarmClinic) }
     var liveTimingEstimate by remember { mutableStateOf<LiveQueueTimingEstimate?>(null) }
     var multiSlotResult by remember { mutableStateOf<com.dactor.patient.data.repository.MultiSlotPositionResult?>(null) }
 
     var doctorName by remember { mutableStateOf("") }
     var doctorSpecialty by remember { mutableStateOf("") }
     var doctorPhotoUrl by remember { mutableStateOf<String?>(null) }
-    var isDoctorInClinic by remember { mutableStateOf(true) }
+    var isDoctorInClinic by remember { mutableStateOf(false) }
 
-    var tokenNumber by remember { mutableIntStateOf(0) }
-    var patientsAhead by remember { mutableIntStateOf(-1) } // -1 = not yet loaded
-    var clinicAvgTimeMinutes by remember { mutableIntStateOf(10) }
-    var queueStatus by remember { mutableStateOf("waiting") } // "waiting", "inside", "done", "sample_collected", "processing", "report_prepared"
-    var insideAt by remember { mutableStateOf<String?>(null) }
+    var tokenNumber by remember { mutableIntStateOf(cachedPrewarmQueue?.queuePosition ?: 0) }
+    var patientsAhead by remember { mutableIntStateOf(if (cachedPrewarmQueue != null) (cachedPrewarmQueue.queuePosition - 1).coerceAtLeast(0) else -1) } // -1 = not yet loaded
+    var clinicAvgTimeMinutes by remember { mutableIntStateOf(cachedPrewarmClinic?.getEffectiveAvgMinutes() ?: 10) }
+    var queueStatus by remember { mutableStateOf(cachedPrewarmQueue?.status ?: "waiting") } // "waiting", "inside", "done", "sample_collected", "processing", "report_prepared"
+    var insideAt by remember { mutableStateOf<String?>(cachedPrewarmQueue?.insideAt) }
     var currentEpochSecond by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
-    var isDataLoaded by remember { mutableStateOf(false) }
+    var isDataLoaded by remember { mutableStateOf(cachedPrewarmAppt != null) }
     var isAnyoneInsideDoctorCabin by remember { mutableStateOf(false) }
 
     // Automatic alert state: fires once when ≤2 people are ahead in live queue
     var hasTriggeredTwoAheadAlert by remember(appointmentIdOrCode) { mutableStateOf(false) }
 
-    var rawPatientName by remember { mutableStateOf("") }
-    var rawPhone by remember { mutableStateOf("") }
-    var rawEmail by remember { mutableStateOf("") }
-    var displayTrackingCode by remember { mutableStateOf(appointmentIdOrCode) }
+    var rawPatientName by remember { mutableStateOf(cachedPrewarmAppt?.patientName ?: "") }
+    var rawPhone by remember { mutableStateOf(cachedPrewarmAppt?.patientMobile ?: "") }
+    var rawEmail by remember { mutableStateOf(cachedPrewarmAppt?.patientEmail ?: "") }
+    var displayTrackingCode by remember { mutableStateOf(cachedPrewarmAppt?.trackingCode10Digit ?: appointmentIdOrCode) }
 
     var isNotFound by remember { mutableStateOf(false) }
     var isSavedToProfile by remember { mutableStateOf(false) }
@@ -158,8 +180,12 @@ fun QueueStatusScreen(
         when {
             parts.size >= 2 -> "${parts[0].first().uppercaseChar()}${parts[1].first().uppercaseChar()}"
             parts.size == 1 && parts[0].isNotEmpty() -> "${parts[0].first().uppercaseChar()}"
-            else -> "AJ"
+            else -> ""
         }
+    }
+
+    val hasDoctorAssigned = remember(appointment, doctorName) {
+        !appointment?.doctorId.isNullOrBlank() && doctorName.isNotBlank()
     }
 
     val formattedDate = remember(appointment?.appointmentDate) {
@@ -243,7 +269,7 @@ fun QueueStatusScreen(
 
                 // Fetch clinic info
                 if (appt.clinicId.isNotBlank()) {
-                    val clinic = clinicRepository?.getClinicById(appt.clinicId, forceRefresh = true)
+                    val clinic = clinicRepository?.getClinicById(appt.clinicId, forceRefresh = (clinicObj == null))
                     clinicObj = clinic
                     if (clinic != null) {
                         clinicName = clinic.name
@@ -257,7 +283,7 @@ fun QueueStatusScreen(
                 }
 
                 // Fetch doctor info
-                if (!appt.doctorId.isNullOrBlank()) {
+                if (!appt.doctorId.isNullOrBlank() && (doctorName.isBlank() || doctorPhotoUrl == null)) {
                     val doctor = doctorRepository?.getDoctorById(appt.doctorId)
                     if (doctor != null) {
                         doctorName = doctor.fullName
@@ -314,6 +340,10 @@ fun QueueStatusScreen(
                 if (qEntry != null) {
                     tokenNumber = qEntry.queuePosition
                     insideAt = qEntry.insideAt
+                    sessionManager?.saveCachedQueueStatus(appt.id, qEntry)
+                    if (appt.trackingCode10Digit.isNotBlank()) {
+                        sessionManager?.saveCachedQueueStatus(appt.trackingCode10Digit, qEntry)
+                    }
                 } else if (isPendingClinicApproval) {
                     tokenNumber = 0
                     insideAt = null
@@ -993,7 +1023,7 @@ fun QueueStatusScreen(
 
                 // ── B. DOCTOR PRESENCE / IDLE BANNER ───────────────────
                 val doctorBannerMsg = liveTimingEstimate?.doctorStatusBanner
-                if (!isConsultancyCompleted && !isPayAtDeskPendingNotice && !doctorBannerMsg.isNullOrBlank() && clinicObj?.isOnBreak != true) {
+                if (hasDoctorAssigned && !isConsultancyCompleted && !isPayAtDeskPendingNotice && !doctorBannerMsg.isNullOrBlank() && clinicObj?.isOnBreak != true) {
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = if (liveTimingEstimate?.isDoctorNotInside == true) Color(0xFFFEF2F2) else Color(0xFFFFFBEB),
@@ -2728,106 +2758,108 @@ fun QueueStatusScreen(
                             }
                         }
 
-                        HorizontalDivider(color = Color(0xFFF1F5F9))
+                        if (hasDoctorAssigned) {
+                            HorizontalDivider(color = Color(0xFFF1F5F9))
 
-                        // Doctor Row: Avatar, Name, Specialty, Consultation description
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            if (!doctorPhotoUrl.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = doctorPhotoUrl,
-                                    contentDescription = doctorName,
-                                    modifier = Modifier
-                                        .size(52.dp)
-                                        .clip(CircleShape),
-                                    contentScale = ContentScale.Crop
-                                )
-                            } else {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = Color(0xFFCCFBF1),
-                                    modifier = Modifier.size(52.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(
-                                            text = doctorInitials,
-                                            fontSize = 18.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF0D5C4D)
-                                        )
+                            // Doctor Row: Avatar, Name, Specialty, Consultation description
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                if (!doctorPhotoUrl.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = doctorPhotoUrl,
+                                        contentDescription = doctorName,
+                                        modifier = Modifier
+                                            .size(52.dp)
+                                            .clip(CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFFCCFBF1),
+                                        modifier = Modifier.size(52.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = doctorInitials.ifBlank { "DR" },
+                                                fontSize = 18.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF0D5C4D)
+                                            )
+                                        }
                                     }
+                                }
+
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = "DOCTOR",
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF64748B),
+                                        letterSpacing = 0.5.sp
+                                    )
+                                    Text(
+                                        text = if (doctorName.startsWith("Dr.", ignoreCase = true)) doctorName else "Dr. $doctorName",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0F172A)
+                                    )
+                                    Text(
+                                        text = doctorSpecialty.ifBlank { "Attending Specialist" },
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFF0D9488)
+                                    )
+                                    Text(
+                                        text = "Consultation for general health & OPD",
+                                        fontSize = 11.5.sp,
+                                        color = Color(0xFF64748B)
+                                    )
                                 }
                             }
 
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(
-                                    text = "DOCTOR",
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF64748B),
-                                    letterSpacing = 0.5.sp
-                                )
-                                Text(
-                                    text = if (doctorName.startsWith("Dr.", ignoreCase = true)) doctorName else "Dr. ${doctorName.ifBlank { "Anubhav Jha" }}",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF0F172A)
-                                )
-                                Text(
-                                    text = doctorSpecialty.ifBlank { "Ophthalmology (Eye Care)" },
-                                    fontSize = 12.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFF0D9488)
-                                )
-                                Text(
-                                    text = "Consultation for general health & OPD",
-                                    fontSize = 11.5.sp,
-                                    color = Color(0xFF64748B)
-                                )
-                            }
-                        }
-
-                        // Doctor Presence Banner INSIDE this card (matching reference - hidden on completed visits & lab sample collected)
-                        if (!isConsultancyCompleted && !isLabSampleDone) {
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = if (isDoctorInClinic) Color(0xFFECFDF5) else Color(0xFFFEF2F2),
-                                border = BorderStroke(1.dp, if (isDoctorInClinic) Color(0xFFA7F3D0) else Color(0xFFFECACA)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            // Doctor Presence Banner INSIDE this card (matching reference - hidden on completed visits & lab sample collected)
+                            if (!isConsultancyCompleted && !isLabSampleDone) {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (isDoctorInClinic) Color(0xFFECFDF5) else Color(0xFFFEF2F2),
+                                    border = BorderStroke(1.dp, if (isDoctorInClinic) Color(0xFFA7F3D0) else Color(0xFFFECACA)),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(16.dp)
-                                            .background(if (isDoctorInClinic) Color(0xFFA7F3D0) else Color(0xFFFECACA), CircleShape),
-                                        contentAlignment = Alignment.Center
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
                                         Box(
                                             modifier = Modifier
-                                                .size(8.dp)
-                                                .background(if (isDoctorInClinic) Color(0xFF059669) else Color(0xFFDC2626), CircleShape)
-                                        )
-                                    }
+                                                .size(16.dp)
+                                                .background(if (isDoctorInClinic) Color(0xFFA7F3D0) else Color(0xFFFECACA), CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(8.dp)
+                                                    .background(if (isDoctorInClinic) Color(0xFF059669) else Color(0xFFDC2626), CircleShape)
+                                            )
+                                        }
 
-                                    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                                        Text(
-                                            text = if (isDoctorInClinic) "Doctor is inside the clinic" else "Doctor Temporarily Away",
-                                            fontSize = 12.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isDoctorInClinic) Color(0xFF065F46) else Color(0xFF991B1B)
-                                        )
-                                        Text(
-                                            text = if (isDoctorInClinic) "Attending active OPD tokens in the consultation room" else "Doctor will resume consultations shortly.",
-                                            fontSize = 11.sp,
-                                            color = if (isDoctorInClinic) Color(0xFF047857) else Color(0xFFB91C1C)
-                                        )
+                                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                            Text(
+                                                text = if (isDoctorInClinic) "Doctor is inside the clinic" else "Doctor Temporarily Away",
+                                                fontSize = 12.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isDoctorInClinic) Color(0xFF065F46) else Color(0xFF991B1B)
+                                            )
+                                            Text(
+                                                text = if (isDoctorInClinic) "Attending active OPD tokens in the consultation room" else "Doctor will resume consultations shortly.",
+                                                fontSize = 11.sp,
+                                                color = if (isDoctorInClinic) Color(0xFF047857) else Color(0xFFB91C1C)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -4325,10 +4357,21 @@ fun QueueStatusScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("Dr. ${doctorName.ifBlank { "Attending Physician" }}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF065F46))
+                                Text(
+                                    text = if (hasDoctorAssigned) {
+                                        if (doctorName.startsWith("Dr.", ignoreCase = true)) doctorName else "Dr. $doctorName"
+                                    } else {
+                                        clinicName.ifBlank { "Facility Counter / OPD" }
+                                    },
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF065F46)
+                                )
                                 Text("Token #$tokenNumber", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0D5C4D))
                             }
-                            Text("Specialty: ${doctorSpecialty.ifBlank { "General OPD" }}", fontSize = 11.sp, color = Color(0xFF047857))
+                            if (hasDoctorAssigned && doctorSpecialty.isNotBlank()) {
+                                Text("Specialty: $doctorSpecialty", fontSize = 11.sp, color = Color(0xFF047857))
+                            }
                             Text("Clinic: ${clinicName.ifBlank { "Healthcare Clinic" }}", fontSize = 11.sp, color = Color(0xFF047857))
                             Text("Patient: ${rawPatientName.ifBlank { "Patient" }} \u2022 Tracking #$displayTrackingCode", fontSize = 10.5.sp, color = Color(0xFF065F46))
                         }

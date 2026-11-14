@@ -2,6 +2,7 @@ package com.dactor.patient.data.local
 
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.serialization.builtins.serializer
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -65,8 +66,10 @@ class UserSessionManager @Inject constructor(
     fun isLoggedIn(): Boolean {
         val prefLoggedIn = prefs.getBoolean("is_logged_in", false)
         val hasEmail = !prefs.getString("user_email", null).isNullOrBlank()
+        if (!prefLoggedIn || !hasEmail) return false
         val fbUser = try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser } catch (_: Exception) { null }
-        return (prefLoggedIn && hasEmail) || (fbUser != null && !fbUser.email.isNullOrBlank())
+        val hasPatientId = !getSavedPatientId().isNullOrBlank()
+        return (fbUser != null && !fbUser.email.isNullOrBlank()) || hasPatientId
     }
 
     fun hasSeenOnboarding(): Boolean = prefs.getBoolean("has_seen_onboarding", false)
@@ -181,6 +184,35 @@ class UserSessionManager @Inject constructor(
     fun isNotificationSeen(id: String): Boolean = prefs.getBoolean("notif_seen_$id", false)
     fun markNotificationSeen(id: String) {
         prefs.edit().putBoolean("notif_seen_$id", true).apply()
+    }
+
+    fun getReadNotificationIds(): Set<String> {
+        return prefs.getStringSet("read_notification_ids", emptySet()) ?: emptySet()
+    }
+
+    fun isNotificationRead(id: String): Boolean {
+        if (id.isBlank()) return false
+        val set = prefs.getStringSet("read_notification_ids", null)
+        return set?.contains(id) == true
+    }
+
+    fun markNotificationRead(id: String) {
+        if (id.isBlank()) return
+        val current = prefs.getStringSet("read_notification_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
+        current.add(id)
+        prefs.edit().putStringSet("read_notification_ids", current).apply()
+    }
+
+    fun markNotificationsRead(ids: Collection<String>) {
+        val validIds = ids.filter { it.isNotBlank() }
+        if (validIds.isEmpty()) return
+        val current = prefs.getStringSet("read_notification_ids", emptySet())?.toMutableSet() ?: mutableSetOf()
+        current.addAll(validIds)
+        prefs.edit().putStringSet("read_notification_ids", current).apply()
+    }
+
+    fun clearReadNotifications() {
+        prefs.edit().remove("read_notification_ids").apply()
     }
 
     fun isOneHourReminderTriggered(appointmentId: String): Boolean =
@@ -553,33 +585,102 @@ class UserSessionManager @Inject constructor(
         }
     }
 
+    fun saveCachedRecords(records: List<com.dactor.patient.data.model.Appointment>) {
+        try {
+            val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; encodeDefaults = true }
+            val serialized = json.encodeToString(
+                kotlinx.serialization.builtins.ListSerializer(com.dactor.patient.data.model.Appointment.serializer()),
+                records.take(100)
+            )
+            prefs.edit().putString("local_cached_records_appointments", serialized).apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun getCachedRecords(): List<com.dactor.patient.data.model.Appointment> {
+        val raw = prefs.getString("local_cached_records_appointments", null) ?: return emptyList()
+        if (raw.isBlank()) return emptyList()
+        return try {
+            val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+            json.decodeFromString(
+                kotlinx.serialization.builtins.ListSerializer(com.dactor.patient.data.model.Appointment.serializer()),
+                raw
+            )
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveCachedInvoices(invoices: Map<String, com.dactor.patient.data.model.BillingInvoice>) {
+        try {
+            val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; encodeDefaults = true }
+            val serialized = json.encodeToString(
+                kotlinx.serialization.builtins.MapSerializer(
+                    String.Companion.serializer(),
+                    com.dactor.patient.data.model.BillingInvoice.serializer()
+                ),
+                invoices
+            )
+            prefs.edit().putString("local_cached_record_invoices", serialized).apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun getCachedInvoices(): Map<String, com.dactor.patient.data.model.BillingInvoice> {
+        val raw = prefs.getString("local_cached_record_invoices", null) ?: return emptyMap()
+        if (raw.isBlank()) return emptyMap()
+        return try {
+            val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+            json.decodeFromString(
+                kotlinx.serialization.builtins.MapSerializer(
+                    String.Companion.serializer(),
+                    com.dactor.patient.data.model.BillingInvoice.serializer()
+                ),
+                raw
+            )
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
+    fun saveCachedQueueStatus(code: String, entry: com.dactor.patient.data.model.QueueEntry) {
+        if (code.isBlank()) return
+        try {
+            val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; encodeDefaults = true }
+            val serialized = json.encodeToString(com.dactor.patient.data.model.QueueEntry.serializer(), entry)
+            prefs.edit().putString("local_cached_q_${code.trim()}", serialized).apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun getCachedQueueStatus(code: String): com.dactor.patient.data.model.QueueEntry? {
+        if (code.isBlank()) return null
+        val raw = prefs.getString("local_cached_q_${code.trim()}", null) ?: return null
+        if (raw.isBlank()) return null
+        return try {
+            val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+            json.decodeFromString(com.dactor.patient.data.model.QueueEntry.serializer(), raw)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     fun clearSession() {
-        val savedCodes = prefs.getString("saved_tracking_codes", null)
         val fcm = prefs.getString("fcm_token", null)
-        val txs = prefs.getString("local_cached_transactions", null)
         val hasSeen = prefs.getBoolean("has_seen_onboarding", false)
         val hasAcceptedTerms = prefs.getBoolean("has_accepted_terms_v1", false)
-        val seenNotifs = prefs.all.filterKeys { it.startsWith("notif_seen_") }
         prefs.edit().clear().apply()
-        prefs.edit().putBoolean("has_seen_onboarding", hasSeen).apply()
-        prefs.edit().putBoolean("has_accepted_terms_v1", hasAcceptedTerms).apply()
-        if (!savedCodes.isNullOrBlank()) {
-            prefs.edit().putString("saved_tracking_codes", savedCodes).apply()
-        }
+        prefs.edit()
+            .putBoolean("has_seen_onboarding", hasSeen)
+            .putBoolean("has_accepted_terms_v1", hasAcceptedTerms)
+            .putBoolean("is_logged_in", false)
+            .putBoolean("is_guest_mode", true)
+            .apply()
         if (!fcm.isNullOrBlank()) {
             prefs.edit().putString("fcm_token", fcm).apply()
-        }
-        if (!txs.isNullOrBlank()) {
-            prefs.edit().putString("local_cached_transactions", txs).apply()
-        }
-        if (seenNotifs.isNotEmpty()) {
-            val editor = prefs.edit()
-            for ((key, value) in seenNotifs) {
-                if (value is Boolean) {
-                    editor.putBoolean(key, value)
-                }
-            }
-            editor.apply()
         }
     }
 

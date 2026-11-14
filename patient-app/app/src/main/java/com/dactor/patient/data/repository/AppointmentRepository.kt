@@ -133,6 +133,30 @@ class AppointmentRepository @Inject constructor(
         cachedAppointments = list
     }
 
+    @Volatile
+    private var cachedRecords: List<Appointment>? = null
+
+    fun getCachedRecords(): List<Appointment> = cachedRecords ?: emptyList()
+
+    fun setCachedRecords(list: List<Appointment>) {
+        cachedRecords = list
+    }
+
+    @Volatile
+    private var cachedRecordInvoices: Map<String, BillingInvoice>? = null
+
+    fun getCachedRecordInvoices(): Map<String, BillingInvoice> = cachedRecordInvoices ?: emptyMap()
+
+    fun setCachedRecordInvoices(map: Map<String, BillingInvoice>) {
+        cachedRecordInvoices = map
+    }
+
+    fun clearCache() {
+        cachedAppointments = null
+        cachedRecords = null
+        cachedRecordInvoices = null
+    }
+
     private val lenientJson = kotlinx.serialization.json.Json {
         ignoreUnknownKeys = true
         isLenient = true

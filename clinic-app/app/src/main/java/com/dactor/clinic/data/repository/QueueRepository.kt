@@ -12,6 +12,7 @@ import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -64,12 +65,42 @@ class QueueRepository @Inject constructor(
     private val queueDao: com.dactor.clinic.data.local.dao.QueueDao? = null,
     private val devicePrefixManager: com.dactor.clinic.data.local.DevicePrefixManager? = null
 ) {
-    suspend fun getQueueForClinic(clinicId: String): List<QueueEntry> = withContext(Dispatchers.IO) {
+    private val clinicQueueCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<QueueEntry>>>()
+    private val doctorQueueCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<QueueEntry>>>()
+
+    fun getCachedQueueForClinic(clinicId: String): List<QueueEntry> {
+        if (clinicId.isBlank()) return emptyList()
+        return clinicQueueCache[clinicId]?.second ?: emptyList()
+    }
+
+    suspend fun getLocalOrCachedQueueForClinic(clinicId: String): List<QueueEntry> = withContext(Dispatchers.IO) {
+        if (clinicId.isBlank()) return@withContext emptyList()
+        clinicQueueCache[clinicId]?.second?.let { if (it.isNotEmpty()) return@withContext it }
         try {
-            // Automatically audit and transfer uncompleted past live queue patients to 'no_show'
-            try {
-                autoTransferUncompletedQueueToNoShow(clinicId = clinicId, includeTodayExpired = false)
-            } catch (ignored: Exception) {}
+            val local = queueDao?.getQueueForClinicList(clinicId)?.map { it.toDomainModel() }
+            if (!local.isNullOrEmpty()) {
+                clinicQueueCache[clinicId] = Pair(System.currentTimeMillis(), local)
+                return@withContext local
+            }
+        } catch (_: Exception) {}
+        emptyList()
+    }
+
+    suspend fun getQueueForClinic(clinicId: String, forceRefresh: Boolean = false): List<QueueEntry> = withContext(Dispatchers.IO) {
+        if (clinicId.isBlank()) return@withContext emptyList()
+        if (!forceRefresh) {
+            val cached = clinicQueueCache[clinicId]
+            if (cached != null && (System.currentTimeMillis() - cached.first) < 2500L) {
+                return@withContext cached.second
+            }
+        }
+        try {
+            // Run background audit asynchronously so it never delays live queue response
+            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    autoTransferUncompletedQueueToNoShow(clinicId = clinicId, includeTodayExpired = false)
+                } catch (_: Exception) {}
+            }
 
             var currentEntries = supabaseClient.postgrest["queue_entries"]
                 .select {
@@ -186,6 +217,7 @@ class QueueRepository @Inject constructor(
             } catch (ignored: Exception) {}
 
             val sorted = currentEntries.sortedBy { it.queuePosition }
+            clinicQueueCache[clinicId] = Pair(System.currentTimeMillis(), sorted)
             try {
                 queueDao?.upsertAll(
                     sorted.map { com.dactor.clinic.data.local.entity.QueueEntryEntity.fromDomainModel(it, syncStatus = "synced") }
@@ -195,26 +227,36 @@ class QueueRepository @Inject constructor(
         } catch (e: Exception) {
             e.printStackTrace()
             val cached = try {
-                queueDao?.getQueueForClinicList(clinicId)?.map { it.toDomainModel() }
+                clinicQueueCache[clinicId]?.second
+                    ?: queueDao?.getQueueForClinicList(clinicId)?.map { it.toDomainModel() }
             } catch (_: Exception) { null }
             cached ?: emptyList()
         }
     }
 
-    suspend fun getQueueForDoctor(doctorId: String): List<QueueEntry> = withContext(Dispatchers.IO) {
+    suspend fun getQueueForDoctor(doctorId: String, forceRefresh: Boolean = false): List<QueueEntry> = withContext(Dispatchers.IO) {
+        if (doctorId.isBlank()) return@withContext emptyList()
+        if (!forceRefresh) {
+            val cached = doctorQueueCache[doctorId]
+            if (cached != null && (System.currentTimeMillis() - cached.first) < 2500L) {
+                return@withContext cached.second
+            }
+        }
         try {
             // Automatically audit and transfer uncompleted past live queue patients to 'no_show'
-            try {
-                val doc = try {
-                    supabaseClient.postgrest["doctors"]
-                        .select { filter { eq("id", doctorId) } }
-                        .decodeSingleOrNull<com.dactor.clinic.data.model.Doctor>()
-                } catch (e: Exception) { null }
-                val docClinicId = doc?.clinicId
-                if (!docClinicId.isNullOrBlank()) {
-                    autoTransferUncompletedQueueToNoShow(clinicId = docClinicId, includeTodayExpired = false)
-                }
-            } catch (ignored: Exception) {}
+            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val doc = try {
+                        supabaseClient.postgrest["doctors"]
+                            .select { filter { eq("id", doctorId) } }
+                            .decodeSingleOrNull<com.dactor.clinic.data.model.Doctor>()
+                    } catch (e: Exception) { null }
+                    val docClinicId = doc?.clinicId
+                    if (!docClinicId.isNullOrBlank()) {
+                        autoTransferUncompletedQueueToNoShow(clinicId = docClinicId, includeTodayExpired = false)
+                    }
+                } catch (_: Exception) {}
+            }
 
             var currentEntries = supabaseClient.postgrest["queue_entries"]
                 .select {
@@ -328,6 +370,7 @@ class QueueRepository @Inject constructor(
             } catch (ignored: Exception) {}
 
             val sorted = currentEntries.sortedBy { it.queuePosition }
+            doctorQueueCache[doctorId] = Pair(System.currentTimeMillis(), sorted)
             try {
                 queueDao?.upsertAll(
                     sorted.map { com.dactor.clinic.data.local.entity.QueueEntryEntity.fromDomainModel(it, syncStatus = "synced") }
@@ -337,7 +380,8 @@ class QueueRepository @Inject constructor(
         } catch (e: Exception) {
             e.printStackTrace()
             val cached = try {
-                queueDao?.getQueueForDoctorOnlyList(doctorId)?.map { it.toDomainModel() }
+                doctorQueueCache[doctorId]?.second
+                    ?: queueDao?.getQueueForDoctorOnlyList(doctorId)?.map { it.toDomainModel() }
             } catch (_: Exception) { null }
             cached ?: emptyList()
         }
@@ -1257,6 +1301,46 @@ class QueueRepository @Inject constructor(
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
+        }
+    }
+
+    suspend fun markAsRead(id: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val cleanId = id.trim()
+            if (cleanId.isBlank() || cleanId.startsWith("lab_notif_")) return@withContext true
+            supabaseClient.postgrest["notifications"]
+                .update({
+                    set("is_read", true)
+                }) {
+                    filter {
+                        eq("id", cleanId)
+                    }
+                }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    suspend fun markAllAsRead(ids: List<String>): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val validIds = ids.map { it.trim() }.filter { it.isNotBlank() && !it.startsWith("lab_notif_") }
+            if (validIds.isEmpty()) return@withContext true
+            for (chunk in validIds.chunked(30)) {
+                try {
+                    supabaseClient.postgrest["notifications"]
+                        .update({
+                            set("is_read", true)
+                        }) {
+                            filter {
+                                isIn("id", chunk)
+                            }
+                        }
+                } catch (_: Exception) {}
+            }
+            true
+        } catch (e: Exception) {
+            false
         }
     }
 

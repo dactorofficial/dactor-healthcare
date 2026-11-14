@@ -254,15 +254,20 @@ fun ProfileScreen(
 
     fun performSignOut() {
         coroutineScope.launch {
-            sessionManager?.clearSession()
             try {
-                com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
-                    context,
+                val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(
                     com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                ).signOut()
+                ).requestEmail().build()
+                val gsc = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso)
+                com.google.android.gms.tasks.Tasks.await(gsc.signOut(), 3, java.util.concurrent.TimeUnit.SECONDS)
+            } catch (_: Exception) {}
+            try {
                 com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-            } catch (ignored: Exception) {}
+            } catch (_: Exception) {}
             authRepository?.signOut()
+            appointmentRepository?.clearCache()
+            sessionManager?.clearSession()
+            sessionManager?.setGuestMode(true)
             isLoggedIn = false
             userEmail = null
             userName = null
@@ -271,7 +276,6 @@ fun ProfileScreen(
             userAge = null
             isArchived = false
             savedAppointments = emptyList()
-            sessionManager?.setGuestMode(true)
             navController.navigate(NavRoutes.PatientMain.route) {
                 popUpTo(0) { inclusive = true }
             }
@@ -336,13 +340,17 @@ fun ProfileScreen(
 
                 sessionManager?.clearSession()
                 try {
-                    com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
-                        context,
+                    val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(
                         com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                    ).signOut()
+                    ).requestEmail().build()
+                    val gsc = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso)
+                    com.google.android.gms.tasks.Tasks.await(gsc.signOut(), 3, java.util.concurrent.TimeUnit.SECONDS)
+                } catch (ignored: Exception) {}
+                try {
                     com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
                 } catch (ignored: Exception) {}
                 authRepository?.signOut()
+                appointmentRepository?.clearCache()
 
                 showDeleteAccountDialog = false
                 sessionManager?.setGuestMode(true)

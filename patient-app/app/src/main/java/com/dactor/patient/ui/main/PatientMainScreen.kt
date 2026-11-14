@@ -453,10 +453,13 @@ fun PatientMainScreen(
         }
         try {
             val todayStr = LocalDate.now().toString()
-            var patientId = sessionManager?.getSavedPatientId() ?: ""
-            val email = sessionManager?.getSavedEmail()?.takeIf { it.isNotBlank() }
-                ?: authRepository?.getCurrentUserEmail()?.takeIf { it.isNotBlank() }
-            var phone = sessionManager?.getSavedPhone()?.takeIf { it.isNotBlank() }
+            val isUserLoggedIn = sessionManager?.isLoggedIn() == true
+            var patientId = if (isUserLoggedIn) sessionManager?.getSavedPatientId() ?: "" else ""
+            val email = if (isUserLoggedIn) {
+                sessionManager?.getSavedEmail()?.takeIf { it.isNotBlank() }
+                    ?: authRepository?.getCurrentUserEmail()?.takeIf { it.isNotBlank() }
+            } else null
+            var phone = if (isUserLoggedIn) sessionManager?.getSavedPhone()?.takeIf { it.isNotBlank() } else null
 
             if (!email.isNullOrBlank() && authRepository != null) {
                 try {
@@ -770,6 +773,17 @@ fun HomeTab(
     val coroutineScope = rememberCoroutineScope()
 
     val today = remember { LocalDate.now() }
+    val homeLifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    var homeResumeCounter by remember { mutableIntStateOf(0) }
+    DisposableEffect(homeLifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                homeResumeCounter++
+            }
+        }
+        homeLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { homeLifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     var viewedYearMonth by remember { mutableStateOf(YearMonth.from(today)) }
     val viewedYearMonthStr = viewedYearMonth.toString()
 
@@ -1203,7 +1217,7 @@ fun HomeTab(
     }
 
     var unreadCount by remember { mutableIntStateOf(0) }
-    LaunchedEffect(notificationRepository, sessionManager) {
+    LaunchedEffect(notificationRepository, sessionManager, homeResumeCounter) {
         if (notificationRepository != null) {
             try {
                 val userId = sessionManager?.getSavedPatientId()
@@ -1224,7 +1238,8 @@ fun HomeTab(
                     userId = userId,
                     appointmentIds = apptIds
                 )
-                unreadCount = list.count { !it.isRead }
+                val readIds = sessionManager?.getReadNotificationIds() ?: emptySet()
+                unreadCount = list.count { !it.isRead && !readIds.contains(it.id) }
             } catch (_: Exception) {}
         }
     }
@@ -2157,13 +2172,73 @@ fun HomeTab(
 
                 // ── MAIN STREAM (DISCOVERY VS FILTERED) ──────────────────────────────────────────────────────────────
                 if (isDefaultStream) {
-                    // ── 3. DOCTORS AVAILABLE TODAY ───────────────────────────────────────────────────────────────────────
+                    // ── 3. LIVE OPD CLINICS & HOSPITALS ──────────────────────────────────────────────────────────────────
+                    if (opdClinics.isNotEmpty()) {
+                        item(key = "header_clinics_today") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp, bottom = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(Icons.Default.LocalHospital, contentDescription = null, tint = Color(0xFF0891B2), modifier = Modifier.size(18.dp))
+                                    Text(
+                                        text = "Live OPD Clinics & Hospitals",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = Color(0xFF0F172A)
+                                    )
+                                }
+                                if (displayedClinics.size > 3) {
+                                    Text(
+                                        text = "View All (${displayedClinics.size})",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0891B2),
+                                        modifier = Modifier.clickable { selectedEntityFilter = "clinics" }
+                                    )
+                                }
+                            }
+                        }
+
+                        items(opdClinics.take(3), key = { "clinic_${it.first.clinic.id}" }) { (item, matchResult) ->
+                            PatientHomeClinicCard(
+                                item = item,
+                                matchResult = matchResult,
+                                clinicsNextAvailableDates = clinicsNextAvailableDates,
+                                selectedDate = selectedDate,
+                                userLatitude = userLatitude,
+                                userLongitude = userLongitude,
+                                searchQuery = searchQuery,
+                                isExplicitLabSection = false,
+                                isCategoryTabSelected = (activeCategoryFilter != null),
+                                onNavigateToClinic = { clinicId ->
+                                    navController.navigate(NavRoutes.ClinicDetail.createRoute(clinicId))
+                                },
+                                onCallClinic = { phone ->
+                                    if (phone.isNotBlank()) {
+                                        try {
+                                            val intent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:$phone"))
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {}
+                                    }
+                                }
+                            )
+                        }
+                    }
+
+                    // ── 4. DOCTORS AVAILABLE TODAY ───────────────────────────────────────────────────────────────────────
                     if (displayedDoctors.isNotEmpty()) {
                         item(key = "header_doctors_today") {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = 4.dp, bottom = 2.dp),
+                                    .padding(top = 10.dp, bottom = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
@@ -2206,64 +2281,6 @@ fun HomeTab(
                         }
                     }
 
-                    // ── 4. LIVE OPD CLINICS & HOSPITALS ──────────────────────────────────────────────────────────────────
-                    if (opdClinics.isNotEmpty()) {
-                        item(key = "header_clinics_today") {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 10.dp, bottom = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(Icons.Default.LocalHospital, contentDescription = null, tint = Color(0xFF0891B2), modifier = Modifier.size(18.dp))
-                                    Text(
-                                        text = "Live OPD Clinics & Hospitals",
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = Color(0xFF0F172A)
-                                    )
-                                }
-                                if (displayedClinics.size > 3) {
-                                    Text(
-                                        text = "View All (${displayedClinics.size})",
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF0891B2),
-                                        modifier = Modifier.clickable { selectedEntityFilter = "clinics" }
-                                    )
-                                }
-                            }
-                        }
-
-                        items(opdClinics.take(3), key = { "clinic_${it.first.clinic.id}" }) { (item, matchResult) ->
-                            PatientHomeClinicCard(
-                                item = item,
-                                matchResult = matchResult,
-                                clinicsNextAvailableDates = clinicsNextAvailableDates,
-                                selectedDate = selectedDate,
-                                userLatitude = userLatitude,
-                                userLongitude = userLongitude,
-                                searchQuery = searchQuery,
-                                onNavigateToClinic = { clinicId ->
-                                    navController.navigate(NavRoutes.ClinicDetail.createRoute(clinicId))
-                                },
-                                onCallClinic = { phone ->
-                                    if (phone.isNotBlank()) {
-                                        try {
-                                            val intent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:$phone"))
-                                            context.startActivity(intent)
-                                        } catch (_: Exception) {}
-                                    }
-                                }
-                            )
-                        }
-                    }
-
                     // ── 5. DIAGNOSTIC SCANS & PATHOLOGY LABS ─────────────────────────────────────────────────────────────
                     if (diagnosticLabs.isNotEmpty()) {
                         item(key = "header_diagnostic_labs") {
@@ -2293,6 +2310,8 @@ fun HomeTab(
                                 userLatitude = userLatitude,
                                 userLongitude = userLongitude,
                                 searchQuery = searchQuery,
+                                isExplicitLabSection = true,
+                                isCategoryTabSelected = (activeCategoryFilter != null),
                                 onNavigateToClinic = { clinicId ->
                                     navController.navigate(NavRoutes.ClinicDetail.createRoute(clinicId))
                                 },
@@ -2309,12 +2328,55 @@ fun HomeTab(
                     }
                 } else {
                     // ── FILTERED OR SEARCH RESULTS FEED ──────────────────────────────────────────────────────────────────
+                    if (showClinicsSection && displayedClinics.isNotEmpty()) {
+                        item(key = "header_matching_clinics") {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                            ) {
+                                Icon(Icons.Default.LocalHospital, contentDescription = null, tint = Color(0xFF0891B2), modifier = Modifier.size(18.dp))
+                                Text(
+                                    text = if (activeCategoryFilter != null) "$activeCategoryFilter Centers & Labs (${displayedClinics.size})" else "Matching Clinics (${displayedClinics.size})",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF0F172A)
+                                )
+                            }
+                        }
+
+                        items(displayedClinics, key = { "clinic_${it.first.clinic.id}" }) { (item, matchResult) ->
+                            PatientHomeClinicCard(
+                                item = item,
+                                matchResult = matchResult,
+                                clinicsNextAvailableDates = clinicsNextAvailableDates,
+                                selectedDate = selectedDate,
+                                userLatitude = userLatitude,
+                                userLongitude = userLongitude,
+                                searchQuery = searchQuery,
+                                isExplicitLabSection = false,
+                                isCategoryTabSelected = (activeCategoryFilter != null),
+                                onNavigateToClinic = { clinicId ->
+                                    navController.navigate(NavRoutes.ClinicDetail.createRoute(clinicId))
+                                },
+                                onCallClinic = { phone ->
+                                    if (phone.isNotBlank()) {
+                                        try {
+                                            val intent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:$phone"))
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {}
+                                    }
+                                }
+                            )
+                        }
+                    }
+
                     if (showDoctorsSection && displayedDoctors.isNotEmpty()) {
                         item(key = "header_matching_doctors") {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                                modifier = Modifier.padding(top = 10.dp, bottom = 2.dp)
                             ) {
                                 Icon(Icons.Default.MedicalServices, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(18.dp))
                                 Text(
@@ -2337,47 +2399,6 @@ fun HomeTab(
                                 userLongitude = userLongitude,
                                 searchQuery = searchQuery,
                                 onSelectDoctorToBook = { selectedDoctorForClinicPicker = it }
-                            )
-                        }
-                    }
-
-                    if (showClinicsSection && displayedClinics.isNotEmpty()) {
-                        item(key = "header_matching_clinics") {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.padding(top = 10.dp, bottom = 2.dp)
-                            ) {
-                                Icon(Icons.Default.LocalHospital, contentDescription = null, tint = Color(0xFF0891B2), modifier = Modifier.size(18.dp))
-                                Text(
-                                    text = if (activeCategoryFilter != null) "$activeCategoryFilter Centers & Labs (${displayedClinics.size})" else "Matching Clinics (${displayedClinics.size})",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = Color(0xFF0F172A)
-                                )
-                            }
-                        }
-
-                        items(displayedClinics, key = { "clinic_${it.first.clinic.id}" }) { (item, matchResult) ->
-                            PatientHomeClinicCard(
-                                item = item,
-                                matchResult = matchResult,
-                                clinicsNextAvailableDates = clinicsNextAvailableDates,
-                                selectedDate = selectedDate,
-                                userLatitude = userLatitude,
-                                userLongitude = userLongitude,
-                                searchQuery = searchQuery,
-                                onNavigateToClinic = { clinicId ->
-                                    navController.navigate(NavRoutes.ClinicDetail.createRoute(clinicId))
-                                },
-                                onCallClinic = { phone ->
-                                    if (phone.isNotBlank()) {
-                                        try {
-                                            val intent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:$phone"))
-                                            context.startActivity(intent)
-                                        } catch (_: Exception) {}
-                                    }
-                                }
                             )
                         }
                     }
@@ -3110,10 +3131,15 @@ private fun PatientHomeClinicCard(
     userLatitude: Double?,
     userLongitude: Double?,
     searchQuery: String,
+    isExplicitLabSection: Boolean = false,
+    isCategoryTabSelected: Boolean = false,
     onNavigateToClinic: (String) -> Unit,
     onCallClinic: (String) -> Unit
 ) {
     val clinic = item.clinic
+    val isLabClinic = remember(clinic, item.services, isExplicitLabSection) {
+        isExplicitLabSection || com.dactor.patient.util.DiagnosticLabPolicy.isDiagnosticOrPathologyLab(clinic, item.services)
+    }
     val primaryDoctor = matchResult.matchedDoctors.firstOrNull() ?: item.doctors.firstOrNull()
     val distText = OpenRouteSpatialEngine.formatDistanceBadge(userLatitude, userLongitude, clinic)
         ?: run {
@@ -3186,16 +3212,16 @@ private fun PatientHomeClinicCard(
 
                 // Facility Badge (Top Right)
                 Surface(
-                    color = if (clinic.type == "diagnostic_lab") Color(0xFFFDF4FF) else Color(0xFFF0F9FF),
+                    color = if (isLabClinic) Color(0xFFFDF4FF) else Color(0xFFF0F9FF),
                     shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, if (clinic.type == "diagnostic_lab") Color(0xFFF0ABFC) else Color(0xFFBAE6FD)),
+                    border = BorderStroke(1.dp, if (isLabClinic) Color(0xFFF0ABFC) else Color(0xFFBAE6FD)),
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(10.dp)
                 ) {
                     Text(
-                        text = if (clinic.type == "diagnostic_lab") "Diagnostic Lab" else "Polyclinic & OPD",
-                        color = if (clinic.type == "diagnostic_lab") Color(0xFF9333EA) else Color(0xFF0284C7),
+                        text = if (isLabClinic) "Diagnostic Lab" else "Polyclinic & OPD",
+                        color = if (isLabClinic) Color(0xFF9333EA) else Color(0xFF0284C7),
                         fontWeight = FontWeight.Bold,
                         fontSize = 10.5.sp,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
@@ -3255,13 +3281,7 @@ private fun PatientHomeClinicCard(
                 }
 
                 // Lab / Specialty Chips & Offerings
-                val isLabClinic = remember(clinic) {
-                    clinic.type.equals("diagnostic_lab", ignoreCase = true) ||
-                    clinic.type?.contains("lab", ignoreCase = true) == true ||
-                    clinic.name.contains("lab", ignoreCase = true)
-                }
-
-                val displayChips = remember(clinic, item.services) {
+                val displayChips = remember(clinic, item.services, isLabClinic) {
                     if (isLabClinic) {
                         if (item.services.isNotEmpty()) {
                             item.services.map { it.serviceName }
@@ -3347,8 +3367,17 @@ private fun PatientHomeClinicCard(
                     }
                 }
 
-                // Primary Doctor Row (Only for non-lab clinics)
-                if (!isLabClinic && primaryDoctor != null) {
+                // Doctor or Technician Row
+                // - For Diagnostic/Pathology Lab: Hide on homepage default carousel UNLESS user clicked a carousel tab or searched for a doctor
+                // - For Regular Clinics: Always show primary doctor
+                val shouldShowDoctorOrTech = if (isLabClinic) {
+                    (isCategoryTabSelected && matchResult.matchedDoctors.isNotEmpty()) ||
+                    (searchQuery.isNotBlank() && matchResult.matchedDoctors.isNotEmpty())
+                } else {
+                    primaryDoctor != null
+                }
+
+                if (shouldShowDoctorOrTech && primaryDoctor != null) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -3501,20 +3530,41 @@ fun RecordsTab(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var allRecords by remember { mutableStateOf<List<Appointment>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    val cachedInitialRecords = remember {
+        val inMem = appointmentRepository?.getCachedRecords()?.takeIf { it.isNotEmpty() }
+        inMem ?: sessionManager?.getCachedRecords() ?: emptyList()
+    }
+    val cachedInitialInvoices = remember {
+        val inMem = appointmentRepository?.getCachedRecordInvoices()?.takeIf { it.isNotEmpty() }
+        inMem ?: sessionManager?.getCachedInvoices() ?: emptyMap()
+    }
+
+    var allRecords by remember { mutableStateOf<List<Appointment>>(cachedInitialRecords) }
+    var isLoading by remember { mutableStateOf(cachedInitialRecords.isEmpty()) }
     var selectedFilter by remember { mutableStateOf("All") } // "All", "Completed", "With Bills"
     var searchQuery by remember { mutableStateOf("") }
 
     // Caches for Clinics, Doctors, Invoices, Remarks, Lab Reports
-    val clinicMap = remember { mutableStateMapOf<String, Clinic>() }
-    val doctorMap = remember { mutableStateMapOf<String, Doctor>() }
-    val invoiceMap = remember { mutableStateMapOf<String, BillingInvoice>() }
+    val clinicMap = remember {
+        mutableStateMapOf<String, Clinic>().apply {
+            clinicRepository?.getCachedClinics()?.forEach { put(it.id, it) }
+        }
+    }
+    val doctorMap = remember {
+        mutableStateMapOf<String, Doctor>().apply {
+            doctorRepository?.getCachedAllDoctors()?.forEach { put(it.id, it) }
+        }
+    }
+    val invoiceMap = remember {
+        mutableStateMapOf<String, BillingInvoice>().apply {
+            putAll(cachedInitialInvoices)
+        }
+    }
     val remarksMap = remember { mutableStateMapOf<String, String>() }
     val labReportMap = remember { mutableStateMapOf<String, List<LabReport>>() }
 
-    var allClinicsList by remember { mutableStateOf<List<Clinic>>(emptyList()) }
-    var allDoctorsList by remember { mutableStateOf<List<Doctor>>(emptyList()) }
+    var allClinicsList by remember { mutableStateOf<List<Clinic>>(clinicRepository?.getCachedClinics() ?: emptyList()) }
+    var allDoctorsList by remember { mutableStateOf<List<Doctor>>(doctorRepository?.getCachedAllDoctors() ?: emptyList()) }
 
     // Confidential Lab Report Gate
     var verifyingReport by remember { mutableStateOf<LabReport?>(null) }
@@ -3553,7 +3603,9 @@ fun RecordsTab(
     var apptToRescheduleConfirm by remember { mutableStateOf<Appointment?>(null) }
 
     suspend fun loadDirectoryRecords() {
-        isLoading = true
+        if (allRecords.isEmpty()) {
+            isLoading = true
+        }
         try {
             sessionManager?.awaitIdentityResolved(timeoutMs = 2500)
             // Load clinics & doctors into lookup maps
@@ -3574,11 +3626,14 @@ fun RecordsTab(
                 }
             }
 
+            val isUserLoggedIn = sessionManager?.isLoggedIn() == true
             val hiddenCodes = sessionManager?.getHiddenRecordCodes() ?: emptySet()
-            val patientId = sessionManager?.getSavedPatientId() ?: ""
-            val email = sessionManager?.getSavedEmail()?.takeIf { it.isNotBlank() }
-                ?: authRepository?.getCurrentUserEmail().orEmpty()
-            val phone = sessionManager?.getSavedPhone() ?: ""
+            val patientId = if (isUserLoggedIn) sessionManager?.getSavedPatientId() ?: "" else ""
+            val email = if (isUserLoggedIn) {
+                sessionManager?.getSavedEmail()?.takeIf { it.isNotBlank() }
+                    ?: authRepository?.getCurrentUserEmail().orEmpty()
+            } else ""
+            val phone = if (isUserLoggedIn) sessionManager?.getSavedPhone() ?: "" else ""
             val savedCodes = sessionManager?.getSavedTrackingCodes()?.map { it.first } ?: emptyList()
 
             val fetchedAppts = if (appointmentRepository != null) {
@@ -3613,6 +3668,8 @@ fun RecordsTab(
             }
 
             allRecords = combinedAppts
+            appointmentRepository?.setCachedRecords(combinedAppts)
+            sessionManager?.saveCachedRecords(combinedAppts)
 
             // Resolve any missing clinics or doctors
             for (appt in combinedAppts) {
@@ -3629,6 +3686,8 @@ fun RecordsTab(
                 val invoicesByAppt = appointmentRepository.getInvoicesForAppointments(combinedAppts.map { it.id })
                 invoiceMap.clear()
                 invoiceMap.putAll(invoicesByAppt)
+                appointmentRepository.setCachedRecordInvoices(invoicesByAppt)
+                sessionManager?.saveCachedInvoices(invoicesByAppt)
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -5360,10 +5419,13 @@ fun AppointmentsTab(
             isRefreshing = true
         }
         try {
-            val patientId = sessionManager?.getSavedPatientId() ?: ""
-            val email = sessionManager?.getSavedEmail()?.takeIf { it.isNotBlank() }
-                ?: authRepository?.getCurrentUserEmail()
-            val phone = sessionManager?.getSavedPhone()?.takeIf { it.isNotBlank() }
+            val isUserLoggedIn = sessionManager?.isLoggedIn() == true
+            val patientId = if (isUserLoggedIn) sessionManager?.getSavedPatientId() ?: "" else ""
+            val email = if (isUserLoggedIn) {
+                sessionManager?.getSavedEmail()?.takeIf { it.isNotBlank() }
+                    ?: authRepository?.getCurrentUserEmail()
+            } else null
+            val phone = if (isUserLoggedIn) sessionManager?.getSavedPhone()?.takeIf { it.isNotBlank() } else null
             val savedCodes = sessionManager?.getSavedTrackingCodes()?.map { it.first } ?: emptyList()
 
             val combined = if (appointmentRepository != null) {
@@ -5787,7 +5849,8 @@ fun AppointmentsTab(
 
                     val clinicName = clinic?.name ?: "Himalayan Health Clinic"
                     val clinicAddress = clinic?.addressText ?: "Thamel, Kathmandu"
-                    val doctorName = doctor?.fullName ?: "Ramesh Shrestha"
+                    val hasAssignedDoc = !appt.doctorId.isNullOrBlank() && doctor != null
+                    val doctorName = doctor?.fullName.orEmpty()
                     val apptDateStr = appt.appointmentDate.trim().take(10)
 
                     val todayLocalDate = currentNepalLocalDate() ?: LocalDate.now()
@@ -6721,40 +6784,64 @@ fun AppointmentsTab(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    // Doctor with Real Photo / Avatar
-                                    Row(
-                                        modifier = Modifier.weight(1f),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = Color(0xFFE0F2FE),
-                                            border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
-                                            modifier = Modifier.size(36.dp)
+                                    // Doctor with Real Photo / Avatar (or Clinic Facility if no doctor assigned)
+                                    if (hasAssignedDoc) {
+                                        Row(
+                                            modifier = Modifier.weight(1f),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            if (!doctorImgUrl.isNullOrBlank()) {
-                                                coil.compose.AsyncImage(
-                                                    model = doctorImgUrl,
-                                                    contentDescription = doctorName,
-                                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                                    modifier = Modifier.fillMaxSize()
-                                                )
-                                            } else {
-                                                Box(contentAlignment = Alignment.Center) {
-                                                    Text(
-                                                        text = doctorInitials,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontSize = 13.sp,
-                                                        color = Color(0xFF0284C7)
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = Color(0xFFE0F2FE),
+                                                border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                if (!doctorImgUrl.isNullOrBlank()) {
+                                                    coil.compose.AsyncImage(
+                                                        model = doctorImgUrl,
+                                                        contentDescription = doctorName,
+                                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                                        modifier = Modifier.fillMaxSize()
                                                     )
+                                                } else {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Text(
+                                                            text = doctorInitials,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 13.sp,
+                                                            color = Color(0xFF0284C7)
+                                                        )
+                                                    }
                                                 }
                                             }
-                                        }
 
-                                        Column {
-                                            Text("Doctor", fontSize = 10.sp, color = Color(0xFF94A3B8))
-                                            Text("Dr. $doctorName", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Column {
+                                                Text("Doctor", fontSize = 10.sp, color = Color(0xFF94A3B8))
+                                                val docDisplay = if (doctorName.startsWith("Dr.", ignoreCase = true)) doctorName else "Dr. $doctorName"
+                                                Text(docDisplay, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
+                                        }
+                                    } else {
+                                        Row(
+                                            modifier = Modifier.weight(1f),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = Color(0xFFF1F5F9),
+                                                border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Icon(Icons.Default.Apartment, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(18.dp))
+                                                }
+                                            }
+                                            Column {
+                                                Text("Facility", fontSize = 10.sp, color = Color(0xFF94A3B8))
+                                                Text(clinicName, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
                                         }
                                     }
 
@@ -6901,8 +6988,8 @@ fun AppointmentsTab(
                                 }
                             }
 
-                            // ── F3. Doctor Physical Presence Banner (ONLY for today's appointment if not done) ──
-                            if (isToday && !isConsultationDone) {
+                            // ── F3. Doctor Physical Presence Banner (ONLY for today's appointment if not done and doctor assigned) ──
+                            if (hasAssignedDoc && isToday && !isConsultationDone) {
                                 Surface(
                                     shape = RoundedCornerShape(10.dp),
                                     color = if (isInClinic) Color(0xFFDCFCE7) else Color(0xFFFEF3C7),
@@ -7244,8 +7331,9 @@ fun PatientRecordDetailDialog(
 
     val clinicName = dClinic?.name ?: "Partner Medical Clinic"
     val clinicAddress = dClinic?.addressText ?: "Nepal"
-    val doctorName = dDoctor?.fullName?.let { if (it.startsWith("Dr.", true)) it else "Dr. $it" } ?: "Attending Physician"
-    val doctorSpec = dDoctor?.allSpecialties?.firstOrNull() ?: dDoctor?.specialty ?: "General Physician"
+    val hasTargetDoctor = !targetAppt.doctorId.isNullOrBlank() && dDoctor != null
+    val doctorName = dDoctor?.fullName?.let { if (it.startsWith("Dr.", true)) it else "Dr. $it" } ?: ""
+    val doctorSpec = dDoctor?.allSpecialties?.firstOrNull() ?: dDoctor?.specialty ?: ""
     val doctorAvatar = dDoctor?.resolvedProfilePictureUrl
 
     val totalBill = when {
@@ -7350,67 +7438,71 @@ fun PatientRecordDetailDialog(
                                     modifier = Modifier.padding(14.dp),
                                     verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = Color(0xFFE0F2FE),
-                                            border = BorderStroke(2.dp, Color(0xFF0284C7)),
-                                            modifier = Modifier.size(60.dp)
+                                    if (hasTargetDoctor) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                                         ) {
-                                            if (!doctorAvatar.isNullOrBlank()) {
-                                                coil.compose.AsyncImage(
-                                                    model = doctorAvatar,
-                                                    contentDescription = doctorName,
-                                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                                    modifier = Modifier.fillMaxSize()
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = Color(0xFFE0F2FE),
+                                                border = BorderStroke(2.dp, Color(0xFF0284C7)),
+                                                modifier = Modifier.size(60.dp)
+                                            ) {
+                                                if (!doctorAvatar.isNullOrBlank()) {
+                                                    coil.compose.AsyncImage(
+                                                        model = doctorAvatar,
+                                                        contentDescription = doctorName,
+                                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                                        modifier = Modifier.fillMaxSize()
+                                                    )
+                                                } else {
+                                                    val initials = (dDoctor?.fullName ?: "DR")
+                                                        .split(" ")
+                                                        .filter { it.isNotBlank() }
+                                                        .take(2)
+                                                        .mapNotNull { it.firstOrNull()?.uppercaseChar() }
+                                                        .joinToString("")
+                                                        .ifBlank { "DR" }
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Text(
+                                                            text = initials,
+                                                            fontWeight = FontWeight.ExtraBold,
+                                                            fontSize = 19.sp,
+                                                            color = Color(0xFF0284C7)
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = doctorName,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 17.sp,
+                                                    color = Color(0xFF0F172A)
                                                 )
-                                            } else {
-                                                val initials = (dDoctor?.fullName ?: "DR")
-                                                    .split(" ")
-                                                    .filter { it.isNotBlank() }
-                                                    .take(2)
-                                                    .mapNotNull { it.firstOrNull()?.uppercaseChar() }
-                                                    .joinToString("")
-                                                    .ifBlank { "DR" }
-                                                Box(contentAlignment = Alignment.Center) {
+                                                if (doctorSpec.isNotBlank()) {
                                                     Text(
-                                                        text = initials,
-                                                        fontWeight = FontWeight.ExtraBold,
-                                                        fontSize = 19.sp,
+                                                        text = doctorSpec,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        fontSize = 13.sp,
                                                         color = Color(0xFF0284C7)
+                                                    )
+                                                }
+                                                if (!dDoctor?.education.isNullOrBlank()) {
+                                                    Text(
+                                                        text = dDoctor?.education ?: "",
+                                                        fontSize = 11.5.sp,
+                                                        color = Color(0xFF475569)
                                                     )
                                                 }
                                             }
                                         }
 
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = doctorName,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                fontSize = 17.sp,
-                                                color = Color(0xFF0F172A)
-                                            )
-                                            Text(
-                                                text = doctorSpec,
-                                                fontWeight = FontWeight.SemiBold,
-                                                fontSize = 13.sp,
-                                                color = Color(0xFF0284C7)
-                                            )
-                                            if (!dDoctor?.education.isNullOrBlank()) {
-                                                Text(
-                                                    text = dDoctor?.education ?: "",
-                                                    fontSize = 11.5.sp,
-                                                    color = Color(0xFF475569)
-                                                )
-                                            }
-                                        }
+                                        HorizontalDivider(color = Color(0xFFF1F5F9))
                                     }
-
-                                    HorizontalDivider(color = Color(0xFFF1F5F9))
 
                                     val dClinicImg = dClinic?.resolvedLogoUrl ?: dClinic?.resolvedCoverPictureUrl ?: dClinic?.pictures?.firstOrNull()
                                     Row(
@@ -8336,17 +8428,11 @@ fun ProfileTab(
     val coroutineScope = rememberCoroutineScope()
 
     var isUserLoggedIn by remember {
-        mutableStateOf(
-            sessionManager?.isLoggedIn() == true ||
-            (authRepository?.isLoggedIn() == true) ||
-            (try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null } catch (_: Exception) { false })
-        )
+        mutableStateOf(sessionManager?.isLoggedIn() == true)
     }
 
     LaunchedEffect(Unit) {
-        val currentLoginState = sessionManager?.isLoggedIn() == true ||
-            (authRepository?.isLoggedIn() == true) ||
-            (try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null } catch (_: Exception) { false })
+        val currentLoginState = sessionManager?.isLoggedIn() == true
         if (currentLoginState != isUserLoggedIn) {
             isUserLoggedIn = currentLoginState
         }
@@ -8514,8 +8600,19 @@ fun ProfileTab(
         }
     }
 
-    LaunchedEffect(Unit) {
-        loadProfileBillsAndHistory()
+    LaunchedEffect(isUserLoggedIn) {
+        if (isUserLoggedIn) {
+            userName = sessionManager?.getSavedName() ?: "Patient"
+            userEmail = sessionManager?.getSavedEmail() ?: ""
+            userPhone = sessionManager?.getSavedPhone() ?: ""
+            userGender = sessionManager?.getSavedGender() ?: "Not specified"
+            userAge = sessionManager?.getSavedAge()
+            isArchived = sessionManager?.isAccountArchived() == true
+            deletionScheduledAt = sessionManager?.getDeletionScheduledAt()
+            savedCodes = sessionManager?.getSavedTrackingCodes() ?: emptyList()
+            loadProfileBillsAndHistory()
+            loadTransactionHistory()
+        }
     }
 
     LaunchedEffect(viewingRecordDetails?.id) {
@@ -9803,15 +9900,37 @@ fun ProfileTab(
         AlertDialog(
             onDismissRequest = { showSignOutDialog = false },
             title = { Text("Sign Out of Dactor?", fontWeight = FontWeight.Bold) },
-            text = { Text("You can sign back in anytime with your Google account. Your saved 10-digit codes will remain on this device.", fontSize = 13.sp) },
+            text = { Text("You will be signed out of this account and switched to Guest Mode. You can sign back in anytime.", fontSize = 13.sp) },
             confirmButton = {
                 Button(
                     onClick = {
                         showSignOutDialog = false
                         coroutineScope.launch {
+                            try {
+                                val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(
+                                    com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
+                                ).requestEmail().build()
+                                val gsc = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso)
+                                com.google.android.gms.tasks.Tasks.await(gsc.signOut(), 3, java.util.concurrent.TimeUnit.SECONDS)
+                            } catch (_: Exception) {}
+                            try {
+                                com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+                            } catch (_: Exception) {}
                             authRepository?.signOut()
+                            appointmentRepository?.clearCache()
                             sessionManager?.clearSession()
                             sessionManager?.setGuestMode(true)
+                            isUserLoggedIn = false
+                            userName = "Patient"
+                            userEmail = ""
+                            userPhone = ""
+                            userGender = "Not specified"
+                            userAge = null
+                            isArchived = false
+                            deletionScheduledAt = null
+                            savedCodes = emptyList()
+                            patientAppts = emptyList()
+                            transactionHistoryList = emptyList()
                             navController.navigate(NavRoutes.PatientMain.route) {
                                 popUpTo(0) { inclusive = true }
                             }
@@ -9861,15 +9980,31 @@ fun ProfileTab(
                                 e.printStackTrace()
                             }
                             try {
-                                com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
-                                    context,
+                                val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(
                                     com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                                ).signOut()
+                                ).requestEmail().build()
+                                val gsc = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso)
+                                com.google.android.gms.tasks.Tasks.await(gsc.signOut(), 3, java.util.concurrent.TimeUnit.SECONDS)
+                            } catch (ignored: Exception) {}
+                            try {
                                 com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
                             } catch (ignored: Exception) {}
                             authRepository?.signOut()
+                            appointmentRepository?.clearCache()
                             sessionManager?.clearSession()
                             sessionManager?.setArchivedStatus(true, scheduledDate)
+                            sessionManager?.setGuestMode(true)
+                            isUserLoggedIn = false
+                            userName = "Patient"
+                            userEmail = ""
+                            userPhone = ""
+                            userGender = "Not specified"
+                            userAge = null
+                            isArchived = true
+                            deletionScheduledAt = scheduledDate
+                            savedCodes = emptyList()
+                            patientAppts = emptyList()
+                            transactionHistoryList = emptyList()
                             navController.navigate(NavRoutes.PatientMain.route) {
                                 popUpTo(0) { inclusive = true }
                             }

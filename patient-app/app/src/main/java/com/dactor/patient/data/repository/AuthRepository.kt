@@ -296,6 +296,9 @@ class AuthRepository @Inject constructor(
 
     suspend fun signOut() = withContext(Dispatchers.IO) {
         try {
+            com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+        } catch (_: Exception) {}
+        try {
             supabaseClient.auth.signOut()
         } catch (e: Exception) {
             e.printStackTrace()

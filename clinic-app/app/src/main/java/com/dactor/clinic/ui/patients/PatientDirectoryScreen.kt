@@ -88,7 +88,23 @@ fun PatientDirectoryScreen(
     val directoryPrefs = remember(context) {
         context.getSharedPreferences("clinic_patient_directory", android.content.Context.MODE_PRIVATE)
     }
-    var appointments by remember(effectiveClinicId) { mutableStateOf<List<Appointment>>(emptyList()) }
+    val cachedInitialAppts = remember(effectiveClinicId, savedDoctorId, userRole) {
+        val isDocMode = userRole == "doctor" && savedDoctorId.isNotBlank()
+        val raw = if (isDocMode) {
+            appointmentRepository?.getCachedDoctorAppointments(savedDoctorId)
+        } else if (effectiveClinicId.isNotBlank()) {
+            appointmentRepository?.getCachedClinicAppointments(effectiveClinicId)
+        } else null
+        raw?.filter {
+            it.status.equals("APPROVED", ignoreCase = true) &&
+            it.status != "WAITING_FOR_APPROVAL" &&
+            it.status != "pending_payment" &&
+            it.status != "UNAPPROVED" &&
+            it.status != "EXPIRED" &&
+            it.checkinStatus != "cancelled"
+        } ?: emptyList()
+    }
+    var appointments by remember(effectiveClinicId) { mutableStateOf<List<Appointment>>(cachedInitialAppts) }
     var locallyAddedProfiles by remember(effectiveClinicId) {
         val savedRaw = directoryPrefs.getString("records_${effectiveClinicId.ifBlank { "default" }}", "") ?: ""
         val loaded = savedRaw.split("\n").mapNotNull { line ->
@@ -206,7 +222,7 @@ fun PatientDirectoryScreen(
             locallyAddedProfiles = loaded
         } catch (_: Exception) {}
 
-        if (clinicRepository != null) {
+        if (clinicRepository != null && allClinicsMap.isEmpty()) {
             try {
                 val clinics = clinicRepository.getClinics()
                 allClinicsMap = clinics.associateBy { it.id }
@@ -230,7 +246,7 @@ fun PatientDirectoryScreen(
                 val cId = if (effectiveClinicId.isNotBlank()) effectiveClinicId
                 else effectiveSessionManager.getSavedClinicId() ?: ""
                 if (cId.isNotBlank()) {
-                    if (doctorRepository != null) {
+                    if (doctorRepository != null && affiliatedDoctors.isEmpty()) {
                         affiliatedDoctors = doctorRepository.getDoctorsByClinic(cId)
                     }
                     appointmentRepository.getAppointmentsByClinic(cId)
@@ -245,13 +261,20 @@ fun PatientDirectoryScreen(
                 it.status != "EXPIRED" &&
                 it.checkinStatus != "cancelled"
             }
-            appointments = approvedOnly
+            if (approvedOnly.isNotEmpty() || appointments.isEmpty()) {
+                appointments = approvedOnly
+            }
 
             // Load remarks in batch
             if (billingRepository != null && fetched.isNotEmpty()) {
                 val apptIds = fetched.map { it.id }
-                val map = billingRepository.getRemarksForAppointments(apptIds)
-                remarksMap = map
+                val hasMissingRemarks = apptIds.any { it !in remarksMap }
+                if (remarksMap.isEmpty() || hasMissingRemarks) {
+                    val map = billingRepository.getRemarksForAppointments(apptIds)
+                    if (map.isNotEmpty()) {
+                        remarksMap = remarksMap + map
+                    }
+                }
             }
         }
     }

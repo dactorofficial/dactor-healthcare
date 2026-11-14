@@ -410,7 +410,14 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   // ==========================================
   // APPOINTMENTS & LIVE QUEUE STATE
   // ==========================================
-  const [myAppointments, setMyAppointments] = useState<Appointment[]>([])
+  const [myAppointments, setMyAppointments] = useState<Appointment[]>(() => {
+    try {
+      const raw = localStorage.getItem('dactor_patient_cached_records')
+      return raw ? JSON.parse(raw) : []
+    } catch {
+      return []
+    }
+  })
   const [isLoadingAppointments, setIsLoadingAppointments] = useState(false)
   const [appointmentFilter, setAppointmentFilter] = useState<'active' | 'past'>('active')
   const [cancellingApptId, setCancellingApptId] = useState<string | null>(null)
@@ -1093,6 +1100,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         (a) => !hidden.includes(a.trackingCode10Digit) && !hidden.includes(a.id)
       )
       setMyAppointments(filtered)
+      try {
+        localStorage.setItem('dactor_patient_cached_records', JSON.stringify(filtered))
+      } catch (_) {}
 
       // Also fetch lab reports for all appointments
       const allReports: LabReport[] = []
@@ -2946,9 +2956,17 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     localStorage.removeItem('dactor_patient_logged_in')
     localStorage.removeItem('dactor_last_active_role')
     localStorage.removeItem('dactor_last_active_portal')
+    localStorage.removeItem('dactor_patient_tracking_codes')
+    localStorage.removeItem('dactor_patient_hidden_records')
+    localStorage.removeItem('dactor_patient_payment_session')
+    localStorage.removeItem('dactor_pending_online_payment')
+    localStorage.removeItem('dactor_pending_esewa_payment')
+    localStorage.removeItem('dactor_pending_booking_redirect')
+    localStorage.removeItem('dactor_booking_login_notice')
     setPatientUser(null)
     setMyAppointments([])
     setTransactions([])
+    setGuestCodesVersion((v) => v + 1)
     window.dispatchEvent(new Event('storage'))
   }
 
@@ -3972,105 +3990,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
                   return (
                     <div className="space-y-8">
-                      {/* SECTION 1: MATCHING DOCTORS */}
-                      {hasDocs && (
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                              <div className="p-1.5 rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
-                                <Stethoscope className="w-4 h-4" />
-                              </div>
-                              <h4 className="font-extrabold text-slate-900 dark:text-white text-base">
-                                Available Doctors ({scoredDoctors.length})
-                              </h4>
-                            </div>
-                            <span className="text-xs font-semibold text-slate-500">
-                              Book specialist doctor directly
-                            </span>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                            {scoredDoctors.map(({ doc, linkedClinics, matchReason }) => (
-                              <div
-                                key={doc.id}
-                                className="liquid-glass-card rounded-3xl border border-white/40 dark:border-white/10 hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/10 transition flex flex-col justify-between overflow-hidden group"
-                              >
-                                <div>
-                                  <DoctorAvatarBanner doctor={doc} hasClinics={linkedClinics.length > 0} />
-                                  <div className="p-5 space-y-3">
-                                    {matchReason && (
-                                      <div className="p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center space-x-1.5 text-[11px] font-bold text-emerald-800 dark:text-emerald-300">
-                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                        <span className="truncate">{matchReason}</span>
-                                      </div>
-                                    )}
-
-                                    {/* Specialties chips */}
-                                    <div className="flex flex-wrap gap-1.5">
-                                      {((doc as any).specialties && (doc as any).specialties.length > 0
-                                        ? (doc as any).specialties
-                                        : [doc.specialty || 'General OPD']
-                                      )
-                                        .slice(0, 3)
-                                        .map((spec: string) => (
-                                          <span
-                                            key={spec}
-                                            className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-medium"
-                                          >
-                                            {spec}
-                                          </span>
-                                        ))}
-                                    </div>
-
-                                    {/* Practicing clinics info */}
-                                    <div className="flex items-center space-x-2 text-xs text-slate-600 dark:text-slate-400">
-                                      <Building2 className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
-                                      <span className="truncate">
-                                        {linkedClinics.length === 0
-                                          ? 'Not affiliated with active clinic'
-                                          : linkedClinics.length === 1
-                                          ? `Practices at ${linkedClinics[0].name} · ${
-                                              linkedClinics[0].city || linkedClinics[0].addressText || 'Nepal'
-                                            }`
-                                          : `Available at ${linkedClinics.length} clinics (${linkedClinics[0].name} & more)`}
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Footer: Fee & Action Button */}
-                                <div className="px-5 py-4 bg-slate-50/80 dark:bg-slate-900/40 border-t border-slate-100 dark:border-white/5 flex items-center justify-between">
-                                  <div>
-                                    <p className="text-[10px] uppercase font-bold text-slate-400">
-                                      Consultation Fee
-                                    </p>
-                                    <p className="text-base font-extrabold text-slate-900 dark:text-white">
-                                      Rs. {(doc as any).consultationFee || 500}
-                                    </p>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSelectDoctorFromCard(doc)}
-                                    disabled={linkedClinics.length === 0}
-                                    className={`px-4 py-2 text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 active:scale-95 cursor-pointer ${
-                                      linkedClinics.length === 0
-                                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                                        : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/20'
-                                    }`}
-                                  >
-                                    <span>
-                                      {linkedClinics.length > 1 ? 'Select Clinic & Book' : 'Book Doctor'}
-                                    </span>
-                                    <ArrowRight className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* SECTION 2: MATCHING CLINICS */}
+                      {/* SECTION 1: MATCHING CLINICS */}
                       {hasClinics && (
                         <div className="space-y-4">
                           <div className="flex items-center justify-between">
@@ -4214,6 +4134,106 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                           </div>
                         </div>
                       )}
+
+                      {/* SECTION 2: MATCHING DOCTORS */}
+                      {hasDocs && (
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                              <div className="p-1.5 rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                                <Stethoscope className="w-4 h-4" />
+                              </div>
+                              <h4 className="font-extrabold text-slate-900 dark:text-white text-base">
+                                Available Doctors ({scoredDoctors.length})
+                              </h4>
+                            </div>
+                            <span className="text-xs font-semibold text-slate-500">
+                              Book specialist doctor directly
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                            {scoredDoctors.map(({ doc, linkedClinics, matchReason }) => (
+                              <div
+                                key={doc.id}
+                                className="liquid-glass-card rounded-3xl border border-white/40 dark:border-white/10 hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/10 transition flex flex-col justify-between overflow-hidden group"
+                              >
+                                <div>
+                                  <DoctorAvatarBanner doctor={doc} hasClinics={linkedClinics.length > 0} />
+                                  <div className="p-5 space-y-3">
+                                    {matchReason && (
+                                      <div className="p-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center space-x-1.5 text-[11px] font-bold text-emerald-800 dark:text-emerald-300">
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                        <span className="truncate">{matchReason}</span>
+                                      </div>
+                                    )}
+
+                                    {/* Specialties chips */}
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {((doc as any).specialties && (doc as any).specialties.length > 0
+                                        ? (doc as any).specialties
+                                        : [doc.specialty || 'General OPD']
+                                      )
+                                        .slice(0, 3)
+                                        .map((spec: string) => (
+                                          <span
+                                            key={spec}
+                                            className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-medium"
+                                          >
+                                            {spec}
+                                          </span>
+                                        ))}
+                                    </div>
+
+                                    {/* Practicing clinics info */}
+                                    <div className="flex items-center space-x-2 text-xs text-slate-600 dark:text-slate-400">
+                                      <Building2 className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+                                      <span className="truncate">
+                                        {linkedClinics.length === 0
+                                          ? 'Not affiliated with active clinic'
+                                          : linkedClinics.length === 1
+                                          ? `Practices at ${linkedClinics[0].name} · ${
+                                              linkedClinics[0].city || linkedClinics[0].addressText || 'Nepal'
+                                            }`
+                                          : `Available at ${linkedClinics.length} clinics (${linkedClinics[0].name} & more)`}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Footer: Fee & Action Button */}
+                                <div className="px-5 py-4 bg-slate-50/80 dark:bg-slate-900/40 border-t border-slate-100 dark:border-white/5 flex items-center justify-between">
+                                  <div>
+                                    <p className="text-[10px] uppercase font-bold text-slate-400">
+                                      Consultation Fee
+                                    </p>
+                                    <p className="text-base font-extrabold text-slate-900 dark:text-white">
+                                      Rs. {(doc as any).consultationFee || 500}
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSelectDoctorFromCard(doc)}
+                                    disabled={linkedClinics.length === 0}
+                                    className={`px-4 py-2 text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 active:scale-95 cursor-pointer ${
+                                      linkedClinics.length === 0
+                                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                        : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/20'
+                                    }`}
+                                  >
+                                    <span>
+                                      {linkedClinics.length > 1 ? 'Select Clinic & Book' : 'Book Doctor'}
+                                    </span>
+                                    <ArrowRight className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+
                     </div>
                   )
                 })()}

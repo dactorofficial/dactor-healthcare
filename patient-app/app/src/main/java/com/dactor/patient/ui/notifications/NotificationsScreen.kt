@@ -347,7 +347,10 @@ fun NotificationsScreen(
                 userId = userId,
                 appointmentIds = allIds.toList()
             )
-            notifications = fetched
+            val readIds = sessionManager?.getReadNotificationIds() ?: emptySet()
+            notifications = fetched.map { notif ->
+                if (notif.isRead || readIds.contains(notif.id)) notif.copy(isRead = true) else notif
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         } finally {
@@ -463,12 +466,15 @@ fun NotificationsScreen(
                                         .clip(RoundedCornerShape(20.dp))
                                         .clickable {
                                             val unreadIds = notifications.filter { !it.isRead }.map { it.id }
-                                            notifications = notifications.map { it.copy(isRead = true) }
-                                            coroutineScope.launch {
-                                                try {
-                                                    notificationRepository?.markAllAsRead(unreadIds)
-                                                } catch (e: Exception) {
-                                                    e.printStackTrace()
+                                            if (unreadIds.isNotEmpty()) {
+                                                sessionManager?.markNotificationsRead(unreadIds)
+                                                notifications = notifications.map { it.copy(isRead = true) }
+                                                coroutineScope.launch {
+                                                    try {
+                                                        notificationRepository?.markAllAsRead(unreadIds)
+                                                    } catch (e: Exception) {
+                                                        e.printStackTrace()
+                                                    }
                                                 }
                                             }
                                         }
@@ -669,6 +675,7 @@ fun NotificationsScreen(
                             item = item,
                             actionLabel = actionLabel,
                             onClick = {
+                                sessionManager?.markNotificationRead(item.id)
                                 notifications = notifications.map {
                                     if (it.id == item.id) it.copy(isRead = true) else it
                                 }

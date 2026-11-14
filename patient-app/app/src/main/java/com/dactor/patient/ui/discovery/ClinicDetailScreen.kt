@@ -94,11 +94,8 @@ fun ClinicDetailScreen(
     val phone = clinic?.contactPhone?.trim().orEmpty()
     val email = clinic?.contactEmail?.trim().orEmpty()
     val panNumber = clinic?.panNumber?.trim().orEmpty()
-    val isLabFacility = remember(clinic) {
-        clinic?.type.equals("diagnostic_lab", ignoreCase = true) ||
-        clinic?.type?.contains("lab", ignoreCase = true) == true ||
-        clinic?.name?.contains("lab", ignoreCase = true) == true ||
-        clinic?.specialties?.any { it.contains("lab", ignoreCase = true) || it.contains("patholog", ignoreCase = true) } == true
+    val isLabFacility = remember(clinic, services) {
+        com.dactor.patient.util.DiagnosticLabPolicy.isDiagnosticOrPathologyLab(clinic, services)
     }
 
     val displayOfferings = remember(clinic, services, isLabFacility) {
@@ -276,9 +273,6 @@ fun ClinicDetailScreen(
                     ) {
                         Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        val isLabFacility = clinic?.type.equals("diagnostic_lab", ignoreCase = true) ||
-                            clinic?.type?.contains("lab", ignoreCase = true) == true ||
-                            clinic?.name?.contains("lab", ignoreCase = true) == true
                         Text(if (isLabFacility) "Book Lab Test" else "Book Appointment", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         Spacer(Modifier.width(6.dp))
                         Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -627,120 +621,7 @@ fun ClinicDetailScreen(
                     }
                 }
 
-                // ── 4. CONSULTING DOCTOR CARD ────────────────────────────────────
-                item {
-                    val isLabFacility = clinic?.type.equals("diagnostic_lab", ignoreCase = true) ||
-                        clinic?.type?.contains("lab", ignoreCase = true) == true ||
-                        clinic?.name?.contains("lab", ignoreCase = true) == true
-                    val docToDisplay = primaryDoctor
-                    if (!isLabFacility && docToDisplay != null) {
-                        Card(
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color.White),
-                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                                .clickable {
-                                    val targetId = clinicId ?: clinic?.id ?: ""
-                                    navController.navigate("booking/$targetId?doctorId=${docToDisplay.id}")
-                                }
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .padding(14.dp)
-                                    .fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                // Doctor Avatar
-                                if (!docToDisplay.resolvedProfilePictureUrl.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = docToDisplay.resolvedProfilePictureUrl,
-                                        contentDescription = docToDisplay.fullName,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .size(54.dp)
-                                            .clip(CircleShape)
-                                    )
-                                } else {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = Color(0xFFE6F4F1),
-                                        modifier = Modifier.size(54.dp)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(28.dp))
-                                        }
-                                    }
-                                }
-
-                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text("Consulting Doctor", fontSize = 10.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Medium)
-                                    val cleanDocName = docToDisplay.fullName.replace(Regex("^(?i)dr\\.?\\s*"), "").trim()
-                                        .split(" ").filter { it.isNotBlank() }
-                                        .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
-                                    Text(
-                                        "Dr. $cleanDocName",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
-                                        color = Color(0xFF0F172A)
-                                    )
-                                    if (!docToDisplay.education.isNullOrBlank()) {
-                                        Text(
-                                            docToDisplay.education,
-                                            fontSize = 11.sp,
-                                            color = Color(0xFF64748B)
-                                        )
-                                    }
-                                    val docSpecs = remember(docToDisplay) {
-                                        (listOfNotNull(docToDisplay.specialty?.takeIf { it.isNotBlank() }) + docToDisplay.specialties)
-                                            .distinct()
-                                            .ifEmpty { listOf("Medical Specialist") }
-                                    }
-                                    Text(
-                                        docSpecs.joinToString(", "),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = Color(0xFF00796B)
-                                    )
-                                    val hasDocSlotToday = remember(publishedTodaySlots, docToDisplay) {
-                                        val today = java.time.LocalDate.now().toString()
-                                        publishedTodaySlots.any {
-                                            it.isPublished &&
-                                                (it.doctorId == docToDisplay.id || it.doctorId.isNullOrBlank()) &&
-                                                (it.maxCapacity - it.bookedCount) > 0 &&
-                                                !com.dactor.patient.data.repository.SlotRepository.isSlotEndTimeOver(it.endTime, today, it.startTime)
-                                        }
-                                    }
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = if (hasDocSlotToday) Color(0xFFDCFCE7) else Color(0xFFF1F5F9),
-                                        modifier = Modifier.padding(top = 2.dp)
-                                    ) {
-                                        Text(
-                                            if (hasDocSlotToday) "Available Today" else "Schedule on Request",
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (hasDocSlotToday) Color(0xFF15803D) else Color(0xFF64748B),
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-
-                                Icon(
-                                    Icons.Default.ChevronRight,
-                                    contentDescription = "View Doctor",
-                                    tint = Color(0xFF00796B),
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // ── 5. TAB SELECTOR (Overview, Timings, Services) ────────────────
+                // ── 4. TAB SELECTOR (Overview, Timings, Services) ────────────────
                 item {
                     Surface(
                         color = Color.White,
@@ -917,6 +798,123 @@ fun ClinicDetailScreen(
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // ── 6. CONSULTING DOCTOR CARD ────────────────────────────────────
+                item {
+                    val docToDisplay = primaryDoctor
+                    if (docToDisplay != null) {
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .clickable {
+                                    val targetId = clinicId ?: clinic?.id ?: ""
+                                    navController.navigate("booking/$targetId?doctorId=${docToDisplay.id}")
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .padding(14.dp)
+                                    .fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                // Doctor Avatar
+                                if (!docToDisplay.resolvedProfilePictureUrl.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = docToDisplay.resolvedProfilePictureUrl,
+                                        contentDescription = docToDisplay.fullName,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .size(54.dp)
+                                            .clip(CircleShape)
+                                    )
+                                } else {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFFE6F4F1),
+                                        modifier = Modifier.size(54.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(28.dp))
+                                        }
+                                    }
+                                }
+
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    val isTechOrPathologist = isLabFacility || (docToDisplay.specialty?.lowercase()?.let { it.contains("tech") || it.contains("patholog") } == true)
+                                    Text(
+                                        text = if (isLabFacility) "Consulting Pathologist / Specialist" else "Consulting Doctor",
+                                        fontSize = 10.sp,
+                                        color = Color(0xFF64748B),
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    val cleanDocName = docToDisplay.fullName.replace(Regex("^(?i)dr\\.?\\s*"), "").trim()
+                                        .split(" ").filter { it.isNotBlank() }
+                                        .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+                                    val displayDocName = if (docToDisplay.fullName.startsWith("Dr.", ignoreCase = true) || !isTechOrPathologist) "Dr. $cleanDocName" else cleanDocName
+                                    Text(
+                                        displayDocName,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = Color(0xFF0F172A)
+                                    )
+                                    if (!docToDisplay.education.isNullOrBlank()) {
+                                        Text(
+                                            docToDisplay.education,
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF64748B)
+                                        )
+                                    }
+                                    val docSpecs = remember(docToDisplay) {
+                                        (listOfNotNull(docToDisplay.specialty?.takeIf { it.isNotBlank() }) + docToDisplay.specialties)
+                                            .distinct()
+                                            .ifEmpty { listOf("Medical Specialist") }
+                                    }
+                                    Text(
+                                        docSpecs.joinToString(", "),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFF00796B)
+                                    )
+                                    val hasDocSlotToday = remember(publishedTodaySlots, docToDisplay) {
+                                        val today = java.time.LocalDate.now().toString()
+                                        publishedTodaySlots.any {
+                                            it.isPublished &&
+                                                (it.doctorId == docToDisplay.id || it.doctorId.isNullOrBlank()) &&
+                                                (it.maxCapacity - it.bookedCount) > 0 &&
+                                                !com.dactor.patient.data.repository.SlotRepository.isSlotEndTimeOver(it.endTime, today, it.startTime)
+                                        }
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = if (hasDocSlotToday) Color(0xFFDCFCE7) else Color(0xFFF1F5F9),
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    ) {
+                                        Text(
+                                            if (hasDocSlotToday) "Available Today" else "Schedule on Request",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (hasDocSlotToday) Color(0xFF15803D) else Color(0xFF64748B),
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+
+                                Icon(
+                                    Icons.Default.ChevronRight,
+                                    contentDescription = "View Doctor",
+                                    tint = Color(0xFF00796B),
+                                    modifier = Modifier.size(24.dp)
+                                )
                             }
                         }
                     }
