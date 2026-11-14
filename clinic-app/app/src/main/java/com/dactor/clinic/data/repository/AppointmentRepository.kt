@@ -314,10 +314,13 @@ class AppointmentRepository @Inject constructor(
                 val q = supabaseClient.postgrest["queue_entries"]
                     .select { filter { eq("appointment_id", appt.id) } }
                     .decodeSingleOrNull<QueueEntry>()
-                if (q?.status in listOf("done", "sample_collected", "report_prepared")) {
-                    return@withContext appt.copy(checkinStatus = "completed")
-                }
-                return@withContext appt
+                val resolvedAppt = if (q?.status in listOf("done", "sample_collected", "report_prepared")) {
+                    appt.copy(checkinStatus = "completed")
+                } else appt
+                try {
+                    appointmentDao?.upsert(AppointmentEntity.fromDomainModel(resolvedAppt, syncStatus = "synced"))
+                } catch (_: Exception) {}
+                return@withContext resolvedAppt
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -343,7 +346,13 @@ class AppointmentRepository @Inject constructor(
             val appts = supabaseClient.postgrest["appointments"]
                 .select { filter { eq("tracking_code_10_digit", clean) } }
                 .decodeList<Appointment>()
-            attachQueueStatus(appts)
+            val resolved = attachQueueStatus(appts)
+            try {
+                if (resolved.isNotEmpty()) {
+                    appointmentDao?.upsertAll(resolved.map { AppointmentEntity.fromDomainModel(it, syncStatus = "synced") })
+                }
+            } catch (_: Exception) {}
+            resolved
         } catch (e: Exception) {
             emptyList()
         }
@@ -361,15 +370,59 @@ class AppointmentRepository @Inject constructor(
                 val q = supabaseClient.postgrest["queue_entries"]
                     .select { filter { eq("appointment_id", appt.id) } }
                     .decodeSingleOrNull<QueueEntry>()
-                if (q?.status in listOf("done", "sample_collected", "report_prepared")) {
-                    return@withContext appt.copy(checkinStatus = "completed")
-                }
+                val resolvedAppt = if (q?.status in listOf("done", "sample_collected", "report_prepared")) {
+                    appt.copy(checkinStatus = "completed")
+                } else appt
+                try {
+                    appointmentDao?.upsert(AppointmentEntity.fromDomainModel(resolvedAppt, syncStatus = "synced"))
+                } catch (_: Exception) {}
+                return@withContext resolvedAppt
             }
-            appt
+            null
         } catch (e: Exception) {
             e.printStackTrace()
             null
         }
+    }
+
+    /**
+     * On-demand selective sync when viewing an individual patient record.
+     * Fetches fresh remote appointment details, persists to Room AppointmentDao,
+     * and returns the synced record.
+     */
+    suspend fun syncPatientRecordOnOpen(clinicId: String, trackingCodeOrId: String): Appointment? = withContext(Dispatchers.IO) {
+        val clean = trackingCodeOrId.trim()
+        if (clean.isBlank()) return@withContext null
+
+        try {
+            // First attempt multi-appointment history fetch for tracking code
+            val allVisits = getAllAppointmentsByTrackingCode(clean)
+            if (allVisits.isNotEmpty()) {
+                val best = allVisits.firstOrNull { it.trackingCode10Digit.equals(clean, ignoreCase = true) } ?: allVisits.first()
+                try {
+                    appointmentDao?.upsertAll(allVisits.map { AppointmentEntity.fromDomainModel(it, syncStatus = "synced") })
+                } catch (_: Exception) {}
+                return@withContext best
+            }
+        } catch (_: Exception) {}
+
+        // Single lookup by tracking code or ID
+        val single = getAppointmentByTrackingCode(clean) ?: getAppointmentById(clean)
+        if (single != null) {
+            try {
+                appointmentDao?.upsert(AppointmentEntity.fromDomainModel(single, syncStatus = "synced"))
+            } catch (_: Exception) {}
+            return@withContext single
+        }
+
+        // Offline fallback to local Room DAO
+        try {
+            appointmentDao?.let { dao ->
+                val local = dao.getAppointmentByTrackingCode(clean) ?: dao.getAppointmentById(clean)
+                if (local != null) return@withContext local.toDomainModel()
+            }
+        } catch (_: Exception) {}
+        null
     }
 
     suspend fun createWalkinAppointment(

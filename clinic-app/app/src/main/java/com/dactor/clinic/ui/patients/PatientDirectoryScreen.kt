@@ -537,6 +537,14 @@ fun PatientDirectoryScreen(
         coroutineScope.launch {
             isLoadingHistory = true
             try {
+                // On-demand selective sync: viewing an individual patient initiates sync for that patient's data
+                val syncKey = item.trackingCode.ifBlank { item.userId ?: item.currentAppointment?.id ?: "" }
+                if (syncKey.isNotBlank()) {
+                    try {
+                        appointmentRepository?.syncPatientRecordOnOpen(effectiveClinicId, syncKey)
+                    } catch (_: Exception) {}
+                }
+
                 // ON-DEMAND / LAZY RETRIEVAL: When a patient is checked/inspected,
                 // retrieve their fresh changeable data (new appointments, bill status, remarks)
                 if (patientRepository != null) {
