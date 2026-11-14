@@ -314,16 +314,6 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             multiSlot = null
             setMultiSlotResult(null)
           }
-                appt.slotId,
-                appt.appointmentTime,
-                avgMins
-              )
-              setMultiSlotResult(multiSlot)
-            } catch (e) {
-              console.error('Error calculating multi-slot position:', e)
-              setMultiSlotResult(null)
-            }
-          }
 
           try {
             sessionStorage.setItem(
