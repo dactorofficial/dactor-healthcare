@@ -219,7 +219,7 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
       if (dateFilter === 'today' && expDate !== todayStr) return false
       if (dateFilter === 'yesterday' && expDate !== yesterdayStr) return false
       if (dateFilter === 'week' && expDate < weekStartStr) return false
-      if (dateFilter === 'month' && !expDate.startsWith(monthStartStr)) return false
+      if (dateFilter === 'month' && expDate < monthStartStr) return false
       if (dateFilter === 'custom' && (expDate < customStartDate || expDate > customEndDate)) return false
 
       if (selectedMethod !== 'all' && exp.payment_method?.toUpperCase() !== selectedMethod.toUpperCase()) return false
@@ -229,7 +229,9 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
           exp.title?.toLowerCase().includes(q) ||
           exp.category?.toLowerCase().includes(q) ||
           (exp.voucher_number && exp.voucher_number.toLowerCase().includes(q)) ||
-          (exp.remarks && exp.remarks.toLowerCase().includes(q))
+          (exp.receipt_no && exp.receipt_no.toLowerCase().includes(q)) ||
+          (exp.remarks && exp.remarks.toLowerCase().includes(q)) ||
+          (exp.notes && exp.notes.toLowerCase().includes(q))
         if (!matches) return false
       }
       return true
@@ -989,10 +991,10 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-slate-600 dark:text-slate-400 font-mono text-[11px]">
-                        {exp.voucher_number ? `#${exp.voucher_number}` : '—'}
+                        {(exp.voucher_number || exp.receipt_no) ? `#${exp.voucher_number || exp.receipt_no}` : '—'}
                       </td>
                       <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 max-w-[200px] truncate">
-                        {exp.remarks || '—'}
+                        {exp.remarks || exp.notes || '—'}
                       </td>
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <span className="text-sm font-black text-rose-600 dark:text-rose-400">
