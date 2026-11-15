@@ -107,6 +107,7 @@ fun LabWorkflowScreen(
     var publishTestSummary by remember { mutableStateOf("") }
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     var selectedFileBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var savedLocalPdfFile by remember { mutableStateOf<java.io.File?>(null) }
     var isUploading by remember { mutableStateOf(false) }
     var isProcessingFiles by remember { mutableStateOf(false) }
     val selectedImageUris = remember { mutableStateListOf<Uri>() }
@@ -125,6 +126,7 @@ fun LabWorkflowScreen(
             selectedFileName = null
             selectedFileBytes = null
             selectedFileSizeInfo = null
+            savedLocalPdfFile = null
             return
         }
         isProcessingFiles = true
@@ -140,6 +142,14 @@ fun LabWorkflowScreen(
                     selectedFileBytes = result.bytes
                     selectedFileName = result.fileName
                     selectedFileSizeInfo = result.formattedSummary
+
+                    // Save locally immediately to device Dactor Reports directory & public Downloads
+                    val saved = com.dactor.clinic.domain.util.LabReportPdfDownloader.saveReportBytesLocally(
+                        context = context,
+                        fileName = result.fileName,
+                        bytes = result.bytes
+                    )
+                    savedLocalPdfFile = saved
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -187,6 +197,12 @@ fun LabWorkflowScreen(
                         selectedFileBytes = compressed.bytes
                         selectedFileName = compressed.fileName
                         selectedFileSizeInfo = compressed.formattedSummary
+                        val saved = com.dactor.clinic.domain.util.LabReportPdfDownloader.saveReportBytesLocally(
+                            context = context,
+                            fileName = compressed.fileName,
+                            bytes = compressed.bytes
+                        )
+                        savedLocalPdfFile = saved
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()

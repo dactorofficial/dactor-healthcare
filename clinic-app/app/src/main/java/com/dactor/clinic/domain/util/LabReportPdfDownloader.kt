@@ -361,6 +361,28 @@ object LabReportPdfDownloader {
         return findDownloadedReportFile(context, report, clinicName, patientName) != null
     }
 
+    fun saveReportBytesLocally(
+        context: Context,
+        fileName: String,
+        bytes: ByteArray
+    ): File? {
+        return try {
+            val dir = getLocalReportsDir(context)
+            val cleanName = fileName.replace("\\s+".toRegex(), "_")
+            val localFile = File(dir, cleanName)
+            FileOutputStream(localFile).use { it.write(bytes) }
+            val mimeType = if (cleanName.endsWith(".pdf", true)) "application/pdf"
+            else if (cleanName.endsWith(".png", true)) "image/png"
+            else if (cleanName.endsWith(".webp", true)) "image/webp"
+            else "image/jpeg"
+            copyFileToPublicDownloads(context, localFile, cleanName, mimeType)
+            localFile
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
     fun copyFileToPublicDownloads(
         context: Context,
         localFile: File,

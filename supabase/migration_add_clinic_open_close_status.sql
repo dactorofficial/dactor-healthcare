@@ -114,7 +114,7 @@ BEGIN
         FROM public.queue_entries qe
         LEFT JOIN public.appointments a ON a.id = qe.appointment_id
         WHERE (p_clinic_id IS NULL OR qe.clinic_id = p_clinic_id)
-          AND qe.status IN ('waiting', 'inside', 'skipped')
+          AND qe.status::TEXT IN ('waiting', 'inside')
           AND (
               p_include_today = TRUE
               OR a.id IS NULL
@@ -149,7 +149,7 @@ BEGIN
                 ) AS new_pos
             FROM public.queue_entries
             WHERE clinic_id = v_c
-              AND status IN ('waiting', 'inside')
+              AND status::TEXT IN ('waiting', 'inside')
         )
         UPDATE public.queue_entries q
         SET queue_position = numbered.new_pos
