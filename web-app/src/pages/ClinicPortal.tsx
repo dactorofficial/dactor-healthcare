@@ -2033,11 +2033,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     if (regClinicAddress.trim().length < 3) errors.address = 'Physical clinic address is required.'
     const cleanPan = regClinicPan.replace(/\D/g, '')
     if (cleanPan.length !== 9) errors.pan = 'PAN number must be exactly 9 digits.'
-    // Strip optional +977 or 977 country code before validating 10-digit Nepal mobile number
+    // Strip optional +977 or 977 country code before validating 7-10 digit Nepal phone number (telephone or mobile)
     const cleanPhone = normalizeNepalPhone(regClinicPhone)
-    if (cleanPhone.length !== 10 || !cleanPhone.startsWith('9')) errors.phone = 'Clinic phone must be 10 digits starting with 9.'
+    if (cleanPhone.length < 7 || cleanPhone.length > 10) errors.phone = 'Clinic phone must be 7 to 10 digits (telephone or mobile).'
     const cleanMgr = normalizeNepalPhone(regManagerPhone)
-    if (cleanMgr.length !== 10 || !cleanMgr.startsWith('9')) errors.managerPhone = 'Manager phone must be 10 digits starting with 9.'
+    if (cleanMgr.length < 7 || cleanMgr.length > 10) errors.managerPhone = 'Manager phone must be 7 to 10 digits (telephone or mobile).'
     if (!regClinicTermsAccepted) errors.terms = 'You must accept the Regulatory Terms & Conditions to register.'
     if (regClinicPictures.length > 4) errors.pictures = 'Maximum 4 clinic pictures allowed.'
 
@@ -4735,9 +4735,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      Clinic Reception Mobile *
+                      Clinic Reception Phone (Telephone or Mobile) *
                     </label>
-                    {regClinicPhone.length === 10 && regClinicPhone.startsWith('9') && (
+                    {regClinicPhone.length >= 7 && regClinicPhone.length <= 10 && (
                       <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center space-x-0.5">
                         <CheckCircle2 className="w-3 h-3" />
                         <span>Valid</span>
@@ -4759,7 +4759,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                         })
                       }
                     }}
-                    placeholder="98XXXXXXXX"
+                    placeholder="014XXXXXX or 98XXXXXXXX"
                     className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-mono font-bold text-slate-900 dark:text-white outline-none"
                   />
                   {regClinicErrors.phone && (
@@ -4770,9 +4770,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      Clinic Manager Mobile *
+                      Clinic Manager Phone (Telephone or Mobile) *
                     </label>
-                    {regManagerPhone.length === 10 && regManagerPhone.startsWith('9') && (
+                    {regManagerPhone.length >= 7 && regManagerPhone.length <= 10 && (
                       <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center space-x-0.5">
                         <CheckCircle2 className="w-3 h-3" />
                         <span>Valid</span>
