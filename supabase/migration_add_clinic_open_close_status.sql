@@ -34,6 +34,9 @@ DECLARE
     v_affected_doctors UUID[] := '{}';
     v_c UUID;
 BEGIN
+    -- Authoritative server sweep context allows status updates past anti-tampering triggers
+    PERFORM set_config('dactor.authoritative_context', 'true', true);
+
     -- Sweep uncompleted appointments (past date, or today if explicitly requested or clinic closing)
     FOR v_rec IN
         SELECT 
