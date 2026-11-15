@@ -1317,7 +1317,7 @@ fun LabWorkflowScreen(
                                 loadLabOrders()
                                 isUploading = false
                                 alertNotice = if (fName != null) {
-                                    "✓ Report marked Prepared with '$fName' & notification sent to ${order.patientName} (#${order.trackingCode})!"
+                                    "✓ Report marked Prepared with '$fName' (saved to Downloads/Dactor Reports) & notification sent to ${order.patientName} (#${order.trackingCode})!"
                                 } else {
                                     "✓ Status marked Prepared & notification sent to ${order.patientName} (#${order.trackingCode})!"
                                 }
@@ -1326,6 +1326,7 @@ fun LabWorkflowScreen(
                                 selectedFileName = null
                                 selectedFileBytes = null
                                 selectedFileSizeInfo = null
+                                savedLocalPdfFile = null
                                 selectedTab = 1
                             }
                         },
@@ -1348,6 +1349,7 @@ fun LabWorkflowScreen(
                             selectedFileName = null
                             selectedFileBytes = null
                             selectedFileSizeInfo = null
+                            savedLocalPdfFile = null
                             isProcessingFiles = false
                         },
                         enabled = !isUploading

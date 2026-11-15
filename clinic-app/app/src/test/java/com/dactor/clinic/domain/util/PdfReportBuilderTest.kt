@@ -85,4 +85,26 @@ class PdfReportBuilderTest {
         // Overhead should be minimal (< 3 KB for 3 pages plus raw JPEG payloads)
         assertTrue("3-page minimal PDF size should easily be < 10 KB", pdfBytes.size < 10 * 1024)
     }
+
+    @Test
+    fun buildPdfFromJpegs_fourPicturesCombineLocallyIntoValidPdf() {
+        val page1 = JpegPageInfo(createMinimalJpegBytes(600, 800, false), 600, 800, false)
+        val page2 = JpegPageInfo(createMinimalJpegBytes(600, 800, false), 600, 800, false)
+        val page3 = JpegPageInfo(createMinimalJpegBytes(600, 800, true), 600, 800, true)
+        val page4 = JpegPageInfo(createMinimalJpegBytes(600, 800, true), 600, 800, true)
+
+        val pdfBytes = PdfBuilder.buildPdfFromJpegs(listOf(page1, page2, page3, page4))
+        assertNotNull(pdfBytes)
+        assertTrue("PDF should be non-empty", pdfBytes.isNotEmpty())
+
+        val pdfString = String(pdfBytes, Charsets.US_ASCII)
+        assertTrue("Must start with PDF 1.4 header", pdfString.startsWith("%PDF-1.4"))
+        assertTrue("Must contain Catalog", pdfString.contains("/Type /Catalog"))
+        assertTrue("Must contain Pages tree with Count 4", pdfString.contains("/Count 4"))
+        assertTrue("Must contain DCTDecode filter", pdfString.contains("/Filter /DCTDecode"))
+        assertTrue("Must contain Page 4 image ref /Im3", pdfString.contains("/Im3"))
+        assertTrue("Must contain xref table", pdfString.contains("xref\n0 15"))
+        assertTrue("Must contain trailer and EOF", pdfString.contains("%%EOF"))
+        assertTrue("4-page combined PDF size should be well under 100 KB ceiling", pdfBytes.size < 100 * 1024)
+    }
 }

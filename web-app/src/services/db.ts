@@ -6300,7 +6300,27 @@ export async function getClinicExpenses(clinicId: string): Promise<any[]> {
       .eq('clinic_id', clinicId)
       .order('expense_date', { ascending: false })
     if (error) throw error
-    return data || []
+    return (data || []).map((row: any) => {
+      const vNum = row.voucher_number || row.receipt_no || undefined
+      const rNo = row.receipt_no || row.voucher_number || undefined
+      let rem = row.remarks || row.notes || undefined
+      let eTime = row.expense_time || undefined
+      if (!eTime && rem && /^\[(\d{1,2}:\d{2})\]\s*/.test(rem)) {
+        const match = rem.match(/^\[(\d{1,2}:\d{2})\]\s*(.*)/)
+        if (match) {
+          eTime = match[1]
+          rem = match[2] || undefined
+        }
+      }
+      return {
+        ...row,
+        voucher_number: vNum,
+        receipt_no: rNo,
+        remarks: rem,
+        notes: rem,
+        expense_time: eTime,
+      }
+    })
   } catch (e) {
     console.warn('Error fetching clinic_expenses:', e)
     return []
@@ -6308,13 +6328,65 @@ export async function getClinicExpenses(clinicId: string): Promise<any[]> {
 }
 
 export async function addClinicExpense(expense: any): Promise<any> {
-  const { data, error } = await supabase
+  const vNum = expense.voucher_number || expense.receipt_no || null
+  const rem = expense.remarks || expense.notes || null
+  const eTime = expense.expense_time || null
+  const combinedNotes = eTime ? `[${eTime}] ${rem || ''}`.trim() : (rem || null)
+
+  const insertPayload: Record<string, any> = {
+    clinic_id: expense.clinic_id,
+    title: expense.title,
+    category: expense.category || 'OTHER',
+    amount: Number(expense.amount) || 0,
+    payment_method: expense.payment_method || 'CASH',
+    expense_date: expense.expense_date,
+    receipt_no: vNum,
+    notes: combinedNotes,
+    payee_name: expense.payee_name || null,
+  }
+
+  if (expense.id) {
+    insertPayload.id = expense.id
+  }
+
+  let { data, error } = await supabase
     .from('clinic_expenses')
-    .insert([expense])
+    .insert([insertPayload])
     .select()
     .single()
-  if (error) throw error
-  return data
+
+  if (error) {
+    const minimalPayload: Record<string, any> = {
+      clinic_id: expense.clinic_id,
+      title: expense.title,
+      category: expense.category || 'OTHER',
+      amount: Number(expense.amount) || 0,
+      payment_method: expense.payment_method || 'CASH',
+      expense_date: expense.expense_date,
+    }
+    if (vNum) minimalPayload.receipt_no = vNum
+    if (combinedNotes) minimalPayload.notes = combinedNotes
+    if (expense.payee_name) minimalPayload.payee_name = expense.payee_name
+    if (expense.id) minimalPayload.id = expense.id
+
+    const retryRes = await supabase
+      .from('clinic_expenses')
+      .insert([minimalPayload])
+      .select()
+      .single()
+
+    if (retryRes.error) throw retryRes.error
+    data = retryRes.data
+  }
+
+  return {
+    ...data,
+    voucher_number: data.voucher_number || data.receipt_no || vNum,
+    receipt_no: data.receipt_no || data.voucher_number || vNum,
+    remarks: data.remarks || rem,
+    notes: data.notes || combinedNotes,
+    expense_time: data.expense_time || eTime,
+  }
 }
 
 export async function deleteClinicExpense(expenseId: string): Promise<boolean> {
