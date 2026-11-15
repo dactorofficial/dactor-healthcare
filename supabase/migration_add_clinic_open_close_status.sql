@@ -48,7 +48,12 @@ BEGIN
         FROM public.appointments a
         LEFT JOIN public.queue_entries qe ON qe.appointment_id = a.id
         WHERE (p_clinic_id IS NULL OR a.clinic_id = p_clinic_id)
-          AND COALESCE(a.checkin_status::TEXT, '') NOT IN ('completed', 'done', 'cancelled', 'no_show')
+          AND COALESCE(a.checkin_status::TEXT, '') NOT IN (
+              'completed', 'done', 'cancelled', 'no_show', 'processing', 'sample_collected', 'report_prepared'
+          )
+          AND COALESCE(qe.status::TEXT, '') NOT IN (
+              'done', 'no_show', 'processing', 'sample_collected', 'report_prepared'
+          )
           AND (
               -- 1. All past-date appointments
               a.appointment_date < v_today
