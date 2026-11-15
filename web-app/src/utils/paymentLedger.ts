@@ -48,7 +48,11 @@ export interface ClinicExpense {
   expense_date: string
   expense_time?: string
   voucher_number?: string
+  receipt_no?: string
   remarks?: string
+  notes?: string
+  payee_name?: string
+  receipt_url?: string
   created_at?: string
   updated_at?: string
 }

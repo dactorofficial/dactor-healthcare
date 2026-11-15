@@ -1007,6 +1007,7 @@ fun LabWorkflowScreen(
                         selectedFileName = null
                         selectedFileBytes = null
                         selectedFileSizeInfo = null
+                        savedLocalPdfFile = null
                         isProcessingFiles = false
                     }
                 },
@@ -1087,15 +1088,49 @@ fun LabWorkflowScreen(
                                                         fontWeight = FontWeight.Medium
                                                     )
                                                 }
+                                                if (savedLocalPdfFile != null) {
+                                                    Text(
+                                                        text = "💾 Saved to Downloads/Dactor Reports",
+                                                        fontSize = 10.sp,
+                                                        color = Color(0xFF047857),
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                }
                                             }
                                         }
-                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            if (savedLocalPdfFile != null && savedLocalPdfFile!!.exists()) {
+                                                FilledTonalButton(
+                                                    onClick = {
+                                                        com.dactor.clinic.domain.util.LabReportPdfDownloader.openLocalReportFile(
+                                                            context,
+                                                            savedLocalPdfFile!!,
+                                                            "application/pdf"
+                                                        )
+                                                    },
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                                    modifier = Modifier.height(28.dp),
+                                                    colors = ButtonDefaults.filledTonalButtonColors(
+                                                        containerColor = Color(0xFFDCFCE7),
+                                                        contentColor = Color(0xFF166534)
+                                                    )
+                                                ) {
+                                                    Icon(Icons.Default.Visibility, contentDescription = "Preview", modifier = Modifier.size(13.dp))
+                                                    Spacer(Modifier.width(3.dp))
+                                                    Text("Preview", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
                                             IconButton(
                                                 onClick = {
                                                     selectedFileName = null
                                                     selectedFileBytes = null
                                                     selectedImageUris.clear()
                                                     selectedFileSizeInfo = null
+                                                    savedLocalPdfFile = null
                                                 },
                                                 modifier = Modifier.size(24.dp)
                                             ) {
