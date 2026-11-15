@@ -199,6 +199,7 @@ import {
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
 import { convertImagesToPdf } from '../utils/imageToPdf'
+import { saveBlobLocally } from '../utils/reportFileManager'
 import { playClinicChime } from '../utils/audioChime'
 import {
   parsePaymentRecords,
@@ -3912,6 +3913,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
 
       if (reportFile) {
         fileType = reportFile.type.includes('image') ? 'image' : 'pdf'
+        // Save locally to computer & cache in memory
+        try {
+          saveBlobLocally(reportFile, reportFile.name, targetLabAppt.trackingCode10Digit)
+        } catch (saveErr) {
+          console.warn('Local file save warning:', saveErr)
+        }
         const uploaded = await uploadReportFile(reportFile.name, reportFile)
         if (uploaded) {
           fileUrl = uploaded
@@ -12968,9 +12975,36 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                   </p>
                 )}
                 {reportCompressionInfo && (
-                  <p className="text-[11px] text-teal-700 font-bold bg-teal-50/85 p-2 rounded-lg border border-teal-200 mt-2">
-                    ⚡ {reportCompressionInfo}
-                  </p>
+                  <div className="flex items-center justify-between bg-teal-50/85 p-2 rounded-lg border border-teal-200 mt-2">
+                    <p className="text-[11px] text-teal-700 font-bold">
+                      ⚡ {reportCompressionInfo}
+                    </p>
+                    {reportFile && (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const url = URL.createObjectURL(reportFile)
+                            window.open(url, '_blank')
+                          }}
+                          className="text-[11px] font-bold text-teal-800 hover:text-teal-950 bg-teal-200/60 hover:bg-teal-200 px-2 py-0.5 rounded transition-colors flex items-center gap-1 cursor-pointer"
+                          title="Preview local combined PDF"
+                        >
+                          👁️ Preview PDF
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            saveBlobLocally(reportFile, reportFile.name, targetLabAppt?.trackingCode10Digit || 'scan')
+                          }}
+                          className="text-[11px] font-bold text-emerald-800 hover:text-emerald-950 bg-emerald-200/60 hover:bg-emerald-200 px-2 py-0.5 rounded transition-colors flex items-center gap-1 cursor-pointer"
+                          title="Save PDF directly to PC downloads"
+                        >
+                          💾 Save PDF
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
                 {reportImagePreviews.length > 0 && (
                   <div className="mt-2.5">

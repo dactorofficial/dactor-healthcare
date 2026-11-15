@@ -79,6 +79,27 @@ export function getCachedBlobUrl(idOrCode?: string | null): string | null {
 }
 
 /**
+ * Saves a local Blob/File directly, caches it in memory/local state, and triggers browser file download.
+ */
+export function saveBlobLocally(
+  blob: Blob,
+  fileName: string,
+  idOrCode: string
+): string {
+  const blobUrl = URL.createObjectURL(blob)
+  setCachedBlobUrl(idOrCode, blobUrl)
+
+  const link = document.createElement('a')
+  link.href = blobUrl
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+
+  return blobUrl
+}
+
+/**
  * Downloads file from a remote URL, caches it as a local Blob, and triggers browser file download.
  */
 export async function downloadAndCacheReport(
