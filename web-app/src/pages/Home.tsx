@@ -68,6 +68,18 @@ const SPECIALTY_CHIPS = [
   { id: 'ultrasound', label: 'Ultrasound / USG / X-Ray' },
 ]
 
+/**
+ * In-place Fisher-Yates array shuffle for fair, equal-chance rotation of clinics and doctors on the home page.
+ */
+function shuffleArray<T>(items: T[]): T[] {
+  const arr = [...items]
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]]
+  }
+  return arr
+}
+
 export const Home: React.FC<HomeProps> = ({
   onNavigate,
   onOpenTrackerModal,
@@ -143,8 +155,8 @@ export const Home: React.FC<HomeProps> = ({
           getDoctors(),
           getCityLocations(),
         ])
-        setClinics(cList.filter((c) => !c.isArchived))
-        setDoctors(dList)
+        setClinics(shuffleArray(cList.filter((c) => !c.isArchived)))
+        setDoctors(shuffleArray(dList))
         if (cityList && cityList.length > 0) {
           setLocationOptions(cityList)
         }
@@ -336,17 +348,8 @@ export const Home: React.FC<HomeProps> = ({
         const feeB = b.doctor.consultationFee || 500
         return feeA - feeB
       })
-    } else {
-      // Default: in-clinic first, then by experience
-      result.sort((a, b) => {
-        if (a.hasDocInClinic !== b.hasDocInClinic) {
-          return a.hasDocInClinic ? -1 : 1
-        }
-        const expA = a.doctor.experienceYears || 0
-        const expB = b.doctor.experienceYears || 0
-        return expB - expA
-      })
     }
+    // Note: When selectedSort === 'default', result retains the fair randomized rotation so every doctor has equal chance to be featured at the top
 
     return result
   }, [doctorHomeItems, selectedLocation, searchQuery, selectedSpecialty, selectedSort])

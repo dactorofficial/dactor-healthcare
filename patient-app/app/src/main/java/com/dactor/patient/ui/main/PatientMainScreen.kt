@@ -906,7 +906,7 @@ fun HomeTab(
                 val slots = cachedSlotsMap[clinic.id] ?: emptyList()
                 OpenRouteSpatialEngine.indexClinic(clinic, docs, srvs)
                 ClinicHomeItem(clinic = clinic, doctors = docs, services = srvs, availableSlots = slots)
-            }
+            }.shuffled()
         } else emptyList()
         mutableStateOf(initialItems)
     }
@@ -925,7 +925,7 @@ fun HomeTab(
                 }
                 OpenRouteSpatialEngine.indexDoctor(doc, linked)
                 DoctorHomeItem(doctor = doc, practicingClinics = linked)
-            }
+            }.shuffled()
         } else emptyList()
         mutableStateOf(initialDocs)
     }
@@ -980,7 +980,7 @@ fun HomeTab(
                                 val slots = slotsByClinic[clinic.id] ?: emptyList()
                                 OpenRouteSpatialEngine.indexClinic(clinic, docs, srvs)
                                 ClinicHomeItem(clinic = clinic, doctors = docs, services = srvs, availableSlots = slots)
-                            }
+                            }.shuffled()
 
                             val combinedDocs = (standaloneDocs + items.flatMap { it.doctors }).distinctBy { it.id }
                             val docItems = combinedDocs.map { doc ->
@@ -992,7 +992,7 @@ fun HomeTab(
                                 }
                                 OpenRouteSpatialEngine.indexDoctor(doc, linkedClinics)
                                 DoctorHomeItem(doctor = doc, practicingClinics = linkedClinics)
-                            }
+                            }.shuffled()
                             Pair(items, docItems)
                         }
                         Pair(pair, datesMap)
@@ -1143,7 +1143,8 @@ fun HomeTab(
                             ?: calculateDistanceKm(uLat, uLng, it.first.clinic.latitude ?: 27.7052, it.first.clinic.longitude ?: 85.3193)
                     }
                 } else {
-                    scoredList.sortedByDescending { it.first.doctors.any { d -> d.isInClinic == true } }
+                    // Fair randomized rotation under default browse mode so all clinics get equal chance on top
+                    scoredList
                 }
             }
         }
@@ -1182,7 +1183,8 @@ fun HomeTab(
                 if (effectiveQuery.isNotBlank()) {
                     scoredDocs.sortedByDescending { it.second.score }
                 } else {
-                    scoredDocs.sortedByDescending { it.first.doctor.isInClinic == true }
+                    // Fair randomized rotation under default browse mode so all doctors get equal chance on top
+                    scoredDocs
                 }
             }
         }
