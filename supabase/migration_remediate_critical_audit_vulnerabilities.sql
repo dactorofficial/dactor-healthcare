@@ -46,14 +46,18 @@ CREATE POLICY "platform_payment_settings_write_admin" ON public.platform_payment
 -- -------------------------------------------------------------------------
 ALTER TABLE public.clinic_expenses ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Public read clinic_expenses" ON public.clinic_expenses;
-DROP POLICY IF EXISTS "Allow insert to clinic_expenses" ON public.clinic_expenses;
-DROP POLICY IF EXISTS "Allow update to clinic_expenses" ON public.clinic_expenses;
-DROP POLICY IF EXISTS "Allow delete to clinic_expenses" ON public.clinic_expenses;
-DROP POLICY IF EXISTS "clinic_expenses_select_rule" ON public.clinic_expenses;
-DROP POLICY IF EXISTS "clinic_expenses_insert_rule" ON public.clinic_expenses;
-DROP POLICY IF EXISTS "clinic_expenses_update_rule" ON public.clinic_expenses;
-DROP POLICY IF EXISTS "clinic_expenses_delete_rule" ON public.clinic_expenses;
+DO $$
+DECLARE
+    pol RECORD;
+BEGIN
+    FOR pol IN
+        SELECT policyname
+        FROM pg_policies
+        WHERE tablename = 'clinic_expenses' AND schemaname = 'public'
+    LOOP
+        EXECUTE format('DROP POLICY IF EXISTS %I ON public.clinic_expenses', pol.policyname);
+    END LOOP;
+END $$;
 
 CREATE POLICY "clinic_expenses_select_rule" ON public.clinic_expenses
     FOR SELECT TO authenticated, service_role
