@@ -257,8 +257,8 @@ fun ClinicLoginScreen(
     val isClinicAddressError = clinicValidationTriggered && clinicAddress.isBlank()
     val isClinicRegDocError = clinicValidationTriggered && clinicRegDocUri == null
     val isClinicPanError = (clinicValidationTriggered || clinicPan.isNotEmpty()) && cleanClinicPanDigits.length != 9
-    val isClinicPhoneError = (clinicValidationTriggered || clinicPhoneDigits.isNotEmpty()) && (cleanClinicPhoneDigits.length != 10 || !cleanClinicPhoneDigits.startsWith("9"))
-    val isManagerPhoneError = (clinicValidationTriggered || managerPhoneDigits.isNotEmpty()) && (cleanManagerPhoneDigits.length != 10 || !cleanManagerPhoneDigits.startsWith("9"))
+    val isClinicPhoneError = (clinicValidationTriggered || clinicPhoneDigits.isNotEmpty()) && cleanClinicPhoneDigits.length !in 7..10
+    val isManagerPhoneError = (clinicValidationTriggered || managerPhoneDigits.isNotEmpty()) && cleanManagerPhoneDigits.length !in 7..10
     val isClinicPicturesError = clinicValidationTriggered && clinicPictures.isEmpty()
     val isClinicTermsError = clinicValidationTriggered && !clinicTermsAccepted
 
@@ -1030,8 +1030,8 @@ fun ClinicLoginScreen(
             return
         }
         val cleanClinicPhone = clinicPhoneDigits.trim()
-        if (cleanClinicPhone.length != 10 || !cleanClinicPhone.startsWith("9") || !cleanClinicPhone.all { it.isDigit() }) {
-            errorMessage = "Clinic contact number must be exactly 10 digits starting with 9."
+        if (cleanClinicPhone.length !in 7..10 || !cleanClinicPhone.all { it.isDigit() }) {
+            errorMessage = "Clinic contact number must be 7 to 10 digits (telephone or mobile)."
             coroutineScope.launch {
                 scrollState.animateScrollTo((clinicPhoneFieldY - 200).coerceAtLeast(0))
                 runCatching { clinicPhoneFocus.requestFocus() }
@@ -1039,8 +1039,8 @@ fun ClinicLoginScreen(
             return
         }
         val cleanManagerPhone = managerPhoneDigits.trim()
-        if (cleanManagerPhone.length != 10 || !cleanManagerPhone.startsWith("9") || !cleanManagerPhone.all { it.isDigit() }) {
-            errorMessage = "Manager contact number must be exactly 10 digits starting with 9."
+        if (cleanManagerPhone.length !in 7..10 || !cleanManagerPhone.all { it.isDigit() }) {
+            errorMessage = "Manager contact number must be 7 to 10 digits (telephone or mobile)."
             coroutineScope.launch {
                 scrollState.animateScrollTo((managerPhoneFieldY - 200).coerceAtLeast(0))
                 runCatching { managerPhoneFocus.requestFocus() }
@@ -1974,7 +1974,7 @@ fun ClinicLoginScreen(
                                 shape = RoundedCornerShape(12.dp)
                             )
 
-                            // 5. Clinic Contact Number (+977 and 10 digits starting with 9)
+                            // 5. Clinic Contact Number (+977 and 7-10 digits, telephone or mobile)
                             OutlinedTextField(
                                 value = clinicPhoneDigits,
                                 onValueChange = { input ->
@@ -1982,8 +1982,8 @@ fun ClinicLoginScreen(
                                     clinicPhoneDigits = digitsOnly
                                     if (errorMessage != null) errorMessage = null
                                 },
-                                label = { Text("Clinic Contact Number *") },
-                                placeholder = { Text("98xxxxxxxx (10 digits)") },
+                                label = { Text("Clinic Contact / Telephone Number *") },
+                                placeholder = { Text("01XXXXXXX or 98xxxxxxxx (7-10 digits)") },
                                 prefix = { Text("+977 ", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
                                 leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
@@ -1992,14 +1992,14 @@ fun ClinicLoginScreen(
                                 supportingText = {
                                     if (isClinicPhoneError) {
                                         Text(
-                                            "Required: 10 digits starting with 9 (${cleanClinicPhoneDigits.length}/10)",
+                                            "Required: 7 to 10 digits (telephone or mobile)",
                                             color = MaterialTheme.colorScheme.error,
                                             fontSize = 11.sp
                                         )
                                     } else {
                                         Text(
-                                            "Country code +977 \u2022 ${clinicPhoneDigits.length}/10 digits" + if (cleanClinicPhoneDigits.length == 10 && cleanClinicPhoneDigits.startsWith("9")) " ✓" else "",
-                                            color = if (cleanClinicPhoneDigits.length == 10 && cleanClinicPhoneDigits.startsWith("9")) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            "Country code +977 \u2022 ${clinicPhoneDigits.length} digits" + if (cleanClinicPhoneDigits.length in 7..10) " ✓" else "",
+                                            color = if (cleanClinicPhoneDigits.length in 7..10) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontSize = 11.sp
                                         )
                                     }
@@ -2011,7 +2011,7 @@ fun ClinicLoginScreen(
                                 shape = RoundedCornerShape(12.dp)
                             )
 
-                            // 6. Manager Contact Number (+977 and 10 digits starting with 9)
+                            // 6. Manager Contact Number (+977 and 7-10 digits, telephone or mobile)
                             OutlinedTextField(
                                 value = managerPhoneDigits,
                                 onValueChange = { input ->
@@ -2020,7 +2020,7 @@ fun ClinicLoginScreen(
                                     if (errorMessage != null) errorMessage = null
                                 },
                                 label = { Text("Manager Contact Number *") },
-                                placeholder = { Text("98xxxxxxxx (10 digits)") },
+                                placeholder = { Text("01XXXXXXX or 98xxxxxxxx (7-10 digits)") },
                                 prefix = { Text("+977 ", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
                                 leadingIcon = { Icon(Icons.Default.ContactPhone, contentDescription = null) },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
@@ -2029,14 +2029,14 @@ fun ClinicLoginScreen(
                                 supportingText = {
                                     if (isManagerPhoneError) {
                                         Text(
-                                            "Required: 10 digits starting with 9 (${cleanManagerPhoneDigits.length}/10)",
+                                            "Required: 7 to 10 digits (telephone or mobile)",
                                             color = MaterialTheme.colorScheme.error,
                                             fontSize = 11.sp
                                         )
                                     } else {
                                         Text(
-                                            "Country code +977 \u2022 ${managerPhoneDigits.length}/10 digits" + if (cleanManagerPhoneDigits.length == 10 && cleanManagerPhoneDigits.startsWith("9")) " ✓" else "",
-                                            color = if (cleanManagerPhoneDigits.length == 10 && cleanManagerPhoneDigits.startsWith("9")) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            "Country code +977 \u2022 ${managerPhoneDigits.length} digits" + if (cleanManagerPhoneDigits.length in 7..10) " ✓" else "",
+                                            color = if (cleanManagerPhoneDigits.length in 7..10) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontSize = 11.sp
                                         )
                                     }

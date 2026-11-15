@@ -24,11 +24,11 @@ CREATE INDEX IF NOT EXISTS idx_appointments_doctor_date
 
 -- 2. QUEUE ENTRIES TABLE INDEXES
 -- Critical for LiveQueue real-time calculations and DoctorPortal displays
-CREATE INDEX IF NOT EXISTS idx_queue_entries_clinic_date_status 
-    ON public.queue_entries (clinic_id, queue_date, status);
+CREATE INDEX IF NOT EXISTS idx_queue_entries_clinic_status_pos 
+    ON public.queue_entries (clinic_id, status, queue_position);
 
-CREATE INDEX IF NOT EXISTS idx_queue_entries_doctor_date_status 
-    ON public.queue_entries (doctor_id, queue_date, status);
+CREATE INDEX IF NOT EXISTS idx_queue_entries_doctor_status_pos 
+    ON public.queue_entries (doctor_id, status, queue_position);
 
 CREATE INDEX IF NOT EXISTS idx_queue_entries_appointment_id 
     ON public.queue_entries (appointment_id);
@@ -38,13 +38,13 @@ CREATE INDEX IF NOT EXISTS idx_queue_entries_appointment_id
 CREATE INDEX IF NOT EXISTS idx_clinics_activated_verification 
     ON public.clinics (is_activated, verification_status);
 
-CREATE INDEX IF NOT EXISTS idx_doctors_clinic_active 
-    ON public.doctors (clinic_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_doctors_clinic_kyc 
+    ON public.doctors (clinic_id, kyc_status);
 
 -- 4. BILLING INVOICES AND FINANCIAL LEDGER INDEXES
 -- Speeds up clinic billing views and financial summaries
 CREATE INDEX IF NOT EXISTS idx_billing_invoices_clinic_status 
-    ON public.billing_invoices (clinic_id, status, invoice_date DESC);
+    ON public.billing_invoices (clinic_id, payment_status, created_at DESC);
 
 -- 5. NOTIFICATIONS TABLE INDEXES
 -- Keeps unread notification counter queries instant

@@ -1128,7 +1128,7 @@ fun ClinicSettingsScreen(
                             shape = RoundedCornerShape(12.dp)
                         )
 
-                        // 5. Clinic Contact Number (+977 and 10 digits)
+                        // 5. Clinic Contact Number (+977 and 7-10 digits, telephone or mobile)
                         OutlinedTextField(
                             value = phoneDigits,
                             onValueChange = {
@@ -1136,24 +1136,24 @@ fun ClinicSettingsScreen(
                                     phoneDigits = it
                                 }
                             },
-                            label = { Text("Clinic Contact Number *") },
-                            placeholder = { Text("98xxxxxxxx (10 digits)") },
+                            label = { Text("Clinic Contact / Telephone Number *") },
+                            placeholder = { Text("01XXXXXXX or 98xxxxxxxx (7-10 digits)") },
                             prefix = { Text("+977 ", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
                             leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                             singleLine = true,
                             supportingText = {
                                 Text(
-                                    text = "Country code +977 \u2022 ${phoneDigits.length}/10 digits" + if (phoneDigits.length == 10) " ✓" else "",
-                                    color = if (phoneDigits.length == 10) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    text = "Country code +977 \u2022 ${phoneDigits.length} digits" + if (phoneDigits.length in 7..10) " ✓" else "",
+                                    color = if (phoneDigits.length in 7..10) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             },
-                            isError = phoneDigits.isNotBlank() && phoneDigits.length != 10,
+                            isError = phoneDigits.isNotBlank() && phoneDigits.length !in 7..10,
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp)
                         )
 
-                        // 6. Manager Contact Number (+977 and 10 digits)
+                        // 6. Manager Contact Number (+977 and 7-10 digits, telephone or mobile)
                         OutlinedTextField(
                             value = managerPhoneDigits,
                             onValueChange = {
@@ -1162,18 +1162,18 @@ fun ClinicSettingsScreen(
                                 }
                             },
                             label = { Text("Manager Contact Number *") },
-                            placeholder = { Text("98xxxxxxxx (10 digits)") },
+                            placeholder = { Text("01XXXXXXX or 98xxxxxxxx (7-10 digits)") },
                             prefix = { Text("+977 ", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
                             leadingIcon = { Icon(Icons.Default.ContactPhone, contentDescription = null) },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                             singleLine = true,
                             supportingText = {
                                 Text(
-                                    text = "Country code +977 \u2022 ${managerPhoneDigits.length}/10 digits" + if (managerPhoneDigits.length == 10) " ✓" else "",
-                                    color = if (managerPhoneDigits.length == 10) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    text = "Country code +977 \u2022 ${managerPhoneDigits.length} digits" + if (managerPhoneDigits.length in 7..10) " ✓" else "",
+                                    color = if (managerPhoneDigits.length in 7..10) Color(0xFF047857) else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             },
-                            isError = managerPhoneDigits.isNotBlank() && managerPhoneDigits.length != 10,
+                            isError = managerPhoneDigits.isNotBlank() && managerPhoneDigits.length !in 7..10,
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp)
                         )
@@ -1880,13 +1880,13 @@ fun ClinicSettingsScreen(
                             return@Button
                         }
                         val cleanPhone = phoneDigits.trim()
-                        if (cleanPhone.isNotBlank() && (cleanPhone.length != 10 || !cleanPhone.all { it.isDigit() })) {
-                            errorMessage = "Clinic contact number must be exactly 10 digits (with +977 country code)."
+                        if (cleanPhone.isNotBlank() && (cleanPhone.length !in 7..10 || !cleanPhone.all { it.isDigit() })) {
+                            errorMessage = "Clinic contact number must be 7 to 10 digits (telephone or mobile)."
                             return@Button
                         }
                         val cleanManager = managerPhoneDigits.trim()
-                        if (cleanManager.isNotBlank() && (cleanManager.length != 10 || !cleanManager.all { it.isDigit() })) {
-                            errorMessage = "Manager contact number must be exactly 10 digits (with +977 country code)."
+                        if (cleanManager.isNotBlank() && (cleanManager.length !in 7..10 || !cleanManager.all { it.isDigit() })) {
+                            errorMessage = "Manager contact number must be 7 to 10 digits (telephone or mobile)."
                             return@Button
                         }
 
