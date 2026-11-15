@@ -11,6 +11,8 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -495,12 +497,13 @@ class BillingRepository @Inject constructor(
     suspend fun getExpensesForClinic(clinicId: String): List<ClinicExpense> = withContext(Dispatchers.IO) {
         if (clinicId.isBlank()) return@withContext emptyList()
         try {
-            supabaseClient.postgrest["clinic_expenses"]
+            val list = supabaseClient.postgrest["clinic_expenses"]
                 .select {
                     filter {
                         eq("clinic_id", clinicId)
                     }
                 }.decodeList<ClinicExpense>()
+            list.map { it.normalized() }
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
@@ -509,10 +512,59 @@ class BillingRepository @Inject constructor(
 
     suspend fun addExpense(expense: ClinicExpense): ClinicExpense? = withContext(Dispatchers.IO) {
         try {
-            supabaseClient.postgrest["clinic_expenses"]
-                .insert(expense) {
+            val vNum = expense.voucherNumber ?: expense.receiptNo
+            val rem = expense.remarks ?: expense.notes
+            val eTime = expense.expenseTime
+            val combinedNotes = if (!eTime.isNullOrBlank()) {
+                "[$eTime] ${rem ?: ""}".trim()
+            } else {
+                rem
+            }
+
+            @Serializable
+            data class ExpenseDbDto(
+                @SerialName("id") val id: String,
+                @SerialName("clinic_id") val clinicId: String,
+                @SerialName("title") val title: String,
+                @SerialName("category") val category: String,
+                @SerialName("amount") val amount: Double,
+                @SerialName("payment_method") val paymentMethod: String,
+                @SerialName("expense_date") val expenseDate: String,
+                @SerialName("receipt_no") val receiptNo: String? = null,
+                @SerialName("notes") val notes: String? = null,
+                @SerialName("payee_name") val payeeName: String? = null
+            )
+
+            val insertDto = ExpenseDbDto(
+                id = expense.id.ifBlank { java.util.UUID.randomUUID().toString() },
+                clinicId = expense.clinicId,
+                title = expense.title,
+                category = expense.category,
+                amount = expense.amount,
+                paymentMethod = expense.paymentMethod,
+                expenseDate = expense.expenseDate,
+                receiptNo = vNum,
+                notes = combinedNotes,
+                payeeName = expense.payeeName
+            )
+
+            val inserted = supabaseClient.postgrest["clinic_expenses"]
+                .insert(insertDto) {
                     select()
-                }.decodeSingleOrNull<ClinicExpense>() ?: expense
+                }.decodeSingleOrNull<ClinicExpense>()
+
+            if (inserted != null) {
+                inserted.normalized()
+            } else {
+                expense.copy(
+                    id = insertDto.id,
+                    receiptNo = vNum,
+                    voucherNumber = vNum,
+                    notes = combinedNotes,
+                    remarks = rem,
+                    expenseTime = eTime
+                ).normalized()
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             null
