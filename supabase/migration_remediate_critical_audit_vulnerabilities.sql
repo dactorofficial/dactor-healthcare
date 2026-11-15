@@ -18,6 +18,8 @@ ALTER TABLE public.platform_payment_settings ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow select platform_payment_settings" ON public.platform_payment_settings;
 DROP POLICY IF EXISTS "Allow read platform_payment_settings" ON public.platform_payment_settings;
 DROP POLICY IF EXISTS "Allow all for platform_payment_settings" ON public.platform_payment_settings;
+DROP POLICY IF EXISTS "platform_payment_settings_select_admin" ON public.platform_payment_settings;
+DROP POLICY IF EXISTS "platform_payment_settings_write_admin" ON public.platform_payment_settings;
 
 CREATE POLICY "platform_payment_settings_select_admin" ON public.platform_payment_settings
     FOR SELECT TO authenticated, service_role
@@ -134,9 +136,33 @@ SET payment_secret_key = NULL
 WHERE payment_secret_key IS NOT NULL;
 
 -- -------------------------------------------------------------------------
--- 5. VULN-12: STORAGE BUCKET HARDENING
--- Ensure private buckets are strictly marked non-public.
+-- 5. APPLICATION IDENTITY HELPER & VULN-12: STORAGE BUCKET HARDENING
+-- Ensure verified identity helper exists and private buckets are secured.
 -- -------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.is_trusted_application_identity()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+  SELECT COALESCE(
+    (auth.jwt() ->> 'role') = 'authenticated'
+    AND NULLIF(auth.jwt() ->> 'sub', '') IS NOT NULL
+    AND (
+      (auth.jwt() ->> 'iss') LIKE '%ojfoofojcpabqegxmsab.supabase.co/auth%'
+      OR (
+        (auth.jwt() ->> 'iss') = 'https://securetoken.google.com/dactor-ea1e1'
+        AND (auth.jwt() ->> 'aud') = 'dactor-ea1e1'
+      )
+      OR (auth.jwt() ->> 'role') = 'service_role'
+    ), false
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.is_trusted_application_identity() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_trusted_application_identity() TO authenticated, service_role;
+
 UPDATE storage.buckets
 SET public = false
 WHERE id IN ('lab-reports-private', 'doctor-kyc-private', 'clinic-docs-private');
@@ -144,6 +170,7 @@ WHERE id IN ('lab-reports-private', 'doctor-kyc-private', 'clinic-docs-private')
 -- Drop overly broad insert policy on private buckets for random authenticated users
 DROP POLICY IF EXISTS "Clinic Staff upload private docs" ON storage.objects;
 DROP POLICY IF EXISTS "Doctor upload KYC docs" ON storage.objects;
+DROP POLICY IF EXISTS "Authorized upload to private storage" ON storage.objects;
 
 -- Re-create scoped storage insert policy requiring verified identity
 CREATE POLICY "Authorized upload to private storage" ON storage.objects
