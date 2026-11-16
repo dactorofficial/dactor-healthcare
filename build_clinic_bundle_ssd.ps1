@@ -85,7 +85,7 @@ if (Test-Path "$ssdRoot\app\build\intermediates") {
 Push-Location $ssdRoot
 try {
     Write-Host "Executing Gradle bundleRelease on SSD..." -ForegroundColor Cyan
-    & .\gradlew.bat bundleRelease --no-daemon --console=plain
+    & .\gradlew.bat bundleRelease --daemon --console=plain
     if ($LASTEXITCODE -ne 0) {
         throw "Build failed with exit code $LASTEXITCODE"
     }
