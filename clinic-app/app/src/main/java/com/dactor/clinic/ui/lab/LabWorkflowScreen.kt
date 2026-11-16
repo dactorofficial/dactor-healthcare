@@ -95,6 +95,8 @@ fun LabWorkflowScreen(
 
     var currentClinic by remember(effectiveClinicId) { mutableStateOf<Clinic?>(null) }
     var labOrders by remember(effectiveClinicId) { mutableStateOf<List<LabOrderUi>>(emptyList()) }
+    // Reports downloaded so far; prepared reports are final and never re-downloaded
+    var knownLabReports by remember(effectiveClinicId) { mutableStateOf<List<com.dactor.clinic.data.model.LabReport>?>(null) }
     var clinicAppointments by remember(effectiveClinicId) { mutableStateOf<List<Appointment>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
@@ -235,9 +237,24 @@ fun LabWorkflowScreen(
 
         val remoteReports = if (labReportRepository != null && effectiveClinicId.isNotBlank()) {
             try {
-                labReportRepository.getLabReports(effectiveClinicId)
+                val previous = knownLabReports
+                if (previous == null) {
+                    // First load: everything once
+                    labReportRepository.getLabReports(effectiveClinicId)
+                } else {
+                    // Afterwards: only reports still in progress, plus a one-time fetch of
+                    // those that just left "in progress" (prepared, or deleted if not returned)
+                    val active = labReportRepository.getInProgressLabReports(effectiveClinicId)
+                    val activeIds = active.map { it.id }.toSet()
+                    val leftIds = previous.filter { it.stage != "prepared" && it.id !in activeIds }.map { it.id }
+                    val left = if (leftIds.isNotEmpty()) labReportRepository.getLabReportsByIds(leftIds) else emptyList()
+                    val merged = previous.associateBy { it.id }.toMutableMap()
+                    leftIds.forEach { merged.remove(it) }
+                    (left + active).forEach { merged[it.id] = it }
+                    merged.values.toList()
+                }.also { knownLabReports = it }
             } catch (e: Exception) {
-                emptyList()
+                knownLabReports ?: emptyList()
             }
         } else emptyList()
 
@@ -304,7 +321,7 @@ fun LabWorkflowScreen(
     LaunchedEffect(effectiveClinicId) {
         while (isActive) {
             loadLabOrders()
-            delay(5000L)
+            delay(90_000L)
         }
     }
 
@@ -455,7 +472,7 @@ fun LabWorkflowScreen(
                         }
 
                         IconButton(
-                            onClick = { coroutineScope.launch { loadLabOrders() } },
+                            onClick = { coroutineScope.launch { knownLabReports = null; loadLabOrders() } },
                             modifier = Modifier.size(36.dp)
                         ) {
                             Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color(0xFF475569))
