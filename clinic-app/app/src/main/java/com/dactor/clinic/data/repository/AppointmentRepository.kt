@@ -262,6 +262,36 @@ class AppointmentRepository @Inject constructor(
         }
     }
 
+    /**
+     * Doctor's bookings for [date] created or approved after [since], merged into the
+     * cached list for that day. Returns the merged list.
+     */
+    suspend fun refreshNewDoctorAppointments(doctorId: String, date: String, since: String): List<Appointment> = withContext(Dispatchers.IO) {
+        val key = "${doctorId}_$date"
+        val current = doctorAppointmentsCache[key] ?: emptyList()
+        try {
+            val fresh = supabaseClient.postgrest["appointments"]
+                .select {
+                    filter {
+                        eq("doctor_id", doctorId)
+                        eq("appointment_date", date)
+                        or {
+                            gt("created_at", since)
+                            gt("approved_at", since)
+                        }
+                    }
+                }.decodeList<Appointment>()
+            if (fresh.isEmpty()) return@withContext current
+            val attached = attachQueueStatus(fresh, doctorId = doctorId)
+            val merged = (current.associateBy { it.id } + attached.associateBy { it.id }).values.toList()
+            doctorAppointmentsCache[key] = merged
+            merged
+        } catch (e: Exception) {
+            e.printStackTrace()
+            current
+        }
+    }
+
     /** Bookings for [date] created or approved after [since] (ISO timestamp); usually none. */
     suspend fun getNewOrApprovedAppointmentsForDate(clinicId: String, date: String, since: String): List<Appointment> = withContext(Dispatchers.IO) {
         try {
@@ -1834,6 +1864,14 @@ class AppointmentRepository @Inject constructor(
     }
 
     companion object {
+        /** Newest created/approved time among [appts], minus 2 minutes of overlap, as an ISO string. */
+        fun latestBookingTime(appts: List<Appointment>): String? =
+            appts.flatMap { listOfNotNull(it.createdAt, it.approvedAt) }
+                .mapNotNull { runCatching { java.time.OffsetDateTime.parse(it.trim()).toInstant() }.getOrNull() }
+                .maxOrNull()
+                ?.minusSeconds(120)
+                ?.toString()
+
         fun isValidUuid(str: String?): Boolean {
             if (str.isNullOrBlank()) return false
             return try {

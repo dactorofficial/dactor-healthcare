@@ -318,7 +318,7 @@ fun PatientDirectoryScreen(
                         val fresh = appointmentRepository.getNewOrApprovedAppointmentsForDate(cId, today, since)
                         (appointments.associateBy { it.id } + fresh.associateBy { it.id }).values.toList()
                     }
-                    latestBookingTime(result)?.let { latest ->
+                    com.dactor.clinic.data.repository.AppointmentRepository.latestBookingTime(result)?.let { latest ->
                         if (since == null || latest > since) newBookingsSince = latest
                     }
                     result
@@ -3466,11 +3466,3 @@ private fun PatientFullHistoryModalDialog(
         }
     }
 }
-
-/** Newest created/approved time among [appts], minus 2 minutes of overlap, as an ISO string. */
-private fun latestBookingTime(appts: List<Appointment>): String? =
-    appts.flatMap { listOfNotNull(it.createdAt, it.approvedAt) }
-        .mapNotNull { runCatching { java.time.OffsetDateTime.parse(it.trim()).toInstant() }.getOrNull() }
-        .maxOrNull()
-        ?.minusSeconds(120)
-        ?.toString()
