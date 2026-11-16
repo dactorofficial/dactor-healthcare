@@ -133,6 +133,9 @@ fun QueueStatusScreen(
     var tokenNumber by remember { mutableIntStateOf(cachedPrewarmQueue?.queuePosition ?: 0) }
     var patientsAhead by remember { mutableIntStateOf(if (cachedPrewarmQueue != null) (cachedPrewarmQueue.queuePosition - 1).coerceAtLeast(0) else -1) } // -1 = not yet loaded
     var clinicAvgTimeMinutes by remember { mutableIntStateOf(cachedPrewarmClinic?.getEffectiveAvgMinutes() ?: 10) }
+    // Doctor's running average from the server; re-read only when a consultation finishes
+    var doctorAvgMinutes by remember { mutableStateOf<Int?>(null) }
+    var lastFinishedCount by remember { mutableStateOf<Int?>(null) }
     var queueStatus by remember { mutableStateOf(cachedPrewarmQueue?.status ?: "waiting") } // "waiting", "inside", "done", "sample_collected", "processing", "report_prepared"
     var insideAt by remember { mutableStateOf<String?>(cachedPrewarmQueue?.insideAt) }
     var currentEpochSecond by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
@@ -313,7 +316,7 @@ fun QueueStatusScreen(
                             clinicLatitude = clinic.latitude ?: 27.7172
                             clinicLongitude = clinic.longitude ?: 85.3240
                             clinicType = clinic.type ?: "single_visit"
-                            clinicAvgTimeMinutes = clinic.getEffectiveAvgMinutes()
+                            clinicAvgTimeMinutes = doctorAvgMinutes ?: clinic.getEffectiveAvgMinutes()
                         }
                     }
                 }
@@ -467,6 +470,17 @@ fun QueueStatusScreen(
                     tokenNumber = if (myPos > 0) myPos else (slotResult?.cumulativePosition ?: 1)
                     isAnyoneInsideDoctorCabin = clinicEntries.any { it.status == "inside" || it.status == "in_consultation" }
 
+                    // Expected time is calculated here on the phone. The doctor's running average is
+                    // fetched again only when another consultation has finished.
+                    val finishedCount = clinicEntries.count { it.status in listOf("done", "completed", "processing", "sample_collected", "report_prepared") }
+                    if (finishedCount != lastFinishedCount || doctorAvgMinutes == null) {
+                        lastFinishedCount = finishedCount
+                        queueRepository?.getDoctorAvgConsultationSeconds(appt.trackingCode10Digit)?.let { sec ->
+                            doctorAvgMinutes = kotlin.math.round(sec / 60.0).toInt().coerceAtLeast(1)
+                            clinicAvgTimeMinutes = doctorAvgMinutes!!
+                        }
+                    }
+
                     // Real estimated timing calculation using QueueRepository engine
                     val timing = QueueRepository.calculateLiveQueueTimingEstimate(
                         clinic = clinicObj,
@@ -476,7 +490,8 @@ fun QueueStatusScreen(
                         fallbackPatientsAhead = liveAhead,
                         appointmentTime = appt.appointmentTime,
                         optInEarlyCall = appt.optInEarlyCall,
-                        appointmentDate = appt.appointmentDate
+                        appointmentDate = appt.appointmentDate,
+                        avgMinutesOverride = doctorAvgMinutes
                     )
                     liveTimingEstimate = timing
 

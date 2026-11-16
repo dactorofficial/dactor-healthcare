@@ -4,8 +4,10 @@
 --
 -- 1. queue_time_stats: running average consultation time per doctor queue
 --    (count + average only, today and all-time), updated by trigger.
--- 2. get_public_queue_status: today-only "ahead" counts and an overrun-aware
---    estimate based on the running average. Same signature as before.
+-- 2. get_public_queue_status: today-only "ahead" counts plus the inputs devices
+--    need to work out the expected time themselves (no time is computed or stored
+--    on the server): when the current patient went inside, and the doctor's
+--    running average consultation time.
 -- 3. Threshold alert: one FCM push when a waiting patient reaches the clinic's
 --    auto_notify_threshold. Requires pg_net + Vault secrets (see bottom).
 -- 4. pg_cron: run the existing no-show sweep every 6 hours.
@@ -153,9 +155,12 @@ CREATE TRIGGER queue_time_stats_on_finish
     EXECUTE FUNCTION public.trg_queue_time_stats_on_finish();
 
 -- ----------------------------------------------------------------------------
--- 2. Public queue status: today-only, overrun-aware estimate
+-- 2. Public queue status: today-only position + timing inputs for the device
 -- ----------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.get_public_queue_status(p_tracking_code TEXT)
+-- Return columns change (estimated_wait_minutes -> current_inside_since,
+-- avg_consultation_seconds), so the old function must be dropped first.
+DROP FUNCTION IF EXISTS public.get_public_queue_status(TEXT);
+CREATE FUNCTION public.get_public_queue_status(p_tracking_code TEXT)
 RETURNS TABLE (
     tracking_code_10_digit TEXT,
     clinic_id UUID,
@@ -171,7 +176,8 @@ RETURNS TABLE (
     patients_ahead INT,
     current_queue_position INT,
     doctor_is_in_clinic BOOLEAN,
-    estimated_wait_minutes INT
+    current_inside_since TIMESTAMPTZ,
+    avg_consultation_seconds INT
 )
 LANGUAGE plpgsql
 VOLATILE
@@ -183,8 +189,6 @@ DECLARE
     v_ahead INT := 0;
     v_serving INT := 0;
     v_inside_at TIMESTAMPTZ;
-    v_avg NUMERIC;
-    v_wait_seconds NUMERIC := 0;
 BEGIN
     IF COALESCE(p_tracking_code, '') !~ '^[0-9]{10}$' THEN
         RETURN;
@@ -230,16 +234,6 @@ BEGIN
      ORDER BY cur.queue_position
      LIMIT 1;
 
-    IF COALESCE(v_appt.qe_status::TEXT, 'waiting') = 'waiting' AND v_appt.queue_position IS NOT NULL THEN
-        v_avg := public.queue_avg_seconds(v_appt.clinic_id, v_appt.doctor_id);
-        v_wait_seconds := v_ahead * v_avg;
-        IF v_inside_at IS NOT NULL THEN
-            -- Remaining time of the current consultation; an overrun pushes everyone later.
-            v_wait_seconds := v_wait_seconds
-                + GREATEST(EXTRACT(EPOCH FROM (v_inside_at - NOW())) + v_avg, 60);
-        END IF;
-    END IF;
-
     RETURN QUERY SELECT
         v_appt.tracking_code_10_digit::TEXT,
         v_appt.clinic_id,
@@ -255,7 +249,8 @@ BEGIN
         v_ahead,
         COALESCE(v_serving, 0)::INT,
         v_appt.doctor_in,
-        ROUND(v_wait_seconds / 60.0)::INT;
+        v_inside_at,
+        ROUND(public.queue_avg_seconds(v_appt.clinic_id, v_appt.doctor_id))::INT;
 END;
 $$;
 REVOKE ALL ON FUNCTION public.get_public_queue_status(TEXT) FROM PUBLIC;

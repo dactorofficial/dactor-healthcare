@@ -2001,12 +2001,14 @@ class QueueRepository @Inject constructor(
 
             if (insideEntry != null) {
                 val insideInstant = try {
-                    if (!insideEntry.insideAt.isNullOrBlank()) Instant.parse(insideEntry.insideAt) else nowInstant
+                    if (!insideEntry.insideAt.isNullOrBlank()) java.time.OffsetDateTime.parse(insideEntry.insideAt.trim()).toInstant() else nowInstant
                 } catch (_: Exception) {
                     nowInstant
                 }
-                val multiplier = totalPeopleAhead.coerceAtLeast(1)
-                val expectedInstant = insideInstant.plusSeconds(multiplier * avgMins * 60L)
+                // The patient inside ends at the later of (went inside + average) and now:
+                // a consultation running long pushes everyone behind it later.
+                val currentEnd = maxOf(insideInstant.plusSeconds(avgMins * 60L), nowInstant.plusSeconds(60L))
+                val expectedInstant = currentEnd.plusSeconds((totalPeopleAhead - 1).coerceAtLeast(0) * avgMins * 60L)
                 val diffSec = expectedInstant.epochSecond - nowInstant.epochSecond
                 minsWaitCalc = kotlin.math.ceil(diffSec / 60.0).toInt().coerceAtLeast(1)
                 dynamicExpectedTime = expectedInstant.atZone(zoneId).toLocalTime()

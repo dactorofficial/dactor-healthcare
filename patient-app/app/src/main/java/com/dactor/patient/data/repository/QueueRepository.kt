@@ -8,6 +8,7 @@ import com.dactor.patient.data.model.QueueEntry
 import com.dactor.patient.data.model.Slot
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.rpc
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.time.Instant
@@ -70,6 +71,20 @@ data class MultiSlotPositionResult(
 class QueueRepository @Inject constructor(
     private val supabaseClient: SupabaseClient
 ) {
+
+    /** Doctor's running average consultation time (seconds) for this booking's queue, from the server. */
+    suspend fun getDoctorAvgConsultationSeconds(trackingCode: String): Int? = withContext(Dispatchers.IO) {
+        if (!Regex("^[0-9]{10}$").matches(trackingCode)) return@withContext null
+        @Serializable
+        data class Params(val p_tracking_code: String)
+        @Serializable
+        data class Row(val avg_consultation_seconds: Int? = null)
+        runCatching {
+            supabaseClient.postgrest.rpc("get_public_queue_status", Params(trackingCode))
+                .decodeList<Row>().firstOrNull()?.avg_consultation_seconds
+        }.getOrNull()
+    }
+
     private val queueEntriesForClinicCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<QueueEntry>>>()
     private val queueStatusCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, QueueEntry>>()
 
@@ -532,9 +547,10 @@ class QueueRepository @Inject constructor(
             fallbackPatientsAhead: Int = 0,
             appointmentTime: String? = null,
             optInEarlyCall: Boolean = false,
-            appointmentDate: String? = null
+            appointmentDate: String? = null,
+            avgMinutesOverride: Int? = null
         ): LiveQueueTimingEstimate {
-            val avgMins = (clinic?.getEffectiveAvgMinutes() ?: 10).coerceAtLeast(1)
+            val avgMins = (avgMinutesOverride ?: clinic?.getEffectiveAvgMinutes() ?: 10).coerceAtLeast(1)
             val todaySchedule = clinic?.getTodaySchedule()
             val openLocalTime = ClinicScheduleHelper.parseTimeToLocalTime(todaySchedule?.openTime ?: "08:00 AM")
             val timeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
@@ -755,12 +771,14 @@ class QueueRepository @Inject constructor(
 
             if (insideEntry != null) {
                 val insideInstant = try {
-                    if (!insideEntry.insideAt.isNullOrBlank()) Instant.parse(insideEntry.insideAt) else nowInstant
+                    if (!insideEntry.insideAt.isNullOrBlank()) java.time.OffsetDateTime.parse(insideEntry.insideAt.trim()).toInstant() else nowInstant
                 } catch (_: Exception) {
                     nowInstant
                 }
-                val multiplier = totalPeopleAhead.coerceAtLeast(1)
-                val expectedInstant = insideInstant.plusSeconds(multiplier * avgMins * 60L)
+                // The patient inside ends at the later of (went inside + average) and now:
+                // a consultation running long pushes everyone behind it later.
+                val currentEnd = maxOf(insideInstant.plusSeconds(avgMins * 60L), nowInstant.plusSeconds(60L))
+                val expectedInstant = currentEnd.plusSeconds((totalPeopleAhead - 1).coerceAtLeast(0) * avgMins * 60L)
                 val diffSec = expectedInstant.epochSecond - nowInstant.epochSecond
                 minsWaitCalc = kotlin.math.ceil(diffSec / 60.0).toInt().coerceAtLeast(1)
                 dynamicExpectedTime = expectedInstant.atZone(zoneId).toLocalTime()
