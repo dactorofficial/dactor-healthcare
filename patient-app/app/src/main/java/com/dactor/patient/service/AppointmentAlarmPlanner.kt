@@ -70,9 +70,45 @@ object AppointmentAlarmPlanner {
             decision.completedSeenUpdates.forEach { (id, at) -> if (at == null) remove(completedKey(id)) else putLong(completedKey(id), at) }
         }.apply()
 
+        saveTracked(context, appointments)
         scheduleLoop(context, decision.loopDelayMs)
         scheduleReminders(context, decision.reminders)
         scheduleBackgroundCheck(context, decision.backgroundCheckHours)
+    }
+
+    // ── Appointments the loop tracks, saved so most checks need only one small query ──
+
+    private const val KEY_TRACKED = "tracked_appointments"
+    private const val KEY_LAST_FULL_CHECK = "last_full_check_at"
+    /** The full check (all lookups + new notifications) runs at most this often inside the window. */
+    const val FULL_CHECK_EVERY_MS = 10 * 60_000L
+
+    private val trackedJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+    /** Today's and recent (lab results) appointments, saved for the light check. */
+    private fun saveTracked(context: Context, appointments: List<Appointment>) {
+        val earliest = LocalDate.now().minusDays(LAB_MAX_DAYS).toString()
+        val relevant = appointments.filter { it.id.isNotBlank() && it.appointmentDate.trim().take(10) >= earliest }
+        runCatching {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY_TRACKED, trackedJson.encodeToString(kotlinx.serialization.builtins.ListSerializer(Appointment.serializer()), relevant))
+                .apply()
+        }
+    }
+
+    fun loadTracked(context: Context): List<Appointment>? = runCatching {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_TRACKED, null) ?: return null
+        trackedJson.decodeFromString(kotlinx.serialization.builtins.ListSerializer(Appointment.serializer()), raw)
+    }.getOrNull()
+
+    fun isFullCheckDue(context: Context): Boolean {
+        val last = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(KEY_LAST_FULL_CHECK, 0L)
+        return System.currentTimeMillis() - last >= FULL_CHECK_EVERY_MS
+    }
+
+    fun markFullCheckDone(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putLong(KEY_LAST_FULL_CHECK, System.currentTimeMillis()).apply()
     }
 
     data class Decision(

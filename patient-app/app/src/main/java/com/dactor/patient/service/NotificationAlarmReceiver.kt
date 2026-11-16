@@ -15,6 +15,7 @@ import com.dactor.patient.data.model.NotificationType
 import com.dactor.patient.data.model.QueueEntry
 import com.dactor.patient.di.AppModule
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,6 +41,25 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "dactor:AlarmSyncWakeLock")
         wakeLock?.acquire(60_000L) // 1 minute max lock
+
+        // Most loop ticks: one small query per tracked appointment. The full check below
+        // (all lookups + new notifications) runs at most every 10 minutes, on boot and on update.
+        val tracked = if (intent?.action == ACTION_CHECK_ALERTS) AppointmentAlarmPlanner.loadTracked(context) else null
+        if (!tracked.isNullOrEmpty() && !AppointmentAlarmPlanner.isFullCheckDue(context)) {
+            val pendingLight = goAsync()
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    runLightCheck(context, tracked)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    scheduleNextAlarm(context, RETRY_MS)
+                } finally {
+                    try { if (wakeLock?.isHeld == true) wakeLock.release() } catch (_: Exception) {}
+                    pendingLight.finish()
+                }
+            }
+            return
+        }
 
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
@@ -321,6 +341,7 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
 
                 // Decide when to check next (or stop) based on the appointment window
                 if (appointmentsLoaded) {
+                    AppointmentAlarmPlanner.markFullCheckDone(context)
                     AppointmentAlarmPlanner.plan(context, myAppointments, queueStatusById)
                 } else {
                     scheduleNextAlarm(context, RETRY_MS)
@@ -337,6 +358,80 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
                 pendingResult.finish()
             }
         }
+    }
+
+    @kotlinx.serialization.Serializable
+    private data class QueueStatusParams(val p_tracking_code: String)
+
+    @kotlinx.serialization.Serializable
+    private data class QueueStatusRow(
+        val checkin_status: String? = null,
+        val queue_status: String? = null,
+        val queue_position: Int = 0,
+        val patients_ahead: Int = 0,
+        val current_queue_position: Int = 0
+    )
+
+    /**
+     * One get_public_queue_status call per tracked appointment: updates the loop schedule and
+     * shows the backup "almost your turn" / "late" alerts if the server push did not arrive.
+     */
+    private suspend fun runLightCheck(context: Context, tracked: List<Appointment>) {
+        val client = AppModule.provideSupabaseClient()
+        val sessionManager = UserSessionManager(context)
+        val today = LocalDate.now().toString()
+        val earliest = LocalDate.now().minusDays(3).toString()
+        val queueStatusById = mutableMapOf<String, String?>()
+        val updated = tracked.map { appt ->
+            val date = appt.appointmentDate.trim().take(10)
+            val code = appt.trackingCode10Digit
+            if (date < earliest || date > today || code.isBlank() ||
+                appt.checkinStatus.lowercase() in listOf("completed", "done", "cancelled", "no_show")) {
+                return@map appt
+            }
+            val row = client.postgrest.rpc("get_public_queue_status", QueueStatusParams(code))
+                .decodeList<QueueStatusRow>().firstOrNull() ?: return@map appt
+            queueStatusById[appt.id] = row.queue_status
+
+            if (date == today && row.queue_status == "waiting" && row.queue_position > 0) {
+                val notifId = (appt.id.hashCode() and 0x7FFFFFFF) % 100000
+                val isLate = row.current_queue_position > row.queue_position
+                if (isLate) {
+                    if (!sessionManager.isLateAlertTriggered(appt.id)) {
+                        sessionManager.markLateAlertTriggered(appt.id)
+                        NotificationHelper.showSystemNotification(
+                            context = context,
+                            id = notifId,
+                            title = "⚠️ Arrive Soon, You Are Late!",
+                            message = "Dear ${appt.patientName}, your turn was reached, but you haven't arrived. Another patient has been called inside. Please proceed to the clinic immediately.",
+                            appointmentId = appt.id,
+                            type = NotificationType.ARRIVE_SOON.key
+                        )
+                    }
+                } else if (row.patients_ahead in 0..2 && !sessionManager.isTwoAheadAlertTriggered(appt.id)) {
+                    sessionManager.markTwoAheadAlertTriggered(appt.id)
+                    val ahead = row.patients_ahead
+                    NotificationHelper.showSystemNotification(
+                        context = context,
+                        id = notifId,
+                        title = if (ahead == 0) "You're Next!" else "Almost Your Turn!",
+                        message = if (ahead == 0) {
+                            "Dear ${appt.patientName}, you are next in line. Please proceed to the consultation area."
+                        } else {
+                            "Dear ${appt.patientName}, only $ahead patient${if (ahead > 1) "s" else ""} ahead of you. Please be ready."
+                        },
+                        appointmentId = appt.id,
+                        type = NotificationType.ARRIVE_SOON.key
+                    )
+                }
+            }
+            if (row.queue_status in listOf("done", "completed", "cancelled")) {
+                NotificationHelper.cancelAppointmentNotifications(context, appt.id)
+                NotificationHelper.cancelAppointmentNotifications(context, code)
+            }
+            row.checkin_status?.let { appt.copy(checkinStatus = it) } ?: appt
+        }
+        AppointmentAlarmPlanner.plan(context, updated, queueStatusById)
     }
 
     companion object {
