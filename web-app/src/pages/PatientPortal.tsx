@@ -204,7 +204,7 @@ import {
   onFirebaseAuthStateChanged,
   deleteFirebaseUserAccount,
 } from '../lib/firebase'
-import { clearAllAppCache } from '../utils/cacheCleaner'
+import { signOutKeepingData } from '../utils/cacheCleaner'
 import { supabase } from '../lib/supabase'
 import {
   matchClinic,
@@ -2977,7 +2977,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   }
 
   const handleLogout = () => {
-    clearAllAppCache().catch(() => {})
+    signOutKeepingData().catch(() => {})
     setPatientUser(null)
     setMyAppointments([])
     setTransactions([])
