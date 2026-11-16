@@ -19,10 +19,9 @@ Write-Host "Locked Version: v$vName (Code: $vCode)" -ForegroundColor Green
 
 # 2. SSD Staging Directory
 $ssdRoot = "C:\dactor-ssd-build\clinic-app"
-if (Test-Path $ssdRoot) {
-    Remove-Item -Path $ssdRoot -Recurse -Force -ErrorAction SilentlyContinue
+if (-not (Test-Path "$ssdRoot\app")) {
+    New-Item -ItemType Directory -Path "$ssdRoot\app" -Force | Out-Null
 }
-New-Item -ItemType Directory -Path "$ssdRoot\app" -Force | Out-Null
 
 # 3. Copy files to SSD using robocopy for directories
 Write-Host "Staging source to local SSD ($ssdRoot)..." -ForegroundColor Yellow
@@ -41,15 +40,17 @@ robocopy (Join-Path $clinicDir "app\keystores") "$ssdRoot\app\keystores" /E /NFL
 robocopy (Join-Path $clinicDir "app\src") "$ssdRoot\app\src" /E /NFL /NDL /NJH /NJS | Out-Null
 
 # 4. Configure SDK and Java
-if (Test-Path "C:\Program Files\Microsoft\jdk-17.0.21.21-hotspot") {
-    $env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-17.0.21.21-hotspot"
+$msJdk = Get-ChildItem "C:\Program Files\Microsoft" -Filter "jdk-17*" -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($msJdk) {
+    $env:JAVA_HOME = $msJdk.FullName
 } elseif (Test-Path "C:\Program Files\Android\Android Studio\jbr") {
     $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 }
 $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+
 $sdkCandidates = @(
-    "C:\Users\nitup\AppData\Local\Android\Sdk",
     "$env:LOCALAPPDATA\Android\Sdk",
+    "C:\Users\nitup\AppData\Local\Android\Sdk",
     "C:\Android\sdk"
 )
 $sdkPath = $null
@@ -66,7 +67,21 @@ $env:ANDROID_HOME = $sdkPath
 $env:ANDROID_SDK_ROOT = $sdkPath
 Set-Content -Path "$ssdRoot\local.properties" -Value "sdk.dir=$($sdkPath -replace '\\', '/')" -Force
 
-# 5. Build AAB on SSD with clean flags
+# 5. Clean prior build outputs and caches on SSD
+if (Test-Path "$ssdRoot\app\build\outputs\bundle") {
+    Remove-Item -Path "$ssdRoot\app\build\outputs\bundle" -Recurse -Force -ErrorAction SilentlyContinue
+}
+if (Test-Path "$ssdRoot\app\build\kspCaches") {
+    Remove-Item -Path "$ssdRoot\app\build\kspCaches" -Recurse -Force -ErrorAction SilentlyContinue
+}
+if (Test-Path "$ssdRoot\app\build\generated\ksp") {
+    Remove-Item -Path "$ssdRoot\app\build\generated\ksp" -Recurse -Force -ErrorAction SilentlyContinue
+}
+if (Test-Path "$ssdRoot\app\build\intermediates") {
+    Remove-Item -Path "$ssdRoot\app\build\intermediates" -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# 6. Build AAB on SSD with clean flags
 Push-Location $ssdRoot
 try {
     Write-Host "Executing Gradle bundleRelease on SSD..." -ForegroundColor Cyan
