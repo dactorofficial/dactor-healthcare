@@ -27,6 +27,8 @@ class UserSessionManager @Inject constructor(
     fun getLastCachedClinicJson(): String? = prefs.getString("last_cached_clinic_json", null)
 
     fun saveClinicSession(clinicId: String, email: String, name: String) {
+        // Bring back this account's data hidden at its last sign-out (no-op if none)
+        AccountDataVault.accountKey(email)?.let { AccountDataVault.restore(context, it) }
         prefs.edit()
             .remove("doctor_id")
             .putString("clinic_id", clinicId)
@@ -38,6 +40,7 @@ class UserSessionManager @Inject constructor(
     }
 
     fun saveDoctorSession(doctorId: String, email: String, name: String) {
+        AccountDataVault.accountKey(email)?.let { AccountDataVault.restore(context, it) }
         prefs.edit()
             .remove("clinic_id")
             .putString("doctor_id", doctorId)

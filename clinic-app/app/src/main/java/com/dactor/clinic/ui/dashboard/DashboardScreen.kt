@@ -129,7 +129,7 @@ fun DashboardScreen(
     fun performLogout() {
         coroutineScope.launch {
             try {
-                com.dactor.clinic.data.cache.AppCacheManager.getInstance(context).clearAllCache()
+                com.dactor.clinic.data.cache.AppCacheManager.getInstance(context).signOutKeepingData()
             } catch (_: Exception) {}
             navController.navigate(NavRoutes.ClinicLogin) {
                 popUpTo(0) { inclusive = true }

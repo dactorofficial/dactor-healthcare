@@ -255,7 +255,7 @@ fun ProfileScreen(
     fun performSignOut() {
         coroutineScope.launch {
             try {
-                com.dactor.patient.data.cache.AppCacheManager.getInstance(context).clearAllCache()
+                com.dactor.patient.data.cache.AppCacheManager.getInstance(context).signOutKeepingData()
             } catch (_: Exception) {}
             sessionManager?.setGuestMode(true)
             isLoggedIn = false

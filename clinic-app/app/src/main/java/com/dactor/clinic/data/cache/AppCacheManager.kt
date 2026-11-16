@@ -37,6 +37,31 @@ class AppCacheManager @Inject constructor(
     private val clinicDatabase: ClinicDatabase,
     private val authRepository: AuthRepository
 ) {
+    /**
+     * Sign out but keep everything on the phone: this account's session, drafts and last-used
+     * clinic/doctor are hidden (moved to a copy named after the account) and come back when the
+     * same account signs in. The encrypted database, clinic/doctor lists and images are kept.
+     */
+    suspend fun signOutKeepingData() = withContext(Dispatchers.IO) {
+        // In-memory lists only (persisted data stays); avoids showing them to the next account
+        runCatching { appointmentRepository.clearCache() }
+        runCatching { queueRepository.clearCache() }
+        runCatching { clinicRepository.clearCache() }
+        runCatching { doctorRepository.clearCache() }
+
+        val accountKey = com.dactor.clinic.data.local.AccountDataVault.accountKey(sessionManager.getSavedEmail())
+        if (accountKey != null) runCatching { com.dactor.clinic.data.local.AccountDataVault.hide(context, accountKey) }
+        // Leaves the device-level terms flag
+        runCatching { sessionManager.clearSession() }
+
+        runCatching { authRepository.signOut() }
+        runCatching {
+            GoogleSignIn.getClient(context, GoogleSignInOptions.DEFAULT_SIGN_IN).signOut()
+        }
+        runCatching { FirebaseAuth.getInstance().signOut() }
+    }
+
+    /** Full wipe of everything on the phone (kept for an explicit reset). */
     suspend fun clearAllCache() = withContext(Dispatchers.IO) {
         // 1. Clear In-Memory Caches in Repositories
         runCatching { appointmentRepository.clearCache() }
