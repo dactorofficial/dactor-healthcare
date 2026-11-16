@@ -1,5 +1,6 @@
 package com.dactor.patient.ui.tracker
 
+import androidx.lifecycle.repeatOnLifecycle
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -452,7 +453,7 @@ fun QueueStatusScreen(
                     tokenNumber = slotResult?.cumulativePosition ?: (if (tokenNumber > 0) tokenNumber else 1)
                     liveTimingEstimate = null // Silence live countdown for advance dates
                 } else if (appt.clinicId.isNotBlank() && isAppointmentToday) {
-                    val clinicEntries = queueRepository?.getQueueEntriesForClinic(appt.clinicId) ?: emptyList()
+                    val clinicEntries = queueRepository?.getTodayQueueEntriesForClinic(appt.clinicId) ?: emptyList()
                     val myPos = qEntry?.queuePosition ?: tokenNumber
                     val sortedActive = clinicEntries
                         .filter { it.status == "waiting" || it.status == "inside" || it.status == "in_consultation" }
@@ -650,13 +651,17 @@ fun QueueStatusScreen(
         }
     }
 
+    val trackerLifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     LaunchedEffect(appointmentIdOrCode) {
         // Initial full load & master sync
         refreshData(isDeltaOnly = false)
-        while (isActive) {
-            delay(4000L) // auto-refresh queue position and doctor status every 4 seconds
-            // Lightweight operational delta sync: only token, ahead count, and timing
-            refreshData(isDeltaOnly = true)
+        // Refresh every 30 s only while the screen is visible (paused in the background);
+        // the expected time itself is recalculated on the phone from these inputs.
+        trackerLifecycleOwner.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            while (isActive) {
+                delay(30_000L)
+                refreshData(isDeltaOnly = true)
+            }
         }
     }
 

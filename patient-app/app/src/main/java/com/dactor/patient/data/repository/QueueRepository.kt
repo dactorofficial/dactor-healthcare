@@ -229,6 +229,29 @@ class QueueRepository @Inject constructor(
         }
     }
 
+    /**
+     * Only what the live tracker needs: entries still waiting/inside plus entries changed today
+     * (finished consultations and their times), not the clinic's whole history.
+     */
+    suspend fun getTodayQueueEntriesForClinic(clinicId: String): List<QueueEntry> = withContext(Dispatchers.IO) {
+        val startOfToday = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toString()
+        try {
+            supabaseClient.postgrest["queue_entries"]
+                .select {
+                    filter {
+                        eq("clinic_id", clinicId)
+                        or {
+                            isIn("status", listOf("waiting", "inside"))
+                            gte("updated_at", startOfToday)
+                        }
+                    }
+                }.decodeList<QueueEntry>()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
     suspend fun getQueueEntriesForClinic(clinicId: String, forceRefresh: Boolean = false): List<QueueEntry> {
         if (clinicId.isBlank()) return emptyList()
         if (!forceRefresh) {
