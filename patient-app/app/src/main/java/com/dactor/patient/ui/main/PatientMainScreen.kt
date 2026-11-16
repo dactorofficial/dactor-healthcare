@@ -956,19 +956,34 @@ fun HomeTab(
                 val dateStr = selectedDate.toString()
                 val (builtPair, nextDates) = withContext(Dispatchers.IO) {
                     coroutineScope {
-                        val clinicsDef = async { clinicRepository.getClinics(forceRefresh = true) }
-                        val servicesDef = async { clinicRepository.getAllClinicServicesGrouped(forceRefresh = true) }
+                        // Clinics, services and doctors: saved on the phone and reused for up to 6 hours
+                        val savedLists = com.dactor.patient.data.local.HomeDataCache.loadFresh(context)
+                        val clinicsDef = async { savedLists?.clinics ?: clinicRepository.getClinics(forceRefresh = true) }
+                        val servicesDef = async { savedLists?.servicesByClinic ?: clinicRepository.getAllClinicServicesGrouped(forceRefresh = true) }
                         val slotsDef = async { slotRepository?.getAllAvailableSlotsForDate(dateStr) ?: emptyMap() }
                         val nextDatesDef = async { slotRepository?.getAllClinicsNextAvailableDates() ?: emptyMap() }
 
                         val remoteClinics = clinicsDef.await()
                         val clinicIds = remoteClinics.map { it.id }
-                        val (standaloneDocs, rosterByClinic) = doctorRepository?.getAllDoctorsAndClinicRoster(
-                            clinicIds = clinicIds,
-                            forceRefresh = true
-                        ) ?: Pair(emptyList(), emptyMap())
+                        val (standaloneDocs, rosterByClinic) = savedLists?.let { it.standaloneDoctors to it.rosterByClinic }
+                            ?: doctorRepository?.getAllDoctorsAndClinicRoster(
+                                clinicIds = clinicIds,
+                                forceRefresh = true
+                            ) ?: Pair(emptyList(), emptyMap())
 
                         val servicesByClinic = servicesDef.await()
+                        if (savedLists == null && remoteClinics.isNotEmpty()) {
+                            com.dactor.patient.data.local.HomeDataCache.save(
+                                context,
+                                com.dactor.patient.data.local.HomeDataCache.HomeLists(
+                                    savedAt = System.currentTimeMillis(),
+                                    clinics = remoteClinics,
+                                    servicesByClinic = servicesByClinic,
+                                    standaloneDoctors = standaloneDocs,
+                                    rosterByClinic = rosterByClinic
+                                )
+                            )
+                        }
                         val slotsByClinic = slotsDef.await()
                         val datesMap = nextDatesDef.await()
 
