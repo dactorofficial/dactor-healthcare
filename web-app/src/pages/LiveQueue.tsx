@@ -452,13 +452,18 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     })
   }, [appointment, publicQueueStatus, clinic, isUnlocked])
 
-  // Live auto-refresh every 2 seconds (matching Android QueueStatusScreen.kt)
+  // Live auto-refresh every 15 seconds while the tab is visible; refresh at once when it becomes visible again
   useEffect(() => {
     if (!activeCode) return
-    const interval = setInterval(() => {
-      fetchQueueData(activeCode, true)
-    }, 2000)
-    return () => clearInterval(interval)
+    const refreshIfVisible = () => {
+      if (!document.hidden) fetchQueueData(activeCode, true)
+    }
+    const interval = setInterval(refreshIfVisible, 15000)
+    document.addEventListener('visibilitychange', refreshIfVisible)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', refreshIfVisible)
+    }
   }, [activeCode])
 
   // Active Supabase Realtime WebSocket subscription for instant alerts & queue changes

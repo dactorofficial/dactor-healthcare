@@ -29,15 +29,20 @@ gone in hours to days.
 | 1 hour before slot | local alarm on the phone | 0 |
 | Slot - 2 h onward | 90 s loop, 1 small query (`get_public_queue_status`) | ~160/visit |
 | Loop stop | 5 min after consultation completed, or cancelled | - |
-| Loop hard stop | clinic closing time (midnight if unknown) -> switch to 6-hour check, max 2 days | 4/day |
+| Loop hard stop | midnight -> switch to 6-hour check, max 2 days | 4/day |
 | Lab: after sample collected | 5 min loop during lab working hours until report `prepared` + 5 min; max 3 days then 6-hour check | ~100-150/day |
 | "X patients left" | FCM push from server (clinic's `auto_notify_threshold`) | 0 from phone |
 
+A lab collection visit uses the same 90 s rule as a doctor visit until the sample is
+collected; the 5 min report loop takes over from there.
+
 ### Clinic app
 - Notification alarm loop removed (FCM only).
-- Queue board: only today's entries; updates locally after own actions; slower safety refresh.
-- SyncWorker: only recent data (today / recent window), not the full history.
-- Average consultation time no longer recalculated by downloading history (server does it).
+- Queue board: refresh every 10 s (was 2 s), downloading only rows changed since the
+  last fetch; full refresh every 5 minutes. Own actions already show instantly.
+- Average consultation time read from the server's running stats instead of
+  downloading every completed consultation after each one.
+- SyncWorker / SyncEngine: not scheduled or called anywhere today, so left unchanged.
 
 ### Server (Supabase)
 - Running average per doctor (or per lab) stored as count + average; today and all-time.
@@ -48,8 +53,9 @@ gone in hours to days.
 - `pg_cron` runs the existing no-show sweep every 6 hours.
 
 ### Web
-- Live queue polling 2 s -> 15 s, paused when the tab is hidden; clinic/doctor rows loaded once.
-- Realtime subscriptions filtered to the user's own rows.
+- Live queue polling 2 s -> 15 s, paused while the tab is hidden.
+- Realtime subscriptions left as they are: row-level security limits what each
+  client receives, and only `notifications` is published for realtime.
 
 ## Expected load (1,000 users, ~50 appointments/day, ~20 clinics)
 
@@ -59,8 +65,8 @@ gone in hours to days.
 | Hourly checks (upcoming appointments) | ~2,400 | <0.1 GB |
 | Lab report loops | ~5,000-9,000 | ~0.3 GB |
 | App opens | ~3,000-4,000 | ~1 GB |
-| Clinic boards (today-only, slower refresh) | ~2,000-10,000 | ~1-1.5 GB |
-| **Total** | **~20,000-35,000** | **~3-4 GB of ~5 GB** |
+| Clinic boards (changed rows only, 10 s) | ~60,000 (mostly empty replies) | ~0.5-1 GB |
+| **Total** | **~80,000-90,000** | **~2.5-3.5 GB of ~5 GB** |
 
 Other free-tier limits:
 - Database (500 MB): grows roughly 5-10 MB/month at this volume -> years.
@@ -71,11 +77,16 @@ Other free-tier limits:
 Free-tier limits are from Supabase's published plans at the time of writing; verify on
 their pricing page.
 
-## Phases
-1. Database migration (running average, queue status v2, threshold FCM trigger, no-show cron).
-2. Patient app (remove loops, scheduler, reminders, lab loop).
-3. Clinic app (remove loop, today-only board and sync).
-4. Web (polling and subscription filters).
+## Phases (all done on branch `scaling-free-tier-plan`)
+1. Database migration `supabase/migration_scaling_queue_estimates_and_alerts.sql`
+   (running average, queue status v2, threshold FCM trigger, no-show cron,
+   updated_at triggers, clinic stats RPC). Tested on local Postgres 16.
+2. Patient app: `service/AppointmentAlarmPlanner.kt` + receiver/worker/MainActivity
+   changes. Compiles; scheduling rules covered by `AppointmentAlarmPlannerTest`.
+3. Clinic app: loop removed, incremental board refresh, server-side average. Compiles.
+4. Web: live queue polling. Type-checks and builds.
+
+Not verified here: behaviour on real devices and against the live Supabase project.
 
 ## Manual steps after deploying the migration
 - Enable extensions `pg_net` and `pg_cron` (Database -> Extensions).
