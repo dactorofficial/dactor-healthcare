@@ -1375,17 +1375,21 @@ class AppointmentRepository @Inject constructor(
         }
     }
 
+    @Serializable
+    private data class IdOnlyRow(val id: String)
+
     suspend fun getPendingPayAtDeskCount(clinicId: String): Int = withContext(Dispatchers.IO) {
         try {
             val list = supabaseClient.postgrest["appointments"]
-                .select {
+                // Only ids: the badge needs a count, not the booking details
+                .select(io.github.jan.supabase.postgrest.query.Columns.list("id")) {
                     filter {
                         eq("clinic_id", clinicId)
                         eq("payment_mode", "PAY_AT_DESK")
                         eq("status", "WAITING_FOR_APPROVAL")
                     }
                 }
-                .decodeList<Appointment>()
+                .decodeList<IdOnlyRow>()
             list.size
         } catch (e: Exception) {
             0
