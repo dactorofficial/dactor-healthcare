@@ -262,6 +262,32 @@ class AppointmentRepository @Inject constructor(
         }
     }
 
+    /** Bookings for [date] created or approved after [since] (ISO timestamp); usually none. */
+    suspend fun getNewOrApprovedAppointmentsForDate(clinicId: String, date: String, since: String): List<Appointment> = withContext(Dispatchers.IO) {
+        try {
+            val appts = supabaseClient.postgrest["appointments"]
+                .select {
+                    filter {
+                        eq("clinic_id", clinicId)
+                        eq("appointment_date", date)
+                        or {
+                            gt("created_at", since)
+                            gt("approved_at", since)
+                        }
+                    }
+                }.decodeList<Appointment>()
+            if (appts.isEmpty()) return@withContext appts
+            val attached = attachQueueStatus(appts, clinicId = clinicId)
+            try {
+                appointmentDao?.upsertAll(attached.map { AppointmentEntity.fromDomainModel(it, syncStatus = "synced") })
+            } catch (_: Exception) {}
+            attached
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
     suspend fun getAppointmentsForPatient(
         patientMobile: String? = null,
         userId: String? = null,

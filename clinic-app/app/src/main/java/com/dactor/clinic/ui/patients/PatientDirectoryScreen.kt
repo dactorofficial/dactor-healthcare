@@ -110,6 +110,9 @@ fun PatientDirectoryScreen(
         } ?: emptyList()
     }
     var appointments by remember(effectiveClinicId) { mutableStateOf<List<Appointment>>(cachedInitialAppts) }
+    // After today's bookings are loaded once, only bookings created/approved after this time are fetched
+    var newBookingsSince by remember(effectiveClinicId) { mutableStateOf<String?>(null) }
+    var bookingsLoadedForDate by remember(effectiveClinicId) { mutableStateOf<String?>(null) }
     var locallyAddedProfiles by remember(effectiveClinicId) {
         val savedRaw = directoryPrefs.getString("records_${effectiveClinicId.ifBlank { "default" }}", "") ?: ""
         val loaded = savedRaw.split("\n").mapNotNull { line ->
@@ -305,8 +308,20 @@ fun PatientDirectoryScreen(
                     if (doctorRepository != null && affiliatedDoctors.isEmpty()) {
                         affiliatedDoctors = doctorRepository.getDoctorsByClinic(cId)
                     }
-                    // Daily Active Sync: Sync ONLY patients who have appointments on the day
-                    appointmentRepository.getAppointmentsByDate(cId, today)
+                    // Daily Active Sync: today's bookings once, then only new or newly approved ones.
+                    // Cancellations/reschedules do not change who is in the directory.
+                    val since = newBookingsSince
+                    val result = if (since == null || bookingsLoadedForDate != today) {
+                        bookingsLoadedForDate = today
+                        appointmentRepository.getAppointmentsByDate(cId, today)
+                    } else {
+                        val fresh = appointmentRepository.getNewOrApprovedAppointmentsForDate(cId, today, since)
+                        (appointments.associateBy { it.id } + fresh.associateBy { it.id }).values.toList()
+                    }
+                    latestBookingTime(result)?.let { latest ->
+                        if (since == null || latest > since) newBookingsSince = latest
+                    }
+                    result
                 } else emptyList()
             }
             // Strict Clinic Directory Guard: Only APPROVED appointments belong in the Clinic Directory & Live OPD Queue
@@ -345,7 +360,7 @@ fun PatientDirectoryScreen(
     LaunchedEffect(effectiveClinicId, savedDoctorId, userRole, clinicId) {
         while (isActive) {
             loadData()
-            delay(5000L)
+            delay(90_000L)
         }
     }
 
@@ -682,7 +697,7 @@ fun PatientDirectoryScreen(
                             }
 
                             IconButton(
-                                onClick = { coroutineScope.launch { loadData() } },
+                                onClick = { coroutineScope.launch { newBookingsSince = null; loadData() } },
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color(0xFF475569))
@@ -3451,3 +3466,11 @@ private fun PatientFullHistoryModalDialog(
         }
     }
 }
+
+/** Newest created/approved time among [appts], minus 2 minutes of overlap, as an ISO string. */
+private fun latestBookingTime(appts: List<Appointment>): String? =
+    appts.flatMap { listOfNotNull(it.createdAt, it.approvedAt) }
+        .mapNotNull { runCatching { java.time.OffsetDateTime.parse(it.trim()).toInstant() }.getOrNull() }
+        .maxOrNull()
+        ?.minusSeconds(120)
+        ?.toString()
