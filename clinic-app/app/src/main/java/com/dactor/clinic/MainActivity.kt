@@ -24,8 +24,6 @@ import android.os.Build
 import com.dactor.clinic.service.NotificationHelper
 import com.google.firebase.messaging.FirebaseMessaging
 import io.github.jan.supabase.postgrest.postgrest
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.serialization.Serializable
 import java.util.UUID
 import javax.inject.Inject
@@ -122,10 +120,9 @@ class MainActivity : ComponentActivity() {
             e.printStackTrace()
         }
 
-        // 4. Start background watcher for broadcast and staff alerts while activity is alive
+        // 4. One check for recent broadcast and staff alerts when the app opens (no polling loop)
         lifecycleScope.launch(Dispatchers.IO) {
-            var isFirstPoll = true
-            while (isActive) {
+            run {
                 try {
                     val userId = authRepository.getCurrentUser()
                     val notifs = notificationRepository.getNotifications(userId = userId)
@@ -143,7 +140,7 @@ class MainActivity : ComponentActivity() {
                         }
                         val isCreatedRecently = createdEpochMs >= fifteenMinutesAgoMs
 
-                        if (isFirstPoll && !isCreatedRecently) {
+                        if (!isCreatedRecently) {
                             seenNotifIds.add(notif.id)
                             continue
                         }
@@ -157,11 +154,9 @@ class MainActivity : ComponentActivity() {
                         )
                         seenNotifIds.add(notif.id)
                     }
-                    isFirstPoll = false
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                delay(4000L)
             }
         }
         setContent {
