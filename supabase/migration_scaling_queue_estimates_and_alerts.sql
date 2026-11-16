@@ -366,6 +366,57 @@ BEGIN
 END $$;
 
 -- ----------------------------------------------------------------------------
+-- 5. Incremental sync support for the clinic app
+--    Keep updated_at current so clients can fetch only rows changed since
+--    their last sync, and serve the clinic average from queue_time_stats.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.trg_touch_updated_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    NEW.updated_at := NOW();
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS queue_entries_touch_updated_at ON public.queue_entries;
+CREATE TRIGGER queue_entries_touch_updated_at
+    BEFORE UPDATE ON public.queue_entries
+    FOR EACH ROW EXECUTE FUNCTION public.trg_touch_updated_at();
+CREATE INDEX IF NOT EXISTS idx_queue_entries_clinic_updated
+    ON public.queue_entries (clinic_id, updated_at);
+
+DO $$
+BEGIN
+    IF to_regclass('public.billing_invoices') IS NOT NULL THEN
+        DROP TRIGGER IF EXISTS billing_invoices_touch_updated_at ON public.billing_invoices;
+        CREATE TRIGGER billing_invoices_touch_updated_at
+            BEFORE UPDATE ON public.billing_invoices
+            FOR EACH ROW EXECUTE FUNCTION public.trg_touch_updated_at();
+        CREATE INDEX IF NOT EXISTS idx_billing_invoices_clinic_updated
+            ON public.billing_invoices (clinic_id, updated_at);
+    END IF;
+END $$;
+
+-- Clinic-wide completed consultation count and average (seconds), one row.
+CREATE OR REPLACE FUNCTION public.get_clinic_consultation_stats(p_clinic_id UUID)
+RETURNS TABLE (completed_count INT, avg_seconds NUMERIC)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT COALESCE(SUM(s.alltime_count), 0)::INT,
+           CASE WHEN SUM(s.alltime_count) > 0
+                THEN SUM(s.alltime_avg_seconds * s.alltime_count) / SUM(s.alltime_count)
+           END
+      FROM public.queue_time_stats s
+     WHERE s.clinic_id = p_clinic_id;
+$$;
+GRANT EXECUTE ON FUNCTION public.get_clinic_consultation_stats(UUID) TO anon, authenticated, service_role;
+
+-- ----------------------------------------------------------------------------
 -- Manual setup (Supabase dashboard):
 --   Database -> Extensions: enable pg_net and pg_cron (then re-run block 4).
 --   Vault: add secrets 'dactor_project_url' and 'dactor_service_role_key'.

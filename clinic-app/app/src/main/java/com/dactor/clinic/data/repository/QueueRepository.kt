@@ -68,6 +68,13 @@ class QueueRepository @Inject constructor(
 ) {
     private val clinicQueueCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<QueueEntry>>>()
     private val doctorQueueCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<QueueEntry>>>()
+    private val clinicQueueSince = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val clinicQueueFullAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val FULL_QUEUE_REFRESH_MS = 5 * 60_000L
+
+    private fun parseServerInstant(raw: String): Instant? =
+        runCatching { java.time.OffsetDateTime.parse(raw.trim()).toInstant() }.getOrNull()
+            ?: runCatching { Instant.parse(raw.trim()) }.getOrNull()
 
     fun getCachedQueueForClinic(clinicId: String): List<QueueEntry> {
         if (clinicId.isBlank()) return emptyList()
@@ -77,6 +84,8 @@ class QueueRepository @Inject constructor(
     fun clearCache() {
         clinicQueueCache.clear()
         doctorQueueCache.clear()
+        clinicQueueSince.clear()
+        clinicQueueFullAt.clear()
     }
 
     suspend fun getLocalOrCachedQueueForClinic(clinicId: String): List<QueueEntry> = withContext(Dispatchers.IO) {
@@ -100,12 +109,28 @@ class QueueRepository @Inject constructor(
     suspend fun syncQueueDeltaForClinic(clinicId: String): List<QueueEntry> = withContext(Dispatchers.IO) {
         if (clinicId.isBlank()) return@withContext emptyList()
         try {
-            val entries = supabaseClient.postgrest["queue_entries"]
+            // Download only rows changed since the last fetch and merge them into the cached list.
+            // A full download every 5 minutes picks up deleted rows.
+            val nowMs = System.currentTimeMillis()
+            val cached = clinicQueueCache[clinicId]?.second
+            val since = clinicQueueSince[clinicId]
+            val needFull = cached == null || since == null || nowMs - (clinicQueueFullAt[clinicId] ?: 0L) > FULL_QUEUE_REFRESH_MS
+            val fetched = supabaseClient.postgrest["queue_entries"]
                 .select {
                     filter {
                         eq("clinic_id", clinicId)
+                        if (!needFull) gt("updated_at", since!!)
                     }
                 }.decodeList<QueueEntry>()
+            val entries = if (needFull) {
+                clinicQueueFullAt[clinicId] = nowMs
+                fetched
+            } else {
+                (cached!!.associateBy { it.id } + fetched.associateBy { it.id }).values.toList()
+            }
+            (fetched + (cached ?: emptyList())).mapNotNull { it.updatedAt?.let(::parseServerInstant) }.maxOrNull()?.let {
+                clinicQueueSince[clinicId] = it.minusSeconds(120).toString()
+            }
 
             val sorted = entries.sortedBy { it.queuePosition }
             clinicQueueCache[clinicId] = Pair(System.currentTimeMillis(), sorted)
@@ -931,33 +956,20 @@ class QueueRepository @Inject constructor(
             val manualMinutes = clinic?.manualAvgConsultationTimeMinutes ?: clinic?.avgConsultationTimeMinutes ?: 10
             val currentMode = clinic?.avgTimeMode ?: "auto"
 
-            val doneEntries = supabaseClient.postgrest["queue_entries"]
-                .select {
-                    filter {
-                        eq("clinic_id", clinicId)
-                        or {
-                            eq("status", "done")
-                            eq("status", "processing")
-                            eq("status", "sample_collected")
-                            eq("status", "report_prepared")
-                        }
-                    }
-                }.decodeList<QueueEntry>()
+            // The server keeps a running count + average per doctor (outliers over 2x already
+            // excluded), so no consultation history is downloaded here.
+            @Serializable
+            data class StatsParams(val p_clinic_id: String)
+            @Serializable
+            data class ClinicStats(val completed_count: Int = 0, val avg_seconds: Double? = null)
+            val stats = supabaseClient.postgrest
+                .rpc("get_clinic_consultation_stats", StatsParams(clinicId))
+                .decodeList<ClinicStats>()
+                .firstOrNull()
+            val completedCount = stats?.completed_count ?: 0
+            val serverAvgSec = stats?.avg_seconds?.takeIf { completedCount > 0 && it > 0 }
 
-            val validDurations = doneEntries.mapNotNull { entry ->
-                if (entry.consultationDurationSeconds != null && entry.consultationDurationSeconds > 0) {
-                    entry.consultationDurationSeconds
-                } else if (!entry.insideAt.isNullOrBlank() && !entry.completedAt.isNullOrBlank()) {
-                    try {
-                        val start = Instant.parse(entry.insideAt).epochSecond
-                        val end = Instant.parse(entry.completedAt).epochSecond
-                        val diff = end - start
-                        if (diff > 0) diff else null
-                    } catch (e: Exception) { null }
-                } else null
-            }
-
-            if (validDurations.isEmpty()) {
+            if (serverAvgSec == null) {
                 val result = ClinicAverageCalculationResult(
                     effectiveAvgMinutes = manualMinutes,
                     manualAvgMinutes = manualMinutes,
@@ -979,17 +991,7 @@ class QueueRepository @Inject constructor(
                 return@withContext result
             }
 
-            // 1. Calculate preliminary calculated average
-            val preliminaryAvgSec = validDurations.average()
-
-            // 2. Outlier filtering:
-            // "if any specific appointment is largely deviated from calculated average like directly 2 times or more than the calculated average not given average omit that specific data"
-            val outlierLimitSec = 2.0 * preliminaryAvgSec
-            val cleanDurations = validDurations.filter { it < outlierLimitSec }
-            val outliersCount = validDurations.size - cleanDurations.size
-
-            // 3. Re-calculate actual average without outliers
-            val actualAvgSec = if (cleanDurations.isNotEmpty()) cleanDurations.average() else preliminaryAvgSec
+            val actualAvgSec = serverAvgSec
             val calculatedMinutes = kotlin.math.round(actualAvgSec / 60.0).toInt().coerceAtLeast(1)
 
             // 4. Replacement logic:
@@ -1019,8 +1021,8 @@ class QueueRepository @Inject constructor(
                 effectiveAvgMinutes = effectiveMinutes,
                 manualAvgMinutes = manualMinutes,
                 calculatedAvgMinutes = calculatedMinutes,
-                completedVisitsCount = validDurations.size,
-                outliersOmittedCount = outliersCount,
+                completedVisitsCount = completedCount,
+                outliersOmittedCount = 0,
                 isAutoReplaced = (currentMode == "auto" && isWithinFiveMinutes),
                 mode = currentMode
             )

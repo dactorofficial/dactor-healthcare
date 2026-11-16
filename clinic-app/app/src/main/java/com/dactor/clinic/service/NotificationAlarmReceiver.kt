@@ -23,8 +23,8 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
         val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "dactor:ClinicAlarmWakeLock")
         wakeLock?.acquire(60_000L) // 1 minute max lock
 
-        // Reschedule next background sync check in 30 seconds
-        scheduleNextAlarm(context, 30_000L)
+        // No longer reschedules itself: closed-app notifications arrive via FCM.
+        // Alarms left over from older versions run once more and then stop.
 
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {

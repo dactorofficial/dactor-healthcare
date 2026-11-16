@@ -15,5 +15,6 @@ data class QueueEntry(
     @SerialName("inside_at") val insideAt: String? = null,
     @SerialName("completed_at") val completedAt: String? = null,
     @SerialName("consultation_duration_seconds") val consultationDurationSeconds: Long? = null,
-    @SerialName("created_at") val createdAt: String? = null
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null
 )

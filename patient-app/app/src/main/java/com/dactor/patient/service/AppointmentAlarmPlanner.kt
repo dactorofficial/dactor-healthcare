@@ -170,19 +170,24 @@ object AppointmentAlarmPlanner {
     /** Only fetch notifications newer than this (ISO-8601); overlaps by a minute, duplicates are filtered by seen ids. */
     fun notificationsSince(context: Context): String {
         val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_NOTIF_SINCE, null)
-        val base = saved?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        val base = saved?.let { parseInstant(it) }
             ?: Instant.now().minus(Duration.ofHours(24))
         return base.minus(Duration.ofMinutes(1)).toString()
     }
 
     fun rememberNotificationsSeenUpTo(context: Context, createdAtValues: List<String>) {
-        val newest = createdAtValues.mapNotNull { runCatching { Instant.parse(it) }.getOrNull() }.maxOrNull() ?: return
+        val newest = createdAtValues.mapNotNull { parseInstant(it) }.maxOrNull() ?: return
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val current = prefs.getString(KEY_NOTIF_SINCE, null)?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        val current = prefs.getString(KEY_NOTIF_SINCE, null)?.let { parseInstant(it) }
         if (current == null || newest.isAfter(current)) {
             prefs.edit().putString(KEY_NOTIF_SINCE, newest.toString()).apply()
         }
     }
+
+    /** Supabase returns offsets like "+00:00"; Instant.parse alone rejects those on older Android. */
+    private fun parseInstant(raw: String): Instant? =
+        runCatching { java.time.OffsetDateTime.parse(raw.trim()).toInstant() }.getOrNull()
+            ?: runCatching { Instant.parse(raw.trim()) }.getOrNull()
 
     private fun phaseOf(appt: Appointment, queueStatus: String?): Phase {
         val checkin = appt.checkinStatus.lowercase()

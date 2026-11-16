@@ -671,7 +671,8 @@ fun QueueBoardScreen(
         // Initial full sync of clinic, doctors, and appointments
         loadQueue(isDeltaOnly = false)
         while (isActive) {
-            delay(2000L)
+            // Only changed rows are downloaded; own actions already show instantly via pendingStatusOverrides
+            delay(10_000L)
             // Lightweight operational delta sync: only queue entries without heavy table scans
             loadQueue(isDeltaOnly = true)
         }

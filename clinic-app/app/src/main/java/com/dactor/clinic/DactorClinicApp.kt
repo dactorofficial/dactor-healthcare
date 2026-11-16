@@ -3,7 +3,6 @@ package com.dactor.clinic
 import android.app.Application
 import android.content.Context
 import android.util.Log
-import com.dactor.clinic.service.NotificationAlarmReceiver
 import com.dactor.clinic.service.NotificationHelper
 import dagger.hilt.android.HiltAndroidApp
 
@@ -27,12 +26,7 @@ class DactorClinicApp : Application() {
             Log.e("DactorClinicApp", "Failed to create notification channel", e)
         }
 
-        // 3. Start background alarm receiver for closed-app notification checks
-        try {
-            NotificationAlarmReceiver.startPeriodicAlarm(this)
-        } catch (e: Throwable) {
-            Log.e("DactorClinicApp", "Failed to start background notification alarm", e)
-        }
+        // Closed-app notifications arrive via FCM; no background polling loop.
 
         // 4. Local Crash Diagnostics Vault
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
