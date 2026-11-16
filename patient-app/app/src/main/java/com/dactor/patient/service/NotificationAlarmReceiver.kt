@@ -24,12 +24,22 @@ import java.time.LocalDate
 class NotificationAlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
+        if (intent?.action == ACTION_REMINDER) {
+            val apptId = intent.getStringExtra(EXTRA_APPOINTMENT_ID)
+            NotificationHelper.showSystemNotification(
+                context = context,
+                id = ((apptId + intent.data).hashCode() and 0x7FFFFFFF) % 100000,
+                title = intent.getStringExtra(EXTRA_TITLE) ?: "Appointment reminder",
+                message = intent.getStringExtra(EXTRA_MESSAGE) ?: "",
+                appointmentId = apptId,
+                type = NotificationType.ARRIVE_SOON.key
+            )
+            return
+        }
+
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "dactor:AlarmSyncWakeLock")
         wakeLock?.acquire(60_000L) // 1 minute max lock
-
-        // Schedule next check in 30 seconds
-        scheduleNextAlarm(context, 30_000L)
 
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
@@ -42,6 +52,8 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
                 val savedCodes = sessionManager.getSavedTrackingCodes().map { it.first.trim() }.filter { it.isNotBlank() }
                 val resolvedIds = savedCodes.toMutableSet()
                 val myAppointments = mutableListOf<Appointment>()
+                val queueStatusById = mutableMapOf<String, String?>()
+                var appointmentsLoaded = false
 
                 try {
                     if (!userId.isNullOrBlank()) {
@@ -70,6 +82,7 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
                         if (appt.id.isNotBlank()) resolvedIds.add(appt.id)
                         if (appt.trackingCode10Digit.isNotBlank()) resolvedIds.add(appt.trackingCode10Digit)
                     }
+                    appointmentsLoaded = true
                 } catch (_: Exception) {}
 
                 // Evaluate background live queue for active appointments today (≤2 ahead alert guarantee)
@@ -88,8 +101,10 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
                     val todayActiveAppts = myAppointments.filter {
                         it.appointmentDate.trim().take(10) == todayStr && it.checkinStatus.lowercase() !in listOf("completed", "done", "cancelled")
                     }
-                    if (todayActiveAppts.isNotEmpty()) {
-                        val apptIds = todayActiveAppts.map { it.id }
+                    // Today's appointments plus recent ones whose lab report may still be pending
+                    val recentIds = recentUnfinishedIds(myAppointments)
+                    if (recentIds.isNotEmpty()) {
+                        val apptIds = recentIds
                         val queueEntries = try {
                             client.postgrest["queue_entries"]
                                 .select { filter { isIn("appointment_id", apptIds) } }
@@ -101,6 +116,7 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
                                     .decodeList<QueueEntry>()
                             } catch (_: Exception) { emptyList() }
                         }
+                        queueEntries.forEach { queueStatusById[it.appointmentId] = it.status }
 
                         for (appt in todayActiveAppts) {
                             val code = appt.trackingCode10Digit.ifBlank { appt.id.take(10) }
@@ -160,14 +176,17 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
                     }
                 } catch (_: Exception) {}
 
-                // Check Supabase notifications with targeted ordering and limit (replaces full-table scan)
+                // Only notifications created since the last check (usually none)
                 val list = try {
+                    val since = AppointmentAlarmPlanner.notificationsSince(context)
                     client.postgrest["notifications"]
                         .select {
+                            filter { gt("created_at", since) }
                             order("created_at", Order.DESCENDING)
                             limit(50)
                         }
                         .decodeList<DactorNotification>()
+                        .also { fetched -> AppointmentAlarmPlanner.rememberNotificationsSeenUpTo(context, fetched.map { it.createdAt }) }
                 } catch (_: Exception) {
                     emptyList()
                 }
@@ -299,8 +318,16 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
                         sessionManager.markNotificationSeen(notif.id)
                     }
                 }
+
+                // Decide when to check next (or stop) based on the appointment window
+                if (appointmentsLoaded) {
+                    AppointmentAlarmPlanner.plan(context, myAppointments, queueStatusById)
+                } else {
+                    scheduleNextAlarm(context, RETRY_MS)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
+                scheduleNextAlarm(context, RETRY_MS)
             } finally {
                 try {
                     if (wakeLock?.isHeld == true) {
@@ -314,9 +341,25 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_CHECK_ALERTS = "com.dactor.patient.ACTION_CHECK_ALERTS"
-        private const val ALARM_REQUEST_CODE = 10091
+        const val ACTION_REMINDER = "com.dactor.patient.ACTION_REMINDER"
+        const val EXTRA_TITLE = "title"
+        const val EXTRA_MESSAGE = "message"
+        const val EXTRA_APPOINTMENT_ID = "appointment_id"
+        const val ALARM_REQUEST_CODE = 10091
+        private const val RETRY_MS = 5 * 60_000L
 
-        fun scheduleNextAlarm(context: Context, delayMillis: Long = 30_000L) {
+        /** Appointments from the last 3 days (or today) that are not finished or cancelled. */
+        fun recentUnfinishedIds(appointments: List<Appointment>): List<String> {
+            val earliest = LocalDate.now().minusDays(3).toString()
+            val today = LocalDate.now().toString()
+            return appointments.filter {
+                val d = it.appointmentDate.trim().take(10)
+                d in earliest..today && it.checkinStatus.lowercase() !in listOf("completed", "done", "cancelled", "no_show")
+            }.map { it.id }
+        }
+
+        /** One-off check after [delayMillis] (used to retry when offline). */
+        fun scheduleNextAlarm(context: Context, delayMillis: Long) {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
             val intent = Intent(context, NotificationAlarmReceiver::class.java).apply {
                 action = ACTION_CHECK_ALERTS
@@ -343,10 +386,6 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
                     alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
                 } catch (_: Exception) {}
             }
-        }
-
-        fun startPeriodicAlarm(context: Context) {
-            scheduleNextAlarm(context, 5_000L)
         }
     }
 }

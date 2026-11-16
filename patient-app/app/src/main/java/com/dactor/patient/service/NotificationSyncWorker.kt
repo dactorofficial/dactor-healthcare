@@ -40,6 +40,8 @@ class NotificationSyncWorker(
             val savedCodes = sessionManager.getSavedTrackingCodes().map { it.first.trim() }.filter { it.isNotBlank() }
             val resolvedIds = savedCodes.toMutableSet()
             val myAppointments = mutableListOf<Appointment>()
+            val queueStatusById = mutableMapOf<String, String?>()
+            var appointmentsLoaded = false
 
             try {
                 if (!userId.isNullOrBlank()) {
@@ -68,6 +70,7 @@ class NotificationSyncWorker(
                     if (appt.id.isNotBlank()) resolvedIds.add(appt.id)
                     if (appt.trackingCode10Digit.isNotBlank()) resolvedIds.add(appt.trackingCode10Digit)
                 }
+                appointmentsLoaded = true
             } catch (_: Exception) {}
 
             // Cancel any notifications for already completed appointments
@@ -86,8 +89,9 @@ class NotificationSyncWorker(
                 it.appointmentDate.trim().take(10) == todayStr &&
                 it.checkinStatus.lowercase() !in listOf("completed", "done", "cancelled")
             }
-            if (todayCandidateAppts.isNotEmpty()) {
-                val apptIds = todayCandidateAppts.map { it.id }
+            val recentIds = NotificationAlarmReceiver.recentUnfinishedIds(myAppointments)
+            if (recentIds.isNotEmpty()) {
+                val apptIds = recentIds
                 val queueEntries = try {
                     client.postgrest["queue_entries"]
                         .select { filter { isIn("appointment_id", apptIds) } }
@@ -99,6 +103,7 @@ class NotificationSyncWorker(
                             .decodeList<QueueEntry>()
                     } catch (_: Exception) { emptyList() }
                 }
+                queueEntries.forEach { queueStatusById[it.appointmentId] = it.status }
 
                 for (appt in todayCandidateAppts) {
                     val code = appt.trackingCode10Digit.ifBlank { appt.id.take(10) }
@@ -180,12 +185,15 @@ class NotificationSyncWorker(
             }
 
                 val list = try {
+                    val since = AppointmentAlarmPlanner.notificationsSince(context)
                     client.postgrest["notifications"]
                         .select {
+                            filter { gt("created_at", since) }
                             order("created_at", Order.DESCENDING)
                             limit(50)
                         }
                         .decodeList<DactorNotification>()
+                        .also { fetched -> AppointmentAlarmPlanner.rememberNotificationsSeenUpTo(context, fetched.map { it.createdAt }) }
                 } catch (_: Exception) {
                     emptyList()
                 }
@@ -305,6 +313,10 @@ class NotificationSyncWorker(
                     }
                 }
 
+            // Re-plan reminders, the appointment-window loop and this job's own interval
+            if (appointmentsLoaded) {
+                AppointmentAlarmPlanner.plan(context, myAppointments, queueStatusById)
+            }
             Result.success()
         } catch (e: Exception) {
             e.printStackTrace()
