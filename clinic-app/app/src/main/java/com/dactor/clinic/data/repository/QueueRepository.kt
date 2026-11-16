@@ -69,8 +69,8 @@ class QueueRepository @Inject constructor(
     private val clinicQueueCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<QueueEntry>>>()
     private val doctorQueueCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<QueueEntry>>>()
     private val clinicQueueSince = java.util.concurrent.ConcurrentHashMap<String, String>()
-    private val clinicQueueFullAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private val FULL_QUEUE_REFRESH_MS = 5 * 60_000L
+    private val clinicQueueActiveCheckAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val ACTIVE_ID_CHECK_MS = 60_000L
 
     private fun parseServerInstant(raw: String): Instant? =
         runCatching { java.time.OffsetDateTime.parse(raw.trim()).toInstant() }.getOrNull()
@@ -85,7 +85,7 @@ class QueueRepository @Inject constructor(
         clinicQueueCache.clear()
         doctorQueueCache.clear()
         clinicQueueSince.clear()
-        clinicQueueFullAt.clear()
+        clinicQueueActiveCheckAt.clear()
     }
 
     suspend fun getLocalOrCachedQueueForClinic(clinicId: String): List<QueueEntry> = withContext(Dispatchers.IO) {
@@ -110,11 +110,12 @@ class QueueRepository @Inject constructor(
         if (clinicId.isBlank()) return@withContext emptyList()
         try {
             // Download only rows changed since the last fetch and merge them into the cached list.
-            // A full download every 5 minutes picks up deleted rows.
+            // Once a minute, a small id-only check of waiting/inside rows drops entries deleted
+            // on the server (cancellations); status changes arrive through updated_at.
             val nowMs = System.currentTimeMillis()
             val cached = clinicQueueCache[clinicId]?.second
             val since = clinicQueueSince[clinicId]
-            val needFull = cached == null || since == null || nowMs - (clinicQueueFullAt[clinicId] ?: 0L) > FULL_QUEUE_REFRESH_MS
+            val needFull = cached == null || since == null
             val fetched = supabaseClient.postgrest["queue_entries"]
                 .select {
                     filter {
@@ -122,11 +123,24 @@ class QueueRepository @Inject constructor(
                         if (!needFull) gt("updated_at", since!!)
                     }
                 }.decodeList<QueueEntry>()
-            val entries = if (needFull) {
-                clinicQueueFullAt[clinicId] = nowMs
+            var entries = if (needFull) {
+                clinicQueueActiveCheckAt[clinicId] = nowMs
                 fetched
             } else {
                 (cached!!.associateBy { it.id } + fetched.associateBy { it.id }).values.toList()
+            }
+            if (!needFull && nowMs - (clinicQueueActiveCheckAt[clinicId] ?: 0L) > ACTIVE_ID_CHECK_MS) {
+                @Serializable
+                data class IdOnly(val id: String)
+                val activeIds = supabaseClient.postgrest["queue_entries"]
+                    .select(io.github.jan.supabase.postgrest.query.Columns.list("id")) {
+                        filter {
+                            eq("clinic_id", clinicId)
+                            isIn("status", listOf("waiting", "inside"))
+                        }
+                    }.decodeList<IdOnly>().map { it.id }.toSet()
+                entries = entries.filter { it.status !in listOf("waiting", "inside") || it.id in activeIds }
+                clinicQueueActiveCheckAt[clinicId] = nowMs
             }
             (fetched + (cached ?: emptyList())).mapNotNull { it.updatedAt?.let(::parseServerInstant) }.maxOrNull()?.let {
                 clinicQueueSince[clinicId] = it.minusSeconds(120).toString()

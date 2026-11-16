@@ -39,7 +39,9 @@ collected; the 5 min report loop takes over from there.
 ### Clinic app
 - Notification alarm loop removed (FCM only).
 - Queue board: refresh every 10 s (was 2 s), downloading only rows changed since the
-  last fetch; full refresh every 5 minutes. Own actions already show instantly.
+  last fetch; once a minute an id-only check of waiting/inside rows removes entries
+  deleted on the server. Full download only when the board opens. Own actions
+  already show instantly.
 - Average consultation time read from the server's running stats instead of
   downloading every completed consultation after each one.
 - SyncWorker / SyncEngine: not scheduled or called anywhere today, so left unchanged.
@@ -65,8 +67,8 @@ collected; the 5 min report loop takes over from there.
 | Hourly checks (upcoming appointments) | ~2,400 | <0.1 GB |
 | Lab report loops | ~5,000-9,000 | ~0.3 GB |
 | App opens | ~3,000-4,000 | ~1 GB |
-| Clinic boards (changed rows only, 10 s) | ~60,000 (mostly empty replies) | ~0.5-1 GB |
-| **Total** | **~80,000-90,000** | **~2.5-3.5 GB of ~5 GB** |
+| Clinic boards (changed rows only, 10 s + 1/min id check) | ~70,000 (mostly empty replies) | ~0.7-1 GB |
+| **Total** | **~90,000-100,000** | **~2.5-3.5 GB of ~5 GB** |
 
 Other free-tier limits:
 - Database (500 MB): grows roughly 5-10 MB/month at this volume -> years.
