@@ -477,7 +477,12 @@ fun QueueBoardScreen(
                 val docsDeferred = async<List<Doctor>> {
                     if (!needDocs) return@async clinicDoctors
                     try {
-                        doctorRepository?.getDoctorsByClinic(effectiveClinicId) ?: emptyList()
+                        // Doctors rarely change: reuse the list saved on the phone if under a day old
+                        val repo = doctorRepository
+                        val saved = repo?.getCachedDoctorsByClinic(effectiveClinicId).orEmpty()
+                        val age = repo?.savedDoctorsAgeMs(effectiveClinicId)
+                        if (saved.isNotEmpty() && age != null && age < 24 * 60 * 60 * 1000L) saved
+                        else repo?.getDoctorsByClinic(effectiveClinicId) ?: emptyList()
                     } catch (_: Exception) { emptyList() }
                 }
                 val entriesDeferred = async<List<QueueEntry>> {
@@ -646,7 +651,7 @@ fun QueueBoardScreen(
                     pendingStatusOverrides = pendingStatusOverrides - item.id
                     notificationSentMessage = "⚠ Unable to move ${item.patientName} to Processing. Please check connection and retry."
                 }
-                loadQueue()
+                loadQueue(isDeltaOnly = true) // only changed rows after a staff action
             }
         } else {
             optimisticallyUpdateStatus(item.id, "done")
@@ -662,7 +667,7 @@ fun QueueBoardScreen(
                     pendingStatusOverrides = pendingStatusOverrides - item.id
                     notificationSentMessage = "⚠ Unable to complete consultation for ${item.patientName}. Please retry."
                 }
-                loadQueue()
+                loadQueue(isDeltaOnly = true) // only changed rows after a staff action
             }
         }
     }
@@ -2292,7 +2297,7 @@ fun QueueBoardScreen(
                                                         optimisticallyUpdateStatus(item.id, "inside")
                                                         coroutineScope.launch {
                                                             queueRepository?.updateQueueStatus(item.id, "inside", effectiveClinicId)
-                                                            loadQueue()
+                                                            loadQueue(isDeltaOnly = true) // only changed rows after a staff action
                                                         }
                                                     },
                                                     modifier = Modifier
@@ -2392,7 +2397,7 @@ fun QueueBoardScreen(
                                                     optimisticallyUpdateStatus(item.id, "inside")
                                                     coroutineScope.launch {
                                                         queueRepository?.updateQueueStatus(item.id, "inside", effectiveClinicId)
-                                                        loadQueue()
+                                                        loadQueue(isDeltaOnly = true) // only changed rows after a staff action
                                                     }
                                                 },
                                                 modifier = Modifier.heightIn(min = 38.dp),
@@ -2622,7 +2627,7 @@ fun QueueBoardScreen(
                                                     if (res?.isSuccess == true) {
                                                         val paidLabel = if (item.totalAmount % 1.0 == 0.0) item.totalAmount.toInt().toString() else String.format(java.util.Locale.US, "%.2f", item.totalAmount)
                                                         notificationSentMessage = "✓ Collected NPR $paidLabel at desk for ${item.patientName}!"
-                                                        loadQueue()
+                                                        loadQueue(isDeltaOnly = true) // only changed rows after a staff action
                                                     }
                                                 }
                                             }
@@ -2646,7 +2651,7 @@ fun QueueBoardScreen(
                                                                         trackingCode = item.trackingCode
                                                                     )
                                                                     notificationSentMessage = "🔔 Called ${item.patientName} inside (push alert dispatched)."
-                                                                    loadQueue()
+                                                                    loadQueue(isDeltaOnly = true) // only changed rows after a staff action
                                                                 }
                                                             },
                                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00838F)),
@@ -2836,7 +2841,7 @@ fun QueueBoardScreen(
                                                                 optimisticallyUpdateStatus(item.id, "no_show")
                                                                 coroutineScope.launch {
                                                                     queueRepository?.updateQueueStatus(item.id, "no_show", effectiveClinicId)
-                                                                    loadQueue()
+                                                                    loadQueue(isDeltaOnly = true) // only changed rows after a staff action
                                                                 }
                                                             },
                                                             modifier = Modifier.weight(1f),
@@ -3057,7 +3062,7 @@ fun QueueBoardScreen(
                                 includeTodayExpired = (waitingPatientsCount > 0),
                                 todayCutoffMinutes = 0
                             ) ?: 0
-                            loadQueue()
+                            loadQueue(isDeltaOnly = true) // only changed rows after a staff action
                             isAutoNoShowProcessing = false
                             showAutoNoShowDialog = false
                             notificationSentMessage = "Successfully transferred $count patient(s) to No-Show."
@@ -3139,7 +3144,7 @@ fun QueueBoardScreen(
                                     includeTodayExpired = true,
                                     todayCutoffMinutes = 0
                                 ) ?: 0
-                                loadQueue()
+                                loadQueue(isDeltaOnly = true) // only changed rows after a staff action
                                 notificationSentMessage = "Clinic closed. Transferred $count patient(s) to No-Show."
                             } catch (e: Exception) {
                                 e.printStackTrace()
