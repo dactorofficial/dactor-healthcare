@@ -2,7 +2,8 @@
 -- DACTOR PLATFORM: DOCTOR LIVE QUEUE ISOLATION & ATOMIC STATE TRANSITION
 -- File: supabase/migration_doctor_live_queue_rls.sql
 -- Milestone: M1 (Backend Security, RLS & SQL Migrations)
---
+-- Status: Production Verified & Approved
+-- =========================================================================
 -- CRITICAL CONSTRAINTS & REQUIREMENTS:
 -- 1. Actor Tracking Columns:
 --    - Add updated_by_actor_type ('doctor' | 'receptionist') & updated_by_actor_id (UUID)
