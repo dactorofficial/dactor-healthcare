@@ -168,6 +168,7 @@ const FORBIDDEN_MAP_KEYWORDS = [
   'mapview',
   'googlemap',
   'google.maps',
+  'google_maps',
   'maplibre',
   'mapbox',
   'openstreetmap',
@@ -183,14 +184,21 @@ const FORBIDDEN_MAP_KEYWORDS = [
   'geocoding',
   'locationmanager',
   'access_fine_location',
-  'access_coarse_location'
+  'access_coarse_location',
+  'coordinates',
+  'coordinate',
+  'location',
+  'marker',
+  'pin'
 ];
 
 /**
  * Validates deep link FCM payloads and destination routes
  * enforcing strictly zero map, location, or GPS tracking components.
+ * Destination route must match NavRoutes.QueueStatus (QueueStatusScreen)
+ * and only token, queue position, and wait time may be tracked.
  */
-function assertZeroMapDeepLink(fcmPayload, targetRoute, componentTree = {}) {
+function assertZeroMapDeepLink(fcmPayload, navigationRoute, componentTree = {}) {
   // Check FCM payload
   if (fcmPayload) {
     const data = fcmPayload.data || fcmPayload;
@@ -204,20 +212,30 @@ function assertZeroMapDeepLink(fcmPayload, targetRoute, componentTree = {}) {
     // Verify absence of map properties in payload
     const payloadStr = JSON.stringify(fcmPayload).toLowerCase();
     for (const kw of FORBIDDEN_MAP_KEYWORDS) {
-      if (payloadStr.includes(`"${kw}"`) || payloadStr.includes(`:${kw}`)) {
+      const escapedKw = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`[\\b_\\./?\\-&=]${escapedKw}[\\b_\\./?\\-&=]|"${escapedKw}"|'${escapedKw}'|${escapedKw}:|:${escapedKw}`, 'i');
+      if (regex.test(payloadStr) || payloadStr.includes(kw)) {
         throw new Error(`CRITICAL MAP VIOLATION: Forbidden keyword "${kw}" found in notification payload!`);
       }
     }
   }
 
   // Check Route
-  if (targetRoute) {
-    const routeLower = targetRoute.toLowerCase();
-    if (!routeLower.startsWith('queue_status/') && routeLower !== 'queuestatus') {
-      throw new Error(`Invalid tracker route: expected QueueStatus route, got "${targetRoute}"`);
+  if (navigationRoute) {
+    const routeLower = navigationRoute.toLowerCase();
+    const isValidRoute =
+      routeLower.startsWith('queue_status/') ||
+      routeLower === 'queuestatus' ||
+      routeLower === 'queuestatusscreen' ||
+      routeLower === 'navroutes.queuestatus' ||
+      routeLower.startsWith('navroutes.queuestatus/');
+    if (!isValidRoute) {
+      throw new Error(`Invalid tracker route: expected QueueStatus route, got "${navigationRoute}"`);
     }
     for (const kw of FORBIDDEN_MAP_KEYWORDS) {
-      if (routeLower.includes(kw)) {
+      const escapedKw = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`[\\b_\\./?\\-&=]${escapedKw}[\\b_\\./?\\-&=]|"${escapedKw}"|'${escapedKw}'|${escapedKw}:|:${escapedKw}`, 'i');
+      if (regex.test(routeLower) || routeLower.includes(kw)) {
         throw new Error(`CRITICAL MAP VIOLATION: Forbidden keyword "${kw}" found in route name!`);
       }
     }
@@ -227,7 +245,9 @@ function assertZeroMapDeepLink(fcmPayload, targetRoute, componentTree = {}) {
   if (componentTree) {
     const compStr = JSON.stringify(componentTree).toLowerCase();
     for (const kw of FORBIDDEN_MAP_KEYWORDS) {
-      if (compStr.includes(kw)) {
+      const escapedKw = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`[\\b_\\./?\\-&=]${escapedKw}[\\b_\\./?\\-&=]|"${escapedKw}"|'${escapedKw}'|${escapedKw}:|:${escapedKw}`, 'i');
+      if (regex.test(compStr) || compStr.includes(kw)) {
         throw new Error(`CRITICAL MAP VIOLATION: Forbidden component/widget "${kw}" found in tracker view!`);
       }
     }
@@ -861,21 +881,177 @@ class DoctorLiveQueueBackendSimulator {
 // 10. WEB APP PARITY CONTRACT VALIDATOR
 // =============================================================================
 
-function validateWebParityContract() {
-  const kotlinQueueItemFields = [
+function camelToSnake(str) {
+  return str.replace(/([A-Z])/g, '_$1').toLowerCase();
+}
+
+function snakeToCamel(str) {
+  return str.replace(/_([a-z0-9])/g, (_, l) => l.toUpperCase());
+}
+
+function normalizeType(val) {
+  if (val === null || val === undefined) return 'any';
+  if (typeof val === 'string') {
+    const s = val.toLowerCase().trim();
+    if (['string', 'text', 'uuid', 'date', 'instant', 'char'].includes(s)) return 'string';
+    if (['int', 'integer', 'long', 'short', 'byte', 'double', 'float', 'number', 'numeric'].includes(s)) return 'number';
+    if (['bool', 'boolean'].includes(s)) return 'boolean';
+    if (['list', 'array', 'set'].includes(s)) return 'array';
+    if (['map', 'object', 'json', 'jsonb'].includes(s)) return 'object';
+    return 'string';
+  }
+  if (typeof val === 'number') return 'number';
+  if (typeof val === 'boolean') return 'boolean';
+  if (Array.isArray(val)) return 'array';
+  if (typeof val === 'object') return 'object';
+  return typeof val;
+}
+
+function areTypesCompatible(kVal, wVal) {
+  const kType = normalizeType(kVal);
+  const wType = normalizeType(wVal);
+  if (kType === 'any' || wType === 'any') return true;
+  return kType === wType;
+}
+
+function parseModelDefinition(model) {
+  const map = new Map();
+  let isExplicitlyTyped = false;
+
+  if (Array.isArray(model)) {
+    for (const item of model) {
+      if (typeof item === 'string') {
+        map.set(item, null);
+      } else if (item && typeof item === 'object' && item.name) {
+        map.set(item.name, item.type !== undefined ? item.type : null);
+        if (item.type !== undefined) isExplicitlyTyped = true;
+      }
+    }
+  } else if (model && typeof model === 'object') {
+    for (const [key, val] of Object.entries(model)) {
+      map.set(key, val);
+      isExplicitlyTyped = true;
+    }
+  }
+
+  return { map, isExplicitlyTyped };
+}
+
+function validateWebParityContract(kotlinModel = null, webModel = null) {
+  const defaultKotlinFields = [
     'id', 'appointmentId', 'patientName', 'tokenNumber', 'queuePosition',
     'status', 'slotTime', 'hasAppAccount', 'isWalkin', 'paymentMode', 'paymentStatus'
   ];
 
-  const typeScriptQueueItemFields = [
+  const defaultTypeScriptFields = [
     'id', 'appointment_id', 'patient_name', 'token_number', 'queue_position',
     'status', 'slot_time', 'has_app_account', 'is_walkin', 'payment_mode', 'payment_status'
   ];
 
+  // Retain backward-compatible default return when called without arguments
+  if (kotlinModel === null && webModel === null) {
+    return {
+      isParityCompliant: true,
+      error: null,
+      fieldCount: defaultKotlinFields.length,
+      parityFieldsMapped: defaultTypeScriptFields.length,
+      missingInWeb: [],
+      missingInKotlin: [],
+      typeMismatches: []
+    };
+  }
+
+  const kInput = kotlinModel !== null ? kotlinModel : defaultKotlinFields;
+  const wInput = webModel !== null ? webModel : defaultTypeScriptFields;
+
+  const kParsed = parseModelDefinition(kInput);
+  const wParsed = parseModelDefinition(wInput);
+
+  const missingInWeb = [];
+  const missingInKotlin = [];
+  const typeMismatches = [];
+  let matchedCount = 0;
+
+  // Build lookup maps for web model
+  const wKeyMap = new Map();
+  for (const [wKey, wVal] of wParsed.map.entries()) {
+    wKeyMap.set(wKey, { origKey: wKey, val: wVal });
+    wKeyMap.set(wKey.toLowerCase(), { origKey: wKey, val: wVal });
+    wKeyMap.set(snakeToCamel(wKey), { origKey: wKey, val: wVal });
+    wKeyMap.set(camelToSnake(wKey), { origKey: wKey, val: wVal });
+  }
+
+  // Check each Kotlin field against Web
+  const matchedWebKeys = new Set();
+  for (const [kKey, kVal] of kParsed.map.entries()) {
+    const kSnake = camelToSnake(kKey);
+    const kLower = kKey.toLowerCase();
+
+    let match = wKeyMap.get(kSnake) || wKeyMap.get(kKey) || wKeyMap.get(kLower);
+    if (!match) {
+      missingInWeb.push(kKey);
+    } else {
+      matchedCount++;
+      matchedWebKeys.add(match.origKey);
+
+      // Check type compatibility if types are provided
+      if ((kParsed.isExplicitlyTyped || wParsed.isExplicitlyTyped) &&
+          kVal !== null && kVal !== undefined &&
+          match.val !== null && match.val !== undefined) {
+        if (!areTypesCompatible(kVal, match.val)) {
+          typeMismatches.push({
+            kotlinField: kKey,
+            webField: match.origKey,
+            kotlinType: kVal,
+            webType: match.val
+          });
+        }
+      }
+    }
+  }
+
+  // Check which Web fields are missing in Kotlin
+  const kKeyMap = new Map();
+  for (const [kKey, kVal] of kParsed.map.entries()) {
+    kKeyMap.set(kKey, { origKey: kKey, val: kVal });
+    kKeyMap.set(kKey.toLowerCase(), { origKey: kKey, val: kVal });
+    kKeyMap.set(camelToSnake(kKey), { origKey: kKey, val: kVal });
+    kKeyMap.set(snakeToCamel(kKey), { origKey: kKey, val: kVal });
+  }
+
+  for (const [wKey] of wParsed.map.entries()) {
+    if (!matchedWebKeys.has(wKey)) {
+      const wCamel = snakeToCamel(wKey);
+      const wLower = wKey.toLowerCase();
+      const match = kKeyMap.get(wCamel) || kKeyMap.get(wKey) || kKeyMap.get(wLower);
+      if (!match) {
+        missingInKotlin.push(wKey);
+      }
+    }
+  }
+
+  const isParityCompliant = missingInWeb.length === 0 && missingInKotlin.length === 0 && typeMismatches.length === 0;
+
+  let error = null;
+  if (!isParityCompliant) {
+    const parts = [];
+    if (missingInWeb.length > 0) parts.push(`Missing in Web: [${missingInWeb.join(', ')}]`);
+    if (missingInKotlin.length > 0) parts.push(`Missing in Kotlin: [${missingInKotlin.join(', ')}]`);
+    if (typeMismatches.length > 0) {
+      const details = typeMismatches.map(m => `${m.kotlinField}(${m.kotlinType}) <-> ${m.webField}(${m.webType})`);
+      parts.push(`Type mismatches: [${details.join(', ')}]`);
+    }
+    error = `Web Parity Contract Violation: ${parts.join('; ')}`;
+  }
+
   return {
-    isParityCompliant: true,
-    fieldCount: kotlinQueueItemFields.length,
-    parityFieldsMapped: typeScriptQueueItemFields.length
+    isParityCompliant,
+    error,
+    fieldCount: kParsed.map.size,
+    parityFieldsMapped: matchedCount,
+    missingInWeb,
+    missingInKotlin,
+    typeMismatches
   };
 }
 
