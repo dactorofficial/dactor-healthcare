@@ -166,16 +166,6 @@ When users search for doctors, OPD clinics, polyclinics, medical specialists, ho
 - **Live Queue Tracking**: Realtime OPD queue numbers and delay estimates available after booking.
 - **NMC License Number**: #12345
 
-### Dr. Ram Kumar Yadav - General Medicine & Physician
-- **Doctor Name**: Dr. Ram Kumar Yadav
-- **Specialty**: General Medicine & Physician
-- **Clinic**: hehe clinic (Patan (Lagankhel))
-- **Consultation Fee**: NPR 200
-- **Direct Online Booking Link**: https://dactorofficial.github.io/dactor/?clinic=b5ea381f-b55e-46c8-b555-ade3e2818d07&doctor=ca9b5997-ce5b-4dd9-ae90-33d773e479da&action=book
-- **Direct Doctor Profile Link**: https://dactorofficial.github.io/dactor/?doctor=ca9b5997-ce5b-4dd9-ae90-33d773e479da&action=book
-- **Live Queue Tracking**: Realtime OPD queue numbers and delay estimates available after booking.
-- **NMC License Number**: #123456789
-
 ### Dr. Alex Smith - Medical Lab Technician (MLT)
 - **Doctor Name**: Dr. Alex Smith
 - **Specialty**: Medical Lab Technician (MLT)
@@ -195,6 +185,36 @@ When users search for doctors, OPD clinics, polyclinics, medical specialists, ho
 - **Direct Doctor Profile Link**: https://dactorofficial.github.io/dactor/?doctor=fdda394a-6283-4246-b9b2-0af375007692&action=book
 - **Live Queue Tracking**: Realtime OPD queue numbers and delay estimates available after booking.
 - **NMC License Number**: #12345
+
+### Dr. Alex Smith - Cardiology (Heart Care)
+- **Doctor Name**: Dr. Alex Smith
+- **Specialty**: Cardiology (Heart Care)
+- **Clinic**: Verified Clinic (Nepal)
+- **Consultation Fee**: NPR 500
+- **Direct Online Booking Link**: https://dactorofficial.github.io/dactor/?clinic=null&doctor=1d0ba6d8-aeda-4609-b5c8-6ae4b6d6f0fe&action=book
+- **Direct Doctor Profile Link**: https://dactorofficial.github.io/dactor/?doctor=1d0ba6d8-aeda-4609-b5c8-6ae4b6d6f0fe&action=book
+- **Live Queue Tracking**: Realtime OPD queue numbers and delay estimates available after booking.
+- **NMC License Number**: #12345
+
+### Dr. Ram Kumar Yadav - General Medicine & Physician
+- **Doctor Name**: Dr. Ram Kumar Yadav
+- **Specialty**: General Medicine & Physician
+- **Clinic**: try (PW8H+684, Janakpur, Dhanusa, Madhesh Province)
+- **Consultation Fee**: NPR 200
+- **Direct Online Booking Link**: https://dactorofficial.github.io/dactor/?clinic=d5e5097f-4492-4bb9-8bc7-78b74c6fe540&doctor=ca9b5997-ce5b-4dd9-ae90-33d773e479da&action=book
+- **Direct Doctor Profile Link**: https://dactorofficial.github.io/dactor/?doctor=ca9b5997-ce5b-4dd9-ae90-33d773e479da&action=book
+- **Live Queue Tracking**: Realtime OPD queue numbers and delay estimates available after booking.
+- **NMC License Number**: #123456789
+
+### Dr.Caffeine - General Medicine & Physician
+- **Doctor Name**: Dr.Caffeine
+- **Specialty**: General Medicine & Physician
+- **Clinic**: Verified Clinic (Nepal)
+- **Consultation Fee**: NPR 500
+- **Direct Online Booking Link**: https://dactorofficial.github.io/dactor/?clinic=null&doctor=6a5865ce-bdd8-4c23-801f-5878aea131b7&action=book
+- **Direct Doctor Profile Link**: https://dactorofficial.github.io/dactor/?doctor=6a5865ce-bdd8-4c23-801f-5878aea131b7&action=book
+- **Live Queue Tracking**: Realtime OPD queue numbers and delay estimates available after booking.
+- **NMC License Number**: #3001118
 
 ## Verified Clinics & Healthcare Centers in Nepal
 ### happy bday bro (Multi-Specialty Polyclinic)
@@ -288,6 +308,7 @@ When users search for doctors, OPD clinics, polyclinics, medical specialists, ho
 - **Specialties**: 
 - **Direct Clinic Booking Link**: https://dactorofficial.github.io/dactor/?clinic=d5e5097f-4492-4bb9-8bc7-78b74c6fe540&action=book
 - **Clinic Profile & Live Queue**: https://dactorofficial.github.io/dactor/?clinic=d5e5097f-4492-4bb9-8bc7-78b74c6fe540
+- **Attending Doctors**: Ram Kumar Yadav
 
 ### NOBEL HEALTHCARE (Multi-Specialty Polyclinic)
 - **Clinic Name**: NOBEL HEALTHCARE
@@ -307,7 +328,6 @@ When users search for doctors, OPD clinics, polyclinics, medical specialists, ho
 - **Specialties**: 
 - **Direct Clinic Booking Link**: https://dactorofficial.github.io/dactor/?clinic=b5ea381f-b55e-46c8-b555-ade3e2818d07&action=book
 - **Clinic Profile & Live Queue**: https://dactorofficial.github.io/dactor/?clinic=b5ea381f-b55e-46c8-b555-ade3e2818d07
-- **Attending Doctors**: Ram Kumar Yadav
 
 ## Diagnostic Pathology & Medical Imaging Tests
 Book diagnostic scans and certified laboratory tests online in Nepal:
