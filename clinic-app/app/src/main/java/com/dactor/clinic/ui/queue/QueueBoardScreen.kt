@@ -85,7 +85,9 @@ data class QueueItemUi(
     val doctorName: String? = null,
     val paymentMode: String? = null,
     val paymentStatus: String? = null,
-    val totalAmount: Double = 0.0
+    val totalAmount: Double = 0.0,
+    val userId: String? = null,
+    val isWalkin: Boolean = false
 )
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -174,7 +176,9 @@ fun QueueBoardScreen(
                     doctorName = docMap[entry.doctorId ?: appt?.doctorId]?.fullName,
                     paymentMode = appt?.paymentMode,
                     paymentStatus = appt?.paymentStatus,
-                    totalAmount = rawTotal
+                    totalAmount = rawTotal,
+                    userId = appt?.userId,
+                    isWalkin = appt?.isWalkin ?: false
                 )
             }.sortedWith(compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }.thenBy { it.queuePosition })
         }
@@ -589,7 +593,9 @@ fun QueueBoardScreen(
                             doctorName = docMap[entry.doctorId ?: appt?.doctorId]?.fullName,
                             paymentMode = appt?.paymentMode,
                             paymentStatus = appt?.paymentStatus,
-                            totalAmount = appt?.let { if (it.totalAmount > 0.0) it.totalAmount else it.feeAmount } ?: 0.0
+                            totalAmount = appt?.let { if (it.totalAmount > 0.0) it.totalAmount else it.feeAmount } ?: 0.0,
+                            userId = appt?.userId,
+                            isWalkin = appt?.isWalkin ?: false
                         )
                     }
                     .sortedWith(

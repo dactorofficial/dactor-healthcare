@@ -379,6 +379,9 @@ export interface QueueEntry {
   calledAt?: string
   insideAt?: string
   completedAt?: string
+  consultationDurationSeconds?: number | null
+  updatedByActorType?: 'doctor' | 'receptionist' | null
+  updatedByActorId?: string | null
 }
 
 export interface PatientProfile {

@@ -1375,6 +1375,49 @@ export async function updateAppointmentStatus(id: string, status: string): Promi
   }
 }
 
+export interface TransitionQueueEntryStatusResult {
+  success: boolean
+  entry_id?: string | null
+  appointment_id?: string | null
+  status?: string | null
+  called_at?: string | null
+  inside_at?: string | null
+  completed_at?: string | null
+  consultation_duration_seconds?: number | null
+  updated_by_actor_type?: 'doctor' | 'receptionist' | null
+  updated_by_actor_id?: string | null
+  error?: string | null
+  message?: string | null
+  current_status?: string | null
+}
+
+export async function transitionQueueEntryStatus(
+  entryId: string,
+  expectedStatus: string,
+  newStatus: string,
+  actorType: 'doctor' | 'receptionist',
+  actorId: string
+): Promise<TransitionQueueEntryStatusResult> {
+  const { data, error } = await supabase.rpc('transition_queue_entry_status', {
+    p_entry_id: entryId,
+    p_expected_status: expectedStatus,
+    p_new_status: newStatus,
+    p_actor_type: actorType,
+    p_actor_id: actorId,
+  })
+
+  if (error) {
+    console.error('RPC transition_queue_entry_status error:', error)
+    return {
+      success: false,
+      error: error.code || 'RPC_ERROR',
+      message: error.message || 'Queue transition failed',
+    }
+  }
+
+  return data as TransitionQueueEntryStatusResult
+}
+
 /**
  * Atomically transitions a diagnostic appointment into `processing` via the
  * authoritative `transition_diagnostic_to_processing` RPC when deployed, falling

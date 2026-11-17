@@ -101,7 +101,7 @@ data class ApproveAppointmentResult(
 )
 
 @Singleton
-class AppointmentRepository @Inject constructor(
+open class AppointmentRepository @Inject constructor(
     private val supabaseClient: SupabaseClient,
     private val appointmentDao: AppointmentDao? = null,
     private val devicePrefixManager: DevicePrefixManager? = null
@@ -425,7 +425,7 @@ class AppointmentRepository @Inject constructor(
         null
     }
 
-    suspend fun createWalkinAppointment(
+    open suspend fun createWalkinAppointment(
         appointment: Appointment,
         allowOverbooking: Boolean = true
     ): Appointment? = withContext(Dispatchers.IO) {
@@ -1143,7 +1143,7 @@ class AppointmentRepository @Inject constructor(
         }
     }
 
-    suspend fun updateCheckinStatus(id: String, status: String): Boolean = withContext(Dispatchers.IO) {
+    open suspend fun updateCheckinStatus(id: String, status: String): Boolean = withContext(Dispatchers.IO) {
         if (status == "completed") {
             completeConsultation(id)
         } else {

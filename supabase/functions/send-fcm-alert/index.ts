@@ -543,10 +543,11 @@ Deno.serve(async (req) => {
 
     let authorized = isAdminUser;
     if (!authorized && isTrustedUser) {
-      const { data: authStaff } = await user.rpc("is_authorized_clinic_staff", {
+      // Clinic desk (receptionists/managers) retain clinic-wide notification authority across all doctors
+      const { data: authDesk } = await user.rpc("is_authorized_clinic_desk", {
         p_clinic_id: appointment.clinic_id,
       });
-      if (authStaff === true) authorized = true;
+      if (authDesk === true) authorized = true;
     }
     if (!authorized && isTrustedUser && effectiveDoctorId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(effectiveDoctorId)) {
       try {
