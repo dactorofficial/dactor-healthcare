@@ -521,12 +521,24 @@ Deno.serve(async (req) => {
 
     const { data: appointment, error: appointmentError } = await service
       .from("appointments")
-      .select("id, clinic_id, tracking_code_10_digit, user_id, patient_mobile")
+      .select("id, clinic_id, doctor_id, tracking_code_10_digit, user_id, patient_mobile")
       .eq("id", appointmentId)
       .maybeSingle();
 
     if (appointmentError || !appointment) {
       return json({ error: "Appointment unavailable" }, 404, corsHeaders);
+    }
+
+    let effectiveDoctorId = typeof appointment.doctor_id === "string" ? appointment.doctor_id.trim() : "";
+    if (!effectiveDoctorId) {
+      const { data: qEntry } = await service
+        .from("queue_entries")
+        .select("doctor_id")
+        .eq("appointment_id", appointment.id)
+        .maybeSingle();
+      if (qEntry?.doctor_id && typeof qEntry.doctor_id === "string") {
+        effectiveDoctorId = qEntry.doctor_id.trim();
+      }
     }
 
     let authorized = isAdminUser;
@@ -535,6 +547,29 @@ Deno.serve(async (req) => {
         p_clinic_id: appointment.clinic_id,
       });
       if (authStaff === true) authorized = true;
+    }
+    if (!authorized && isTrustedUser && effectiveDoctorId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(effectiveDoctorId)) {
+      try {
+        const { data: authDoctorClinic } = await user.rpc("is_authorized_doctor_for_clinic", {
+          p_doctor_id: effectiveDoctorId,
+          p_clinic_id: appointment.clinic_id,
+        });
+        if (authDoctorClinic === true) {
+          authorized = true;
+        } else {
+          const { data: authDoctor } = await user.rpc("is_authorized_doctor", {
+            p_doctor_id: effectiveDoctorId,
+          });
+          if (authDoctor === true) authorized = true;
+        }
+      } catch (_) {
+        try {
+          const { data: authDoctor } = await user.rpc("is_authorized_doctor", {
+            p_doctor_id: effectiveDoctorId,
+          });
+          if (authDoctor === true) authorized = true;
+        } catch (_) {}
+      }
     }
     if (!authorized) {
       const callerEmail = typeof body?.clinicEmail === "string" ? body.clinicEmail.trim().toLowerCase() : "";
@@ -546,6 +581,18 @@ Deno.serve(async (req) => {
           .ilike("email", callerEmail)
           .maybeSingle();
         if (clinicRow) authorized = true;
+      }
+    }
+    if (!authorized && effectiveDoctorId) {
+      const callerDoctorEmail = typeof body?.doctorEmail === "string" ? body.doctorEmail.trim().toLowerCase() : "";
+      if (callerDoctorEmail) {
+        const { data: doctorRow } = await service
+          .from("doctors")
+          .select("id")
+          .eq("id", effectiveDoctorId)
+          .ilike("email", callerDoctorEmail)
+          .maybeSingle();
+        if (doctorRow) authorized = true;
       }
     }
 
@@ -578,7 +625,7 @@ Deno.serve(async (req) => {
     if (phone && phone.length >= 8) conditions.push(`patient_mobile.eq.${phone}`);
 
     if (conditions.length === 0) {
-      return json({ sentCount: 0, reason: "No identifier for appointment" }, 200, corsHeaders);
+      return json({ sentCount: 0 }, 200, corsHeaders);
     }
 
     const { data: tokenRows, error: tokenError } = await service
@@ -608,7 +655,7 @@ Deno.serve(async (req) => {
     }
 
     if (!tokens.length) {
-      return json({ sentCount: 0, reason: "No registered device token found" }, 200, corsHeaders);
+      return json({ sentCount: 0 }, 200, corsHeaders);
     }
 
     const dataPayload: Record<string, string> = {
@@ -625,7 +672,7 @@ Deno.serve(async (req) => {
     }
 
     // Never return device tokens or upstream provider bodies to caller
-    return json({ sentCount, mode: "targeted_appointment" }, 200, corsHeaders);
+    return json({ sentCount }, 200, corsHeaders);
   } catch (error) {
     console.error("send-fcm-alert failed", error);
     return json({ error: "Notification service could not complete this request" }, 500, corsHeaders);
