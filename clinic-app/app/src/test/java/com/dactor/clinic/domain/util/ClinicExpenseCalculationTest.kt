@@ -154,4 +154,51 @@ class ClinicExpenseCalculationTest {
         assertTrue(csv.contains("MEDICAL_SUPPLIES"))
         assertTrue(csv.contains("V-101"))
     }
+
+    @Test
+    fun testExpenseNormalizationAndDualSchemaCompatibility() {
+        // 1. Expense from legacy DB schema (receipt_no, notes with time prefix)
+        val legacyExp = ClinicExpense(
+            id = "exp-leg-1",
+            clinicId = "c1",
+            title = "Office Tea & Snacks",
+            category = "REFRESHMENTS",
+            amount = 350.0,
+            paymentMethod = "CASH",
+            expenseDate = "2026-11-16",
+            receiptNo = "REC-994",
+            notes = "[15:45] Fresh milk & bakery biscuits"
+        )
+
+        assertEquals("REC-994", legacyExp.displayVoucherNumber)
+        assertEquals("Fresh milk & bakery biscuits", legacyExp.displayRemarks)
+        assertEquals("15:45", legacyExp.displayTime)
+
+        val normalized = legacyExp.normalized()
+        assertEquals("REC-994", normalized.voucherNumber)
+        assertEquals("REC-994", normalized.receiptNo)
+        assertEquals("Fresh milk & bakery biscuits", normalized.remarks)
+        assertEquals("Fresh milk & bakery biscuits", normalized.notes)
+        assertEquals("15:45", normalized.expenseTime)
+
+        // 2. Expense from modern schema
+        val modernExp = ClinicExpense(
+            id = "exp-mod-1",
+            clinicId = "c1",
+            title = "Syringes",
+            category = "MEDICAL_SUPPLIES",
+            amount = 1200.0,
+            paymentMethod = "FONEPAY",
+            expenseDate = "2026-11-16",
+            expenseTime = "10:15",
+            voucherNumber = "V-200",
+            remarks = "Wholesale pharmacy"
+        ).normalized()
+
+        assertEquals("V-200", modernExp.voucherNumber)
+        assertEquals("V-200", modernExp.receiptNo)
+        assertEquals("Wholesale pharmacy", modernExp.remarks)
+        assertEquals("Wholesale pharmacy", modernExp.notes)
+        assertEquals("10:15", modernExp.expenseTime)
+    }
 }

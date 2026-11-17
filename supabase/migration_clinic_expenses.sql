@@ -15,9 +15,22 @@ CREATE TABLE IF NOT EXISTS public.clinic_expenses (
     expense_time VARCHAR(20),
     voucher_number VARCHAR(100),
     remarks TEXT,
+    payee_name VARCHAR(255),
+    receipt_no VARCHAR(100),
+    receipt_url TEXT,
+    notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Ensure all columns exist if the table was previously created with an older schema
+ALTER TABLE public.clinic_expenses ADD COLUMN IF NOT EXISTS expense_time VARCHAR(20);
+ALTER TABLE public.clinic_expenses ADD COLUMN IF NOT EXISTS voucher_number VARCHAR(100);
+ALTER TABLE public.clinic_expenses ADD COLUMN IF NOT EXISTS remarks TEXT;
+ALTER TABLE public.clinic_expenses ADD COLUMN IF NOT EXISTS payee_name VARCHAR(255);
+ALTER TABLE public.clinic_expenses ADD COLUMN IF NOT EXISTS receipt_no VARCHAR(100);
+ALTER TABLE public.clinic_expenses ADD COLUMN IF NOT EXISTS receipt_url TEXT;
+ALTER TABLE public.clinic_expenses ADD COLUMN IF NOT EXISTS notes TEXT;
 
 -- Enable Row Level Security
 ALTER TABLE public.clinic_expenses ENABLE ROW LEVEL SECURITY;

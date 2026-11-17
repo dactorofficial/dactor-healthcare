@@ -1,6 +1,23 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { Building2, UserCog, Activity, CheckCircle, Clock, ArrowRight, Trash2, Headphones, DollarSign, Banknote } from 'lucide-react'
+import {
+  Building2,
+  UserCog,
+  Activity,
+  CheckCircle,
+  Clock,
+  ArrowRight,
+  Trash2,
+  Headphones,
+  DollarSign,
+  Banknote,
+  Smartphone,
+  Globe,
+  PauseCircle,
+  PlayCircle,
+  ArrowUpCircle,
+  RefreshCw
+} from 'lucide-react'
 
 interface DashboardProps {
   onNavigate?: (path: string) => void
@@ -19,9 +36,104 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
   })
   const [loading, setLoading] = useState(true)
 
+  // App Operational Closure state for all 3 apps
+  const [appClosureStatus, setAppClosureStatus] = useState({
+    patientApp: false,
+    clinicApp: false,
+    webApp: false,
+  })
+  const [togglingApp, setTogglingApp] = useState<string | null>(null)
+
   useEffect(() => {
     fetchStats()
+    fetchAppClosureStatus()
   }, [])
+
+  const fetchAppClosureStatus = async () => {
+    try {
+      const { data } = await supabase
+        .from('app_versions')
+        .select('app_name, is_temporarily_closed')
+
+      if (data && data.length > 0) {
+        const statuses = { patientApp: false, clinicApp: false, webApp: false }
+        data.forEach(item => {
+          if (item.app_name === 'patient_app') statuses.patientApp = !!item.is_temporarily_closed
+          if (item.app_name === 'clinic_app') statuses.clinicApp = !!item.is_temporarily_closed
+          if (item.app_name === 'web_app') statuses.webApp = !!item.is_temporarily_closed
+        })
+        setAppClosureStatus(statuses)
+      } else {
+        const { data: specData } = await supabase
+          .from('medical_specialties')
+          .select('name, search_keywords')
+          .eq('category', 'system_config')
+
+        if (specData) {
+          const statuses = { patientApp: false, clinicApp: false, webApp: false }
+          specData.forEach(r => {
+            if (r.name === 'system_config:patient_app_temporarily_closed')
+              statuses.patientApp = r.search_keywords === 'true'
+            if (r.name === 'system_config:clinic_app_temporarily_closed')
+              statuses.clinicApp = r.search_keywords === 'true'
+            if (r.name === 'system_config:web_app_temporarily_closed')
+              statuses.webApp = r.search_keywords === 'true'
+          })
+          setAppClosureStatus(statuses)
+        }
+      }
+    } catch (e) {
+      console.warn('Error fetching closure status in dashboard:', e)
+    }
+  }
+
+  const toggleAppClosureQuick = async (appName: 'patient_app' | 'clinic_app' | 'web_app') => {
+    const isCurrentlyClosed =
+      appName === 'patient_app'
+        ? appClosureStatus.patientApp
+        : appName === 'clinic_app'
+        ? appClosureStatus.clinicApp
+        : appClosureStatus.webApp
+
+    const nextState = !isCurrentlyClosed
+    setTogglingApp(appName)
+    try {
+      // 1. Dual-layer upsert to medical_specialties
+      await supabase.from('medical_specialties').upsert(
+        [
+          {
+            name: `system_config:${appName}_temporarily_closed`,
+            category: 'system_config',
+            description: `${appName} Temporary Closure Status`,
+            search_keywords: String(nextState),
+            is_active: true
+          }
+        ],
+        { onConflict: 'name' }
+      )
+
+      // 2. Upsert to app_versions
+      try {
+        await supabase.from('app_versions').upsert(
+          {
+            app_name: appName,
+            is_temporarily_closed: nextState,
+            updated_at: new Date().toISOString()
+          },
+          { onConflict: 'app_name' }
+        )
+      } catch {}
+
+      setAppClosureStatus(prev => ({
+        ...prev,
+        [appName === 'patient_app' ? 'patientApp' : appName === 'clinic_app' ? 'clinicApp' : 'webApp']: nextState
+      }))
+    } catch (e) {
+      console.error('Error toggling app closure:', e)
+    } finally {
+      setTogglingApp(null)
+    }
+  }
 
   const fetchStats = async () => {
     try {
@@ -78,6 +190,166 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-white">System Overview</h1>
         <p className="text-slate-400 text-sm mt-1">Real-time status of clinics, doctor KYC, queues, and appointments across Nepal.</p>
+      </div>
+
+      {/* App Operational Status & Quick Temporary Closure Control */}
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+              <ArrowUpCircle className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>App Operational Control & Temporary Closure Master Bar</span>
+                {(appClosureStatus.patientApp || appClosureStatus.clinicApp || appClosureStatus.webApp) && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    Maintenance Active
+                  </span>
+                )}
+              </h2>
+              <p className="text-xs text-slate-400">1-click emergency controls to temporarily close specific applications or reopen them.</p>
+            </div>
+          </div>
+
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('/app-versions')}
+              className="text-xs text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-1.5 transition whitespace-nowrap"
+            >
+              <span>Manage Details & Versions</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Patient App Card */}
+          <div className={`p-4 rounded-2xl border transition-all ${
+            appClosureStatus.patientApp
+              ? 'bg-rose-950/30 border-rose-500/40'
+              : 'bg-slate-950/60 border-slate-800'
+          }`}>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <Smartphone className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-bold text-white">Patient App</span>
+              </div>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                appClosureStatus.patientApp
+                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                  : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
+              }`}>
+                {appClosureStatus.patientApp ? 'CLOSED' : 'LIVE'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 mb-3">
+              {appClosureStatus.patientApp ? 'Users are locked with maintenance notice.' : 'All patient booking & tracking operational.'}
+            </p>
+            <button
+              onClick={() => toggleAppClosureQuick('patient_app')}
+              disabled={togglingApp === 'patient_app'}
+              className={`w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition active:scale-95 shadow-md ${
+                appClosureStatus.patientApp
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
+                  : 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/20'
+              }`}
+            >
+              {togglingApp === 'patient_app' ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : appClosureStatus.patientApp ? (
+                <PlayCircle className="w-3.5 h-3.5" />
+              ) : (
+                <PauseCircle className="w-3.5 h-3.5" />
+              )}
+              <span>{appClosureStatus.patientApp ? 'Reopen Patient App' : 'Temporarily Close App'}</span>
+            </button>
+          </div>
+
+          {/* Clinic App Card */}
+          <div className={`p-4 rounded-2xl border transition-all ${
+            appClosureStatus.clinicApp
+              ? 'bg-rose-950/30 border-rose-500/40'
+              : 'bg-slate-950/60 border-slate-800'
+          }`}>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-sky-400" />
+                <span className="text-xs font-bold text-white">Clinic App</span>
+              </div>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                appClosureStatus.clinicApp
+                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                  : 'bg-sky-500/10 text-sky-300 border-sky-500/20'
+              }`}>
+                {appClosureStatus.clinicApp ? 'CLOSED' : 'LIVE'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 mb-3">
+              {appClosureStatus.clinicApp ? 'Reception & doctor apps locked.' : 'Doctor OPD and clinic walk-ins operational.'}
+            </p>
+            <button
+              onClick={() => toggleAppClosureQuick('clinic_app')}
+              disabled={togglingApp === 'clinic_app'}
+              className={`w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition active:scale-95 shadow-md ${
+                appClosureStatus.clinicApp
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
+                  : 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/20'
+              }`}
+            >
+              {togglingApp === 'clinic_app' ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : appClosureStatus.clinicApp ? (
+                <PlayCircle className="w-3.5 h-3.5" />
+              ) : (
+                <PauseCircle className="w-3.5 h-3.5" />
+              )}
+              <span>{appClosureStatus.clinicApp ? 'Reopen Clinic App' : 'Temporarily Close App'}</span>
+            </button>
+          </div>
+
+          {/* Web App Card */}
+          <div className={`p-4 rounded-2xl border transition-all ${
+            appClosureStatus.webApp
+              ? 'bg-rose-950/30 border-rose-500/40'
+              : 'bg-slate-950/60 border-slate-800'
+          }`}>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <Globe className="w-4 h-4 text-indigo-400" />
+                <span className="text-xs font-bold text-white">Web Portal</span>
+              </div>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                appClosureStatus.webApp
+                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                  : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20'
+              }`}>
+                {appClosureStatus.webApp ? 'CLOSED' : 'LIVE'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 mb-3">
+              {appClosureStatus.webApp ? 'Web visitors routed to maintenance screen.' : 'Public portal and patient booking live.'}
+            </p>
+            <button
+              onClick={() => toggleAppClosureQuick('web_app')}
+              disabled={togglingApp === 'web_app'}
+              className={`w-full py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition active:scale-95 shadow-md ${
+                appClosureStatus.webApp
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
+                  : 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/20'
+              }`}
+            >
+              {togglingApp === 'web_app' ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : appClosureStatus.webApp ? (
+                <PlayCircle className="w-3.5 h-3.5" />
+              ) : (
+                <PauseCircle className="w-3.5 h-3.5" />
+              )}
+              <span>{appClosureStatus.webApp ? 'Reopen Web Portal' : 'Temporarily Close App'}</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Primary KPI Cards */}

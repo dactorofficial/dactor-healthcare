@@ -4,6 +4,7 @@ import android.content.Context
 import com.dactor.clinic.data.local.ClinicDatabase
 import com.dactor.clinic.data.local.dao.AppointmentDao
 import com.dactor.clinic.data.local.dao.BillingDao
+import com.dactor.clinic.data.local.dao.PatientDao
 import com.dactor.clinic.data.local.dao.QueueDao
 import com.dactor.clinic.data.local.dao.SyncMetadataDao
 import com.dactor.clinic.data.local.security.DatabaseKeyManager
@@ -32,6 +33,9 @@ object DatabaseModule {
 
     @Provides
     fun provideBillingDao(db: ClinicDatabase): BillingDao = db.billingDao()
+
+    @Provides
+    fun providePatientDao(db: ClinicDatabase): PatientDao = db.patientDao()
 
     @Provides
     fun provideQueueDao(db: ClinicDatabase): QueueDao = db.queueDao()

@@ -40,6 +40,11 @@ class FcmService : FirebaseMessagingService() {
         val type = message.data["type"] ?: "queue_alert"
         val notificationId = (System.currentTimeMillis() % 100000).toInt()
 
+        // Server already sent the "your turn is near" alert: the phone's backup check must not repeat it.
+        if (type == "queue_alert" && !appointmentId.isNullOrBlank()) {
+            com.dactor.patient.data.local.UserSessionManager(applicationContext).markTwoAheadAlertTriggered(appointmentId)
+        }
+
         NotificationHelper.showSystemNotification(
             context = applicationContext,
             id = notificationId,

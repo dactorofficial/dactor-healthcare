@@ -30,7 +30,10 @@ data class AppVersionPolicy(
     val latestVersionName: String = "",
     val isForceUpdate: Boolean = false,
     val updateUrl: String = "https://play.google.com/store/apps/details?id=com.dactor.clinic",
-    val releaseNotes: String = ""
+    val releaseNotes: String = "",
+    val isTemporarilyClosed: Boolean = false,
+    val closureTitle: String = "Clinic Portal Temporarily Closed",
+    val closureMessage: String = "Dactor Clinic & Doctor App is temporarily closed for scheduled maintenance. Please check back shortly."
 )
 
 data class UpdateCheckResult(
@@ -39,7 +42,10 @@ data class UpdateCheckResult(
     val currentVersionName: String,
     val policy: AppVersionPolicy,
     val isPlayStoreUpdateAvailable: Boolean = false,
-    val playStoreAvailableVersionCode: Int? = null
+    val playStoreAvailableVersionCode: Int? = null,
+    val isTemporarilyClosed: Boolean = false,
+    val closureTitle: String = "Clinic Portal Temporarily Closed",
+    val closureMessage: String = "Dactor Clinic & Doctor App is temporarily closed for scheduled maintenance. Please check back shortly."
 )
 
 @Serializable
@@ -50,7 +56,10 @@ private data class AppVersionRow(
     @SerialName("latest_version_name") val latestVersionName: String? = null,
     @SerialName("update_url") val updateUrl: String? = null,
     @SerialName("release_notes") val releaseNotes: String? = null,
-    @SerialName("is_compulsory") val isCompulsory: Boolean? = null
+    @SerialName("is_compulsory") val isCompulsory: Boolean? = null,
+    @SerialName("is_temporarily_closed") val isTemporarilyClosed: Boolean? = null,
+    @SerialName("closure_title") val closureTitle: String? = null,
+    @SerialName("closure_message") val closureMessage: String? = null
 )
 
 @Serializable
@@ -142,6 +151,9 @@ class AppUpdateRepository @Inject constructor(
         var forceUpdate = false
         var updateUrl = PLAY_STORE_WEB_URL
         var releaseNotes = "A mandatory update is required to continue using Dactor Clinic. Please update to maintain live queue accuracy and data synchronization."
+        var isTemporarilyClosed = false
+        var closureTitle = "Clinic Portal Temporarily Closed"
+        var closureMessage = "Dactor Clinic & Doctor App is temporarily closed for scheduled maintenance. Please check back shortly."
 
         // 1. Try app_versions table (app_name = 'clinic_app')
         try {
@@ -161,6 +173,9 @@ class AppUpdateRepository @Inject constructor(
                 clinicVer.isCompulsory?.let { forceUpdate = it }
                 clinicVer.updateUrl?.takeIf { it.isNotBlank() }?.let { updateUrl = it }
                 clinicVer.releaseNotes?.takeIf { it.isNotBlank() }?.let { releaseNotes = it }
+                clinicVer.isTemporarilyClosed?.let { isTemporarilyClosed = it }
+                clinicVer.closureTitle?.takeIf { it.isNotBlank() }?.let { closureTitle = it }
+                clinicVer.closureMessage?.takeIf { it.isNotBlank() }?.let { closureMessage = it }
             }
         } catch (_: Exception) {}
 
@@ -196,6 +211,18 @@ class AppUpdateRepository @Inject constructor(
                         val notes = r.description?.trim().orEmpty().ifBlank { r.searchKeywords?.trim().orEmpty() }
                         if (notes.isNotBlank()) releaseNotes = notes
                     }
+                    "system_config:clinic_app_temporarily_closed" -> {
+                        val flag = r.searchKeywords?.trim()?.equals("true", ignoreCase = true) == true
+                        if (flag) isTemporarilyClosed = true
+                    }
+                    "system_config:clinic_app_closure_title" -> {
+                        val title = r.description?.trim().orEmpty().ifBlank { r.searchKeywords?.trim().orEmpty() }
+                        if (title.isNotBlank()) closureTitle = title
+                    }
+                    "system_config:clinic_app_closure_message" -> {
+                        val notes = r.description?.trim().orEmpty().ifBlank { r.searchKeywords?.trim().orEmpty() }
+                        if (notes.isNotBlank()) closureMessage = notes
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -216,6 +243,7 @@ class AppUpdateRepository @Inject constructor(
                     "clinic_app_force_update" -> if (!forceUpdate) forceUpdate = r.value?.trim()?.equals("true", ignoreCase = true) == true
                     "clinic_app_update_url" -> if (updateUrl == PLAY_STORE_WEB_URL) updateUrl = r.value?.trim().orEmpty().ifBlank { updateUrl }
                     "clinic_app_update_notes" -> if (releaseNotes.isBlank()) releaseNotes = r.value?.trim().orEmpty().ifBlank { releaseNotes }
+                    "clinic_app_temporarily_closed" -> if (!isTemporarilyClosed) isTemporarilyClosed = r.value?.trim()?.equals("true", ignoreCase = true) == true
                 }
             }
         } catch (_: Exception) {}
@@ -226,7 +254,10 @@ class AppUpdateRepository @Inject constructor(
             latestVersionName = latestName.ifBlank { getCurrentVersionName() },
             isForceUpdate = forceUpdate,
             updateUrl = updateUrl,
-            releaseNotes = releaseNotes
+            releaseNotes = releaseNotes,
+            isTemporarilyClosed = isTemporarilyClosed,
+            closureTitle = closureTitle,
+            closureMessage = closureMessage
         )
     }
 
@@ -258,7 +289,10 @@ class AppUpdateRepository @Inject constructor(
             currentVersionName = currentName,
             policy = policy,
             isPlayStoreUpdateAvailable = isPlayUpdateAvailable,
-            playStoreAvailableVersionCode = playInfo?.availableVersionCode()
+            playStoreAvailableVersionCode = playInfo?.availableVersionCode(),
+            isTemporarilyClosed = policy.isTemporarilyClosed,
+            closureTitle = policy.closureTitle,
+            closureMessage = policy.closureMessage
         )
     }
 

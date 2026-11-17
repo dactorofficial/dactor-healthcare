@@ -5,7 +5,9 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.pdf.PdfDocument
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Paint
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -24,25 +26,33 @@ data class CompressedFileResult(
     val fileName: String,
     val originalSizeBytes: Int,
     val compressedSizeBytes: Int,
-    val wasCompressed: Boolean
+    val wasCompressed: Boolean,
+    val targetCapBytes: Int = FileCompressor.MAX_FILE_SIZE_BYTES,
+    val pageCount: Int = 1
 ) {
     val formattedSummary: String
-        get() = if (wasCompressed && compressedSizeBytes < originalSizeBytes) {
-            "${FileCompressor.formatSize(originalSizeBytes)} → ${FileCompressor.formatSize(compressedSizeBytes)} (≤ 300 KB)"
-        } else {
-            "${FileCompressor.formatSize(compressedSizeBytes)} (≤ 300 KB)"
+        get() {
+            val capLabel = "≤ ${FileCompressor.formatSize(targetCapBytes)}"
+            val pagesLabel = if (pageCount > 1) " • $pageCount pages" else ""
+            return if (wasCompressed && compressedSizeBytes < originalSizeBytes) {
+                "${FileCompressor.formatSize(originalSizeBytes)} → ${FileCompressor.formatSize(compressedSizeBytes)} ($capLabel$pagesLabel)"
+            } else {
+                "${FileCompressor.formatSize(compressedSizeBytes)} ($capLabel$pagesLabel)"
+            }
         }
 }
 
 /**
  * Compresses images and document files before uploading to Supabase Storage
  * to save cloud storage bandwidth and space.
- * Guarantees images are compressed to <= 300 KB (targeting ~150-250 KB when possible).
+ * Supports multi-picture to PDF conversion for diagnostic lab reports, X-rays,
+ * and pathology panels with strict <= 100 KB optimization.
  */
 object FileCompressor {
 
-    const val MAX_FILE_SIZE_BYTES = 300 * 1024 // 300 KB strict ceiling
-    private const val PREFERRED_TARGET_BYTES = 220 * 1024 // 220 KB preferred target ("if its less its even better")
+    const val MAX_FILE_SIZE_BYTES = 300 * 1024 // 300 KB strict ceiling for general documents
+    const val LAB_REPORT_MAX_BYTES = 100 * 1024 // 100 KB strict ceiling for diagnostic lab & X-ray reports
+    private const val PREFERRED_TARGET_BYTES = 220 * 1024 // 220 KB preferred target
     private const val MAX_INITIAL_DIMENSION = 1440
 
     fun formatSize(bytes: Int): String {
@@ -54,8 +64,246 @@ object FileCompressor {
     }
 
     /**
-     * Reads a [Uri] from [Context.getContentResolver] and compresses it to <= 300 KB,
-     * strictly preserving the file's authentic extension (.pdf, .jpg, .png, etc.).
+     * Stitches multiple selected images (or an individual photo) into a single, unified
+     * multi-page PDF document, compressed aggressively to <= [targetMaxBytes] (default 100 KB).
+     * Includes medical imaging optimizations (contrast enhancement, monochrome detection for X-rays).
+     */
+    suspend fun createOptimizedPdfFromImages(
+        context: Context,
+        uris: List<Uri>,
+        targetMaxBytes: Int = LAB_REPORT_MAX_BYTES,
+        baseFileName: String = "Lab_Report"
+    ): CompressedFileResult? = withContext(Dispatchers.IO) {
+        if (uris.isEmpty()) return@withContext null
+        try {
+            val rawImages = mutableListOf<ByteArray>()
+            var totalOriginal = 0
+            for (uri in uris) {
+                val b = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                if (b != null && b.isNotEmpty()) {
+                    rawImages.add(b)
+                    totalOriginal += b.size
+                }
+            }
+            if (rawImages.isEmpty()) return@withContext null
+
+            createOptimizedPdfFromImageBytes(rawImages, targetMaxBytes, baseFileName, totalOriginal)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    /**
+     * Stitches multiple raw image byte arrays into a single unified PDF <= [targetMaxBytes].
+     */
+    fun createOptimizedPdfFromImageBytes(
+        rawImages: List<ByteArray>,
+        targetMaxBytes: Int = LAB_REPORT_MAX_BYTES,
+        baseFileName: String = "Lab_Report",
+        totalOriginalBytes: Int = rawImages.sumOf { it.size }
+    ): CompressedFileResult? {
+        if (rawImages.isEmpty()) return null
+        val pageCount = rawImages.size
+
+        // Calculate overhead of PDF metadata (header, xref, catalog, page dicts)
+        val pdfOverhead = (pageCount * 360 + 1200)
+        val maxTotalJpegBytes = (targetMaxBytes - pdfOverhead).coerceAtLeast(12 * 1024)
+        val perPageBudget = (maxTotalJpegBytes / pageCount).coerceAtLeast(8 * 1024)
+
+        val pageInfos = mutableListOf<JpegPageInfo>()
+
+        for (i in 0 until pageCount) {
+            val raw = rawImages[i]
+            val pageInfo = compressImageToJpegPage(
+                rawBytes = raw,
+                maxPageBytes = perPageBudget,
+                pageIndex = i,
+                totalPages = pageCount
+            ) ?: return null
+            pageInfos.add(pageInfo)
+        }
+
+        // Check if combined size exceeds maxTotalJpegBytes
+        var currentTotalJpegBytes = pageInfos.sumOf { it.bytes.size }
+        if (currentTotalJpegBytes > maxTotalJpegBytes) {
+            // Second pass: progressively reduce the largest pages until total fits
+            for (pass in 0 until 5) {
+                if (currentTotalJpegBytes <= maxTotalJpegBytes) break
+                val largestIndex = pageInfos.indices.maxByOrNull { pageInfos[it].bytes.size } ?: break
+                val largest = pageInfos[largestIndex]
+                val scaledDown = reduceJpegPage(largest, 0.78f, 32)
+                if (scaledDown != null && scaledDown.bytes.size < largest.bytes.size) {
+                    pageInfos[largestIndex] = scaledDown
+                    currentTotalJpegBytes = pageInfos.sumOf { it.bytes.size }
+                } else {
+                    break
+                }
+            }
+        }
+
+        val pdfBytes = PdfBuilder.buildPdfFromJpegs(pageInfos)
+        val finalName = ensureExtension(baseFileName, "pdf")
+
+        return CompressedFileResult(
+            bytes = pdfBytes,
+            fileName = finalName,
+            originalSizeBytes = totalOriginalBytes,
+            compressedSizeBytes = pdfBytes.size,
+            wasCompressed = true,
+            targetCapBytes = targetMaxBytes,
+            pageCount = pageCount
+        )
+    }
+
+    private fun compressImageToJpegPage(
+        rawBytes: ByteArray,
+        maxPageBytes: Int,
+        pageIndex: Int,
+        totalPages: Int
+    ): JpegPageInfo? {
+        val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, boundsOpts)
+        val inWidth = boundsOpts.outWidth
+        val inHeight = boundsOpts.outHeight
+        if (inWidth <= 0 || inHeight <= 0) return null
+
+        val maxDim = when {
+            totalPages == 1 -> 1200
+            totalPages == 2 -> 980
+            totalPages == 3 -> 840
+            else -> 720
+        }
+
+        val sampleSize = calculateInSampleSize(inWidth, inHeight, maxDim)
+        val decodeOpts = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        var bitmap = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, decodeOpts) ?: return null
+
+        val isMono = isImagePredominantlyMonochrome(bitmap)
+
+        // Scale down if dimension exceeds maxDim
+        val maxSide = max(bitmap.width, bitmap.height)
+        if (maxSide > maxDim) {
+            val ratio = maxDim.toFloat() / maxSide.toFloat()
+            val targetW = (bitmap.width * ratio).roundToInt().coerceAtLeast(1)
+            val targetH = (bitmap.height * ratio).roundToInt().coerceAtLeast(1)
+            val scaled = Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+            if (scaled !== bitmap) {
+                bitmap.recycle()
+                bitmap = scaled
+            }
+        }
+
+        // Flatten onto RGB_565 canvas; if monochrome, apply contrast stretch for sharp medical text/X-ray
+        val flattened = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.RGB_565)
+        val canvas = Canvas(flattened)
+        canvas.drawColor(Color.WHITE)
+        val paint = Paint()
+        if (isMono) {
+            val cm = ColorMatrix().apply {
+                setSaturation(0f)
+                val contrast = 1.12f
+                val translate = (-0.5f * contrast + 0.5f) * 255f
+                val matrix = floatArrayOf(
+                    contrast, 0f, 0f, 0f, translate,
+                    0f, contrast, 0f, 0f, translate,
+                    0f, 0f, contrast, 0f, translate,
+                    0f, 0f, 0f, 1f, 0f
+                )
+                postConcat(ColorMatrix(matrix))
+            }
+            paint.colorFilter = ColorMatrixColorFilter(cm)
+        }
+        canvas.drawBitmap(bitmap, 0f, 0f, paint)
+        bitmap.recycle()
+        var currentBitmap = flattened
+
+        val qualities = intArrayOf(75, 62, 50, 40, 30, 22, 16)
+        var bestJpeg: ByteArray? = null
+
+        for (scalePass in 0 until 4) {
+            for (q in qualities) {
+                val baos = ByteArrayOutputStream()
+                currentBitmap.compress(Bitmap.CompressFormat.JPEG, q, baos)
+                val candidate = baos.toByteArray()
+                bestJpeg = candidate
+                if (candidate.size <= maxPageBytes) {
+                    val parsed = PdfBuilder.parseJpegInfo(candidate)
+                        ?: JpegPageInfo(candidate, currentBitmap.width, currentBitmap.height, isMono)
+                    currentBitmap.recycle()
+                    return parsed
+                }
+            }
+
+            // Downscale dimensions by 75% and retry
+            val nextW = (currentBitmap.width * 0.75f).roundToInt().coerceAtLeast(200)
+            val nextH = (currentBitmap.height * 0.75f).roundToInt().coerceAtLeast(200)
+            if (nextW == currentBitmap.width && nextH == currentBitmap.height) break
+            val smaller = Bitmap.createScaledBitmap(currentBitmap, nextW, nextH, true)
+            if (smaller !== currentBitmap) {
+                currentBitmap.recycle()
+                currentBitmap = smaller
+            }
+        }
+
+        if (bestJpeg != null) {
+            val parsed = PdfBuilder.parseJpegInfo(bestJpeg)
+                ?: JpegPageInfo(bestJpeg, currentBitmap.width, currentBitmap.height, isMono)
+            currentBitmap.recycle()
+            return parsed
+        }
+
+        currentBitmap.recycle()
+        return null
+    }
+
+    private fun reduceJpegPage(page: JpegPageInfo, scaleFactor: Float, targetQuality: Int): JpegPageInfo? {
+        return try {
+            val bmp = BitmapFactory.decodeByteArray(page.bytes, 0, page.bytes.size) ?: return null
+            val newW = (bmp.width * scaleFactor).roundToInt().coerceAtLeast(180)
+            val newH = (bmp.height * scaleFactor).roundToInt().coerceAtLeast(180)
+            val scaled = Bitmap.createScaledBitmap(bmp, newW, newH, true)
+            if (scaled !== bmp) bmp.recycle()
+            val baos = ByteArrayOutputStream()
+            scaled.compress(Bitmap.CompressFormat.JPEG, targetQuality, baos)
+            scaled.recycle()
+            val candidate = baos.toByteArray()
+            PdfBuilder.parseJpegInfo(candidate) ?: JpegPageInfo(candidate, newW, newH, page.isGrayscale)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun isImagePredominantlyMonochrome(bitmap: Bitmap): Boolean {
+        return try {
+            var totalColorDiff = 0
+            val stepX = (bitmap.width / 10).coerceAtLeast(1)
+            val stepY = (bitmap.height / 10).coerceAtLeast(1)
+            var samples = 0
+            for (y in 0 until bitmap.height step stepY) {
+                for (x in 0 until bitmap.width step stepX) {
+                    val pixel = bitmap.getPixel(x, y)
+                    val r = (pixel shr 16) and 0xFF
+                    val g = (pixel shr 8) and 0xFF
+                    val b = pixel and 0xFF
+                    val maxC = maxOf(r, maxOf(g, b))
+                    val minC = minOf(r, minOf(g, b))
+                    totalColorDiff += (maxC - minC)
+                    samples++
+                }
+            }
+            val avgDiff = if (samples > 0) totalColorDiff / samples else 0
+            avgDiff < 18
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Reads a [Uri] from [Context.getContentResolver] and compresses it to <= [maxBytes] (default 300 KB).
      */
     suspend fun compressUri(
         context: Context,
@@ -81,8 +329,7 @@ object FileCompressor {
     }
 
     /**
-     * Compresses raw bytes (image or PDF document) to <= [maxBytes] (default 300 KB),
-     * strictly preserving or setting the real file extension based on magic numbers.
+     * Compresses raw bytes (image or PDF document) to <= [maxBytes] (default 300 KB).
      */
     fun compressBytes(
         rawBytes: ByteArray,
@@ -91,7 +338,7 @@ object FileCompressor {
     ): CompressedFileResult {
         val originalSize = rawBytes.size
         if (originalSize == 0) {
-            return CompressedFileResult(rawBytes, fileName, 0, 0, false)
+            return CompressedFileResult(rawBytes, fileName, 0, 0, false, maxBytes)
         }
 
         val magicExt = detectExtensionFromBytes(rawBytes)
@@ -108,7 +355,8 @@ object FileCompressor {
                         fileName = normalizedPdfName,
                         originalSizeBytes = originalSize,
                         compressedSizeBytes = compressedPdf.size,
-                        wasCompressed = true
+                        wasCompressed = true,
+                        targetCapBytes = maxBytes
                     )
                 }
             }
@@ -117,7 +365,8 @@ object FileCompressor {
                 fileName = normalizedPdfName,
                 originalSizeBytes = originalSize,
                 compressedSizeBytes = rawBytes.size,
-                wasCompressed = false
+                wasCompressed = false,
+                targetCapBytes = maxBytes
             )
         }
 
@@ -134,11 +383,8 @@ object FileCompressor {
                 maxBytes = maxBytes
             )
             if (compressedImage != null) {
-                // Keep whichever is smaller while strictly enforcing <= maxBytes
                 val useCompressed = compressedImage.size < rawBytes.size || rawBytes.size > maxBytes
                 val chosenBytes = if (useCompressed) compressedImage else rawBytes
-                // If re-compressed via JPEG format, final bytes are JPEG (.jpg).
-                // If original bytes are kept uncompressed, strictly retain the real original extension (e.g. .png, .jpg, .webp).
                 val normalizedName = if (useCompressed) {
                     ensureExtension(fileName, "jpg")
                 } else {
@@ -150,7 +396,8 @@ object FileCompressor {
                     fileName = normalizedName,
                     originalSizeBytes = originalSize,
                     compressedSizeBytes = chosenBytes.size,
-                    wasCompressed = chosenBytes.size < originalSize
+                    wasCompressed = chosenBytes.size < originalSize,
+                    targetCapBytes = maxBytes
                 )
             }
         }
@@ -163,7 +410,8 @@ object FileCompressor {
             fileName = normalizedName,
             originalSizeBytes = originalSize,
             compressedSizeBytes = rawBytes.size,
-            wasCompressed = false
+            wasCompressed = false,
+            targetCapBytes = maxBytes
         )
     }
 
@@ -181,7 +429,6 @@ object FileCompressor {
             }
             var bitmap = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, decodeOpts) ?: return null
 
-            // Scale down if max side still exceeds MAX_INITIAL_DIMENSION
             val maxSide = max(bitmap.width, bitmap.height)
             if (maxSide > MAX_INITIAL_DIMENSION) {
                 val ratio = MAX_INITIAL_DIMENSION.toFloat() / maxSide.toFloat()
@@ -194,7 +441,6 @@ object FileCompressor {
                 }
             }
 
-            // Flatten onto white canvas in case of transparent PNG
             val opaqueBitmap = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.RGB_565)
             val canvas = Canvas(opaqueBitmap)
             canvas.drawColor(Color.WHITE)
@@ -208,7 +454,6 @@ object FileCompressor {
             var currentBitmap = bitmap
             var bestBytes: ByteArray? = null
 
-            // Up to 5 dimension-scaling passes if needed to guarantee <= maxBytes
             for (scalePass in 0 until 5) {
                 val qualities = intArrayOf(80, 70, 60, 50, 40, 30, 22, 15)
                 for (q in qualities) {
@@ -217,7 +462,6 @@ object FileCompressor {
                     val candidate = baos.toByteArray()
                     bestBytes = candidate
 
-                    // If we are under softTarget (~220 KB) or at reasonable quality under maxBytes (300 KB)
                     if (candidate.size <= softTarget || (candidate.size <= maxBytes && q <= 60)) {
                         currentBitmap.recycle()
                         return candidate
@@ -229,7 +473,6 @@ object FileCompressor {
                     return bestBytes
                 }
 
-                // Still > maxBytes: scale dimensions down by 72% and try again
                 val nextW = (currentBitmap.width * 0.72f).roundToInt().coerceAtLeast(200)
                 val nextH = (currentBitmap.height * 0.72f).roundToInt().coerceAtLeast(200)
                 if (nextW == currentBitmap.width && nextH == currentBitmap.height) break
@@ -257,44 +500,38 @@ object FileCompressor {
             tempFile.writeBytes(rawBytes)
             pfd = ParcelFileDescriptor.open(tempFile, ParcelFileDescriptor.MODE_READ_ONLY)
             renderer = PdfRenderer(pfd)
-            val pageCount = renderer.pageCount.coerceIn(1, 8) // Cap pages to prevent OOM
+            val pageCount = renderer.pageCount.coerceIn(1, 10)
 
-            for (scale in floatArrayOf(1.1f, 0.85f, 0.65f)) {
-                val outPdf = PdfDocument()
-                try {
-                    for (i in 0 until pageCount) {
-                        val page = renderer.openPage(i)
-                        val renderW = (page.width * scale).roundToInt().coerceIn(300, 1100)
-                        val renderH = (page.height * scale).roundToInt().coerceIn(400, 1500)
-                        val bmp = Bitmap.createBitmap(renderW, renderH, Bitmap.Config.ARGB_8888)
-                        val canvas = Canvas(bmp)
-                        canvas.drawColor(Color.WHITE)
-                        page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
-                        page.close()
+            val scales = if (maxBytes <= LAB_REPORT_MAX_BYTES) {
+                floatArrayOf(0.9f, 0.72f, 0.55f, 0.42f)
+            } else {
+                floatArrayOf(1.1f, 0.85f, 0.65f)
+            }
 
-                        // Compress the rendered bitmap through JPEG so embedded bitmap is compact
-                        val jpegBaos = ByteArrayOutputStream()
-                        bmp.compress(Bitmap.CompressFormat.JPEG, 55, jpegBaos)
-                        bmp.recycle()
-                        val compactBytes = jpegBaos.toByteArray()
-                        val compactBmp = BitmapFactory.decodeByteArray(compactBytes, 0, compactBytes.size)
+            for (scale in scales) {
+                val pageInfos = mutableListOf<JpegPageInfo>()
+                for (i in 0 until pageCount) {
+                    val page = renderer.openPage(i)
+                    val renderW = (page.width * scale).roundToInt().coerceIn(240, 1100)
+                    val renderH = (page.height * scale).roundToInt().coerceIn(340, 1500)
+                    val bmp = Bitmap.createBitmap(renderW, renderH, Bitmap.Config.ARGB_8888)
+                    val canvas = Canvas(bmp)
+                    canvas.drawColor(Color.WHITE)
+                    page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
+                    page.close()
 
-                        if (compactBmp != null) {
-                            val pageInfo = PdfDocument.PageInfo.Builder(renderW, renderH, i + 1).create()
-                            val destPage = outPdf.startPage(pageInfo)
-                            destPage.canvas.drawBitmap(compactBmp, 0f, 0f, null)
-                            outPdf.finishPage(destPage)
-                            compactBmp.recycle()
-                        }
-                    }
-                    val pdfOut = ByteArrayOutputStream()
-                    outPdf.writeTo(pdfOut)
-                    val candidate = pdfOut.toByteArray()
-                    if (candidate.size <= maxBytes || scale == 0.65f) {
-                        return candidate
-                    }
-                } finally {
-                    outPdf.close()
+                    val q = if (maxBytes <= LAB_REPORT_MAX_BYTES) 45 else 55
+                    val jpegBaos = ByteArrayOutputStream()
+                    bmp.compress(Bitmap.CompressFormat.JPEG, q, jpegBaos)
+                    bmp.recycle()
+                    val compactBytes = jpegBaos.toByteArray()
+                    val info = PdfBuilder.parseJpegInfo(compactBytes) ?: JpegPageInfo(compactBytes, renderW, renderH)
+                    pageInfos.add(info)
+                }
+
+                val built = PdfBuilder.buildPdfFromJpegs(pageInfos)
+                if (built.size <= maxBytes || scale == scales.last()) {
+                    return built
                 }
             }
             null
@@ -335,10 +572,6 @@ object FileCompressor {
         }
     }
 
-    private fun ensureJpgExtension(fileName: String): String {
-        return ensureExtension(fileName, "jpg")
-    }
-
     fun isPdfHeader(bytes: ByteArray): Boolean {
         return bytes.size >= 4 &&
             bytes[0] == '%'.code.toByte() &&
@@ -347,30 +580,22 @@ object FileCompressor {
             bytes[3] == 'F'.code.toByte()
     }
 
-    /**
-     * Inspects magic header bytes of raw data to determine the 100% true format.
-     */
     fun detectExtensionFromBytes(bytes: ByteArray): String? {
         if (bytes.size >= 4) {
-            // PDF: %PDF (0x25, 0x50, 0x44, 0x46)
             if (bytes[0] == 0x25.toByte() && bytes[1] == 0x50.toByte() && bytes[2] == 0x44.toByte() && bytes[3] == 0x46.toByte()) {
                 return "pdf"
             }
-            // PNG: 89 50 4E 47
-            if (bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() && bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte()) {
+            if (bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() && bytes[2] == 0x44.toByte() && bytes[3] == 0x46.toByte()) {
                 return "png"
             }
-            // JPEG: FF D8 FF
             if (bytes.size >= 3 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte()) {
                 return "jpg"
             }
-            // WEBP: RIFF....WEBP
             if (bytes.size >= 12 &&
                 bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() && bytes[2] == 'F'.code.toByte() && bytes[3] == 'F'.code.toByte() &&
                 bytes[8] == 'W'.code.toByte() && bytes[9] == 'E'.code.toByte() && bytes[10] == 'B'.code.toByte() && bytes[11] == 'P'.code.toByte()) {
                 return "webp"
             }
-            // GIF: GIF87a or GIF89a
             if (bytes.size >= 6 &&
                 bytes[0] == 'G'.code.toByte() && bytes[1] == 'I'.code.toByte() && bytes[2] == 'F'.code.toByte()) {
                 return "gif"
@@ -407,10 +632,6 @@ object FileCompressor {
         }
     }
 
-    /**
-     * Resolves the real original filename with its authentic extension (.pdf, .jpg, .png, etc.),
-     * verifying Android OpenableColumns, MIME type, and binary magic bytes.
-     */
     fun resolveRealFileName(
         context: Context,
         uri: Uri,
@@ -464,9 +685,6 @@ object FileCompressor {
         return "$cleanBase.$realExt"
     }
 
-    /**
-     * Resolves the human-readable display name and extension for UI presentation right after selection.
-     */
     fun resolveDisplayFileName(
         context: Context,
         uri: Uri,

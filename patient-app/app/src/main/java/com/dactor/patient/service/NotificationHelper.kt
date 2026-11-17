@@ -74,12 +74,15 @@ object NotificationHelper {
         val parsed = NotificationTemplateData.fromNotification(title, message, type)
         val displayTitle = parsed.title
         val displayBody = parsed.cleanMessage
-        val isArriveFast = parsed.rightValue.contains("arrive fast", ignoreCase = true) ||
+        val isArriveSoon = parsed.rightValue.contains("arrive soon", ignoreCase = true) ||
+            parsed.leftValue.contains("arrive soon", ignoreCase = true) ||
+            parsed.title.contains("arrive soon", ignoreCase = true)
+        val isArriveFast = isArriveSoon || parsed.rightValue.contains("arrive fast", ignoreCase = true) ||
             parsed.leftValue.contains("arrive fast", ignoreCase = true)
         val leftLabel = parsed.leftLabel
-        val leftVal = if (isArriveFast) "Arrive Fast" else (estimatedTimeLeft?.takeIf { it.isNotBlank() } ?: parsed.leftValue)
-        val rightVal = if (isArriveFast) "Your turn, arrive fast" else (expectedTime?.takeIf { it.isNotBlank() } ?: parsed.rightValue)
-        val rightLabel = if (isArriveFast || rightVal.contains("arrive fast", ignoreCase = true)) "Turn Status" else parsed.rightLabel
+        val leftVal = if (isArriveSoon || isArriveFast) "Arrive Soon" else (estimatedTimeLeft?.takeIf { it.isNotBlank() } ?: parsed.leftValue)
+        val rightVal = if (isArriveSoon || isArriveFast) "Your turn, arrive soon" else (expectedTime?.takeIf { it.isNotBlank() } ?: parsed.rightValue)
+        val rightLabel = if (isArriveFast || rightVal.contains("arrive fast", ignoreCase = true) || rightVal.contains("arrive soon", ignoreCase = true)) "Turn Status" else parsed.rightLabel
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK

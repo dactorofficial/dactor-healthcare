@@ -46,6 +46,8 @@ import com.dactor.clinic.R
 import com.dactor.clinic.data.model.Appointment
 import com.dactor.clinic.data.model.Clinic
 import com.dactor.clinic.data.model.Doctor
+import com.dactor.clinic.data.model.NotificationTemplate
+import com.dactor.clinic.data.model.NotificationType
 import com.dactor.clinic.data.model.QueueEntry
 import com.dactor.clinic.data.repository.AppointmentRepository
 import com.dactor.clinic.data.repository.BillingRepository
@@ -205,6 +207,9 @@ fun QueueBoardScreen(
     var currentClinic by remember(effectiveClinicId) { mutableStateOf<com.dactor.clinic.data.model.Clinic?>(cachedInitialClinic) }
     var isLabClinic by remember(currentClinic) { mutableStateOf(isDiagnosticClinic(currentClinic)) }
     var isClinicOnBreak by remember(effectiveClinicId) { mutableStateOf(false) }
+    var isClinicOpen by remember(effectiveClinicId) { mutableStateOf(cachedInitialClinic?.isOpen != false) }
+    var showCloseClinicConfirmDialog by remember { mutableStateOf(false) }
+    var isClosingClinicProcessing by remember { mutableStateOf(false) }
     var lastBreakToggleMs by remember { mutableLongStateOf(0L) }
     var lastClinicMetaFetchMs by remember { mutableLongStateOf(0L) }
     var lastDoctorsFetchMs by remember { mutableLongStateOf(0L) }
@@ -230,6 +235,9 @@ fun QueueBoardScreen(
                     currentClinic = c
                     if (System.currentTimeMillis() - lastBreakToggleMs > 12_000L) {
                         isClinicOnBreak = c?.isOnBreak == true
+                    }
+                    if (c != null) {
+                        isClinicOpen = c.isOpen != false
                     }
                     isLabClinic = isDiagnosticClinic(c)
                 }
@@ -280,6 +288,7 @@ fun QueueBoardScreen(
     }
     var expandedItemId by remember { mutableStateOf<String?>(null) }
     var notificationSentMessage by remember { mutableStateOf<String?>(null) }
+    var alertedItemIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var currentEpochSecond by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
 
     // Reorder state
@@ -439,23 +448,25 @@ fun QueueBoardScreen(
         }
     }
 
-    suspend fun loadQueue() {
+    suspend fun loadQueue(isDeltaOnly: Boolean = false) {
         if (queueRepository != null && effectiveClinicId.isNotBlank()) {
-            // Offload background audits so they never delay UI rendering
-            coroutineScope.launch {
-                try {
-                    queueRepository.autoTransferUncompletedQueueToNoShow(effectiveClinicId, includeTodayExpired = false)
-                } catch (_: Exception) {}
-                try {
-                    avgCalculationDetails = queueRepository.getClinicAverageTimeDetails(effectiveClinicId)
-                } catch (_: Exception) {}
+            if (!isDeltaOnly) {
+                // Offload background audits so they never delay UI rendering
+                coroutineScope.launch {
+                    try {
+                        queueRepository.autoTransferUncompletedQueueToNoShow(effectiveClinicId, includeTodayExpired = false)
+                    } catch (_: Exception) {}
+                    try {
+                        avgCalculationDetails = queueRepository.getClinicAverageTimeDetails(effectiveClinicId)
+                    } catch (_: Exception) {}
+                }
             }
 
-            // Concurrent execution for UI-critical data (Queue + Appts + Doctors + Clinic in parallel)
+            // Concurrent execution for UI-critical data
             coroutineScope {
                 val nowTime = System.currentTimeMillis()
-                val needClinic = currentClinic == null || (nowTime - lastClinicMetaFetchMs > 40_000L)
-                val needDocs = clinicDoctors.isEmpty() || (nowTime - lastDoctorsFetchMs > 40_000L)
+                val needClinic = !isDeltaOnly && (currentClinic == null || (nowTime - lastClinicMetaFetchMs > 120_000L))
+                val needDocs = !isDeltaOnly && (clinicDoctors.isEmpty() || (nowTime - lastDoctorsFetchMs > 120_000L))
 
                 val clinicDeferred = async<Clinic?> {
                     if (!needClinic) return@async currentClinic
@@ -466,17 +477,32 @@ fun QueueBoardScreen(
                 val docsDeferred = async<List<Doctor>> {
                     if (!needDocs) return@async clinicDoctors
                     try {
-                        doctorRepository?.getDoctorsByClinic(effectiveClinicId) ?: emptyList()
+                        // Doctors rarely change: reuse the list saved on the phone if under a day old
+                        val repo = doctorRepository
+                        val saved = repo?.getCachedDoctorsByClinic(effectiveClinicId).orEmpty()
+                        val age = repo?.savedDoctorsAgeMs(effectiveClinicId)
+                        if (saved.isNotEmpty() && age != null && age < 24 * 60 * 60 * 1000L) saved
+                        else repo?.getDoctorsByClinic(effectiveClinicId) ?: emptyList()
                     } catch (_: Exception) { emptyList() }
                 }
                 val entriesDeferred = async<List<QueueEntry>> {
                     try {
-                        queueRepository.getQueueForClinic(effectiveClinicId)
+                        if (isDeltaOnly) {
+                            queueRepository.syncQueueDeltaForClinic(effectiveClinicId)
+                        } else {
+                            queueRepository.getQueueForClinic(effectiveClinicId)
+                        }
                     } catch (_: Exception) { emptyList() }
                 }
                 val apptsDeferred = async<List<Appointment>> {
                     try {
-                        appointmentRepository?.getAppointmentsByClinic(effectiveClinicId) ?: emptyList()
+                        if (isDeltaOnly) {
+                            appointmentRepository?.getCachedClinicAppointments(effectiveClinicId)?.takeIf { it.isNotEmpty() }
+                                ?: appointmentRepository?.getAppointmentsByClinic(effectiveClinicId)
+                                ?: emptyList()
+                        } else {
+                            appointmentRepository?.getAppointmentsByClinic(effectiveClinicId) ?: emptyList()
+                        }
                     } catch (_: Exception) { emptyList() }
                 }
 
@@ -487,6 +513,7 @@ fun QueueBoardScreen(
                     if (System.currentTimeMillis() - lastBreakToggleMs > 12_000L) {
                         isClinicOnBreak = c.isOnBreak == true
                     }
+                    isClinicOpen = c.isOpen != false
                 }
 
                 val docs = docsDeferred.await()
@@ -624,7 +651,7 @@ fun QueueBoardScreen(
                     pendingStatusOverrides = pendingStatusOverrides - item.id
                     notificationSentMessage = "⚠ Unable to move ${item.patientName} to Processing. Please check connection and retry."
                 }
-                loadQueue()
+                loadQueue(isDeltaOnly = true) // only changed rows after a staff action
             }
         } else {
             optimisticallyUpdateStatus(item.id, "done")
@@ -640,15 +667,19 @@ fun QueueBoardScreen(
                     pendingStatusOverrides = pendingStatusOverrides - item.id
                     notificationSentMessage = "⚠ Unable to complete consultation for ${item.patientName}. Please retry."
                 }
-                loadQueue()
+                loadQueue(isDeltaOnly = true) // only changed rows after a staff action
             }
         }
     }
 
     LaunchedEffect(effectiveClinicId) {
+        // Initial full sync of clinic, doctors, and appointments
+        loadQueue(isDeltaOnly = false)
         while (isActive) {
-            loadQueue()
-            delay(4000L)
+            // Only changed rows are downloaded; own actions already show instantly via pendingStatusOverrides
+            delay(10_000L)
+            // Lightweight operational delta sync: only queue entries without heavy table scans
+            loadQueue(isDeltaOnly = true)
         }
     }
 
@@ -1330,53 +1361,98 @@ fun QueueBoardScreen(
                                     fontSize = 14.5.sp,
                                     color = Color(0xFF0F172A)
                                 )
-                                // Compact Break Mode Toggle chip
-                                val todaySched = currentClinic?.getTodaySchedule()
-                                Surface(
-                                    shape = RoundedCornerShape(20.dp),
-                                    color = if (isClinicOnBreak) Color(0xFFFEF3C7) else Color(0xFFDBEAFE),
-                                    border = BorderStroke(1.dp, if (isClinicOnBreak) Color(0xFFF59E0B) else Color(0xFF93C5FD)),
-                                    modifier = Modifier.clickable {
-                                        val newValue = !isClinicOnBreak
-                                        lastBreakToggleMs = System.currentTimeMillis()
-                                        isClinicOnBreak = newValue
-                                        currentClinic = currentClinic?.copy(isOnBreak = newValue)
-                                        coroutineScope.launch {
-                                            val updated = clinicRepository?.toggleClinicBreak(effectiveClinicId, newValue)
-                                            if (updated != null) {
-                                                currentClinic = updated
-                                            }
-                                            if (newValue) {
-                                                val windowStr = if (todaySched?.hasBreak == true) "${todaySched.breakStart} - ${todaySched.breakEnd}" else null
-                                                val count = queueRepository?.sendClinicBreakNotificationsToActiveAppointments(
-                                                    clinicId = effectiveClinicId,
-                                                    clinicName = currentClinic?.name ?: "Dactor Clinic",
-                                                    breakWindowText = windowStr
-                                                ) ?: 0
-                                                notificationSentMessage = "☕ Clinic Break ON \u2014 notified $count active appointment(s)."
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Clinic Open / Closed Status Toggle Chip
+                                    Surface(
+                                        shape = RoundedCornerShape(20.dp),
+                                        color = if (isClinicOpen) Color(0xFFD1FAE5) else Color(0xFFFEE2E2),
+                                        border = BorderStroke(1.dp, if (isClinicOpen) Color(0xFF10B981) else Color(0xFFEF4444)),
+                                        modifier = Modifier.clickable {
+                                            if (isClinicOpen) {
+                                                showCloseClinicConfirmDialog = true
                                             } else {
-                                                notificationSentMessage = "✓ Clinic Break OFF \u2014 live queue resumed."
+                                                coroutineScope.launch {
+                                                    isClinicOpen = true
+                                                    currentClinic = currentClinic?.copy(isOpen = true)
+                                                    clinicRepository?.toggleClinicOpenStatus(effectiveClinicId, true)
+                                                    notificationSentMessage = "Clinic is now OPEN."
+                                                }
                                             }
                                         }
-                                    }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        Icon(
-                                            Icons.Default.FreeBreakfast,
-                                            contentDescription = null,
-                                            tint = if (isClinicOnBreak) Color(0xFFD97706) else Color(0xFF1D4ED8),
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                        Text(
-                                            text = if (isClinicOnBreak) "Break: ON" else "Break: OFF",
-                                            fontSize = 10.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isClinicOnBreak) Color(0xFFB45309) else Color(0xFF1D4ED8)
-                                        )
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(7.dp)
+                                                    .background(
+                                                        color = if (isClinicOpen) Color(0xFF10B981) else Color(0xFFEF4444),
+                                                        shape = CircleShape
+                                                    )
+                                            )
+                                            Text(
+                                                text = if (isClinicOpen) "Clinic: OPEN" else "Clinic: CLOSED",
+                                                fontSize = 10.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isClinicOpen) Color(0xFF065F46) else Color(0xFF991B1B)
+                                            )
+                                        }
+                                    }
+
+                                    // Compact Break Mode Toggle chip
+                                    val todaySched = currentClinic?.getTodaySchedule()
+                                    Surface(
+                                        shape = RoundedCornerShape(20.dp),
+                                        color = if (isClinicOnBreak) Color(0xFFFEF3C7) else Color(0xFFDBEAFE),
+                                        border = BorderStroke(1.dp, if (isClinicOnBreak) Color(0xFFF59E0B) else Color(0xFF93C5FD)),
+                                        modifier = Modifier.clickable {
+                                            val newValue = !isClinicOnBreak
+                                            lastBreakToggleMs = System.currentTimeMillis()
+                                            isClinicOnBreak = newValue
+                                            currentClinic = currentClinic?.copy(isOnBreak = newValue)
+                                            coroutineScope.launch {
+                                                val updated = clinicRepository?.toggleClinicBreak(effectiveClinicId, newValue)
+                                                if (updated != null) {
+                                                    currentClinic = updated
+                                                }
+                                                if (newValue) {
+                                                    val windowStr = if (todaySched?.hasBreak == true) "${todaySched.breakStart} - ${todaySched.breakEnd}" else null
+                                                    val count = queueRepository?.sendClinicBreakNotificationsToActiveAppointments(
+                                                        clinicId = effectiveClinicId,
+                                                        clinicName = currentClinic?.name ?: "Dactor Clinic",
+                                                        breakWindowText = windowStr
+                                                    ) ?: 0
+                                                    notificationSentMessage = "☕ Clinic Break ON \u2014 notified $count active appointment(s)."
+                                                } else {
+                                                    notificationSentMessage = "✓ Clinic Break OFF \u2014 live queue resumed."
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.FreeBreakfast,
+                                                contentDescription = null,
+                                                tint = if (isClinicOnBreak) Color(0xFFD97706) else Color(0xFF1D4ED8),
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Text(
+                                                text = if (isClinicOnBreak) "Break: ON" else "Break: OFF",
+                                                fontSize = 10.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isClinicOnBreak) Color(0xFFB45309) else Color(0xFF1D4ED8)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -2051,6 +2127,33 @@ fun QueueBoardScreen(
                                                     )
                                                 }
                                             }
+                                            if (alertedItemIds.contains(item.id)) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    color = Color(0xFFCCFBF1),
+                                                    border = BorderStroke(0.5.dp, Color(0xFF5EEAD4)),
+                                                    modifier = Modifier.padding(top = 2.dp)
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Icon(
+                                                            Icons.Default.DirectionsRun,
+                                                            contentDescription = null,
+                                                            tint = Color(0xFF0F766E),
+                                                            modifier = Modifier.size(12.dp)
+                                                        )
+                                                        Text(
+                                                            text = "Arrive Soon Alert Sent",
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = Color(0xFF0F766E)
+                                                        )
+                                                    }
+                                                }
+                                            }
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -2194,7 +2297,7 @@ fun QueueBoardScreen(
                                                         optimisticallyUpdateStatus(item.id, "inside")
                                                         coroutineScope.launch {
                                                             queueRepository?.updateQueueStatus(item.id, "inside", effectiveClinicId)
-                                                            loadQueue()
+                                                            loadQueue(isDeltaOnly = true) // only changed rows after a staff action
                                                         }
                                                     },
                                                     modifier = Modifier
@@ -2294,7 +2397,7 @@ fun QueueBoardScreen(
                                                     optimisticallyUpdateStatus(item.id, "inside")
                                                     coroutineScope.launch {
                                                         queueRepository?.updateQueueStatus(item.id, "inside", effectiveClinicId)
-                                                        loadQueue()
+                                                        loadQueue(isDeltaOnly = true) // only changed rows after a staff action
                                                     }
                                                 },
                                                 modifier = Modifier.heightIn(min = 38.dp),
@@ -2524,7 +2627,7 @@ fun QueueBoardScreen(
                                                     if (res?.isSuccess == true) {
                                                         val paidLabel = if (item.totalAmount % 1.0 == 0.0) item.totalAmount.toInt().toString() else String.format(java.util.Locale.US, "%.2f", item.totalAmount)
                                                         notificationSentMessage = "✓ Collected NPR $paidLabel at desk for ${item.patientName}!"
-                                                        loadQueue()
+                                                        loadQueue(isDeltaOnly = true) // only changed rows after a staff action
                                                     }
                                                 }
                                             }
@@ -2548,7 +2651,7 @@ fun QueueBoardScreen(
                                                                         trackingCode = item.trackingCode
                                                                     )
                                                                     notificationSentMessage = "🔔 Called ${item.patientName} inside (push alert dispatched)."
-                                                                    loadQueue()
+                                                                    loadQueue(isDeltaOnly = true) // only changed rows after a staff action
                                                                 }
                                                             },
                                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00838F)),
@@ -2677,12 +2780,15 @@ fun QueueBoardScreen(
                                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                                 ) {
                                                     if (canSendAlert) {
+                                                        val isAlerted = alertedItemIds.contains(item.id)
                                                         QueueDrawerActionButton(
-                                                            label = "Send Alert",
-                                                            icon = Icons.Default.Notifications,
+                                                            label = if (isAlerted) "Arrive Soon" else "Send Alert",
+                                                            icon = if (isAlerted) Icons.Default.DirectionsRun else Icons.Default.Notifications,
                                                             onClick = {
+                                                                val pos = index + 1
+                                                                alertedItemIds = alertedItemIds + item.id
+                                                                notificationSentMessage = "✓ Arrive Soon alert sent to ${item.patientName} (Pos #$pos)."
                                                                 coroutineScope.launch {
-                                                                    val pos = index + 1
                                                                     val peopleAheadCount = liveQueue.take(index).count { it.status == "inside" || it.status == "waiting" }
                                                                     val targetRaw = rawQueueEntries.find { it.id == item.id }
                                                                     val timing = QueueRepository.calculateLiveQueueTimingEstimate(
@@ -2695,23 +2801,16 @@ fun QueueBoardScreen(
                                                                         optInEarlyCall = item.optInEarlyCall
                                                                     )
                                                                     val isFirstPos = (pos == 1) || (peopleAheadCount == 0)
-                                                                    val alertTitle = "Your Turn is Coming Soon!"
-                                                                    val alertBody = when {
-                                                                        item.status == "inside" -> "You are currently called inside (Position 1). Please proceed to the consultation room."
-                                                                        isFirstPos -> "You are at position 1. You are next in line \u2014 please be ready at the consultation room!"
-                                                                        peopleAheadCount == 1 -> "You are at position $pos. Only 1 person is ahead of you in the queue."
-                                                                        else -> "You are at position $pos. Only $peopleAheadCount people are ahead of you in the queue."
-                                                                    }
-                                                                    val rightTimeText = when {
-                                                                        isFirstPos -> "Your turn, arrive fast"
-                                                                        timing.expectedExactTimeText.isNotBlank() &&
-                                                                        timing.expectedExactTimeText != "Wait a few moments" -> timing.expectedExactTimeText
-                                                                        else -> item.appointmentTime.ifBlank { "Soon, be ready" }
-                                                                    }
-                                                                    val leftTimeText = when {
-                                                                        isFirstPos -> "Arrive Fast"
-                                                                        else -> timing.estimatedTimeLeftText.ifBlank { "Soon, be ready" }
-                                                                    }
+                                                                    val alertTitle = NotificationTemplate.ArriveSoon.buildTitle(pos)
+                                                                    val alertBody = NotificationTemplate.ArriveSoon.buildMessage(
+                                                                        patientName = item.patientName,
+                                                                        code = item.trackingCode,
+                                                                        queuePosition = pos,
+                                                                        estTime = timing.estimatedTimeLeftText.ifBlank { "~ 10-15 mins" }
+                                                                    )
+                                                                    val rightTimeText = if (isFirstPos) "Your turn, arrive soon" else "Position #$pos"
+                                                                    val leftTimeText = "Arrive Soon"
+
                                                                     val sentOk = queueRepository?.sendManualNotification(
                                                                         appointmentId = item.appointmentId,
                                                                         title = alertTitle,
@@ -2719,19 +2818,18 @@ fun QueueBoardScreen(
                                                                         trackingCode = item.trackingCode,
                                                                         estimatedTimeLeft = leftTimeText,
                                                                         expectedTime = rightTimeText,
-                                                                        leftLabel = "Estimated Time",
-                                                                        rightLabel = if (isFirstPos) "Turn Status" else "Your Appointment"
+                                                                        leftLabel = "Turn Status",
+                                                                        rightLabel = "Queue Position",
+                                                                        type = NotificationType.ARRIVE_SOON.key
                                                                     ) ?: false
-                                                                    notificationSentMessage = if (sentOk) {
-                                                                        "✓ Push alert sent to ${item.patientName} (Pos #$pos)."
-                                                                    } else {
-                                                                        "⚠ Could not deliver push alert for ${item.patientName}. Please retry."
+                                                                    if (!sentOk) {
+                                                                        notificationSentMessage = "⚠ Could not deliver push alert for ${item.patientName}. Please retry."
                                                                     }
                                                                 }
                                                             },
                                                             modifier = Modifier.weight(1f),
-                                                            contentColor = Color(0xFF1D4ED8),
-                                                            borderColor = Color(0xFFBFDBFE)
+                                                            contentColor = if (isAlerted) Color(0xFF0F766E) else Color(0xFF1D4ED8),
+                                                            borderColor = if (isAlerted) Color(0xFF5EEAD4) else Color(0xFFBFDBFE)
                                                         )
                                                     }
 
@@ -2743,7 +2841,7 @@ fun QueueBoardScreen(
                                                                 optimisticallyUpdateStatus(item.id, "no_show")
                                                                 coroutineScope.launch {
                                                                     queueRepository?.updateQueueStatus(item.id, "no_show", effectiveClinicId)
-                                                                    loadQueue()
+                                                                    loadQueue(isDeltaOnly = true) // only changed rows after a staff action
                                                                 }
                                                             },
                                                             modifier = Modifier.weight(1f),
@@ -2964,7 +3062,7 @@ fun QueueBoardScreen(
                                 includeTodayExpired = (waitingPatientsCount > 0),
                                 todayCutoffMinutes = 0
                             ) ?: 0
-                            loadQueue()
+                            loadQueue(isDeltaOnly = true) // only changed rows after a staff action
                             isAutoNoShowProcessing = false
                             showAutoNoShowDialog = false
                             notificationSentMessage = "Successfully transferred $count patient(s) to No-Show."
@@ -2993,6 +3091,94 @@ fun QueueBoardScreen(
                     Text("Cancel", color = Color(0xFF64748B))
                 }
             }
+        )
+    }
+
+    if (showCloseClinicConfirmDialog) {
+        val remainingActiveCount = liveQueue.count { it.status == "waiting" || it.status == "inside" }
+        AlertDialog(
+            onDismissRequest = { if (!isClosingClinicProcessing) showCloseClinicConfirmDialog = false },
+            icon = {
+                Icon(
+                    Icons.Default.Lock,
+                    contentDescription = null,
+                    tint = Color(0xFFDC2626),
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Close Clinic & Clear Live Queue?",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Are you sure you want to mark the clinic as CLOSED for today?",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.5.sp,
+                        color = Color(0xFF0F172A)
+                    )
+                    Text(
+                        text = "• Patients live tracking the queue will see 'CLINIC IS CURRENTLY CLOSED'.\n• All $remainingActiveCount remaining active patient(s) in today's live queue will automatically be moved to No-Show.",
+                        fontSize = 13.sp,
+                        color = Color(0xFF475569),
+                        lineHeight = 18.sp
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        coroutineScope.launch {
+                            isClosingClinicProcessing = true
+                            try {
+                                isClinicOpen = false
+                                currentClinic = currentClinic?.copy(isOpen = false, closedAt = java.time.Instant.now().toString())
+                                clinicRepository?.toggleClinicOpenStatus(effectiveClinicId, false)
+
+                                val count = queueRepository?.autoTransferUncompletedQueueToNoShow(
+                                    clinicId = effectiveClinicId,
+                                    includeTodayExpired = true,
+                                    todayCutoffMinutes = 0
+                                ) ?: 0
+                                loadQueue(isDeltaOnly = true) // only changed rows after a staff action
+                                notificationSentMessage = "Clinic closed. Transferred $count patient(s) to No-Show."
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            } finally {
+                                isClosingClinicProcessing = false
+                                showCloseClinicConfirmDialog = false
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                    shape = RoundedCornerShape(8.dp),
+                    enabled = !isClosingClinicProcessing
+                ) {
+                    if (isClosingClinicProcessing) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text("Confirm & Close Clinic", fontWeight = FontWeight.Bold)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showCloseClinicConfirmDialog = false },
+                    enabled = !isClosingClinicProcessing
+                ) {
+                    Text("Cancel", color = Color(0xFF64748B))
+                }
+            },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(16.dp)
         )
     }
 

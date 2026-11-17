@@ -977,15 +977,18 @@ class ClinicSyncManager {
     return { pushed, failed };
   }
 
-  async pullRemoteDeltas(clinicId) {
+  async pullRemoteDeltas(clinicId, syncDate) {
     if (!this.isOnline) return { pulled: 0 };
 
     const lastPull = await getSyncMeta('last_synced_at', this.idb);
     let pulled = 0;
     const nowIso = new Date().toISOString();
 
-    // Pull appointments
+    // Pull appointments (filtered by appointment_date when syncDate is provided)
     let query = this.remoteDb.from('appointments').select('*').eq('clinic_id', clinicId);
+    if (syncDate) {
+      query = query.eq('appointment_date', syncDate);
+    }
     if (lastPull) {
       query = query.gte('updated_at', lastPull);
     }
@@ -1011,6 +1014,44 @@ class ClinicSyncManager {
 
     await setSyncMeta('last_synced_at', nowIso, this.idb);
     return { pulled };
+  }
+
+  async syncIndividualPatientRecord(clinicId, patientKey) {
+    const clean = (patientKey || '').trim();
+    if (!clean) return null;
+    const targetClinicId = clinicId || this.clinicId;
+
+    const res = await this.remoteDb.from('appointments').select('*');
+    const all = res?.data || [];
+    const matched = all.filter(
+      (a) =>
+        a.clinic_id === targetClinicId &&
+        (a.tracking_code_10_digit === clean ||
+          a.id === clean ||
+          a.patient_mobile === clean ||
+          a.patient_phone === clean)
+    );
+
+    if (matched.length > 0) {
+      for (const appt of matched) {
+        await putRecord('appointments', appt, this.idb);
+        const patientId = appt.user_id || appt.patient_id || appt.tracking_code_10_digit || appt.id;
+        const patientRecord = {
+          id: patientId,
+          clinic_id: appt.clinic_id || targetClinicId,
+          full_name: appt.patient_name || appt.name || 'Patient',
+          phone: appt.patient_mobile || appt.patient_phone || appt.phone || '',
+          gender: appt.patient_gender || appt.gender || 'Other',
+          age: appt.patient_age || appt.age || null,
+          email: appt.patient_email || appt.email || null,
+          last_visit_date: appt.appointment_date,
+          updated_at: appt.updated_at || new Date().toISOString(),
+        };
+        await putRecord('patients', patientRecord, this.idb);
+      }
+      return matched;
+    }
+    return null;
   }
 
   async triggerSync() {
@@ -1209,6 +1250,13 @@ module.exports = {
   updateMutationRetry,
   getSyncMeta,
   setSyncMeta,
+  getPatientRecord: (id, idb = globalIndexedDB) => getRecord('patients', id, idb),
+  putPatientRecord: (patient, idb = globalIndexedDB) => putRecord('patients', patient, idb),
+  putPatientRecords: (patients, idb = globalIndexedDB) => putRecords('patients', patients, idb),
+  getAllPatients: async (clinicId, idb = globalIndexedDB) => {
+    const all = await getStore('patients', idb);
+    return clinicId ? all.filter((p) => !p.clinic_id || p.clinic_id === clinicId) : all;
+  },
   // Sync Manager
   ClinicSyncManager,
   globalRemoteDb,

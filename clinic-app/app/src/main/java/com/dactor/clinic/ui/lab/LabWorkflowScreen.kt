@@ -11,7 +11,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -21,13 +23,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import coil.compose.AsyncImage
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -90,6 +95,8 @@ fun LabWorkflowScreen(
 
     var currentClinic by remember(effectiveClinicId) { mutableStateOf<Clinic?>(null) }
     var labOrders by remember(effectiveClinicId) { mutableStateOf<List<LabOrderUi>>(emptyList()) }
+    // Reports downloaded so far; prepared reports are final and never re-downloaded
+    var knownLabReports by remember(effectiveClinicId) { mutableStateOf<List<com.dactor.clinic.data.model.LabReport>?>(null) }
     var clinicAppointments by remember(effectiveClinicId) { mutableStateOf<List<Appointment>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
@@ -102,7 +109,10 @@ fun LabWorkflowScreen(
     var publishTestSummary by remember { mutableStateOf("") }
     var selectedFileName by remember { mutableStateOf<String?>(null) }
     var selectedFileBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var savedLocalPdfFile by remember { mutableStateOf<java.io.File?>(null) }
     var isUploading by remember { mutableStateOf(false) }
+    var isProcessingFiles by remember { mutableStateOf(false) }
+    val selectedImageUris = remember { mutableStateListOf<Uri>() }
 
     // Name / Number Verification Gate for Viewing Prepared Report
     var verifyingOrderForViewing by remember { mutableStateOf<LabOrderUi?>(null) }
@@ -113,33 +123,99 @@ fun LabWorkflowScreen(
 
     var selectedFileSizeInfo by remember { mutableStateOf<String?>(null) }
 
-    val filePickerLauncher = rememberLauncherForActivityResult(
+    fun processSelectedImages(uris: List<Uri>, targetCode: String) {
+        if (uris.isEmpty()) {
+            selectedFileName = null
+            selectedFileBytes = null
+            selectedFileSizeInfo = null
+            savedLocalPdfFile = null
+            return
+        }
+        isProcessingFiles = true
+        coroutineScope.launch {
+            try {
+                val result = com.dactor.clinic.domain.util.FileCompressor.createOptimizedPdfFromImages(
+                    context = context,
+                    uris = uris,
+                    targetMaxBytes = com.dactor.clinic.domain.util.FileCompressor.LAB_REPORT_MAX_BYTES,
+                    baseFileName = "Lab_Report_${targetCode.ifBlank { "scan" }}"
+                )
+                if (result != null) {
+                    selectedFileBytes = result.bytes
+                    selectedFileName = result.fileName
+                    selectedFileSizeInfo = result.formattedSummary
+
+                    // Save locally immediately to device Dactor Reports directory & public Downloads
+                    val saved = com.dactor.clinic.domain.util.LabReportPdfDownloader.saveReportBytesLocally(
+                        context = context,
+                        fileName = result.fileName,
+                        bytes = result.bytes
+                    )
+                    savedLocalPdfFile = saved
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                isProcessingFiles = false
+            }
+        }
+    }
+
+    val multiImagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            val code = selectedOrderForPrepare?.trackingCode ?: ""
+            for (u in uris) {
+                if (!selectedImageUris.contains(u)) {
+                    selectedImageUris.add(u)
+                }
+            }
+            processSelectedImages(selectedImageUris, code)
+        }
+    }
+
+    val singlePdfPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
+            selectedImageUris.clear()
+            val code = selectedOrderForPrepare?.trackingCode ?: ""
+            isProcessingFiles = true
             coroutineScope.launch {
                 try {
                     val resolvedName = com.dactor.clinic.domain.util.FileCompressor.resolveRealFileName(
                         context = context,
                         uri = uri,
-                        defaultBaseName = "Lab_Report"
+                        defaultBaseName = "Lab_Report_${code.ifBlank { "doc" }}"
                     )
                     val compressed = com.dactor.clinic.domain.util.FileCompressor.compressUri(
                         context = context,
                         uri = uri,
-                        fallbackFileName = resolvedName
+                        fallbackFileName = resolvedName,
+                        maxBytes = com.dactor.clinic.domain.util.FileCompressor.LAB_REPORT_MAX_BYTES
                     )
                     if (compressed != null) {
                         selectedFileBytes = compressed.bytes
                         selectedFileName = compressed.fileName
                         selectedFileSizeInfo = compressed.formattedSummary
+                        val saved = com.dactor.clinic.domain.util.LabReportPdfDownloader.saveReportBytesLocally(
+                            context = context,
+                            fileName = compressed.fileName,
+                            bytes = compressed.bytes
+                        )
+                        savedLocalPdfFile = saved
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
+                } finally {
+                    isProcessingFiles = false
                 }
             }
         }
     }
+
+    val filePickerLauncher = multiImagePickerLauncher
 
     suspend fun loadLabOrders() {
         if (clinicRepository != null && effectiveClinicId.isNotBlank() && currentClinic == null) {
@@ -161,9 +237,24 @@ fun LabWorkflowScreen(
 
         val remoteReports = if (labReportRepository != null && effectiveClinicId.isNotBlank()) {
             try {
-                labReportRepository.getLabReports(effectiveClinicId)
+                val previous = knownLabReports
+                if (previous == null) {
+                    // First load: everything once
+                    labReportRepository.getLabReports(effectiveClinicId)
+                } else {
+                    // Afterwards: only reports still in progress, plus a one-time fetch of
+                    // those that just left "in progress" (prepared, or deleted if not returned)
+                    val active = labReportRepository.getInProgressLabReports(effectiveClinicId)
+                    val activeIds = active.map { it.id }.toSet()
+                    val leftIds = previous.filter { it.stage != "prepared" && it.id !in activeIds }.map { it.id }
+                    val left = if (leftIds.isNotEmpty()) labReportRepository.getLabReportsByIds(leftIds) else emptyList()
+                    val merged = previous.associateBy { it.id }.toMutableMap()
+                    leftIds.forEach { merged.remove(it) }
+                    (left + active).forEach { merged[it.id] = it }
+                    merged.values.toList()
+                }.also { knownLabReports = it }
             } catch (e: Exception) {
-                emptyList()
+                knownLabReports ?: emptyList()
             }
         } else emptyList()
 
@@ -230,7 +321,7 @@ fun LabWorkflowScreen(
     LaunchedEffect(effectiveClinicId) {
         while (isActive) {
             loadLabOrders()
-            delay(5000L)
+            delay(90_000L)
         }
     }
 
@@ -381,7 +472,7 @@ fun LabWorkflowScreen(
                         }
 
                         IconButton(
-                            onClick = { coroutineScope.launch { loadLabOrders() } },
+                            onClick = { coroutineScope.launch { knownLabReports = null; loadLabOrders() } },
                             modifier = Modifier.size(36.dp)
                         ) {
                             Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color(0xFF475569))
@@ -677,6 +768,9 @@ fun LabWorkflowScreen(
                                         publishTestSummary = order.testName
                                         selectedFileName = order.reportFileName
                                         selectedFileBytes = null
+                                        selectedImageUris.clear()
+                                        selectedFileSizeInfo = null
+                                        isProcessingFiles = false
                                     },
                                     onViewReportClick = null
                                 )
@@ -736,6 +830,9 @@ fun LabWorkflowScreen(
                                         publishTestSummary = order.testName
                                         selectedFileName = order.reportFileName
                                         selectedFileBytes = null
+                                        selectedImageUris.clear()
+                                        selectedFileSizeInfo = null
+                                        isProcessingFiles = false
                                     },
                                     onViewReportClick = {
                                         verifyingOrderForViewing = order
@@ -921,7 +1018,15 @@ fun LabWorkflowScreen(
 
             AlertDialog(
                 onDismissRequest = {
-                    if (!isUploading) selectedOrderForPrepare = null
+                    if (!isUploading) {
+                        selectedOrderForPrepare = null
+                        selectedImageUris.clear()
+                        selectedFileName = null
+                        selectedFileBytes = null
+                        selectedFileSizeInfo = null
+                        savedLocalPdfFile = null
+                        isProcessingFiles = false
+                    }
                 },
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -953,86 +1058,232 @@ fun LabWorkflowScreen(
                         )
 
                         Text(
-                            text = "Upload Report File (Optional \u2014 PDF or Picture):",
+                            text = "Upload Diagnostic Report (Multi-Page Scans or PDF):",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF334155)
                         )
 
-                        if (selectedFileName != null) {
+                        if (selectedFileName != null || selectedImageUris.isNotEmpty()) {
                             Surface(
-                                color = Color(0xFFD1FAE5),
+                                color = Color(0xFFF0FDF4),
                                 shape = RoundedCornerShape(10.dp),
                                 border = BorderStroke(1.dp, Color(0xFF86EFAC)),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
+                                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Row(
+                                        modifier = Modifier.fillMaxWidth(),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        modifier = Modifier.weight(1f)
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Icon(
-                                            if (isImageSelected) Icons.Default.Image else Icons.Default.PictureAsPdf,
-                                            contentDescription = null,
-                                            tint = Color(0xFF059669),
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                        Text(
-                                            text = selectedFileName ?: "",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = Color(0xFF065F46),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        TextButton(onClick = { filePickerLauncher.launch("*/*") }) {
-                                            Text("Change", fontSize = 11.sp)
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                selectedFileName = null
-                                                selectedFileBytes = null
-                                            },
-                                            modifier = Modifier.size(24.dp)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.weight(1f)
                                         ) {
-                                            Icon(Icons.Default.Close, contentDescription = "Remove file", tint = Color(0xFF065F46), modifier = Modifier.size(15.dp))
+                                            Icon(
+                                                Icons.Default.PictureAsPdf,
+                                                contentDescription = null,
+                                                tint = Color(0xFF059669),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Column {
+                                                Text(
+                                                    text = selectedFileName ?: "Diagnostic_Report.pdf",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = Color(0xFF065F46),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                if (selectedFileSizeInfo != null) {
+                                                    Text(
+                                                        text = "⚡ $selectedFileSizeInfo",
+                                                        fontSize = 10.5.sp,
+                                                        color = Color(0xFF047857),
+                                                        fontWeight = FontWeight.Medium
+                                                    )
+                                                }
+                                                if (savedLocalPdfFile != null) {
+                                                    Text(
+                                                        text = "💾 Saved to Downloads/Dactor Reports",
+                                                        fontSize = 10.sp,
+                                                        color = Color(0xFF047857),
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            if (savedLocalPdfFile != null && savedLocalPdfFile!!.exists()) {
+                                                FilledTonalButton(
+                                                    onClick = {
+                                                        com.dactor.clinic.domain.util.LabReportPdfDownloader.openLocalReportFile(
+                                                            context,
+                                                            savedLocalPdfFile!!,
+                                                            "application/pdf"
+                                                        )
+                                                    },
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                                    modifier = Modifier.height(28.dp),
+                                                    colors = ButtonDefaults.filledTonalButtonColors(
+                                                        containerColor = Color(0xFFDCFCE7),
+                                                        contentColor = Color(0xFF166534)
+                                                    )
+                                                ) {
+                                                    Icon(Icons.Default.Visibility, contentDescription = "Preview", modifier = Modifier.size(13.dp))
+                                                    Spacer(Modifier.width(3.dp))
+                                                    Text("Preview", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    selectedFileName = null
+                                                    selectedFileBytes = null
+                                                    selectedImageUris.clear()
+                                                    selectedFileSizeInfo = null
+                                                    savedLocalPdfFile = null
+                                                },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(Icons.Default.Close, contentDescription = "Clear", tint = Color(0xFF065F46), modifier = Modifier.size(15.dp))
+                                            }
+                                        }
+                                    }
+
+                                    // Thumbnail gallery for multi-page scans / pictures
+                                    if (selectedImageUris.isNotEmpty()) {
+                                        Text(
+                                            text = "Selected Pages (${selectedImageUris.size}):",
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF1E293B)
+                                        )
+                                        LazyRow(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            itemsIndexed(selectedImageUris) { idx, uri ->
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                                                    modifier = Modifier.size(width = 64.dp, height = 80.dp)
+                                                ) {
+                                                    Box(modifier = Modifier.fillMaxSize()) {
+                                                        AsyncImage(
+                                                            model = uri,
+                                                            contentDescription = "Page ${idx + 1}",
+                                                            contentScale = ContentScale.Crop,
+                                                            modifier = Modifier.fillMaxSize()
+                                                        )
+                                                        Surface(
+                                                            color = Color.Black.copy(alpha = 0.65f),
+                                                            shape = RoundedCornerShape(bottomEnd = 6.dp),
+                                                            modifier = Modifier.align(Alignment.TopStart)
+                                                        ) {
+                                                            Text(
+                                                                text = "P${idx + 1}",
+                                                                color = Color.White,
+                                                                fontSize = 9.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                            )
+                                                        }
+                                                        IconButton(
+                                                            onClick = {
+                                                                selectedImageUris.removeAt(idx)
+                                                                processSelectedImages(selectedImageUris, order.trackingCode)
+                                                            },
+                                                            modifier = Modifier
+                                                                .size(20.dp)
+                                                                .align(Alignment.TopEnd)
+                                                                .padding(2.dp)
+                                                                .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                                                        ) {
+                                                            Icon(
+                                                                Icons.Default.Close,
+                                                                contentDescription = "Remove page",
+                                                                tint = Color.White,
+                                                                modifier = Modifier.size(12.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            item {
+                                                Surface(
+                                                    onClick = { multiImagePickerLauncher.launch("image/*") },
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    border = BorderStroke(1.dp, Color(0xFF0284C7)),
+                                                    color = Color(0xFFF0F9FF),
+                                                    modifier = Modifier.size(width = 64.dp, height = 80.dp)
+                                                ) {
+                                                    Column(
+                                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                                        verticalArrangement = Arrangement.Center,
+                                                        modifier = Modifier.fillMaxSize()
+                                                    ) {
+                                                        Icon(Icons.Default.AddPhotoAlternate, contentDescription = "Add page", tint = Color(0xFF0284C7), modifier = Modifier.size(20.dp))
+                                                        Spacer(Modifier.height(4.dp))
+                                                        Text("+ Add", fontSize = 10.sp, color = Color(0xFF0284C7), fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (isProcessingFiles) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            modifier = Modifier.padding(top = 4.dp)
+                                        ) {
+                                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color(0xFF059669))
+                                            Text("Generating unified PDF & compressing to ≤ 100 KB...", fontSize = 11.sp, color = Color(0xFF047857))
                                         }
                                     }
                                 }
                             }
                         } else {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = { filePickerLauncher.launch("application/pdf") },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFDC2626))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Upload PDF", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
-                                }
+                                    Button(
+                                        onClick = { multiImagePickerLauncher.launch("image/*") },
+                                        modifier = Modifier.weight(1.2f),
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                                    ) {
+                                        Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(17.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Pictures / X-Rays (Multi)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                    }
 
-                                OutlinedButton(
-                                    onClick = { filePickerLauncher.launch("image/*") },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
-                                ) {
-                                    Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF0284C7))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Upload Picture", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                                    OutlinedButton(
+                                        onClick = { singlePdfPickerLauncher.launch("application/pdf") },
+                                        modifier = Modifier.weight(0.9f),
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                                    ) {
+                                        Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFDC2626))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("PDF File", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                                    }
                                 }
+                                Text(
+                                    text = "💡 Select 1 or multiple pictures (X-rays, blood reports, urine panels). They will be automatically stitched into a single diagnostic PDF and compressed to ≤ 100 KB locally.",
+                                    fontSize = 10.5.sp,
+                                    color = Color(0xFF64748B)
+                                )
                             }
                         }
 
@@ -1083,15 +1334,20 @@ fun LabWorkflowScreen(
                                 loadLabOrders()
                                 isUploading = false
                                 alertNotice = if (fName != null) {
-                                    "✓ Report marked Prepared with '$fName' & notification sent to ${order.patientName} (#${order.trackingCode})!"
+                                    "✓ Report marked Prepared with '$fName' (saved to Downloads/Dactor Reports) & notification sent to ${order.patientName} (#${order.trackingCode})!"
                                 } else {
                                     "✓ Status marked Prepared & notification sent to ${order.patientName} (#${order.trackingCode})!"
                                 }
                                 selectedOrderForPrepare = null
+                                selectedImageUris.clear()
+                                selectedFileName = null
+                                selectedFileBytes = null
+                                selectedFileSizeInfo = null
+                                savedLocalPdfFile = null
                                 selectedTab = 1
                             }
                         },
-                        enabled = !isUploading,
+                        enabled = !isUploading && !isProcessingFiles,
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
                         shape = RoundedCornerShape(10.dp)
                     ) {
@@ -1103,7 +1359,18 @@ fun LabWorkflowScreen(
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { selectedOrderForPrepare = null }, enabled = !isUploading) {
+                    TextButton(
+                        onClick = {
+                            selectedOrderForPrepare = null
+                            selectedImageUris.clear()
+                            selectedFileName = null
+                            selectedFileBytes = null
+                            selectedFileSizeInfo = null
+                            savedLocalPdfFile = null
+                            isProcessingFiles = false
+                        },
+                        enabled = !isUploading
+                    ) {
                         Text("Cancel")
                     }
                 }
@@ -1180,7 +1447,8 @@ fun LabWorkflowScreen(
                                     context = context,
                                     report = labRep,
                                     patientName = order.patientName,
-                                    clinicName = "Dactor Diagnostic & Pathology Lab"
+                                    clinicName = "Dactor Diagnostic & Pathology Lab",
+                                    autoOpen = true
                                 )
                             } else {
                                 verificationError = "Name or Mobile Number does not match the patient record."
@@ -1215,6 +1483,26 @@ private fun LabPatientDirectoryStyleCard(
     val isImageFile = order.fileType == "image" || (order.reportFileName?.lowercase()?.let {
         it.endsWith(".jpg") || it.endsWith(".jpeg") || it.endsWith(".png") || it.endsWith(".webp")
     } == true)
+
+    val context = LocalContext.current
+    val repModel = com.dactor.clinic.data.model.LabReport(
+        id = order.id,
+        appointmentId = order.appointmentId,
+        clinicId = order.id,
+        testName = order.testName,
+        stage = "prepared",
+        fileUrl = order.reportFileUrl,
+        fileName = order.reportFileName,
+        fileType = order.fileType,
+        patientNameVerification = order.patientName
+    )
+    val localFile = com.dactor.clinic.domain.util.LabReportPdfDownloader.findDownloadedReportFile(
+        context = context,
+        report = repModel,
+        clinicName = "Dactor Diagnostic & Pathology Lab",
+        patientName = order.patientName
+    )
+    val isDownloaded = localFile != null && localFile.exists()
 
     Card(
         shape = RoundedCornerShape(20.dp),
@@ -1507,28 +1795,60 @@ private fun LabPatientDirectoryStyleCard(
                     }
 
                     if (onViewReportClick != null) {
-                        Button(
-                            onClick = onViewReportClick,
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E)),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(38.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Visibility,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(Modifier.width(5.dp))
-                            Text(
-                                text = "View Report",
-                                color = Color.White,
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                        if (!isDownloaded) {
+                            Button(
+                                onClick = onViewReportClick,
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E)),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Download,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    text = "Download Report",
+                                    color = Color.White,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        } else {
+                            Button(
+                                onClick = {
+                                    if (localFile != null) {
+                                        com.dactor.clinic.domain.util.LabReportPdfDownloader.openLocalReportFile(context, localFile)
+                                    } else {
+                                        onViewReportClick()
+                                    }
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Visibility,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    text = "View in App (Offline)",
+                                    color = Color.White,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 }

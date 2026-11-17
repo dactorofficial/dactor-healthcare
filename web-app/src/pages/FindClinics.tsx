@@ -28,6 +28,15 @@ import {
 import { updatePageSEO } from '../utils/seo'
 import { MapLibreLocationViewer } from '../components/MapLibreLocationViewer'
 
+function shuffleArray<T>(items: T[]): T[] {
+  const arr = [...items]
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]]
+  }
+  return arr
+}
+
 interface FindClinicsProps {
   onSelectClinic: (clinicId: string, initialTab?: string) => void
   initialFilter?: string
@@ -68,8 +77,8 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
     async function load() {
       try {
         const [data, docList] = await Promise.all([getClinics(), getDoctors()])
-        setClinics(data)
-        setAllDoctors(docList)
+        setClinics(shuffleArray(data.filter((c) => !c.isArchived)))
+        setAllDoctors(shuffleArray(docList))
       } catch (err) {
         console.error('Failed to load clinics', err)
       } finally {

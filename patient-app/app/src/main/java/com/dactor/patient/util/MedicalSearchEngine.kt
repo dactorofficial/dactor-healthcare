@@ -466,9 +466,12 @@ object MedicalSearchEngine {
 
         val corpus = OpenRouteSpatialEngine.getDoctorCorpus(doctor, clinics)
         val expandedStems = expandQuery(q)
+        val qTokens = q.split("\\s+".toRegex()).filter { it.length >= 2 }
 
         // Fast O(1) rejection against pre-indexed combined corpus before detailed scoring
-        val anyStemInCorpus = corpus.combinedCorpus.contains(q) || expandedStems.any { corpus.combinedCorpus.contains(it) }
+        val anyStemInCorpus = corpus.combinedCorpus.contains(q) ||
+            expandedStems.any { corpus.combinedCorpus.contains(it) } ||
+            qTokens.any { tok -> tok.length >= 3 && corpus.combinedCorpus.contains(tok) }
         if (!anyStemInCorpus) {
             return SearchMatchResult(isMatch = false, score = 0)
         }
@@ -508,52 +511,67 @@ object MedicalSearchEngine {
             }
         }
 
-        // 2. Doctor name
-        if (docNameLower.contains(q) || "dr. $docNameLower".contains(q)) {
-            score += 120
+        // 2. Doctor name (supports titles: "Dr.", "Doctor", "Prof." & token permutations)
+        val qClean = q.removePrefix("dr.").removePrefix("dr ").removePrefix("doctor ").trim()
+        val docNameClean = docNameLower.removePrefix("dr.").removePrefix("dr ").removePrefix("doctor ").trim()
+        val qCleanTokens = qClean.split("\\s+".toRegex()).filter { it.length >= 2 }
+        val docTokens = docNameClean.split("\\s+".toRegex()).filter { it.length >= 2 }
+
+        val isDirectDocMatch = docNameLower.contains(q) || "dr. $docNameLower".contains(q) ||
+            docNameClean.contains(qClean) || (qClean.length >= 3 && qClean.contains(docNameClean))
+        val isTokenDocMatch = qCleanTokens.isNotEmpty() && docTokens.any { dTok ->
+            qCleanTokens.any { qTok -> dTok == qTok || (qTok.length >= 3 && (dTok.startsWith(qTok) || qTok.startsWith(dTok))) }
+        }
+        val isStemDocMatch = expandedStems.any { stem ->
+            stem.length >= 3 && (docNameClean.contains(stem) || docTokens.any { it == stem })
+        }
+
+        if (isDirectDocMatch || isTokenDocMatch || isStemDocMatch) {
+            score += if (isDirectDocMatch) 130 else 110
             if (highlightReason == null) {
                 highlightReason = "Matched Doctor: Dr. ${doctor.fullName}"
             }
-        } else {
+        }
+
+        // 3. Practicing Clinics & Area (Bidirectional Affiliation Match)
+        for (clinic in clinics) {
+            val cName = clinic.name.lowercase(Locale.ROOT)
+            val cAddr = (clinic.addressText ?: "").lowercase(Locale.ROOT)
+            val cSpecs = clinic.specialties.joinToString(" ").lowercase(Locale.ROOT)
+            val cNameTokens = cName.split("\\s+".toRegex()).filter { it.length >= 2 }
+
+            // Clinic Specialty match
             for (stem in expandedStems) {
-                if (docNameLower.contains(stem)) {
-                    score += 110
+                if (cSpecs.contains(stem)) {
+                    score += 130
                     if (highlightReason == null) {
-                        highlightReason = "Matched Doctor: Dr. ${doctor.fullName}"
+                        highlightReason = "${doctor.specialty ?: "Doctor"} at ${clinic.name}"
                     }
                     break
                 }
             }
-        }
 
-        // 3. Clinic name & 4. Location or area
-        if (corpus.clinicsJoinedLower.contains(q) || expandedStems.any { corpus.clinicsJoinedLower.contains(it) }) {
-            for (clinic in clinics) {
-                val cName = clinic.name.lowercase(Locale.ROOT)
-                val cAddr = (clinic.addressText ?: "").lowercase(Locale.ROOT)
-                val cSpecs = clinic.specialties.joinToString(" ").lowercase(Locale.ROOT)
-                for (stem in expandedStems) {
-                    if (cSpecs.contains(stem)) {
-                        score += 130
-                        if (highlightReason == null) {
-                            highlightReason = "${doctor.specialty ?: "Doctor"} at ${clinic.name}"
-                        }
-                        break
-                    }
+            // Clinic Name match (direct, stem, or token-level)
+            val isDirectClinicMatch = cName.contains(q) || (q.length >= 3 && q.contains(cName))
+            val isStemClinicMatch = expandedStems.any { stem ->
+                stem.length >= 3 && (cName.contains(stem) || stem.contains(cName))
+            }
+            val isTokenClinicMatch = qTokens.any { tok ->
+                tok.length >= 3 && (cName.contains(tok) || cNameTokens.any { it == tok || it.startsWith(tok) || tok.startsWith(it) })
+            }
+
+            if (isDirectClinicMatch || isStemClinicMatch || isTokenClinicMatch) {
+                score += if (isDirectClinicMatch) 120 else 100
+                if (highlightReason == null) {
+                    highlightReason = "Practices at ${clinic.name}"
                 }
-                if (cName.contains(q)) {
-                    score += 95
-                    if (highlightReason == null) {
-                        highlightReason = "Practices at ${clinic.name}"
-                    }
-                    break
-                }
-                if (cAddr.contains(q)) {
-                    score += 75
-                    if (highlightReason == null) {
-                        highlightReason = "Area: ${clinic.addressText ?: clinic.name}"
-                    }
-                    break
+            }
+
+            // Area / Address match
+            if (cAddr.contains(q) || (q.length >= 3 && q.contains(cAddr)) || expandedStems.any { stem -> stem.length >= 3 && cAddr.contains(stem) }) {
+                score += 75
+                if (highlightReason == null) {
+                    highlightReason = "Area: ${clinic.addressText ?: clinic.name}"
                 }
             }
         }
@@ -585,9 +603,12 @@ object MedicalSearchEngine {
 
         val corpus = OpenRouteSpatialEngine.getClinicCorpus(clinic, doctors, services)
         val expandedStems = expandQuery(q)
+        val qTokens = q.split("\\s+".toRegex()).filter { it.length >= 2 }
 
         // Fast O(1) rejection against pre-indexed combined corpus before detailed scoring
-        val anyStemInCorpus = corpus.combinedCorpus.contains(q) || expandedStems.any { corpus.combinedCorpus.contains(it) }
+        val anyStemInCorpus = corpus.combinedCorpus.contains(q) ||
+            expandedStems.any { corpus.combinedCorpus.contains(it) } ||
+            qTokens.any { tok -> tok.length >= 3 && corpus.combinedCorpus.contains(tok) }
         if (!anyStemInCorpus) {
             return SearchMatchResult(isMatch = false, score = 0)
         }
@@ -601,7 +622,7 @@ object MedicalSearchEngine {
         val clinicTypeLower = (clinic.type ?: "").lowercase(Locale.ROOT)
         val clinicDescLower = (clinic.description ?: "").lowercase(Locale.ROOT)
 
-        // 1. Specialty or symptom keywords (Clinic & Doctor Specialties) \u2014 Highest rank
+        // 1. Specialty or symptom keywords (Clinic & Doctor Specialties) — Highest rank
         for (cSpec in clinic.specialties) {
             val cSpecLower = cSpec.lowercase(Locale.ROOT)
             if (cSpecLower.contains(q)) {
@@ -621,7 +642,10 @@ object MedicalSearchEngine {
             }
         }
 
-        // 1b & 2. Doctor Specialty/Symptom Keywords (Rank 1) & Doctor Name (Rank 2)
+        // 1b & 2. Doctor Specialty/Symptom Keywords (Rank 1) & Doctor Name (Rank 2) (Bidirectional Affiliation Match)
+        val qClean = q.removePrefix("dr.").removePrefix("dr ").removePrefix("doctor ").trim()
+        val qCleanTokens = qClean.split("\\s+".toRegex()).filter { it.length >= 2 }
+
         for (doc in doctors) {
             val docNameLower = doc.fullName.lowercase(Locale.ROOT)
             val docSpecLower = (doc.specialty ?: "").lowercase(Locale.ROOT)
@@ -652,20 +676,23 @@ object MedicalSearchEngine {
                 }
             }
 
-            // Rank 2: Doctor Name match
-            if (docNameLower.contains(q) || "dr. $docNameLower".contains(q)) {
-                score += 120
+            // Rank 2: Doctor Name match (direct, title stripped, or token-level)
+            val docNameClean = docNameLower.removePrefix("dr.").removePrefix("dr ").removePrefix("doctor ").trim()
+            val docTokens = docNameClean.split("\\s+".toRegex()).filter { it.length >= 2 }
+
+            val isDirectDocMatch = docNameLower.contains(q) || "dr. $docNameLower".contains(q) ||
+                docNameClean.contains(qClean) || (qClean.length >= 3 && qClean.contains(docNameClean))
+            val isTokenDocMatch = qCleanTokens.isNotEmpty() && docTokens.any { dTok ->
+                qCleanTokens.any { qTok -> dTok == qTok || (qTok.length >= 3 && (dTok.startsWith(qTok) || qTok.startsWith(dTok))) }
+            }
+            val isStemDocMatch = expandedStems.any { stem ->
+                stem.length >= 3 && (docNameClean.contains(stem) || docTokens.any { it == stem })
+            }
+
+            if (isDirectDocMatch || isTokenDocMatch || isStemDocMatch) {
+                score += if (isDirectDocMatch) 130 else 115
                 docMatched = true
-                if (highlightReason == null) highlightReason = "Matched Doctor: Dr. ${doc.fullName}"
-            } else {
-                for (stem in expandedStems) {
-                    if (docNameLower.contains(stem)) {
-                        score += 110
-                        docMatched = true
-                        if (highlightReason == null) highlightReason = "Matched Doctor: Dr. ${doc.fullName}"
-                        break
-                    }
-                }
+                if (highlightReason == null) highlightReason = "Affiliated Doctor: Dr. ${doc.fullName}"
             }
 
             if (docMatched) {

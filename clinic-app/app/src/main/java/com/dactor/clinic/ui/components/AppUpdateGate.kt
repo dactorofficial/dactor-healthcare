@@ -99,9 +99,140 @@ fun AppUpdateGate(
         }
     }
 
+    val isTemporarilyClosed = checkResult?.isTemporarilyClosed == true
     val isUpdateRequired = checkResult?.isUpdateRequired == true
 
-    if (isUpdateRequired) {
+    if (isTemporarilyClosed) {
+        val result = checkResult!!
+
+        // Strict Enforcement: Back button cannot dismiss or bypass the temporary closure screen
+        BackHandler(enabled = true) {
+            // Intentionally blocked \u2014 app is temporarily closed for maintenance
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF0F172A),
+                            Color(0xFF1E293B),
+                            Color(0xFF0F172A)
+                        )
+                    )
+                )
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                // Official Dactor Logo
+                Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color.White,
+                    shadowElevation = 10.dp,
+                    border = BorderStroke(1.5.dp, Color(0xFFE2E8F0)),
+                    modifier = Modifier.size(92.dp)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.padding(14.dp)
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.app_logo),
+                            contentDescription = "Dactor Logo",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Status Badge
+                Surface(
+                    color = Color(0xFF451A03),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFFD97706))
+                ) {
+                    Text(
+                        text = "PAUSED • TEMPORARILY CLOSED",
+                        color = Color(0xFFFCD34D),
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 11.sp,
+                        letterSpacing = 0.5.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = result.closureTitle.ifBlank { "Clinic Portal Temporarily Closed" },
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = result.closureMessage.ifBlank {
+                        "Dactor Clinic & Doctor App is temporarily closed for scheduled maintenance. Please check back shortly."
+                    },
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    color = Color(0xFF94A3B8),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+
+                Spacer(modifier = Modifier.height(28.dp))
+
+                // Check If Reopened Button
+                Button(
+                    onClick = { runUpdateCheck() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF0284C7),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text(
+                        text = if (isChecking) "Checking Status..." else "Check If Reopened",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Exit App Button
+                OutlinedButton(
+                    onClick = { activity?.finishAffinity() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, Color(0xFF334155))
+                ) {
+                    Text("Exit Application", fontSize = 13.sp, color = Color(0xFF94A3B8), fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    } else if (isUpdateRequired) {
         val result = checkResult!!
         val policy = result.policy
         val targetVersionName = policy.latestVersionName.ifBlank { "Latest" }

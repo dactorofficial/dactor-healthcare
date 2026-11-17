@@ -192,12 +192,19 @@ import {
   isDiagnosticLabClinic,
 } from '../services/db'
 import {
+  buildReportFileName,
+  downloadAndCacheReport,
+  isReportDownloadedLocally,
+  getCachedBlobUrl,
+} from '../utils/reportFileManager'
+import {
   firebaseSignOut,
   signInWithFirebaseGoogle,
   checkRedirectGoogleUser,
   onFirebaseAuthStateChanged,
   deleteFirebaseUserAccount,
 } from '../lib/firebase'
+import { signOutKeepingData } from '../utils/cacheCleaner'
 import { supabase } from '../lib/supabase'
 import {
   matchClinic,
@@ -211,6 +218,7 @@ import {
   WebPaymentRecord,
 } from '../utils/paymentLedger'
 import { escapeHtml } from '../utils/html'
+import { setDefaultTabSEO } from '../utils/seo'
 
 // ==========================================
 // CLINIC & DOCTOR PROFILE CARD SUBCOMPONENTS
@@ -363,6 +371,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   })
 
   useEffect(() => {
+    setDefaultTabSEO('patient-portal')
     getSupportUrl().then((url) => {
       if (url) setSupportUrl(url)
     })
@@ -2308,10 +2317,13 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
       if (patientUser?.id && (!appt.userId || appt.userId !== patientUser.id)) {
         try {
+          const safeApptId = (appt.id || '').replace(/[,()]/g, '')
+          const safeCode10 = (code10 || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase()
+          const filterStr = safeCode10 ? `id.eq.${safeApptId},tracking_code_10_digit.eq.${safeCode10}` : `id.eq.${safeApptId}`
           await supabase
             .from('appointments')
             .update({ user_id: patientUser.id, patient_email: patientUser.email })
-            .or(`id.eq.${appt.id}${code10 ? `,tracking_code_10_digit.eq.${code10}` : ''}`)
+            .or(filterStr)
         } catch {}
       }
 
@@ -2554,6 +2566,21 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     setVerifyMethod('phone')
     setVerificationInput('')
     setVerificationError(null)
+  }
+
+  const handleDownloadPatientReport = async (rep: LabReport, rawUrl?: string) => {
+    const targetUrl = rawUrl || unlockedReportUrls[rep.id] || rep.reportFileUrl
+    if (!targetUrl) return
+    const isImage = rep.reportFileType === 'image' || Boolean(targetUrl.match(/\.(jpeg|jpg|png|webp)$/i))
+    const ext = isImage ? (targetUrl.includes('.png') ? 'png' : 'jpg') : 'pdf'
+    const fileName = buildReportFileName(
+      (rep as any).clinicName || 'Dactor_Clinic',
+      patientUser?.fullName || (patientUser as any)?.full_name || rep.patientName,
+      rep.testName,
+      rep.trackingCode10Digit || rep.id,
+      ext
+    )
+    await downloadAndCacheReport(targetUrl, fileName, rep.id)
   }
 
   // ==========================================
@@ -2950,24 +2977,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   }
 
   const handleLogout = () => {
-    firebaseSignOut()
-    localStorage.removeItem('dactor_patient_email')
-    localStorage.removeItem('dactor_patient_session')
-    localStorage.removeItem('dactor_patient_logged_in')
-    localStorage.removeItem('dactor_last_active_role')
-    localStorage.removeItem('dactor_last_active_portal')
-    localStorage.removeItem('dactor_patient_tracking_codes')
-    localStorage.removeItem('dactor_patient_hidden_records')
-    localStorage.removeItem('dactor_patient_payment_session')
-    localStorage.removeItem('dactor_pending_online_payment')
-    localStorage.removeItem('dactor_pending_esewa_payment')
-    localStorage.removeItem('dactor_pending_booking_redirect')
-    localStorage.removeItem('dactor_booking_login_notice')
+    signOutKeepingData().catch(() => {})
     setPatientUser(null)
     setMyAppointments([])
     setTransactions([])
     setGuestCodesVersion((v) => v + 1)
-    window.dispatchEvent(new Event('storage'))
   }
 
   // Filter Active vs Past appointments and arrange Active as:
@@ -3442,6 +3456,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                               ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20'
                               : isMissed
                               ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                              : appt.clinic?.isOpen === false && isToday
+                              ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20'
                               : appt.checkinStatus === 'completed'
                               ? 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/20'
                               : appt.checkinStatus === 'in_consultation'
@@ -3461,6 +3477,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                             ? 'Cancelled'
                             : isMissed
                             ? 'Missed Appointment'
+                            : appt.clinic?.isOpen === false && isToday
+                            ? 'Clinic Closed'
                             : appt.checkinStatus === 'in_consultation'
                             ? 'Inside Chamber'
                             : appt.checkinStatus === 'completed'
@@ -5933,15 +5951,29 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                                   {rep.uploadedAt?.split('T')[0] || 'Recent'}
                                 </span>
                                 {unlockedReportUrls[rep.id] ? (
-                                  <a
-                                    href={unlockedReportUrls[rep.id]}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-center space-x-1.5 px-3 py-1.5 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white rounded-xl text-xs font-bold transition shadow-xs active:scale-95"
-                                  >
-                                    <Download className="w-3.5 h-3.5" />
-                                    <span>Download PDF</span>
-                                  </a>
+                                  <div className="flex items-center space-x-1.5">
+                                    {isReportDownloadedLocally(rep.id) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const localUrl = getCachedBlobUrl(rep.id) || unlockedReportUrls[rep.id]
+                                          window.open(localUrl, '_blank')
+                                        }}
+                                        className="flex items-center space-x-1 px-2.5 py-1.5 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white rounded-xl text-xs font-bold transition shadow-xs active:scale-95 cursor-pointer"
+                                      >
+                                        <Eye className="w-3.5 h-3.5" />
+                                        <span>View (Offline)</span>
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDownloadPatientReport(rep, unlockedReportUrls[rep.id])}
+                                      className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-900 dark:bg-slate-800 hover:bg-teal-600 text-white rounded-xl text-xs font-bold transition shadow-xs active:scale-95 cursor-pointer"
+                                    >
+                                      <Download className="w-3.5 h-3.5" />
+                                      <span>{isReportDownloadedLocally(rep.id) ? 'Re-download' : 'Download'}</span>
+                                    </button>
+                                  </div>
                                 ) : (
                                   <button
                                     type="button"
@@ -8647,15 +8679,29 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                             <div className="flex items-center space-x-2 shrink-0">
                               {isReady ? (
                                 isUnlocked && unlockedReportUrls[report.id] ? (
-                                  <a
-                                    href={unlockedReportUrls[report.id]}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-xs"
-                                  >
-                                    <Download className="w-3.5 h-3.5" />
-                                    <span>Download</span>
-                                  </a>
+                                  <div className="flex items-center space-x-1.5">
+                                    {isReportDownloadedLocally(report.id) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const localUrl = getCachedBlobUrl(report.id) || unlockedReportUrls[report.id]
+                                          window.open(localUrl, '_blank')
+                                        }}
+                                        className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-xs cursor-pointer"
+                                      >
+                                        <Eye className="w-3.5 h-3.5" />
+                                        <span>View</span>
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDownloadPatientReport(report, unlockedReportUrls[report.id])}
+                                      className="px-3 py-1.5 bg-slate-900 dark:bg-slate-700 hover:bg-purple-600 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1 shadow-xs cursor-pointer"
+                                    >
+                                      <Download className="w-3.5 h-3.5" />
+                                      <span>{isReportDownloadedLocally(report.id) ? 'Re-download' : 'Download'}</span>
+                                    </button>
+                                  </div>
                                 ) : (
                                   <button
                                     type="button"

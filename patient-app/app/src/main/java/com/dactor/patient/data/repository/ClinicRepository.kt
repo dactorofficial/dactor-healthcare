@@ -46,6 +46,8 @@ data class ClinicExtendedMeta(
     val avg_time_mode: String? = "auto",
     val is_on_break: Boolean? = false,
     val break_updated_at: String? = null,
+    val is_open: Boolean? = true,
+    val closed_at: String? = null,
     val weekly_schedule_json: String? = null,
     val declared_holidays: List<String> = emptyList(),
     val verification_status: String? = null
@@ -77,6 +79,13 @@ class ClinicRepository @Inject constructor(
 
     fun getCachedSpecialties(): List<MedicalSpecialty>? = cachedSpecialties
 
+    fun clearCache() {
+        cachedClinics = null
+        cachedClinicsById.clear()
+        cachedAllServicesByClinic = null
+        cachedSpecialties = null
+    }
+
     private fun enrichClinic(clinic: Clinic): Clinic {
         val descStr = clinic.description
         if (!descStr.isNullOrBlank() && descStr.trim().startsWith("{")) {
@@ -100,7 +109,7 @@ class ClinicRepository @Inject constructor(
                     deletionScheduledAt = clinic.deletionScheduledAt ?: meta.deletion_scheduled_at,
                     paymentGatewayProvider = meta.payment_gateway_provider ?: clinic.paymentGatewayProvider,
                     paymentApiKey = meta.payment_api_key ?: clinic.paymentApiKey,
-                    paymentSecretKey = meta.payment_secret_key ?: clinic.paymentSecretKey,
+                    paymentSecretKey = null,
                     merchantId = meta.merchant_id ?: clinic.merchantId,
                     isDirectPaymentEnabled = meta.is_direct_payment_enabled ?: clinic.isDirectPaymentEnabled,
                     paymentGatewaysJson = clinic.paymentGatewaysJson ?: meta.payment_gateways_json,
@@ -116,6 +125,8 @@ class ClinicRepository @Inject constructor(
                     avgTimeMode = meta.avg_time_mode ?: clinic.avgTimeMode ?: "auto",
                     isOnBreak = meta.is_on_break ?: clinic.isOnBreak ?: false,
                     breakUpdatedAt = meta.break_updated_at ?: clinic.breakUpdatedAt,
+                    isOpen = meta.is_open ?: clinic.isOpen ?: true,
+                    closedAt = meta.closed_at ?: clinic.closedAt,
                     weeklyScheduleJson = meta.weekly_schedule_json ?: clinic.weeklyScheduleJson,
                     declaredHolidays = meta.declared_holidays
                 )

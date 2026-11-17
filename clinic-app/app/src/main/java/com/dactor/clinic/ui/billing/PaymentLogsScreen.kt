@@ -4,11 +4,13 @@ import android.app.DatePickerDialog
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -44,7 +46,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun PaymentLogsScreen(
     navController: NavController,
@@ -384,40 +386,53 @@ fun PaymentLogsScreen(
                 CircularProgressIndicator(color = Color(0xFF0D9488))
             }
         } else {
-            Column(
+            val grossCollected = filteredLogs.sumOf { it.amount }
+            val freeFollowupCount = filteredLogs.count { !it.isNewPatientForDoctor }
+            val newPaidCount = filteredLogs.count { it.isNewPatientForDoctor }
+            val platformCommission = filteredLogs.sumOf { it.serviceChargeAmount }
+            val totalExpenses = filteredExpenses.sumOf { it.amount }
+            val netClinicPayout = grossCollected - platformCommission
+            val netClinicProfit = netClinicPayout - totalExpenses
+
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues)
+                    .padding(paddingValues),
+                contentPadding = PaddingValues(bottom = 80.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // Scope selector pills (Daily / Monthly / Yearly / Custom / All)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    listOf(
-                        "daily" to "Daily",
-                        "monthly" to "Monthly",
-                        "yearly" to "Yearly",
-                        "custom" to "Custom Range",
-                        "all" to "All-Time"
-                    ).forEach { (scopeKey, scopeName) ->
-                        FilterChip(
-                            selected = periodScope == scopeKey,
-                            onClick = { periodScope = scopeKey },
-                            label = { Text(scopeName, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(0xFF0D9488),
-                                selectedLabelColor = Color.White
+                item(key = "scope_selector_pills") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        listOf(
+                            "daily" to "Daily",
+                            "monthly" to "Monthly",
+                            "yearly" to "Yearly",
+                            "custom" to "Custom Range",
+                            "all" to "All-Time"
+                        ).forEach { (scopeKey, scopeName) ->
+                            FilterChip(
+                                selected = periodScope == scopeKey,
+                                onClick = { periodScope = scopeKey },
+                                label = { Text(scopeName, fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF0D9488),
+                                    selectedLabelColor = Color.White
+                                )
                             )
-                        )
+                        }
                     }
                 }
 
                 // Date Stepper / Picker Bar
+                item(key = "date_stepper_bar") {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -606,22 +621,16 @@ fun PaymentLogsScreen(
                         }
                     }
                 }
+                }
 
                 // 4 Financial & Clinical KPI Summary Cards (2x2 Grid)
-                val grossCollected = filteredLogs.sumOf { it.amount }
-                val freeFollowupCount = filteredLogs.count { !it.isNewPatientForDoctor }
-                val newPaidCount = filteredLogs.count { it.isNewPatientForDoctor }
-                val platformCommission = filteredLogs.sumOf { it.serviceChargeAmount }
-                val totalExpenses = filteredExpenses.sumOf { it.amount }
-                val netClinicPayout = grossCollected - platformCommission
-                val netClinicProfit = netClinicPayout - totalExpenses
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
+                item(key = "kpi_summary_cards") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                     // Row 1: Collections & Expenses
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -690,16 +699,18 @@ fun PaymentLogsScreen(
                         }
                     }
                 }
+                }
 
                 // Payment Method & Visit Type Filter Chips
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 2.dp)
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                item(key = "payment_method_visit_chips") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 2.dp)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                     // Visit Type Filter Chips
                     listOf(
                         "all" to "All Visits (${filteredLogs.size})",
@@ -727,14 +738,16 @@ fun PaymentLogsScreen(
                         )
                     }
                 }
+                }
 
                 // Search Box & Doctor Filter
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 2.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
+                item(key = "search_box_and_doctor_filter") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 2.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
@@ -775,51 +788,60 @@ fun PaymentLogsScreen(
                         }
                     }
                 }
-
-                // Navigation Tab Row
-                TabRow(
-                    selectedTabIndex = selectedTab,
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = Color(0xFF0D9488)
-                ) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        text = { Text("Ledger (${filteredLogs.size})", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) }
-                    )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        text = { Text("Expenses (${filteredExpenses.size})", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) }
-                    )
-                    Tab(
-                        selected = selectedTab == 2,
-                        onClick = { selectedTab = 2 },
-                        text = { Text("Doctor Tracker (${doctorAnalytics.size})", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) }
-                    )
-                    Tab(
-                        selected = selectedTab == 3,
-                        onClick = { selectedTab = 3 },
-                        text = { Text("Fees & Subs (${subscriptions.size + settlements.size})", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) }
-                    )
                 }
 
-                // Content View according to selected tab
+                // Navigation Tab Row (Sticky Header)
+                stickyHeader(key = "payment_logs_tab_row") {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        shadowElevation = 2.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        TabRow(
+                            selectedTabIndex = selectedTab,
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            contentColor = Color(0xFF0D9488)
+                        ) {
+                            Tab(
+                                selected = selectedTab == 0,
+                                onClick = { selectedTab = 0 },
+                                text = { Text("Ledger (${filteredLogs.size})", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) }
+                            )
+                            Tab(
+                                selected = selectedTab == 1,
+                                onClick = { selectedTab = 1 },
+                                text = { Text("Expenses (${filteredExpenses.size})", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) }
+                            )
+                            Tab(
+                                selected = selectedTab == 2,
+                                onClick = { selectedTab = 2 },
+                                text = { Text("Doctor Tracker (${doctorAnalytics.size})", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) }
+                            )
+                            Tab(
+                                selected = selectedTab == 3,
+                                onClick = { selectedTab = 3 },
+                                text = { Text("Fees & Subs (${subscriptions.size + settlements.size})", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) }
+                            )
+                        }
+                    }
+                }
+
+                // Content View according to selected tab (directly emitted into LazyColumn)
                 when (selectedTab) {
-                    0 -> LedgerListView(
+                    0 -> ledgerListItems(
                         logs = filteredLogs,
                         onSelectLog = { selectedLogEntry = it }
                     )
-                    1 -> ExpensesListView(
+                    1 -> expensesListItems(
                         expenses = filteredExpenses,
                         onAddExpense = { showAddExpenseDialog = true },
                         onDeleteExpense = { expenseToDelete = it }
                     )
-                    2 -> DoctorTrackerListView(
+                    2 -> doctorTrackerListItems(
                         analytics = doctorAnalytics,
                         selectedDoctorId = selectedDoctorId
                     )
-                    3 -> FeesAndSubscriptionView(
+                    3 -> feesAndSubscriptionItems(
                         subscriptions = subscriptions,
                         settlements = settlements
                     )
@@ -981,329 +1003,322 @@ fun PaymentLogsScreen(
     }
 }
 
-@Composable
-private fun LedgerListView(
+private fun LazyListScope.ledgerListItems(
     logs: List<UnifiedPaymentLogEntry>,
     onSelectLog: (UnifiedPaymentLogEntry) -> Unit
 ) {
     if (logs.isEmpty()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(32.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                "No payment records match the current filters.",
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        item(key = "empty_ledger") {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "No payment records match the current filters.",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     } else {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(logs, key = { it.id }) { log ->
-                val isFreeFollowup = !log.isNewPatientForDoctor && log.amount == 0.0
+        items(logs, key = { it.id }) { log ->
+            val isFreeFollowup = !log.isNewPatientForDoctor && log.amount == 0.0
 
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onSelectLog(log) },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(
-                                    text = log.patientName,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                if (log.isNewPatientForDoctor) {
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(Color(0xFFD1FAE5))
-                                            .padding(horizontal = 4.dp, vertical = 2.dp)
-                                    ) {
-                                        Text("NEW", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color(0xFF065F46))
-                                    }
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(Color(0xFFDBEAFE))
-                                            .padding(horizontal = 4.dp, vertical = 2.dp)
-                                    ) {
-                                        Text("FOLLOW-UP (FREE)", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E40AF))
-                                    }
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clickable { onSelectLog(log) },
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = log.patientName,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (log.isNewPatientForDoctor) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(0xFFD1FAE5))
+                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                ) {
+                                    Text("NEW", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color(0xFF065F46))
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(0xFFDBEAFE))
+                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                ) {
+                                    Text("FOLLOW-UP (FREE)", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E40AF))
                                 }
                             }
-
-                            Text(
-                                text = if (isFreeFollowup) "Rs. 0 (Free)" else CurrencyFormatter.formatNPR(log.amount),
-                                fontWeight = FontWeight.Black,
-                                fontSize = 14.sp,
-                                color = if (isFreeFollowup) Color(0xFF2563EB) else Color(0xFF0D9488)
-                            )
                         }
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Token #${log.trackingCode10Digit ?: "\u2013"} \u2022 Dr. ${log.doctorName}",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            // Method Badge
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(
-                                        when (log.paymentMethod.uppercase()) {
-                                            "FREE" -> Color(0xFFDBEAFE)
-                                            "ESEWA" -> Color(0xFFDCFCE7)
-                                            "KHALTI" -> Color(0xFFEDE9FE)
-                                            "FONEPAY" -> Color(0xFFFFE4E6)
-                                            "CONNECTIPS" -> Color(0xFFDBEAFE)
-                                            "BANK_TRANSFER" -> Color(0xFFE0E7FF)
-                                            else -> Color(0xFFF1F5F9)
-                                        }
-                                    )
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = log.paymentMethod,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = when (log.paymentMethod.uppercase()) {
-                                            "FREE" -> Color(0xFF1D4ED8)
-                                            "ESEWA" -> Color(0xFF15803D)
-                                            "KHALTI" -> Color(0xFF6D28D9)
-                                            "FONEPAY" -> Color(0xFFBE123C)
-                                            "CONNECTIPS" -> Color(0xFF1D4ED8)
-                                            "BANK_TRANSFER" -> Color(0xFF3730A3)
-                                            else -> Color(0xFF475569)
-                                        }
-                                    )
-                                }
-                        }
-
-                        Spacer(modifier = Modifier.height(2.dp))
 
                         Text(
-                            text = PaymentLedgerHelper.formatDisplayDateTime(log.dateTime),
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            text = if (isFreeFollowup) "Rs. 0 (Free)" else CurrencyFormatter.formatNPR(log.amount),
+                            fontWeight = FontWeight.Black,
+                            fontSize = 14.sp,
+                            color = if (isFreeFollowup) Color(0xFF2563EB) else Color(0xFF0D9488)
                         )
                     }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Token #${log.trackingCode10Digit ?: "\u2013"} \u2022 Dr. ${log.doctorName}",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        // Method Badge
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(
+                                    when (log.paymentMethod.uppercase()) {
+                                        "FREE" -> Color(0xFFDBEAFE)
+                                        "ESEWA" -> Color(0xFFDCFCE7)
+                                        "KHALTI" -> Color(0xFFEDE9FE)
+                                        "FONEPAY" -> Color(0xFFFFE4E6)
+                                        "CONNECTIPS" -> Color(0xFFDBEAFE)
+                                        "BANK_TRANSFER" -> Color(0xFFE0E7FF)
+                                        else -> Color(0xFFF1F5F9)
+                                    }
+                                )
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = log.paymentMethod,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = when (log.paymentMethod.uppercase()) {
+                                    "FREE" -> Color(0xFF1D4ED8)
+                                    "ESEWA" -> Color(0xFF15803D)
+                                    "KHALTI" -> Color(0xFF6D28D9)
+                                    "FONEPAY" -> Color(0xFFBE123C)
+                                    "CONNECTIPS" -> Color(0xFF1D4ED8)
+                                    "BANK_TRANSFER" -> Color(0xFF3730A3)
+                                    else -> Color(0xFF475569)
+                                }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    Text(
+                        text = PaymentLedgerHelper.formatDisplayDateTime(log.dateTime),
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                    )
                 }
             }
         }
     }
 }
 
-@Composable
-private fun ExpensesListView(
+private fun LazyListScope.expensesListItems(
     expenses: List<ClinicExpense>,
     onAddExpense: () -> Unit,
     onDeleteExpense: (ClinicExpense) -> Unit
 ) {
     if (expenses.isEmpty()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(32.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+        item(key = "empty_expenses") {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Surface(
-                    shape = CircleShape,
-                    color = Color(0xFFFFF1F2),
-                    modifier = Modifier.size(56.dp)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Default.ReceiptLong,
-                            contentDescription = null,
-                            tint = Color(0xFFE11D48),
-                            modifier = Modifier.size(28.dp)
-                        )
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFFFFF1F2),
+                        modifier = Modifier.size(56.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.ReceiptLong,
+                                contentDescription = null,
+                                tint = Color(0xFFE11D48),
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
                     }
-                }
-                Text(
-                    "No clinic expenses logged for this period.",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    "Track petty cash, rent, salaries, utilities, and medical supplies directly in your ledger.",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
-                Button(
-                    onClick = onAddExpense,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48)),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Add First Expense", fontWeight = FontWeight.Bold)
+                    Text(
+                        "No clinic expenses logged for this period.",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "Track petty cash, rent, salaries, utilities, and medical supplies directly in your ledger.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Button(
+                        onClick = onAddExpense,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Add First Expense", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
     } else {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(expenses, key = { it.id }) { expense ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+        items(expenses, key = { it.id }) { expense ->
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    // Left: Icon & Details
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.weight(1f)
                     ) {
-                        // Left: Icon & Details
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.weight(1f)
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = getExpenseCategoryBgColor(expense.category),
+                            modifier = Modifier.size(40.dp)
                         ) {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = getExpenseCategoryBgColor(expense.category),
-                                modifier = Modifier.size(40.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = getExpenseCategoryIcon(expense.category),
-                                        contentDescription = null,
-                                        tint = getExpenseCategoryTextColor(expense.category),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(
-                                    text = expense.title,
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = getExpenseCategoryIcon(expense.category),
+                                    contentDescription = null,
+                                    tint = getExpenseCategoryTextColor(expense.category),
+                                    modifier = Modifier.size(20.dp)
                                 )
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text(
-                                        text = expense.category.replace('_', ' '),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = getExpenseCategoryTextColor(expense.category)
-                                    )
-                                    Text("•", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(
-                                        text = expense.expenseDate,
-                                        fontSize = 10.5.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    if (!expense.expenseTime.isNullOrBlank()) {
-                                        Text(
-                                            text = expense.expenseTime,
-                                            fontSize = 10.5.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = MaterialTheme.colorScheme.surfaceVariant
-                                    ) {
-                                        Text(
-                                            text = expense.paymentMethod,
-                                            fontSize = 9.5.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                        )
-                                    }
-                                    if (!expense.voucherNumber.isNullOrBlank()) {
-                                        Text(
-                                            text = "Ref: #${expense.voucherNumber}",
-                                            fontSize = 10.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                                if (!expense.remarks.isNullOrBlank()) {
-                                    Text(
-                                        text = expense.remarks,
-                                        fontSize = 10.5.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
                             }
                         }
 
-                        // Right: Amount and Delete
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = "- ${CurrencyFormatter.formatNPR(expense.amount)}",
+                                text = expense.title,
                                 fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Black,
-                                color = Color(0xFFE11D48)
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
-                            IconButton(
-                                onClick = { onDeleteExpense(expense) },
-                                modifier = Modifier.size(32.dp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Icon(
-                                    Icons.Default.DeleteOutline,
-                                    contentDescription = "Delete Expense",
-                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                                    modifier = Modifier.size(18.dp)
+                                Text(
+                                    text = expense.category.replace('_', ' '),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = getExpenseCategoryTextColor(expense.category)
+                                )
+                                Text("•", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    text = expense.expenseDate,
+                                    fontSize = 10.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (!expense.expenseTime.isNullOrBlank()) {
+                                    Text(
+                                        text = expense.expenseTime,
+                                        fontSize = 10.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant
+                                ) {
+                                    Text(
+                                        text = expense.paymentMethod,
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+                                if (!expense.voucherNumber.isNullOrBlank()) {
+                                    Text(
+                                        text = "Ref: #${expense.voucherNumber}",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            if (!expense.remarks.isNullOrBlank()) {
+                                Text(
+                                    text = expense.remarks,
+                                    fontSize = 10.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
+                        }
+                    }
+
+                    // Right: Amount and Delete
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "- ${CurrencyFormatter.formatNPR(expense.amount)}",
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color(0xFFE11D48)
+                        )
+                        IconButton(
+                            onClick = { onDeleteExpense(expense) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.DeleteOutline,
+                                contentDescription = "Delete Expense",
+                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
                 }
@@ -1572,127 +1587,122 @@ private fun getExpenseCategoryTextColor(category: String) = when (category.upper
     else -> Color(0xFFB91C1C) // Red 700
 }
 
-@Composable
-private fun DoctorTrackerListView(
+private fun LazyListScope.doctorTrackerListItems(
     analytics: List<DoctorVisitAnalytics>,
     selectedDoctorId: String
 ) {
-    val displayed = remember(analytics, selectedDoctorId) {
-        if (selectedDoctorId == "all") analytics else analytics.filter { it.doctorId == selectedDoctorId }
-    }
+    val displayed = if (selectedDoctorId == "all") analytics else analytics.filter { it.doctorId == selectedDoctorId }
 
     if (displayed.isEmpty()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(32.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("No doctor analytics available.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        item(key = "empty_doctor_analytics") {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("No doctor analytics available.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     } else {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(displayed, key = { it.doctorId }) { doc ->
-                var isExpanded by remember { mutableStateOf(false) }
+        items(displayed, key = { it.doctorId }) { doc ->
+            var isExpanded by remember { mutableStateOf(false) }
 
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(doc.doctorName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text(doc.specialty, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Text(
-                                "Fee: ${CurrencyFormatter.formatNPR(doc.consultationFee)}",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
-                                color = Color(0xFF0D9488)
-                            )
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(doc.doctorName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(doc.specialty, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                        Text(
+                            "Fee: ${CurrencyFormatter.formatNPR(doc.consultationFee)}",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            color = Color(0xFF0D9488)
+                        )
+                    }
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                        // Metric blocks
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
-                                .padding(8.dp),
-                            horizontalArrangement = Arrangement.SpaceAround
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Total", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("${doc.totalVisits}", fontSize = 14.sp, fontWeight = FontWeight.Black)
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("New Patients", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF059669))
-                                Text("+${doc.newPatients}", fontSize = 14.sp, fontWeight = FontWeight.Black, color = Color(0xFF059669))
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Follow-up", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2563EB))
-                                Text("${doc.followupPatients}", fontSize = 14.sp, fontWeight = FontWeight.Black, color = Color(0xFF2563EB))
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("OPD Revenue", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(CurrencyFormatter.formatNPR(doc.totalOpdRevenue), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
+                    // Metric blocks
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                            .padding(8.dp),
+                        horizontalArrangement = Arrangement.SpaceAround
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Total", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("${doc.totalVisits}", fontSize = 14.sp, fontWeight = FontWeight.Black)
                         }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Toggle Expand Daily Breakdowns
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { isExpanded = !isExpanded }
-                                .padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                if (isExpanded) "Hide Daily & Monthly Breakdown" else "View Daily & Monthly Breakdown (${doc.dailyBreakdown.size} days)",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF0D9488)
-                            )
-                            Icon(
-                                if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = null,
-                                tint = Color(0xFF0D9488),
-                                modifier = Modifier.size(16.dp)
-                            )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("New Patients", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF059669))
+                            Text("+${doc.newPatients}", fontSize = 14.sp, fontWeight = FontWeight.Black, color = Color(0xFF059669))
                         }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Follow-up", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2563EB))
+                            Text("${doc.followupPatients}", fontSize = 14.sp, fontWeight = FontWeight.Black, color = Color(0xFF2563EB))
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("OPD Revenue", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(CurrencyFormatter.formatNPR(doc.totalOpdRevenue), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
 
-                        if (isExpanded) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text("Recent Daily Breakdown:", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            doc.dailyBreakdown.entries.sortedByDescending { it.key }.take(7).forEach { (day, stats) ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 2.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(day, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text("+${stats.newPatients} New", fontSize = 11.sp, color = Color(0xFF059669), fontWeight = FontWeight.Bold)
-                                        Text("${stats.followupPatients} F/U", fontSize = 11.sp, color = Color(0xFF2563EB))
-                                        Text(CurrencyFormatter.formatNPR(stats.totalRevenue), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Toggle Expand Daily Breakdowns
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isExpanded = !isExpanded }
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            if (isExpanded) "Hide Daily & Monthly Breakdown" else "View Daily & Monthly Breakdown (${doc.dailyBreakdown.size} days)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF0D9488)
+                        )
+                        Icon(
+                            if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            tint = Color(0xFF0D9488),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    if (isExpanded) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text("Recent Daily Breakdown:", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        doc.dailyBreakdown.entries.sortedByDescending { it.key }.take(7).forEach { (day, stats) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(day, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("+${stats.newPatients} New", fontSize = 11.sp, color = Color(0xFF059669), fontWeight = FontWeight.Bold)
+                                    Text("${stats.followupPatients} F/U", fontSize = 11.sp, color = Color(0xFF2563EB))
+                                    Text(CurrencyFormatter.formatNPR(stats.totalRevenue), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -1703,20 +1713,19 @@ private fun DoctorTrackerListView(
     }
 }
 
-@Composable
-private fun FeesAndSubscriptionView(
+private fun LazyListScope.feesAndSubscriptionItems(
     subscriptions: List<ClinicSubscriptionPayment>,
     settlements: List<PlatformCommissionSettlement>
 ) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // 5% Platform Commission Section
-        item {
+    // 5% Platform Commission Section
+    item(key = "fees_settlement_section") {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
             Text("5% Pay-at-Desk Platform Service Charges", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Spacer(modifier = Modifier.height(6.dp))
             if (settlements.isEmpty()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -1754,11 +1763,17 @@ private fun FeesAndSubscriptionView(
                 }
             }
         }
+    }
 
-        // Clinic License Subscriptions Section
-        item {
+    // Clinic License Subscriptions Section
+    item(key = "fees_subscription_section") {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
             Text("Clinic Portal License & Renewal Payments", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Spacer(modifier = Modifier.height(6.dp))
             if (subscriptions.isEmpty()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),

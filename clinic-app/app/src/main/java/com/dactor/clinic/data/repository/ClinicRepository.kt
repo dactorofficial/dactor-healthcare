@@ -75,6 +75,8 @@ data class ClinicExtendedMeta(
     val avg_time_mode: String? = "auto",
     val is_on_break: Boolean? = false,
     val break_updated_at: String? = null,
+    val is_open: Boolean? = true,
+    val closed_at: String? = null,
     val weekly_schedule_json: String? = null,
     val declared_holidays: List<String> = emptyList()
 )
@@ -258,6 +260,8 @@ class ClinicRepository @Inject constructor(
                     avgTimeMode = meta.avg_time_mode ?: clinic.avgTimeMode ?: "auto",
                     isOnBreak = meta.is_on_break ?: clinic.isOnBreak ?: false,
                     breakUpdatedAt = meta.break_updated_at ?: clinic.breakUpdatedAt,
+                    isOpen = meta.is_open ?: clinic.isOpen ?: true,
+                    closedAt = meta.closed_at ?: clinic.closedAt,
                     weeklyScheduleJson = meta.weekly_schedule_json ?: clinic.weeklyScheduleJson,
                     declaredHolidays = meta.declared_holidays
                 )
@@ -301,6 +305,8 @@ class ClinicRepository @Inject constructor(
             avg_time_mode = clinic.avgTimeMode ?: "auto",
             is_on_break = clinic.isOnBreak ?: false,
             break_updated_at = clinic.breakUpdatedAt,
+            is_open = clinic.isOpen ?: true,
+            closed_at = clinic.closedAt,
             weekly_schedule_json = clinic.weeklyScheduleJson,
             declared_holidays = clinic.declaredHolidays
         )
@@ -542,6 +548,28 @@ class ClinicRepository @Inject constructor(
                     } catch (_: Exception) {}
                 }
             }
+            updated
+        } else null
+    }
+
+    suspend fun toggleClinicOpenStatus(clinicId: String, isOpen: Boolean): Clinic? = withContext(Dispatchers.IO) {
+        val current = getCachedClinicById(clinicId) ?: getClinicById(clinicId) ?: return@withContext null
+        val updated = current.copy(
+            isOpen = isOpen,
+            closedAt = if (!isOpen) Instant.now().toString() else null
+        )
+        cachedClinicsById[clinicId] = updated
+        val ok = updateClinic(clinicId, updated)
+        if (ok) {
+            try {
+                supabaseClient.postgrest["clinics"].update({
+                    set("is_open", isOpen)
+                    set("closed_at", if (!isOpen) Instant.now().toString() else null)
+                    set("updated_at", Instant.now().toString())
+                }) {
+                    filter { eq("id", clinicId) }
+                }
+            } catch (_: Exception) {}
             updated
         } else null
     }

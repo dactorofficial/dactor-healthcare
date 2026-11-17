@@ -27,7 +27,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
@@ -903,7 +906,7 @@ fun HomeTab(
                 val slots = cachedSlotsMap[clinic.id] ?: emptyList()
                 OpenRouteSpatialEngine.indexClinic(clinic, docs, srvs)
                 ClinicHomeItem(clinic = clinic, doctors = docs, services = srvs, availableSlots = slots)
-            }
+            }.shuffled()
         } else emptyList()
         mutableStateOf(initialItems)
     }
@@ -922,7 +925,7 @@ fun HomeTab(
                 }
                 OpenRouteSpatialEngine.indexDoctor(doc, linked)
                 DoctorHomeItem(doctor = doc, practicingClinics = linked)
-            }
+            }.shuffled()
         } else emptyList()
         mutableStateOf(initialDocs)
     }
@@ -953,30 +956,46 @@ fun HomeTab(
                 val dateStr = selectedDate.toString()
                 val (builtPair, nextDates) = withContext(Dispatchers.IO) {
                     coroutineScope {
-                        val clinicsDef = async { val lat = userLatitude; val lng = userLongitude; if (lat != null && lng != null) clinicRepository.getNearbyClinics(lat, lng, radiusKm = 35.0) else clinicRepository.getClinics(forceRefresh = true) }
-                        val servicesDef = async { clinicRepository.getAllClinicServicesGrouped(forceRefresh = true) }
+                        // Clinics, services and doctors: saved on the phone and reused for up to 6 hours
+                        val savedLists = com.dactor.patient.data.local.HomeDataCache.loadFresh(context)
+                        val clinicsDef = async { savedLists?.clinics ?: clinicRepository.getClinics(forceRefresh = true) }
+                        val servicesDef = async { savedLists?.servicesByClinic ?: clinicRepository.getAllClinicServicesGrouped(forceRefresh = true) }
                         val slotsDef = async { slotRepository?.getAllAvailableSlotsForDate(dateStr) ?: emptyMap() }
                         val nextDatesDef = async { slotRepository?.getAllClinicsNextAvailableDates() ?: emptyMap() }
 
                         val remoteClinics = clinicsDef.await()
                         val clinicIds = remoteClinics.map { it.id }
-                        val (standaloneDocs, rosterByClinic) = doctorRepository?.getAllDoctorsAndClinicRoster(
-                            clinicIds = clinicIds,
-                            forceRefresh = true
-                        ) ?: Pair(emptyList(), emptyMap())
+                        val (standaloneDocs, rosterByClinic) = savedLists?.let { it.standaloneDoctors to it.rosterByClinic }
+                            ?: doctorRepository?.getAllDoctorsAndClinicRoster(
+                                clinicIds = clinicIds,
+                                forceRefresh = true
+                            ) ?: Pair(emptyList(), emptyMap())
 
                         val servicesByClinic = servicesDef.await()
+                        if (savedLists == null && remoteClinics.isNotEmpty()) {
+                            com.dactor.patient.data.local.HomeDataCache.save(
+                                context,
+                                com.dactor.patient.data.local.HomeDataCache.HomeLists(
+                                    savedAt = System.currentTimeMillis(),
+                                    clinics = remoteClinics,
+                                    servicesByClinic = servicesByClinic,
+                                    standaloneDoctors = standaloneDocs,
+                                    rosterByClinic = rosterByClinic
+                                )
+                            )
+                        }
                         val slotsByClinic = slotsDef.await()
                         val datesMap = nextDatesDef.await()
 
                         val pair = withContext(Dispatchers.Default) {
                             val items = remoteClinics.map { clinic ->
-                                val docs = rosterByClinic[clinic.id] ?: emptyList()
+                                val directDocs = standaloneDocs.filter { it.clinicId == clinic.id || it.primaryClinicId == clinic.id }
+                                val docs = (rosterByClinic[clinic.id].orEmpty() + directDocs).distinctBy { it.id }
                                 val srvs = servicesByClinic[clinic.id] ?: emptyList()
                                 val slots = slotsByClinic[clinic.id] ?: emptyList()
                                 OpenRouteSpatialEngine.indexClinic(clinic, docs, srvs)
                                 ClinicHomeItem(clinic = clinic, doctors = docs, services = srvs, availableSlots = slots)
-                            }
+                            }.shuffled()
 
                             val combinedDocs = (standaloneDocs + items.flatMap { it.doctors }).distinctBy { it.id }
                             val docItems = combinedDocs.map { doc ->
@@ -988,7 +1007,7 @@ fun HomeTab(
                                 }
                                 OpenRouteSpatialEngine.indexDoctor(doc, linkedClinics)
                                 DoctorHomeItem(doctor = doc, practicingClinics = linkedClinics)
-                            }
+                            }.shuffled()
                             Pair(items, docItems)
                         }
                         Pair(pair, datesMap)
@@ -1083,31 +1102,34 @@ fun HomeTab(
     ) {
         var list = allClinics
 
-        if (isLiveGpsActive && userLatitude != null && userLongitude != null) {
-            val uLat = userLatitude!!
-            val uLng = userLongitude!!
-            val targetCity = if (detectedCityName.isNotBlank()) detectedCityName else selectedLocation.replace(" (Live)", "").trim()
-            val aliases = NEPAL_DISTRICT_ALIASES[targetCity] ?: listOf(targetCity.lowercase(java.util.Locale.ROOT))
+        // Only restrict candidates by location/proximity when browsing without an active search query
+        if (effectiveQuery.isBlank()) {
+            if (isLiveGpsActive && userLatitude != null && userLongitude != null) {
+                val uLat = userLatitude!!
+                val uLng = userLongitude!!
+                val targetCity = if (detectedCityName.isNotBlank()) detectedCityName else selectedLocation.replace(" (Live)", "").trim()
+                val aliases = NEPAL_DISTRICT_ALIASES[targetCity] ?: listOf(targetCity.lowercase(java.util.Locale.ROOT))
 
-            val matchedByCityOrProximity = list.filter { item ->
-                val c = item.clinic
-                val corpus = OpenRouteSpatialEngine.getClinicCorpus(c, item.doctors, item.services)
-                val matchesAlias = aliases.any { a -> corpus.addressLower.contains(a) || corpus.nameLower.contains(a) }
+                val matchedByCityOrProximity = list.filter { item ->
+                    val c = item.clinic
+                    val corpus = OpenRouteSpatialEngine.getClinicCorpus(c, item.doctors, item.services)
+                    val matchesAlias = aliases.any { a -> corpus.addressLower.contains(a) || corpus.nameLower.contains(a) }
 
-                val distKm = OpenRouteSpatialEngine.getEffectiveDistanceKm(uLat, uLng, c)
-                val matchesProximity = distKm != null && distKm <= 35.0
+                    val distKm = OpenRouteSpatialEngine.getEffectiveDistanceKm(uLat, uLng, c)
+                    val matchesProximity = distKm != null && distKm <= 35.0
 
-                matchesAlias || matchesProximity
-            }
+                    matchesAlias || matchesProximity
+                }
 
-            if (matchedByCityOrProximity.isNotEmpty()) {
-                list = matchedByCityOrProximity
-            }
-        } else if (selectedLocation != "All Nepal") {
-            val aliases = NEPAL_DISTRICT_ALIASES[selectedLocation] ?: listOf(selectedLocation.lowercase(java.util.Locale.ROOT))
-            list = list.filter { item ->
-                val corpus = OpenRouteSpatialEngine.getClinicCorpus(item.clinic, item.doctors, item.services)
-                aliases.any { a -> corpus.addressLower.contains(a) || corpus.nameLower.contains(a) }
+                if (matchedByCityOrProximity.isNotEmpty()) {
+                    list = matchedByCityOrProximity
+                }
+            } else if (selectedLocation != "All Nepal") {
+                val aliases = NEPAL_DISTRICT_ALIASES[selectedLocation] ?: listOf(selectedLocation.lowercase(java.util.Locale.ROOT))
+                list = list.filter { item ->
+                    val corpus = OpenRouteSpatialEngine.getClinicCorpus(item.clinic, item.doctors, item.services)
+                    aliases.any { a -> corpus.addressLower.contains(a) || corpus.nameLower.contains(a) }
+                }
             }
         }
 
@@ -1136,7 +1158,8 @@ fun HomeTab(
                             ?: calculateDistanceKm(uLat, uLng, it.first.clinic.latitude ?: 27.7052, it.first.clinic.longitude ?: 85.3193)
                     }
                 } else {
-                    scoredList.sortedByDescending { it.first.doctors.any { d -> d.isInClinic == true } }
+                    // Fair randomized rotation under default browse mode so all clinics get equal chance on top
+                    scoredList
                 }
             }
         }
@@ -1146,13 +1169,16 @@ fun HomeTab(
     val displayedDoctors = remember(allDoctors, effectiveQuery, searchQuery, activeCategoryFilter, selectedLocation, selectedSort, isLiveGpsActive, detectedCityName, NEPAL_DISTRICT_ALIASES) {
         var docList = allDoctors
 
-        if (selectedLocation != "All Nepal" && !isLiveGpsActive) {
-            val aliases = NEPAL_DISTRICT_ALIASES[selectedLocation] ?: listOf(selectedLocation.lowercase(java.util.Locale.ROOT))
-            val locFiltered = docList.filter { item ->
-                val corpus = OpenRouteSpatialEngine.getDoctorCorpus(item.doctor, item.practicingClinics)
-                aliases.any { a -> corpus.clinicsJoinedLower.contains(a) }
+        // Only restrict candidates by location when browsing without an active search query
+        if (effectiveQuery.isBlank()) {
+            if (selectedLocation != "All Nepal" && !isLiveGpsActive) {
+                val aliases = NEPAL_DISTRICT_ALIASES[selectedLocation] ?: listOf(selectedLocation.lowercase(java.util.Locale.ROOT))
+                val locFiltered = docList.filter { item ->
+                    val corpus = OpenRouteSpatialEngine.getDoctorCorpus(item.doctor, item.practicingClinics)
+                    aliases.any { a -> corpus.clinicsJoinedLower.contains(a) }
+                }
+                if (locFiltered.isNotEmpty()) docList = locFiltered
             }
-            if (locFiltered.isNotEmpty()) docList = locFiltered
         }
 
         val scoredDocs = docList.map { item ->
@@ -1172,7 +1198,8 @@ fun HomeTab(
                 if (effectiveQuery.isNotBlank()) {
                     scoredDocs.sortedByDescending { it.second.score }
                 } else {
-                    scoredDocs.sortedByDescending { it.first.doctor.isInClinic == true }
+                    // Fair randomized rotation under default browse mode so all doctors get equal chance on top
+                    scoredDocs
                 }
             }
         }
@@ -1349,17 +1376,15 @@ fun HomeTab(
             }
         }
 
-        // ── SEARCH BAR (Pushes dedicated full-screen Search route on tap) ──
+        // ── HOME SCREEN DIRECT INTERACTIVE SEARCH BAR ──
         Surface(
-            onClick = {
-                navController.navigate(NavRoutes.Search.createRoute(selectedDate.toString())) {
-                    launchSingleTop = true
-                }
-            },
             shape = RoundedCornerShape(26.dp),
             color = Color.White,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            shadowElevation = 1.dp,
+            border = BorderStroke(
+                1.dp,
+                if (isSearchFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+            ),
+            shadowElevation = if (isSearchFocused) 3.dp else 1.dp,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
@@ -1370,22 +1395,61 @@ fun HomeTab(
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Icon(
                     Icons.Default.Search,
                     contentDescription = "Search",
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = if (isSearchFocused || searchQuery.isNotBlank()) MaterialTheme.colorScheme.primary else Color(0xFF64748B),
                     modifier = Modifier.size(20.dp)
                 )
-                Text(
-                    text = "Search doctor, clinic or symptom...",
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
+                BasicTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    ),
+                    keyboardOptions = KeyboardOptions(
+                        imeAction = ImeAction.Search
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onSearch = { focusManager.clearFocus() }
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .onFocusChanged { isSearchFocused = it.isFocused },
+                    decorationBox = { innerTextField ->
+                        if (searchQuery.isEmpty()) {
+                            Text(
+                                text = "Search doctor, clinic or symptom...",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        innerTextField()
+                    }
                 )
+                if (searchQuery.isNotBlank()) {
+                    IconButton(
+                        onClick = {
+                            searchQuery = ""
+                            focusManager.clearFocus()
+                        },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Clear search",
+                            tint = Color(0xFF64748B),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
             }
         }
 
@@ -4410,28 +4474,61 @@ fun RecordsTab(
                                                         }
                                                     }
 
+                                                    val localFile = com.dactor.patient.util.LabReportPdfDownloader.findDownloadedReportFile(
+                                                        context = context,
+                                                        report = report,
+                                                        clinicName = clinicName,
+                                                        patientName = appt.patientName
+                                                    )
+                                                    val isDownloadedLocally = localFile != null && localFile.exists()
+
                                                     Row(
                                                         modifier = Modifier.fillMaxWidth(),
                                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                                     ) {
-                                                        OutlinedButton(
-                                                            onClick = {
-                                                                verifyingReport = report
-                                                                enteredPatientName = ""
-                                                                verificationError = null
-                                                            },
-                                                            shape = RoundedCornerShape(8.dp),
-                                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                                            modifier = Modifier
-                                                                .weight(1f)
-                                                                .defaultMinSize(minHeight = 34.dp)
-                                                        ) {
-                                                            Icon(Icons.Default.Visibility, contentDescription = null, tint = Color(0xFF9333EA), modifier = Modifier.size(14.dp))
-                                                            Spacer(Modifier.width(4.dp))
-                                                            Text("View Report", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF9333EA))
-                                                        }
+                                                        if (!isDownloadedLocally) {
+                                                            if (isPrepared) {
+                                                                Button(
+                                                                    onClick = {
+                                                                        com.dactor.patient.util.LabReportPdfDownloader.downloadAndSaveReportFile(
+                                                                            context = context,
+                                                                            report = report,
+                                                                            patientName = appt.patientName,
+                                                                            patientAgeGender = listOfNotNull(appt.patientGender, appt.patientAge?.let { "$it yrs" }).joinToString(" \u2022 "),
+                                                                            clinicName = clinicName,
+                                                                            doctorName = doctorName
+                                                                        )
+                                                                    },
+                                                                    shape = RoundedCornerShape(8.dp),
+                                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9333EA)),
+                                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                                                    modifier = Modifier
+                                                                        .fillMaxWidth()
+                                                                        .defaultMinSize(minHeight = 34.dp)
+                                                                ) {
+                                                                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                                    Spacer(Modifier.width(4.dp))
+                                                                    Text("Download Report", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                                }
+                                                            }
+                                                        } else {
+                                                            OutlinedButton(
+                                                                onClick = {
+                                                                    verifyingReport = report
+                                                                    enteredPatientName = ""
+                                                                    verificationError = null
+                                                                },
+                                                                shape = RoundedCornerShape(8.dp),
+                                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                                                modifier = Modifier
+                                                                    .weight(1f)
+                                                                    .defaultMinSize(minHeight = 34.dp)
+                                                            ) {
+                                                                Icon(Icons.Default.Visibility, contentDescription = null, tint = Color(0xFF9333EA), modifier = Modifier.size(14.dp))
+                                                                Spacer(Modifier.width(4.dp))
+                                                                Text("View in App (Offline)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF9333EA))
+                                                            }
 
-                                                        if (isPrepared) {
                                                             Button(
                                                                 onClick = {
                                                                     com.dactor.patient.util.LabReportPdfDownloader.downloadAndSaveReportFile(
@@ -4447,12 +4544,12 @@ fun RecordsTab(
                                                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9333EA)),
                                                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                                                                 modifier = Modifier
-                                                                    .weight(1f)
+                                                                    .weight(0.9f)
                                                                     .defaultMinSize(minHeight = 34.dp)
                                                             ) {
                                                                 Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(14.dp))
                                                                 Spacer(Modifier.width(4.dp))
-                                                                Text("Download PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                                Text("Re-download", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                                             }
                                                         }
                                                     }
@@ -7740,21 +7837,53 @@ fun PatientRecordDetailDialog(
                                                         }
                                                     }
 
+                                                    val localFile = com.dactor.patient.util.LabReportPdfDownloader.findDownloadedReportFile(
+                                                        context = context,
+                                                        report = report,
+                                                        clinicName = clinicName,
+                                                        patientName = targetAppt.patientName
+                                                    )
+                                                    val isDownloadedLocally = localFile != null && localFile.exists()
+
                                                     Row(
                                                         modifier = Modifier.fillMaxWidth(),
                                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                                     ) {
-                                                        OutlinedButton(
-                                                            onClick = { onViewReport?.invoke(report) },
-                                                            shape = RoundedCornerShape(8.dp),
-                                                            modifier = Modifier.weight(1f).height(34.dp),
-                                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                                        ) {
-                                                            Icon(Icons.Default.Visibility, contentDescription = null, tint = Color(0xFF9333EA), modifier = Modifier.size(13.dp))
-                                                            Spacer(Modifier.width(4.dp))
-                                                            Text("View Report", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF9333EA))
-                                                        }
-                                                        if (isPrepared) {
+                                                        if (!isDownloadedLocally) {
+                                                            if (isPrepared) {
+                                                                Button(
+                                                                    onClick = {
+                                                                        com.dactor.patient.util.LabReportPdfDownloader.downloadAndSaveReportFile(
+                                                                            context = context,
+                                                                            report = report,
+                                                                            patientName = targetAppt.patientName,
+                                                                            patientAgeGender = listOfNotNull(targetAppt.patientGender, targetAppt.patientAge?.let { "$it yrs" }).joinToString(" \u2022 "),
+                                                                            clinicName = clinicName,
+                                                                            doctorName = doctorName
+                                                                        )
+                                                                    },
+                                                                    shape = RoundedCornerShape(8.dp),
+                                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9333EA)),
+                                                                    modifier = Modifier.fillMaxWidth().height(34.dp),
+                                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                                                ) {
+                                                                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(13.dp))
+                                                                    Spacer(Modifier.width(4.dp))
+                                                                    Text("Download Report", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                                }
+                                                            }
+                                                        } else {
+                                                            OutlinedButton(
+                                                                onClick = { onViewReport?.invoke(report) },
+                                                                shape = RoundedCornerShape(8.dp),
+                                                                modifier = Modifier.weight(1f).height(34.dp),
+                                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                                            ) {
+                                                                Icon(Icons.Default.Visibility, contentDescription = null, tint = Color(0xFF9333EA), modifier = Modifier.size(13.dp))
+                                                                Spacer(Modifier.width(4.dp))
+                                                                Text("View in App (Offline)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF9333EA))
+                                                            }
+
                                                             Button(
                                                                 onClick = {
                                                                     com.dactor.patient.util.LabReportPdfDownloader.downloadAndSaveReportFile(
@@ -7768,12 +7897,12 @@ fun PatientRecordDetailDialog(
                                                                 },
                                                                 shape = RoundedCornerShape(8.dp),
                                                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9333EA)),
-                                                                modifier = Modifier.weight(1f).height(34.dp),
+                                                                modifier = Modifier.weight(0.9f).height(34.dp),
                                                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                                                             ) {
                                                                 Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(13.dp))
                                                                 Spacer(Modifier.width(4.dp))
-                                                                Text("Download PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                                Text("Re-download", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                                             }
                                                         }
                                                     }
@@ -9907,18 +10036,8 @@ fun ProfileTab(
                         showSignOutDialog = false
                         coroutineScope.launch {
                             try {
-                                val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(
-                                    com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                                ).requestEmail().build()
-                                val gsc = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso)
-                                com.google.android.gms.tasks.Tasks.await(gsc.signOut(), 3, java.util.concurrent.TimeUnit.SECONDS)
+                                com.dactor.patient.data.cache.AppCacheManager.getInstance(context).signOutKeepingData()
                             } catch (_: Exception) {}
-                            try {
-                                com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                            } catch (_: Exception) {}
-                            authRepository?.signOut()
-                            appointmentRepository?.clearCache()
-                            sessionManager?.clearSession()
                             sessionManager?.setGuestMode(true)
                             isUserLoggedIn = false
                             userName = "Patient"
@@ -9980,18 +10099,8 @@ fun ProfileTab(
                                 e.printStackTrace()
                             }
                             try {
-                                val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(
-                                    com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                                ).requestEmail().build()
-                                val gsc = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso)
-                                com.google.android.gms.tasks.Tasks.await(gsc.signOut(), 3, java.util.concurrent.TimeUnit.SECONDS)
+                                com.dactor.patient.data.cache.AppCacheManager.getInstance(context).clearAllCache()
                             } catch (ignored: Exception) {}
-                            try {
-                                com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
-                            } catch (ignored: Exception) {}
-                            authRepository?.signOut()
-                            appointmentRepository?.clearCache()
-                            sessionManager?.clearSession()
                             sessionManager?.setArchivedStatus(true, scheduledDate)
                             sessionManager?.setGuestMode(true)
                             isUserLoggedIn = false

@@ -27,6 +27,7 @@ import { GlassCard, GlassButton } from '../components/glass'
 import { supabase } from '../lib/supabase'
 import { createSupportTicket, getSupportTicketByCodeOrContact, getSupportTickets } from '../services/db'
 import { SupportTicket } from '../types'
+import { setDefaultTabSEO } from '../utils/seo'
 
 export const Support: React.FC = () => {
   const [supportView, setSupportView] = useState<'submit' | 'track'>(() => {
@@ -70,6 +71,7 @@ export const Support: React.FC = () => {
 
   // Load recent tickets and check URL for auto-search on mount
   useEffect(() => {
+    setDefaultTabSEO('support')
     try {
       const cached = localStorage.getItem('dactor_support_tickets_v1')
       if (cached) {

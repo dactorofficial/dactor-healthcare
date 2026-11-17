@@ -7,11 +7,13 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.dactor.clinic.data.local.dao.AppointmentDao
 import com.dactor.clinic.data.local.dao.BillingDao
+import com.dactor.clinic.data.local.dao.PatientDao
 import com.dactor.clinic.data.local.dao.QueueDao
 import com.dactor.clinic.data.local.dao.SyncMetadataDao
 import com.dactor.clinic.data.local.entity.AppointmentEntity
 import com.dactor.clinic.data.local.entity.BillingInvoiceEntity
 import com.dactor.clinic.data.local.entity.InvoiceTransactionEntity
+import com.dactor.clinic.data.local.entity.PatientEntity
 import com.dactor.clinic.data.local.entity.QueueEntryEntity
 import com.dactor.clinic.data.local.entity.SyncMetadataEntity
 import com.dactor.clinic.data.local.security.DatabaseKeyManager
@@ -23,16 +25,18 @@ import net.sqlcipher.database.SupportFactory
         AppointmentEntity::class,
         BillingInvoiceEntity::class,
         InvoiceTransactionEntity::class,
+        PatientEntity::class,
         QueueEntryEntity::class,
         SyncMetadataEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class ClinicDatabase : RoomDatabase() {
 
     abstract fun appointmentDao(): AppointmentDao
     abstract fun billingDao(): BillingDao
+    abstract fun patientDao(): PatientDao
     abstract fun queueDao(): QueueDao
     abstract fun syncMetadataDao(): SyncMetadataDao
 

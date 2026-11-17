@@ -68,6 +68,18 @@ const SPECIALTY_CHIPS = [
   { id: 'ultrasound', label: 'Ultrasound / USG / X-Ray' },
 ]
 
+/**
+ * In-place Fisher-Yates array shuffle for fair, equal-chance rotation of clinics and doctors on the home page.
+ */
+function shuffleArray<T>(items: T[]): T[] {
+  const arr = [...items]
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]]
+  }
+  return arr
+}
+
 export const Home: React.FC<HomeProps> = ({
   onNavigate,
   onOpenTrackerModal,
@@ -143,8 +155,8 @@ export const Home: React.FC<HomeProps> = ({
           getDoctors(),
           getCityLocations(),
         ])
-        setClinics(cList.filter((c) => !c.isArchived))
-        setDoctors(dList)
+        setClinics(shuffleArray(cList.filter((c) => !c.isArchived)))
+        setDoctors(shuffleArray(dList))
         if (cityList && cityList.length > 0) {
           setLocationOptions(cityList)
         }
@@ -161,33 +173,15 @@ export const Home: React.FC<HomeProps> = ({
     })
   }, [])
 
-  // Live real-time listener: when admin panel adds or deletes cities in medical_qualifications, update dropdown immediately
+  // Initial city options loaded via cacheManager with TTL; avoids wasting Supabase Free Tier 200-WebSocket limit on static homepage
   useEffect(() => {
-    const channel = supabase
-      .channel('home_realtime_cities')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'medical_qualifications',
-        },
-        async () => {
-          try {
-            const freshCities = await getCityLocations()
-            if (freshCities && freshCities.length > 0) {
-              setLocationOptions(freshCities)
-            }
-          } catch (e) {
-            console.warn('Realtime location update error:', e)
-          }
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
+    let isMounted = true
+    getCityLocations().then((cities) => {
+      if (isMounted && cities && cities.length > 0) {
+        setLocationOptions(cities)
+      }
+    }).catch((e) => console.warn('Location options load error:', e))
+    return () => { isMounted = false }
   }, [])
 
   // Auto-fallback to 'All Nepal' if currently selected city was deleted by admin
@@ -209,7 +203,7 @@ export const Home: React.FC<HomeProps> = ({
     let result = clinics.map((c) => {
       // Find affiliated doctors for this clinic
       const clinicDocs = doctors.filter(
-        (d) => d.clinicId === c.id || (d as any).activeClinicId === c.id
+        (d) => d.clinicId === c.id || (d as any).activeClinicId === c.id || (d as any).primaryClinicId === c.id
       )
       const primaryDoc = clinicDocs[0] || null
       const hasDocInClinic = clinicDocs.some((d) => d.isInClinic)
@@ -222,8 +216,8 @@ export const Home: React.FC<HomeProps> = ({
       }
     })
 
-    // Location filter
-    if (selectedLocation !== 'All Nepal') {
+    // Location filter (applied when browsing without active search query)
+    if (selectedLocation !== 'All Nepal' && !searchQuery.trim()) {
       result = result.filter(
         (c) =>
           c.addressText?.toLowerCase().includes(selectedLocation.toLowerCase()) ||
@@ -299,8 +293,8 @@ export const Home: React.FC<HomeProps> = ({
   const filteredDoctorItems = useMemo(() => {
     let result = doctorHomeItems.filter((item) => !item.doctor.isLabTechnician)
 
-    // Location filter
-    if (selectedLocation !== 'All Nepal') {
+    // Location filter (applied when browsing without active search query)
+    if (selectedLocation !== 'All Nepal' && !searchQuery.trim()) {
       const locLower = selectedLocation.toLowerCase()
       result = result.filter((item) => {
         return item.practicingClinics.some(
@@ -354,17 +348,8 @@ export const Home: React.FC<HomeProps> = ({
         const feeB = b.doctor.consultationFee || 500
         return feeA - feeB
       })
-    } else {
-      // Default: in-clinic first, then by experience
-      result.sort((a, b) => {
-        if (a.hasDocInClinic !== b.hasDocInClinic) {
-          return a.hasDocInClinic ? -1 : 1
-        }
-        const expA = a.doctor.experienceYears || 0
-        const expB = b.doctor.experienceYears || 0
-        return expB - expA
-      })
     }
+    // Note: When selectedSort === 'default', result retains the fair randomized rotation so every doctor has equal chance to be featured at the top
 
     return result
   }, [doctorHomeItems, selectedLocation, searchQuery, selectedSpecialty, selectedSort])

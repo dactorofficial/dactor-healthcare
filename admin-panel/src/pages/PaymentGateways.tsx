@@ -440,7 +440,20 @@ export default function PaymentGateways({ onNavigate: _ }: PaymentGatewaysProps)
 
         const primaryProv = gateways.primary_gateway || 'esewa'
         const primaryItem = gateways[primaryProv]
-        const gatewaysJsonStr = JSON.stringify(gateways)
+        // Sanitize gateways for public/client consumption (strip all secret keys, passwords, and private keys)
+        const sanitizedGateways: Record<string, any> = {
+          primary_gateway: gateways.primary_gateway,
+          esewa: { enabled: gateways.esewa.enabled, merchant_id: gateways.esewa.merchant_id || null },
+          khalti: { enabled: gateways.khalti.enabled, public_key: gateways.khalti.public_key || null },
+          fonepay: { enabled: gateways.fonepay.enabled, merchant_id: gateways.fonepay.merchant_id || null },
+          connectips: {
+            enabled: gateways.connectips.enabled,
+            merchant_id: gateways.connectips.merchant_id || null,
+            app_id: gateways.connectips.app_id || null,
+            app_name: gateways.connectips.app_name || 'DactorClinic'
+          }
+        }
+        const safeGatewaysJsonStr = JSON.stringify(sanitizedGateways)
 
         // 1. Update clinic_payment_credentials table
         const credsPatch: Record<string, any> = {
@@ -493,11 +506,11 @@ export default function PaymentGateways({ onNavigate: _ }: PaymentGatewaysProps)
           const meta = clinicCurrent?.description && clinicCurrent.description.trim().startsWith('{')
             ? JSON.parse(clinicCurrent.description)
             : {}
-          meta.payment_gateways_json = gatewaysJsonStr
+          meta.payment_gateways_json = safeGatewaysJsonStr
           meta.payment_gateway_provider = primaryProv
           meta.merchant_id = primaryItem.merchant_id || null
           meta.payment_api_key = primaryItem.public_key || null
-          meta.payment_secret_key = primaryItem.secret_key || null
+          delete meta.payment_secret_key
           meta.is_direct_payment_enabled = true
           packedDesc = JSON.stringify(meta)
         } catch {
@@ -511,7 +524,7 @@ export default function PaymentGateways({ onNavigate: _ }: PaymentGatewaysProps)
             payment_gateway_provider: primaryProv,
             merchant_id: primaryItem.merchant_id || null,
             payment_api_key: primaryItem.public_key || null,
-            payment_secret_key: primaryItem.secret_key || null,
+            payment_secret_key: null,
             is_direct_payment_enabled: true,
             updated_at: new Date().toISOString()
           })

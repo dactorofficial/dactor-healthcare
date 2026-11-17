@@ -266,25 +266,31 @@ object LabReportPdfDownloader {
 
             pdfDocument.finishPage(page)
 
-            val cleanTest = report.testName.replace("[^A-Za-z0-9]".toRegex(), "_").take(20)
-            val fileName = "Dactor_Lab_Report_${cleanTest}_${report.appointmentId.take(8)}_${System.currentTimeMillis() / 1000}.pdf"
-            val savedUri = savePdfToDownloads(context, pdfDocument, fileName)
+            val fileName = buildReportFileName(
+                clinicName = clinicName,
+                patientName = patientName,
+                testName = report.testName,
+                trackingCodeOrId = report.appointmentId.ifBlank { report.id },
+                extension = "pdf"
+            )
 
-            if (savedUri != null) {
-                Toast.makeText(
-                    context,
-                    "Lab Report PDF downloaded to Downloads/$fileName",
-                    Toast.LENGTH_LONG
-                ).show()
-                openPdf(context, savedUri)
-            } else {
-                Toast.makeText(
-                    context,
-                    "Could not save Lab Report PDF to storage.",
-                    Toast.LENGTH_SHORT
-                ).show()
+            // 1. Save directly to app local persistent "Dactor Reports" folder
+            val localReportsDir = getLocalReportsDir(context)
+            val localFile = File(localReportsDir, fileName)
+            FileOutputStream(localFile).use { out ->
+                pdfDocument.writeTo(out)
             }
-            return savedUri
+
+            // 2. Mirror into public Downloads/Dactor Reports folder
+            val savedUri = copyFileToPublicDownloads(context, localFile, fileName, "application/pdf")
+
+            Toast.makeText(
+                context,
+                "✓ Lab Report PDF saved to Dactor Reports/$fileName",
+                Toast.LENGTH_LONG
+            ).show()
+
+            return savedUri ?: Uri.fromFile(localFile)
         } catch (e: Exception) {
             e.printStackTrace()
             Toast.makeText(
@@ -298,19 +304,119 @@ object LabReportPdfDownloader {
         }
     }
 
-    private fun savePdfToDownloads(context: Context, pdfDocument: PdfDocument, fileName: String): Uri? {
+    fun sanitizeForFileName(input: String?): String {
+        if (input.isNullOrBlank()) return ""
+        return input.trim()
+            .replace("[^A-Za-z0-9]".toRegex(), "_")
+            .replace("_{2,}".toRegex(), "_")
+            .trim('_')
+    }
+
+    fun buildReportFileName(
+        clinicName: String?,
+        patientName: String?,
+        testName: String?,
+        trackingCodeOrId: String?,
+        extension: String
+    ): String {
+        val cleanClinic = sanitizeForFileName(clinicName).take(25).ifBlank { "Dactor_Clinic" }
+        val cleanPatient = sanitizeForFileName(patientName).take(25).ifBlank { "Patient" }
+        val cleanTest = sanitizeForFileName(testName).take(25).ifBlank { "Report" }
+        val cleanRef = sanitizeForFileName(trackingCodeOrId).take(10).ifBlank { "" }
+        val ext = extension.trimStart('.').lowercase().ifBlank { "pdf" }
+
+        val base = if (cleanRef.isNotBlank()) {
+            "${cleanClinic}_${cleanPatient}_${cleanTest}_${cleanRef}"
+        } else {
+            "${cleanClinic}_${cleanPatient}_${cleanTest}"
+        }
+        return "$base.$ext"
+    }
+
+    fun getLocalReportsDir(context: Context): File {
+        val baseDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+        return File(baseDir, "Dactor Reports").apply { if (!exists()) mkdirs() }
+    }
+
+    fun isImageReport(report: LabReport): Boolean {
+        val fileUrl = report.fileUrl ?: ""
+        val fileName = report.fileName ?: ""
+        val fileType = report.fileType ?: ""
+        return fileType.startsWith("image", ignoreCase = true) ||
+                fileUrl.endsWith(".jpg", true) || fileUrl.endsWith(".jpeg", true) ||
+                fileUrl.endsWith(".png", true) || fileUrl.endsWith(".webp", true) ||
+                fileName.endsWith(".jpg", true) || fileName.endsWith(".jpeg", true) ||
+                fileName.endsWith(".png", true) || fileName.endsWith(".webp", true)
+    }
+
+    fun getImageExtension(report: LabReport): String {
+        val fileUrl = report.fileUrl ?: ""
+        val fileName = report.fileName ?: ""
+        return if (fileUrl.endsWith(".png", true) || fileName.endsWith(".png", true)) "png"
+        else if (fileUrl.endsWith(".webp", true) || fileName.endsWith(".webp", true)) "webp"
+        else "jpg"
+    }
+
+    fun findDownloadedReportFile(
+        context: Context,
+        report: LabReport,
+        clinicName: String? = null,
+        patientName: String? = null
+    ): File? {
+        val dir = getLocalReportsDir(context)
+        if (!dir.exists()) return null
+
+        // 1. Check direct name match
+        val isImage = isImageReport(report)
+        val ext = if (isImage) getImageExtension(report) else "pdf"
+        val expectedName = buildReportFileName(
+            clinicName = clinicName ?: report.clinicId,
+            patientName = patientName ?: report.patientNameVerification,
+            testName = report.testName,
+            trackingCodeOrId = report.appointmentId.ifBlank { report.id },
+            extension = ext
+        )
+        val directFile = File(dir, expectedName)
+        if (directFile.exists() && directFile.length() > 0) {
+            return directFile
+        }
+
+        // 2. Search any file in "Dactor Reports" matching trackingCode or appointmentId or reportId
+        val refCode = report.appointmentId.take(10).ifBlank { report.id.take(10) }
+        val cleanRef = sanitizeForFileName(refCode)
+        val files = dir.listFiles() ?: return null
+        return files.firstOrNull { file ->
+            file.isFile && file.length() > 0 && cleanRef.isNotBlank() && file.name.contains(cleanRef, ignoreCase = true)
+        }
+    }
+
+    fun isReportDownloadedLocally(
+        context: Context,
+        report: LabReport,
+        clinicName: String? = null,
+        patientName: String? = null
+    ): Boolean {
+        return findDownloadedReportFile(context, report, clinicName, patientName) != null
+    }
+
+    fun copyFileToPublicDownloads(
+        context: Context,
+        localFile: File,
+        fileName: String,
+        mimeType: String
+    ): Uri? {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val resolver = context.contentResolver
             val contentValues = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
-                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Dactor Reports")
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
             val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
             if (uri != null) {
-                resolver.openOutputStream(uri)?.use { out: OutputStream ->
-                    pdfDocument.writeTo(out)
+                resolver.openOutputStream(uri)?.use { out ->
+                    localFile.inputStream().use { inp -> inp.copyTo(out) }
                 }
                 contentValues.clear()
                 contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
@@ -320,13 +426,48 @@ object LabReportPdfDownloader {
         } else {
             @Suppress("DEPRECATION")
             val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            if (!downloadsDir.exists()) downloadsDir.mkdirs()
-            val file = File(downloadsDir, fileName)
-            FileOutputStream(file).use { out ->
-                pdfDocument.writeTo(out)
+            val dactorReportsDir = File(downloadsDir, "Dactor Reports").apply { if (!exists()) mkdirs() }
+            val dest = File(dactorReportsDir, fileName)
+            localFile.inputStream().use { inp ->
+                FileOutputStream(dest).use { out ->
+                    inp.copyTo(out)
+                }
             }
-            Uri.fromFile(file)
+            Uri.fromFile(dest)
         }
+    }
+
+    fun openLocalReportFile(context: Context, file: File, mimeType: String? = null) {
+        try {
+            val detectedMime = mimeType ?: when {
+                file.name.endsWith(".jpg", true) || file.name.endsWith(".jpeg", true) -> "image/jpeg"
+                file.name.endsWith(".png", true) -> "image/png"
+                file.name.endsWith(".webp", true) -> "image/webp"
+                else -> "application/pdf"
+            }
+            val contentUri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(contentUri, detectedMime)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(Intent.createChooser(viewIntent, "Open Lab Report"))
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(context, "Could not open file: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun savePdfToDownloads(context: Context, pdfDocument: PdfDocument, fileName: String): Uri? {
+        val localReportsDir = getLocalReportsDir(context)
+        val localFile = File(localReportsDir, fileName)
+        FileOutputStream(localFile).use { out ->
+            pdfDocument.writeTo(out)
+        }
+        return copyFileToPublicDownloads(context, localFile, fileName, "application/pdf")
     }
 
     fun openSavedFile(context: Context, uri: Uri, mimeType: String = "application/pdf") {
@@ -349,9 +490,9 @@ object LabReportPdfDownloader {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     /**
-     * Downloads and saves the actual lab report file (PDF or picture/image) directly to the device's Downloads directory.
-     * If the report has a remote fileUrl, it streams the bytes and writes them directly into MediaStore.Downloads.
-     * If no remote URL is attached or network download fails, it generates the full official verified Diagnostic Lab Report PDF.
+     * Downloads and saves the lab report file (PDF or Picture) into the local "Dactor Reports" directory
+     * and mirrors it to the device's public Downloads/Dactor Reports directory.
+     * Name format combines clinic name and patient name.
      */
     fun downloadAndSaveReportFile(
         context: Context,
@@ -359,30 +500,30 @@ object LabReportPdfDownloader {
         patientName: String = "Registered Patient",
         patientAgeGender: String = "",
         clinicName: String = "Dactor Diagnostic & Pathology Lab",
-        doctorName: String = "Certified Pathologist / Lab Technician"
+        doctorName: String = "Certified Pathologist / Lab Technician",
+        autoOpen: Boolean = false,
+        onComplete: ((File?) -> Unit)? = null
     ): Uri? {
         val fileUrl = report.fileUrl
+        val isImage = isImageReport(report)
+        val extension = if (isImage) getImageExtension(report) else "pdf"
+
+        val sanitizedFileName = buildReportFileName(
+            clinicName = clinicName,
+            patientName = patientName,
+            testName = report.testName,
+            trackingCodeOrId = report.appointmentId.ifBlank { report.id },
+            extension = extension
+        )
+        val mimeType = if (isImage) "image/$extension" else "application/pdf"
+        val localReportsDir = getLocalReportsDir(context)
+        val localFile = File(localReportsDir, sanitizedFileName)
+
         if (!fileUrl.isNullOrBlank() && (fileUrl.startsWith("http://") || fileUrl.startsWith("https://"))) {
-            val cleanTest = report.testName.replace("[^A-Za-z0-9]".toRegex(), "_").take(24)
-            val isImage = report.fileType?.startsWith("image", ignoreCase = true) == true ||
-                    fileUrl.endsWith(".jpg", true) || fileUrl.endsWith(".jpeg", true) ||
-                    fileUrl.endsWith(".png", true) || fileUrl.endsWith(".webp", true) ||
-                    report.fileName?.endsWith(".jpg", true) == true ||
-                    report.fileName?.endsWith(".png", true) == true ||
-                    report.fileName?.endsWith(".webp", true) == true
-            val extension = if (isImage) {
-                if (fileUrl.endsWith(".png", true) || report.fileName?.endsWith(".png", true) == true) "png" else "jpg"
-            } else "pdf"
-
-            val baseName = report.fileName?.takeIf { it.isNotBlank() }
-                ?: "Dactor_Lab_Report_${cleanTest}_${report.appointmentId.take(8)}_${System.currentTimeMillis() / 1000}.$extension"
-            val sanitizedFileName = baseName.replace("[^A-Za-z0-9._-]".toRegex(), "_")
-            val mimeType = if (isImage) "image/$extension" else "application/pdf"
-
-            Toast.makeText(context, "Downloading lab report to Downloads...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Downloading report to Dactor Reports folder...", Toast.LENGTH_SHORT).show()
 
             downloadExecutor.execute {
-                var streamSavedUri: Uri? = null
+                var success = false
                 var connection: HttpURLConnection? = null
                 try {
                     val url = URL(fileUrl)
@@ -395,38 +536,15 @@ object LabReportPdfDownloader {
                     connection.connect()
 
                     if (connection.responseCode in 200..299) {
-                        val resolver = context.contentResolver
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            val contentValues = ContentValues().apply {
-                                put(MediaStore.MediaColumns.DISPLAY_NAME, sanitizedFileName)
-                                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-                                put(MediaStore.MediaColumns.IS_PENDING, 1)
+                        // 1. Save directly to app local "Dactor Reports" file
+                        FileOutputStream(localFile).use { out ->
+                            connection.inputStream.use { inStream ->
+                                inStream.copyTo(out)
                             }
-                            val targetUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-                            if (targetUri != null) {
-                                resolver.openOutputStream(targetUri)?.use { out ->
-                                    connection.inputStream.use { inStream ->
-                                        inStream.copyTo(out)
-                                    }
-                                }
-                                contentValues.clear()
-                                contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                                resolver.update(targetUri, contentValues, null, null)
-                                streamSavedUri = targetUri
-                            }
-                        } else {
-                            @Suppress("DEPRECATION")
-                            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                            if (!downloadsDir.exists()) downloadsDir.mkdirs()
-                            val destFile = File(downloadsDir, sanitizedFileName)
-                            FileOutputStream(destFile).use { out ->
-                                connection.inputStream.use { inStream ->
-                                    inStream.copyTo(out)
-                                }
-                            }
-                            streamSavedUri = Uri.fromFile(destFile)
                         }
+                        // 2. Mirror into device public Downloads/Dactor Reports
+                        copyFileToPublicDownloads(context, localFile, sanitizedFileName, mimeType)
+                        success = true
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -435,29 +553,34 @@ object LabReportPdfDownloader {
                 }
 
                 mainHandler.post {
-                    if (streamSavedUri != null) {
-                        Toast.makeText(context, "✓ Saved to Downloads: $sanitizedFileName", Toast.LENGTH_LONG).show()
-                        openSavedFile(context, streamSavedUri!!, mimeType)
+                    if (success && localFile.exists() && localFile.length() > 0) {
+                        Toast.makeText(context, "✓ Saved in Dactor Reports: $sanitizedFileName", Toast.LENGTH_LONG).show()
+                        onComplete?.invoke(localFile)
+                        if (autoOpen) {
+                            openLocalReportFile(context, localFile, mimeType)
+                        }
                     } else {
-                        // Network stream fallback: generate verified official report PDF
-                        val fallback = downloadLabReportPdf(context, report, patientName, patientAgeGender, clinicName, doctorName)
-                        if (fallback != null) {
-                            Toast.makeText(context, "✓ Official Lab Report PDF saved to Downloads", Toast.LENGTH_LONG).show()
-                            openPdf(context, fallback)
+                        // Network stream fallback: generate verified official report PDF with clinic & patient name
+                        val fallbackUri = downloadLabReportPdf(context, report, patientName, patientAgeGender, clinicName, doctorName)
+                        val fallbackFile = findDownloadedReportFile(context, report, clinicName, patientName)
+                        onComplete?.invoke(fallbackFile)
+                        if (autoOpen && fallbackFile != null) {
+                            openLocalReportFile(context, fallbackFile, "application/pdf")
                         }
                     }
                 }
             }
 
-            return Uri.parse(fileUrl)
+            return Uri.fromFile(localFile)
         } else {
-            // Generates and saves official Diagnostic Lab Report PDF directly to MediaStore.Downloads
+            // Generates and saves official Diagnostic Lab Report PDF directly into Dactor Reports
             val pdfUri = downloadLabReportPdf(context, report, patientName, patientAgeGender, clinicName, doctorName)
-            if (pdfUri != null) {
-                Toast.makeText(context, "✓ Official Lab Report PDF saved to Downloads", Toast.LENGTH_LONG).show()
-                openPdf(context, pdfUri)
+            val savedLocalFile = findDownloadedReportFile(context, report, clinicName, patientName)
+            onComplete?.invoke(savedLocalFile)
+            if (autoOpen && savedLocalFile != null) {
+                openLocalReportFile(context, savedLocalFile, "application/pdf")
             }
-            return pdfUri
+            return pdfUri ?: savedLocalFile?.let { Uri.fromFile(it) }
         }
     }
 }

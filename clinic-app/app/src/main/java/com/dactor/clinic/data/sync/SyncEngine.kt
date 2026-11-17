@@ -31,8 +31,9 @@ class SyncEngine @Inject constructor(
      * Executes atomic, idempotent bidirectional synchronization.
      * 1. Pushes pending local dirty records (appointments, billing, queue) using UUID upserts.
      * 2. Pulls delta updates from Supabase and applies them locally without overwriting pending local edits.
+     * Selective sync: Routine sync pulls appointments strictly for the given date (default today).
      */
-    suspend fun syncAll(clinicId: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun syncAll(clinicId: String, syncDate: String? = null): Boolean = withContext(Dispatchers.IO) {
         if (clinicId.isBlank()) return@withContext false
 
         var pushSuccess = true
@@ -102,12 +103,14 @@ class SyncEngine @Inject constructor(
             }
 
             // ==================== PHASE 2: PULL ====================
-            // 2.1 Pull Appointments for this clinic
+            // 2.1 Pull Appointments for this clinic (Routine sync: today's date only)
             try {
+                val targetDate = syncDate ?: java.time.LocalDate.now().toString()
                 val remoteAppointments = supabaseClient.postgrest["appointments"]
                     .select {
                         filter {
                             eq("clinic_id", clinicId)
+                            eq("appointment_date", targetDate)
                         }
                     }.decodeList<Appointment>()
 
@@ -184,6 +187,62 @@ class SyncEngine @Inject constructor(
             )
 
             pushSuccess && pullSuccess
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /**
+     * On-demand selective sync: queries remote Supabase for appointment(s)
+     * matching tracking code, id, or phone number and upserts into appointmentDao.
+     */
+    suspend fun syncIndividualPatient(clinicId: String, patientIdentifier: String): Boolean = withContext(Dispatchers.IO) {
+        val clean = patientIdentifier.trim()
+        if (clean.isBlank()) return@withContext false
+        try {
+            val matchingAppts = try {
+                supabaseClient.postgrest["appointments"]
+                    .select {
+                        filter {
+                            if (clinicId.isNotBlank()) eq("clinic_id", clinicId)
+                            or {
+                                eq("tracking_code_10_digit", clean)
+                                eq("id", clean)
+                                eq("patient_mobile", clean)
+                            }
+                        }
+                    }.decodeList<Appointment>()
+            } catch (_: Exception) {
+                val byTracking = supabaseClient.postgrest["appointments"]
+                    .select { filter { eq("tracking_code_10_digit", clean) } }
+                    .decodeList<Appointment>()
+                if (byTracking.isNotEmpty()) byTracking
+                else {
+                    val byId = supabaseClient.postgrest["appointments"]
+                        .select { filter { eq("id", clean) } }
+                        .decodeList<Appointment>()
+                    if (byId.isNotEmpty()) byId
+                    else {
+                        supabaseClient.postgrest["appointments"]
+                            .select { filter { eq("patient_mobile", clean) } }
+                            .decodeList<Appointment>()
+                    }
+                }
+            }
+
+            if (matchingAppts.isNotEmpty()) {
+                val pendingIds = appointmentDao.getPendingSyncAppointments().map { it.id }.toSet()
+                val entities = matchingAppts
+                    .filter { it.id !in pendingIds }
+                    .map { AppointmentEntity.fromDomainModel(it, syncStatus = "synced") }
+                if (entities.isNotEmpty()) {
+                    appointmentDao.upsertAll(entities)
+                }
+                true
+            } else {
+                false
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             false

@@ -144,7 +144,8 @@ fun PatientDetailScreen(
         }
 
         if (appointmentRepository != null && appointmentId.isNotBlank()) {
-            val remote = appointmentRepository.getAppointmentByTrackingCode(appointmentId)
+            val remote = appointmentRepository.syncPatientRecordOnOpen(appointment.clinicId, appointmentId)
+                ?: appointmentRepository.getAppointmentByTrackingCode(appointmentId)
                 ?: appointmentRepository.getAppointmentById(appointmentId)
             if (remote != null) {
                 appointment = remote

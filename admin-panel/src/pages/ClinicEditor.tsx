@@ -277,7 +277,7 @@ export default function ClinicEditor() {
         is_direct_payment_enabled: selectedClinic.is_direct_payment_enabled,
         payment_gateway_provider: selectedClinic.payment_gateway_provider,
         payment_api_key: selectedClinic.payment_api_key,
-        payment_secret_key: selectedClinic.payment_secret_key,
+        payment_secret_key: null,
         merchant_id: selectedClinic.merchant_id,
         specialties: selectedClinic.specialties || [],
         logo_url: finalLogo,
@@ -288,8 +288,8 @@ export default function ClinicEditor() {
       const { error } = await supabase.from('clinics').update(updates).eq('id', selectedClinic.id)
       if (error) throw error
 
-      setClinics(prev => prev.map(c => c.id === selectedClinic.id ? { ...c, ...updates } as Clinic : c))
-      setSelectedClinic(prev => prev ? { ...prev, ...updates } as Clinic : null)
+      setClinics(prev => prev.map(c => c.id === selectedClinic.id ? ({ ...c, ...updates } as unknown as Clinic) : c))
+      setSelectedClinic(prev => prev ? ({ ...prev, ...updates } as unknown as Clinic) : null)
       setSaveSuccess(true)
       setTimeout(() => setSaveSuccess(false), 3000)
     } catch (err: any) {

@@ -106,7 +106,10 @@ class DoctorRepository @Inject constructor(
         try {
             cachedDoctorsByClinic[clinicId] = doctors
             val serialized = json.encodeToString(kotlinx.serialization.builtins.ListSerializer(Doctor.serializer()), doctors)
-            prefs?.edit()?.putString("doctors_clinic_$clinicId", serialized)?.apply()
+            prefs?.edit()
+                ?.putString("doctors_clinic_$clinicId", serialized)
+                ?.putLong("doctors_clinic_${clinicId}_saved_at", System.currentTimeMillis())
+                ?.apply()
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -192,6 +195,22 @@ class DoctorRepository @Inject constructor(
         }
     }
 
+    /** How old the doctor list saved on this phone is, or null if never saved with a time. */
+    fun savedDoctorsAgeMs(clinicId: String): Long? =
+        prefs?.getLong("doctors_clinic_${clinicId}_saved_at", 0L)?.takeIf { it > 0 }?.let { System.currentTimeMillis() - it }
+
+    /** Only id + in/out status for the given doctors (a few bytes each). */
+    suspend fun getDoctorPresence(doctorIds: List<String>): Map<String, Boolean> = withContext(Dispatchers.IO) {
+        if (doctorIds.isEmpty()) return@withContext emptyMap()
+        @kotlinx.serialization.Serializable
+        data class Presence(val id: String, val is_in_clinic: Boolean? = null)
+        supabaseClient.postgrest["doctors"]
+            .select(io.github.jan.supabase.postgrest.query.Columns.list("id", "is_in_clinic")) {
+                filter { isIn("id", doctorIds) }
+            }.decodeList<Presence>()
+            .associate { it.id to (it.is_in_clinic == true) }
+    }
+
     fun updateCachedDoctorsByClinic(clinicId: String, doctors: List<Doctor>) {
         if (clinicId.isNotBlank()) {
             cachedDoctorsByClinic[clinicId] = doctors
@@ -201,6 +220,7 @@ class DoctorRepository @Inject constructor(
     fun clearCache() {
         cachedDoctorsByClinic.clear()
         cachedAllDoctors = emptyList()
+        lastPresenceBroadcastMap.clear()
     }
 
     private fun enrichDoctor(doctor: Doctor): Doctor {

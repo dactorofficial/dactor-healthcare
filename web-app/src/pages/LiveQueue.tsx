@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Activity,
   Search,
@@ -74,6 +74,12 @@ import { printAppointmentBill, printPrescription } from '../utils/medicalDocPrin
 import { supabase } from '../lib/supabase'
 import { playChimeSound } from '../utils/audioChime'
 import { updatePageSEO } from '../utils/seo'
+import {
+  buildReportFileName,
+  downloadAndCacheReport,
+  isReportDownloadedLocally,
+  getCachedBlobUrl,
+} from '../utils/reportFileManager'
 
 interface LiveQueueProps {
   initialCode?: string
@@ -97,6 +103,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   const [clinicQueue, setClinicQueue] = useState<Appointment[]>([])
   const [labReports, setLabReports] = useState<LabReport[]>([])
   const [publicQueueStatus, setPublicQueueStatus] = useState<any | null>(null)
+  // Inputs for the on-device expected-time calculation (from get_public_queue_status)
+  const [queueTiming, setQueueTiming] = useState<{ insideSince: string | null; avgSeconds: number | null } | null>(null)
   const [multiSlotResult, setMultiSlotResult] = useState<MultiSlotPositionResult | null>(null)
   const [linkedConsultations, setLinkedConsultations] = useState<LinkedConsultationsResult | null>(null)
   const [loading, setLoading] = useState(false)
@@ -109,6 +117,19 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     title: string
     message: string
   } | null>(null)
+
+  // 2s Server Polling Concurrency Guard & Snapshot Change Detection
+  const isPollingRef = useRef(false)
+  const requestSeqRef = useRef(0)
+  const activeRequestsRef = useRef(0)
+  const lastSnapshotRef = useRef<{
+    checkinStatus?: string
+    queueNumber?: string | number
+    publicStatus?: string
+    publicToken?: string | number
+    cabinStatus?: string
+    queueLength?: number
+  }>({})
 
   // Live Consultation Timer
   const [currentEpochSecond, setCurrentEpochSecond] = useState<number>(() =>
@@ -129,6 +150,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   // Report Viewing Modal
   const [showReportModal, setShowReportModal] = useState(false)
   const [selectedReportToView, setSelectedReportToView] = useState<LabReport | null>(null)
+  const [isReportDownloaded, setIsReportDownloaded] = useState(false)
+
+  useEffect(() => {
+    const rep = labReports.find((r) => r.status === 'prepared') || labReports[0]
+    const downloaded = isReportDownloadedLocally(activeCode) || (rep?.id ? isReportDownloadedLocally(rep.id) : false)
+    setIsReportDownloaded(downloaded)
+  }, [activeCode, labReports])
 
   // Prescription & Bill Modal
   const [showPrescriptionModal, setShowPrescriptionModal] = useState(false)
@@ -158,6 +186,10 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   const fetchQueueData = async (targetCode: string, silent = false) => {
     const clean = targetCode.trim()
     if (!clean) return
+    if (silent && isPollingRef.current) return
+    isPollingRef.current = true
+    const seq = ++requestSeqRef.current
+    activeRequestsRef.current++
     if (!silent) setLoading(true)
     setErrorMsg('')
 
@@ -166,11 +198,18 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       const cachedRaw = sessionStorage.getItem(`dactor_queue_cache_${clean}`)
       if (cachedRaw && !silent) {
         const cached = JSON.parse(cachedRaw)
+        const cachedDate = cached.appointment?.appointmentDate?.trim().slice(0, 10)
+        const nowStr = new Date().toISOString().slice(0, 10)
         if (cached.appointment) setAppointment(cached.appointment)
         if (cached.clinic) setClinic(cached.clinic)
         if (cached.doctor) setDoctor(cached.doctor)
-        if (cached.clinicQueue) setClinicQueue(cached.clinicQueue)
-        if (cached.multiSlotResult) setMultiSlotResult(cached.multiSlotResult)
+        if (cachedDate === nowStr) {
+          if (cached.clinicQueue) setClinicQueue(cached.clinicQueue)
+          if (cached.multiSlotResult) setMultiSlotResult(cached.multiSlotResult)
+        } else {
+          setClinicQueue([])
+          setMultiSlotResult(null)
+        }
         if (cached.labReports) setLabReports(cached.labReports)
         setLoading(false)
       }
@@ -178,6 +217,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
     try {
       if (!/^\d{10}$/.test(clean)) {
+        if (seq !== requestSeqRef.current) return
         setAppointment(null)
         setPublicQueueStatus(null)
         setLabReports([])
@@ -185,12 +225,19 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         return
       }
 
+      // Always re-fetch the appointment record across all polls (silent or non-silent)
+      // to detect live token number, check-in status, and appointment state changes.
       const appt = await getAppointmentByTrackingCodeOrContact(clean)
+      if (seq !== requestSeqRef.current) return
+
       if (!appt) {
         const { data: publicRows, error: publicError } = await supabase.rpc('get_public_queue_status', {
           p_tracking_code: clean,
         })
+        if (seq !== requestSeqRef.current) return
+
         const status = !publicError && Array.isArray(publicRows) ? publicRows[0] : null
+        setQueueTiming(status ? { insideSince: status.current_inside_since ?? null, avgSeconds: status.avg_consultation_seconds ?? null } : null)
         setAppointment(null)
         setLinkedConsultations(null)
         setClinicQueue([])
@@ -198,56 +245,126 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         setMultiSlotResult(null)
         setPublicQueueStatus(status || null)
         if (status?.clinic_id) {
-          setClinic(await getClinicById(status.clinic_id))
-          setDoctor(status.doctor_id ? await getDoctorById(status.doctor_id) : null)
+          const [clinicData, docData] = await Promise.all([
+            getClinicById(status.clinic_id),
+            status.doctor_id ? getDoctorById(status.doctor_id) : Promise.resolve(null),
+          ])
+          if (seq !== requestSeqRef.current) return
+          setClinic(clinicData)
+          setDoctor(docData)
         } else {
           setClinic(null)
           setDoctor(null)
           if (!silent) setErrorMsg('No booking record found. Check the code and try again.')
         }
+
+        // Snapshot diffing for public queue status
+        const prev = lastSnapshotRef.current
+        const newPubStatus = status?.status
+        const newPubToken = status?.token_number
+        const newCabin = status?.doctor_in_cabin ? 'inside' : 'waiting'
+
+        const hasChanged = Boolean(
+          (prev.publicStatus !== undefined || prev.publicToken !== undefined || prev.cabinStatus !== undefined) && (
+            prev.publicStatus !== newPubStatus ||
+            prev.publicToken !== newPubToken ||
+            prev.cabinStatus !== newCabin
+          )
+        )
+
+        if (hasChanged && silent) {
+          playChimeSound()
+          setActiveAlert({
+            id: String(Date.now()),
+            title: 'Queue Updated',
+            message: `Queue status changed to ${String(newPubStatus || 'UPDATED').toUpperCase()}${newPubToken ? ` (Token #${newPubToken})` : ''}`,
+          })
+        }
+
+        lastSnapshotRef.current = {
+          publicStatus: newPubStatus,
+          publicToken: newPubToken,
+          cabinStatus: newCabin,
+        }
         return
       }
 
-      const linked = await getLinkedConsultations(clean)
+      // Authenticated appointment discovered
+      const linked = (!silent || !linkedConsultations)
+        ? await getLinkedConsultations(clean)
+        : linkedConsultations
+      if (seq !== requestSeqRef.current) return
+
       const effectiveAppt = appt || linked?.targetAppointment || null
       setAppointment(effectiveAppt)
-      setLinkedConsultations(linked)
+      if (linked) setLinkedConsultations(linked)
       setPublicQueueStatus(null)
 
       if (effectiveAppt) {
-        const appt = effectiveAppt
-        const effectiveCode = appt.trackingCode10Digit || clean
-        // Fetch clinic details
-        if (appt.clinicId) {
-          const shouldFetchClinic = !clinic || clinic.id !== appt.clinicId
-          const shouldFetchDoc = appt.doctorId && (!doctor || doctor.id !== appt.doctorId)
+        const targetAppt = effectiveAppt
+        const effectiveCode = targetAppt.trackingCode10Digit || clean
+        const apptDate = targetAppt.appointmentDate?.trim().slice(0, 10)
+        const nowStr = new Date().toISOString().slice(0, 10)
+        const isToday = apptDate === nowStr
+
+        // Doctor's running average and current consultation start, for the on-device estimate
+        if (/^[0-9]{10}$/.test(effectiveCode)) {
+          const { data: timingRows } = await supabase.rpc('get_public_queue_status', { p_tracking_code: effectiveCode })
+          if (seq !== requestSeqRef.current) return
+          const timing = Array.isArray(timingRows) ? timingRows[0] : null
+          setQueueTiming(timing ? { insideSince: timing.current_inside_since ?? null, avgSeconds: timing.avg_consultation_seconds ?? null } : null)
+        }
+
+        // Fetch clinic details - avoid re-fetching static clinic master data during silent 2s poll,
+        // but always fetch doctor to track dynamic cabin status changes (e.g. waiting -> inside).
+        if (targetAppt.clinicId) {
+          const shouldFetchClinic = (!silent && (!clinic || clinic.id !== targetAppt.clinicId)) || (requestSeqRef.current % 4 === 0)
+          const shouldFetchDoc = Boolean(targetAppt.doctorId)
+          const shouldFetchReports = !silent || labReports.length === 0
 
           const [clinicData, queueList, reportsData, docData] = await Promise.all([
-            shouldFetchClinic ? getClinicById(appt.clinicId) : Promise.resolve(clinic),
-            getAppointmentsByClinic(appt.clinicId, appt.appointmentDate),
-            getLabReportsByTrackingCode(effectiveCode),
-            shouldFetchDoc ? getDoctorById(appt.doctorId!) : Promise.resolve(doctor),
+            shouldFetchClinic ? getClinicById(targetAppt.clinicId) : Promise.resolve(clinic),
+            isToday ? getAppointmentsByClinic(targetAppt.clinicId, targetAppt.appointmentDate) : Promise.resolve([]),
+            shouldFetchReports ? getLabReportsByTrackingCode(effectiveCode) : Promise.resolve(labReports),
+            shouldFetchDoc ? getDoctorById(targetAppt.doctorId!) : Promise.resolve(doctor),
           ])
-          setClinic(clinicData)
+          if (seq !== requestSeqRef.current) return
+
+          if (clinicData && (!clinic || clinic.id !== clinicData.id)) setClinic(clinicData)
           setClinicQueue(queueList)
-          setLabReports(reportsData)
+          if (shouldFetchReports) setLabReports(reportsData)
           if (docData) setDoctor(docData)
 
-          const avgMins = clinicData?.avgConsultationTimeMinutes || 10
-          let multiSlot: MultiSlotPositionResult | null = null
-          try {
-            multiSlot = await calculateMultiSlotDailyPosition(
-              appt.clinicId,
-              appt.doctorId,
-              appt.appointmentDate,
-              appt.id,
-              appt.slotId,
-              appt.appointmentTime,
-              avgMins
-            )
-            setMultiSlotResult(multiSlot)
-          } catch (e) {
-            console.error('Error calculating multi-slot position:', e)
+          // If the appointment exists in queueList, grab the freshest queue snapshot
+          const updatedFromQueue = queueList?.find((q: any) => q.id === targetAppt.id)
+          const freshAppt = updatedFromQueue || targetAppt
+          if (updatedFromQueue) {
+            setAppointment(freshAppt)
+          }
+
+          let multiSlot = multiSlotResult
+          if (isToday || (apptDate && apptDate > nowStr)) {
+            if (!silent || !multiSlot) {
+              const avgMins = clinicData?.avgConsultationTimeMinutes || clinic?.avgConsultationTimeMinutes || 10
+              try {
+                multiSlot = await calculateMultiSlotDailyPosition(
+                  freshAppt.clinicId,
+                  freshAppt.doctorId,
+                  freshAppt.appointmentDate,
+                  freshAppt.id,
+                  freshAppt.slotId,
+                  freshAppt.appointmentTime,
+                  avgMins
+                )
+                if (seq !== requestSeqRef.current) return
+                setMultiSlotResult(multiSlot)
+              } catch (e) {
+                console.error('Error calculating multi-slot position:', e)
+                setMultiSlotResult(null)
+              }
+            }
+          } else {
+            multiSlot = null
             setMultiSlotResult(null)
           }
 
@@ -255,30 +372,78 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             sessionStorage.setItem(
               `dactor_queue_cache_${clean}`,
               JSON.stringify({
-                appointment: appt,
-                clinic: clinicData,
+                appointment: freshAppt,
+                clinic: clinicData || clinic,
                 doctor: docData || doctor,
                 clinicQueue: queueList,
-                labReports: reportsData,
+                labReports: shouldFetchReports ? reportsData : labReports,
                 multiSlotResult: multiSlot,
               })
             )
           } catch (_) {}
+
+          // Snapshot diffing for authenticated queue status
+          const prev = lastSnapshotRef.current
+          const newCheckinStatus = freshAppt.checkinStatus
+          const newQueueNum = freshAppt.queueNumber
+          const newCabin = (docData as any)?.cabinStatus || (doctor as any)?.cabinStatus
+          const newQueueLength = queueList?.length
+
+          const hasInitialized = Boolean(
+            prev.checkinStatus !== undefined ||
+            prev.queueNumber !== undefined ||
+            prev.cabinStatus !== undefined ||
+            prev.queueLength !== undefined
+          )
+
+          const hasChanged = Boolean(
+            hasInitialized && (
+              prev.checkinStatus !== newCheckinStatus ||
+              prev.queueNumber !== newQueueNum ||
+              prev.cabinStatus !== newCabin ||
+              prev.queueLength !== newQueueLength
+            )
+          )
+
+          if (hasChanged && silent) {
+            playChimeSound()
+            setActiveAlert({
+              id: String(Date.now()),
+              title: 'Queue Updated',
+              message: `Queue status changed to ${String(newCheckinStatus || 'UPDATED').toUpperCase()}${newQueueNum ? ` (Token #${newQueueNum})` : ''}`,
+            })
+          }
+
+          lastSnapshotRef.current = {
+            checkinStatus: newCheckinStatus,
+            queueNumber: newQueueNum,
+            cabinStatus: newCabin,
+            queueLength: newQueueLength,
+          }
         }
       } else {
         setMultiSlotResult(null)
         if (!silent) setErrorMsg(`No booking record found for '${clean}'.`)
       }
     } catch {
-      if (!silent) setErrorMsg('Failed to update live queue status. Please try again.')
+      if (!silent && seq === requestSeqRef.current) {
+        setErrorMsg('Failed to update live queue status. Please try again.')
+      }
     } finally {
-      if (!silent) setLoading(false)
+      activeRequestsRef.current = Math.max(0, activeRequestsRef.current - 1)
+      if (activeRequestsRef.current === 0) {
+        isPollingRef.current = false
+      }
+      if (!silent && seq === requestSeqRef.current) {
+        setLoading(false)
+      }
     }
   }
 
   // Load when activeCode changes
   useEffect(() => {
     if (activeCode) {
+      lastSnapshotRef.current = {}
       fetchQueueData(activeCode)
     }
   }, [activeCode])
@@ -298,13 +463,18 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     })
   }, [appointment, publicQueueStatus, clinic, isUnlocked])
 
-  // Live auto-refresh every 4 seconds (matching Android QueueStatusScreen.kt)
+  // Live auto-refresh every 15 seconds while the tab is visible; refresh at once when it becomes visible again
   useEffect(() => {
     if (!activeCode) return
-    const interval = setInterval(() => {
-      fetchQueueData(activeCode, true)
-    }, 4000)
-    return () => clearInterval(interval)
+    const refreshIfVisible = () => {
+      if (!document.hidden) fetchQueueData(activeCode, true)
+    }
+    const interval = setInterval(refreshIfVisible, 15000)
+    document.addEventListener('visibilitychange', refreshIfVisible)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', refreshIfVisible)
+    }
   }, [activeCode])
 
   // Active Supabase Realtime WebSocket subscription for instant alerts & queue changes
@@ -384,6 +554,18 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           }
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'clinics' },
+        (payload) => {
+          const c = payload.new as any
+          if (c && appointment?.clinicId && c.id === appointment.clinicId) {
+            if (activeCode) {
+              fetchQueueData(activeCode, true)
+            }
+          }
+        }
+      )
       .subscribe()
 
     return () => {
@@ -442,17 +624,24 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     [clinicQueue, appointment?.doctorId]
   )
 
+  const apptDateRaw = appointment?.appointmentDate?.trim().slice(0, 10) || ''
+  const todayStr = useMemo(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  }, [])
+
+  const isAppointmentToday = Boolean(apptDateRaw && apptDateRaw === todayStr)
+  const isPastAppointment = Boolean(apptDateRaw && apptDateRaw < todayStr && !isAppointmentToday)
+
   // Check if the appointment is tomorrow or a future date
   const isFutureOrTomorrow = useMemo(() => {
+    if (isPastAppointment || isAppointmentToday) return false
     if (multiSlotResult) {
       return multiSlotResult.isTomorrow || multiSlotResult.isFutureDate
     }
-    if (!appointment?.appointmentDate) return false
-    const apptDate = appointment.appointmentDate.trim().slice(0, 10)
-    const now = new Date()
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-    return apptDate > todayStr
-  }, [multiSlotResult, appointment?.appointmentDate])
+    if (!apptDateRaw) return false
+    return apptDateRaw > todayStr
+  }, [multiSlotResult, apptDateRaw, todayStr, isPastAppointment, isAppointmentToday])
 
   const dateLabel = useMemo(() => {
     if (multiSlotResult?.dateLabel) return multiSlotResult.dateLabel
@@ -485,10 +674,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   let patientsAhead = 0
   let displayTokenNumber = appointment?.queueNumber || 1
 
-  if (isFutureOrTomorrow) {
+  if (isPastAppointment) {
+    patientsAhead = -1
+    displayTokenNumber = 0
+  } else if (isFutureOrTomorrow) {
     patientsAhead = multiSlotResult ? Math.max(0, multiSlotResult.patientsAheadInDay) : 0
     displayTokenNumber = multiSlotResult?.cumulativePosition || appointment?.queueNumber || 1
-  } else if (appointment) {
+  } else if (appointment && isAppointmentToday) {
     // For today: count active queue patients ahead for this doctor
     const activeWaiting = clinicQueue.filter(
       (a) => {
@@ -520,8 +712,22 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     displayTokenNumber = appointment.queueNumber || (myPos > 0 ? myPos : 1)
   }
 
-  const clinicAvgMinutes = clinic?.avgConsultationTimeMinutes || 10
-  const estimatedWaitMinutes = Math.max(0, patientsAhead * clinicAvgMinutes)
+  // Expected time is worked out on this device: the doctor's running average (from the server)
+  // and the current consultation's start time. Re-evaluated every second via the ticker, and
+  // whenever a refresh shows that a consultation finished.
+  const clinicAvgMinutes = queueTiming?.avgSeconds
+    ? Math.max(1, Math.round(queueTiming.avgSeconds / 60))
+    : (clinic?.avgConsultationTimeMinutes || 10)
+  const insideSinceMs = queueTiming?.insideSince ? Date.parse(queueTiming.insideSince) : NaN
+  // Remaining time of the patient inside now; an overrun pushes everyone later (minimum 1 min)
+  const currentRemainingMinutes = inConsultationPatient && Number.isFinite(insideSinceMs)
+    ? Math.max(1, (insideSinceMs + clinicAvgMinutes * 60000 - currentEpochSecond * 1000) / 60000)
+    : null
+  const estimatedWaitMinutes = (isPastAppointment || clinic?.isOpen === false || patientsAhead <= 0)
+    ? 0
+    : Math.round(currentRemainingMinutes !== null
+        ? (patientsAhead - 1) * clinicAvgMinutes + currentRemainingMinutes
+        : patientsAhead * clinicAvgMinutes)
 
   // Status flags
   const isLabClinic =
@@ -546,6 +752,12 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     ['inside', 'in_consultation', 'called', 'serving'].includes(
       (appointment as any)?.queueStatus?.toLowerCase() || ''
     )
+
+  const isNoShow =
+    ['no_show', 'noshow'].includes(appointment?.checkinStatus?.toLowerCase() || '') ||
+    ['no_show', 'noshow'].includes((appointment as any)?.queueStatus?.toLowerCase() || '')
+
+  const isClinicClosed = clinic?.isOpen === false
 
   const hasPreparedReport =
     labReports.some((r) => {
@@ -692,13 +904,15 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             if (directUrl) {
               setLabReports((prev) => prev.map((r) => ({ ...r, reportFileUrl: directUrl })))
               if (action === 'view_report') {
-                setSelectedReportToView(rep ? { ...rep, reportFileUrl: directUrl } : null)
+                const cached = getCachedBlobUrl(rep?.id || activeCode) || directUrl
+                setSelectedReportToView(rep ? { ...rep, reportFileUrl: cached } : null)
                 setShowReportModal(true)
               } else {
-                window.open(directUrl, '_blank')
+                await executeReportDownload({ ...rep, reportFileUrl: directUrl })
               }
             } else if (action === 'view_report') {
-              setSelectedReportToView(rep || null)
+              const cached = getCachedBlobUrl(rep?.id || activeCode) || rep?.reportFileUrl || null
+              setSelectedReportToView(rep ? { ...rep, reportFileUrl: cached || rep.reportFileUrl } : null)
               setShowReportModal(true)
             }
           })()
@@ -706,10 +920,11 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         }
 
         if (action === 'view_report') {
-          setSelectedReportToView(rep || null)
+          const cached = getCachedBlobUrl(rep?.id || activeCode) || rep?.reportFileUrl || null
+          setSelectedReportToView(rep ? { ...rep, reportFileUrl: cached || rep?.reportFileUrl } : null)
           setShowReportModal(true)
         } else {
-          triggerReportDownload()
+          executeReportDownload(rep)
         }
         return
       }
@@ -739,15 +954,29 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     }
   }
 
-  const triggerReportDownload = () => {
-    const rep = labReports.find((r) => r.status === 'prepared') || labReports[0]
+  async function executeReportDownload(targetRep?: LabReport | null) {
+    const rep = targetRep || labReports.find((r) => r.status === 'prepared') || labReports[0]
     if (rep?.reportFileUrl) {
-      window.open(rep.reportFileUrl, '_blank')
+      const isImg = rep.reportFileType === 'image' || Boolean(rep.reportFileUrl.match(/\.(jpeg|jpg|png|webp)$/i))
+      const ext = isImg ? (rep.reportFileUrl.includes('.png') ? 'png' : 'jpg') : 'pdf'
+      const fileName = buildReportFileName(
+        clinic?.name,
+        appointment?.patientName,
+        rep.testName,
+        appointment?.trackingCode10Digit || rep.id,
+        ext
+      )
+      await downloadAndCacheReport(rep.reportFileUrl, fileName, rep.id || activeCode)
+      setIsReportDownloaded(true)
     } else {
       alert(
         'Your diagnostic report is certified and ready for collection at the clinic desk. A digital PDF download will sync shortly.'
       )
     }
+  }
+
+  const triggerReportDownload = () => {
+    executeReportDownload()
   }
 
   const executeCancellation = async () => {
@@ -785,11 +1014,17 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         setRescheduleMsg('Failed to reschedule. Please pick an open slot or contact clinic reception.')
         return
       }
+      try {
+        sessionStorage.removeItem(`dactor_queue_cache_${activeCode}`)
+        if (appointment.trackingCode10Digit) {
+          sessionStorage.removeItem(`dactor_queue_cache_${appointment.trackingCode10Digit}`)
+        }
+      } catch (_) {}
       setRescheduleMsg('Appointment rescheduled successfully!')
       setTimeout(() => {
         setShowRescheduleModal(false)
         fetchQueueData(activeCode)
-      }, 1200)
+      }, 1000)
     } catch {
       setRescheduleMsg('Failed to reschedule. Please contact clinic reception.')
     } finally {
@@ -831,6 +1066,28 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   } = useMemo(() => {
     const now = new Date()
     const isDoctorFree = isDoctorInClinic && !inConsultationPatient && clinic?.isOnBreak !== true
+
+    if (clinic?.isOpen === false) {
+      return {
+        effectiveExpectedTime: now,
+        timeWindowText: 'Clinic Closed',
+        approxTimeText: 'Clinic Closed',
+        suggestedArrivalText: 'Clinic closed for today',
+        slotNoticeText: 'The clinic is closed for today. Consultations have ended.',
+        displayWaitText: 'Clinic Closed',
+      }
+    }
+
+    if (isNoShow) {
+      return {
+        effectiveExpectedTime: now,
+        timeWindowText: 'No Show',
+        approxTimeText: 'Visit Concluded',
+        suggestedArrivalText: 'Marked as No-Show',
+        slotNoticeText: 'This appointment was marked as No-Show as clinic consultations concluded.',
+        displayWaitText: 'No Show',
+      }
+    }
 
     // When appointment is tomorrow or on a future date, use multi-slot calculations directly
     if (isFutureOrTomorrow) {
@@ -874,6 +1131,78 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     const dynamicTime = new Date(now.getTime() + estimatedWaitMinutes * 60000)
     const isSlotInFuture = slotStartDate ? now.getTime() < slotStartDate.getTime() : false
 
+    // When clinic is on break, anchor patient #1 to break end time and subsequent patients to break end + (patientsAhead * avgMins)
+    if (clinic?.isOnBreak) {
+      let breakEndHours = 14
+      let breakEndMinutes = 0
+
+      if (clinic?.weeklyScheduleJson) {
+        try {
+          const schedList = JSON.parse(clinic.weeklyScheduleJson)
+          if (Array.isArray(schedList)) {
+            const todayDay = now.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase()
+            const todayItem = schedList.find((s: any) =>
+              String(s.dayOfWeek || s.day || '').toUpperCase().startsWith(todayDay.slice(0, 3))
+            )
+            if (todayItem && todayItem.hasBreak && todayItem.breakEnd) {
+              const m = todayItem.breakEnd.match(/^(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*([APap][Mm]))?/)
+              if (m) {
+                let h = parseInt(m[1], 10)
+                const min = parseInt(m[2], 10)
+                const ampm = m[3]?.toUpperCase()
+                if (ampm === 'PM' && h < 12) h += 12
+                if (ampm === 'AM' && h === 12) h = 0
+                breakEndHours = h
+                breakEndMinutes = min
+              }
+            }
+          }
+        } catch {}
+      }
+
+      const breakEndDate = new Date()
+      breakEndDate.setHours(breakEndHours, breakEndMinutes, 0, 0)
+
+      // If scheduled break end has already passed today, anchor to now (+ 5 mins buffer)
+      const effectiveBreakEnd = now.getTime() > breakEndDate.getTime()
+        ? new Date(now.getTime() + 5 * 60000)
+        : breakEndDate
+
+      // Stagger from break ending time:
+      // Patient #1 in line gets effectiveBreakEnd
+      // Subsequent patients get effectiveBreakEnd + (patientsAhead * clinicAvgMinutes)
+      const breakStaggered = new Date(effectiveBreakEnd.getTime() + patientsAhead * clinicAvgMinutes * 60000)
+
+      // Respect booked slot start time if it is even later in the day
+      const finalExpected = (slotStartDate && slotStartDate.getTime() > breakStaggered.getTime())
+        ? new Date(slotStartDate.getTime() + patientsAhead * clinicAvgMinutes * 60000)
+        : breakStaggered
+
+      const diffMins = Math.round((finalExpected.getTime() - now.getTime()) / 60000)
+      const waitText = diffMins > 60
+        ? `~${Math.round(diffMins / 60)} hr`
+        : diffMins > 0
+        ? `~${diffMins} min`
+        : 'Resuming shortly'
+
+      const fmt = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+      const startWin = new Date(finalExpected.getTime() - 5 * 60000)
+      const endWin = new Date(finalExpected.getTime() + 10 * 60000)
+
+      const notice = patientsAhead === 0
+        ? `Clinic on break. You are #1 in queue; consultation resumes at ${fmt(effectiveBreakEnd)}.`
+        : `Clinic on break. ${patientsAhead} ${patientsAhead === 1 ? 'person' : 'people'} ahead; consultation resumes around ${fmt(finalExpected)}.`
+
+      return {
+        effectiveExpectedTime: finalExpected,
+        timeWindowText: `${fmt(startWin)} – ${fmt(endWin)}`,
+        approxTimeText: `around ${fmt(finalExpected)}`,
+        suggestedArrivalText: arrivalAdvice,
+        slotNoticeText: notice,
+        displayWaitText: waitText
+      }
+    }
+
     let finalExpected: Date
     let waitText: string
 
@@ -885,7 +1214,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       } else {
         // Position 1 and current time is within slot or slot is over:
         finalExpected = now
-        waitText = 'Arrive Fast'
+        waitText = 'Arrive Soon'
       }
     } else {
       // Patient is at position 2, 3, etc. (patientsAhead > 0)
@@ -906,17 +1235,17 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     const startWin = new Date(finalExpected.getTime() - 5 * 60000)
     const endWin = new Date(finalExpected.getTime() + 10 * 60000)
 
-    const isArriveFast = waitText === 'Arrive Fast'
+    const isArriveSoon = waitText === 'Arrive Soon' || waitText === 'Arrive Fast'
 
     return {
       effectiveExpectedTime: finalExpected,
-      timeWindowText: isArriveFast ? 'Immediate' : `${fmt(startWin)} – ${fmt(endWin)}`,
-      approxTimeText: isArriveFast ? 'Your turn, arrive fast' : `around ${fmt(finalExpected)}`,
+      timeWindowText: isArriveSoon ? 'Immediate' : `${fmt(startWin)} – ${fmt(endWin)}`,
+      approxTimeText: isArriveSoon ? 'Your turn, arrive soon' : `around ${fmt(finalExpected)}`,
       suggestedArrivalText: arrivalAdvice,
-      slotNoticeText: isArriveFast ? 'You are at position 1! You are next in line — arrive fast.' : notice,
+      slotNoticeText: isArriveSoon ? 'You are at position 1! You are next in line — arrive soon.' : notice,
       displayWaitText: waitText
     }
-  }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, patientsAhead, estimatedWaitMinutes, isFutureOrTomorrow, multiSlotResult, dateLabel, slotStartTimeStr])
+  }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, clinic?.isOpen, isNoShow, clinic?.weeklyScheduleJson, clinicAvgMinutes, patientsAhead, estimatedWaitMinutes, isFutureOrTomorrow, multiSlotResult, dateLabel, slotStartTimeStr])
 
   // Formatted expected call time
   const formattedExpectedTime = approxTimeText
@@ -1542,7 +1871,24 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
               </div>
             ) : (
               <>
-            {clinic?.isOnBreak && !isConsultancyCompleted && (
+            {/* 2. CLINIC CLOSED BANNER */}
+            {clinic?.isOpen === false && !isConsultancyCompleted && (
+              <div className="bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 flex items-center space-x-3 text-rose-900 dark:text-rose-300 shadow-glass-sm backdrop-blur-sm">
+                <div className="w-9 h-9 rounded-full bg-rose-500 text-white flex items-center justify-center shrink-0">
+                  <AlertCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-rose-800 dark:text-rose-300">
+                    CLINIC IS CURRENTLY CLOSED
+                  </h4>
+                  <p className="text-xs text-rose-700 dark:text-rose-400/90">
+                    The clinic has closed for today. Live queue tracking and consultations have concluded. Remaining tokens have been marked as concluded.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {clinic?.isOnBreak && clinic?.isOpen !== false && !isConsultancyCompleted && (
               <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex items-center space-x-3 text-amber-900 dark:text-amber-300 shadow-glass-sm backdrop-blur-sm">
                 <div className="w-9 h-9 rounded-full bg-amber-500 text-white flex items-center justify-center shrink-0">
                   <PauseCircle className="w-5 h-5" />
@@ -1552,14 +1898,14 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                     CLINIC IS CURRENTLY ON BREAK
                   </h4>
                   <p className="text-xs text-amber-700 dark:text-amber-400/90">
-                    Consultations are paused temporarily. They will resume shortly.
+                    Consultations are paused temporarily. Break ends and consultations resume {approxTimeText} ({displayWaitText}).
                   </p>
                 </div>
               </div>
             )}
 
             {/* 3. DOCTOR PRESENCE / AWAY BANNER */}
-            {!isConsultancyCompleted && !isLabClinic && appointment.doctorId && doctor && (
+            {!isConsultancyCompleted && !isPastAppointment && clinic?.isOpen !== false && !isLabClinic && appointment.doctorId && doctor && (
               <div
                 className={`p-3.5 rounded-2xl border text-xs flex items-center space-x-2.5 backdrop-blur-sm ${
                   isFutureOrTomorrow
@@ -1598,10 +1944,14 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                 <div className="relative flex items-center justify-center shrink-0">
                   <div
                     className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center backdrop-blur-md border ${
-                      isInsideChamber
+                      clinic?.isOpen === false || isNoShow
+                        ? 'bg-rose-500/15 border-rose-500/30'
+                        : isInsideChamber
                         ? 'bg-blue-500/15 border-blue-500/30'
                         : isConsultancyCompleted
                         ? 'bg-emerald-500/15 border-emerald-500/30'
+                        : isPastAppointment
+                        ? 'bg-slate-500/15 border-slate-500/30'
                         : patientsAhead === 0
                         ? 'bg-emerald-500/15 border-emerald-500/30'
                         : 'bg-teal-500/15 border-teal-500/30'
@@ -1609,31 +1959,47 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                   >
                     <div
                       className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full flex flex-col items-center justify-center text-white shadow-glass-base ${
-                        isInsideChamber
+                        clinic?.isOpen === false || isNoShow
+                          ? 'bg-gradient-to-tr from-rose-600 to-red-600'
+                          : isInsideChamber
                           ? 'bg-gradient-to-tr from-blue-600 to-indigo-600'
                           : isConsultancyCompleted
                           ? 'bg-gradient-to-tr from-emerald-600 to-teal-600'
+                          : isPastAppointment
+                          ? 'bg-gradient-to-tr from-slate-600 to-slate-700'
                           : patientsAhead === 0
                           ? 'bg-gradient-to-tr from-emerald-600 to-teal-600'
                           : 'bg-gradient-to-tr from-teal-600 to-cyan-600'
                       }`}
                     >
                       <span className="text-[7px] sm:text-[8px] font-black uppercase tracking-wider opacity-90 leading-tight">
-                        {isInsideChamber
+                        {clinic?.isOpen === false
+                          ? 'CLINIC'
+                          : isNoShow
+                          ? 'VISIT'
+                          : isInsideChamber
                           ? 'CURRENT'
                           : isConsultancyCompleted
                           ? 'VISIT'
+                          : isPastAppointment
+                          ? 'PAST'
                           : isFutureOrTomorrow
                           ? 'LINE NO.'
                           : patientsAhead === 0
                           ? 'UP NEXT'
                           : 'POSITION'}
                       </span>
-                      <span className="text-xl sm:text-2xl font-black leading-none mt-0.5">
-                        {isInsideChamber
+                      <span className={`${clinic?.isOpen === false || isNoShow ? 'text-[10px] sm:text-[11px] tracking-tight' : 'text-xl sm:text-2xl'} font-black leading-none mt-0.5`}>
+                        {clinic?.isOpen === false
+                          ? 'CLOSED'
+                          : isNoShow
+                          ? 'NO SHOW'
+                          : isInsideChamber
                           ? 'NOW'
                           : isConsultancyCompleted
                           ? '✓'
+                          : isPastAppointment
+                          ? '—'
                           : isFutureOrTomorrow
                           ? `${multiSlotResult?.cumulativePosition || displayTokenNumber}`
                           : `${Math.max(0, patientsAhead)}`}
@@ -1647,7 +2013,9 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                   <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                     <h3
                       className={`text-base sm:text-xl font-black leading-snug ${
-                        isLabClinic && effectiveLabStatus === 'prepared'
+                        clinic?.isOpen === false || isNoShow
+                          ? 'text-rose-700 dark:text-rose-300'
+                          : isLabClinic && effectiveLabStatus === 'prepared'
                           ? 'text-emerald-700 dark:text-emerald-300'
                           : isLabClinic && effectiveLabStatus === 'processing'
                           ? 'text-amber-700 dark:text-amber-300'
@@ -1657,10 +2025,16 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           ? 'text-blue-700 dark:text-blue-300'
                           : isConsultancyCompleted
                           ? 'text-emerald-700 dark:text-emerald-300'
+                          : isPastAppointment
+                          ? 'text-slate-700 dark:text-slate-300'
                           : 'text-slate-900 dark:text-white'
                       }`}
                     >
-                      {isLabClinic
+                      {clinic?.isOpen === false
+                        ? 'Clinic is Closed for Today'
+                        : isNoShow
+                        ? 'Visit Concluded as No-Show'
+                        : isLabClinic
                         ? effectiveLabStatus === 'prepared'
                         ? 'Status: Report Prepared'
                         : effectiveLabStatus === 'processing'
@@ -1674,6 +2048,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                       ? 'You are in OPD session'
                       : isConsultancyCompleted
                       ? 'Consultation completed'
+                      : isPastAppointment
+                      ? `Past Visit • ${dateLabel}`
                       : isFutureOrTomorrow && patientsAhead === 0
                       ? `1st in line for ${dateLabel}`
                       : isFutureOrTomorrow
@@ -1683,13 +2059,19 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                       : `${patientsAhead} patients ahead`}
                     </h3>
 
-                    <span className="px-2 sm:px-2.5 py-0.5 rounded-md liquid-glass-subtle text-slate-700 dark:text-slate-300 text-[11px] sm:text-xs font-bold">
-                      Token #{displayTokenNumber}{doctor?.fullName && !isLabClinic ? ` • ${doctor.fullName}` : ''}
-                    </span>
+                    {(!isPastAppointment || isConsultancyCompleted) && (
+                      <span className="px-2 sm:px-2.5 py-0.5 rounded-md liquid-glass-subtle text-slate-700 dark:text-slate-300 text-[11px] sm:text-xs font-bold">
+                        Token #{displayTokenNumber}{doctor?.fullName && !isLabClinic ? ` • ${doctor.fullName}` : ''}
+                      </span>
+                    )}
                   </div>
 
                   <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
-                    {isLabClinic
+                    {clinic?.isOpen === false
+                      ? 'The clinic has closed for today. Live queue tracking and consultations have concluded.'
+                      : isNoShow
+                      ? 'This visit was concluded as No-Show after clinic closing hours.'
+                      : isLabClinic
                       ? effectiveLabStatus === 'prepared'
                         ? 'Certified report ready • Verify identity below to view & download file'
                         : effectiveLabStatus === 'processing'
@@ -1701,12 +2083,22 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                       ? 'Currently with specialist in consultation cabin'
                       : isConsultancyCompleted
                       ? 'Thank you for visiting • Prescription & bill available below'
+                      : isPastAppointment
+                      ? `This visit was scheduled for ${dateLabel}. Live queue tracking is active on the day of appointment.`
                       : isFutureOrTomorrow
                       ? `Scheduled for ${dateLabel} • Approx. ${multiSlotResult?.approxAppointmentTimeText || `${slotStartTimeStr} (±15 min)`}`
                       : slotNoticeText || (patientsAhead === 0
                       ? '0 patients ahead • Please stay close to the consultation cabin'
                       : `${patientsAhead} ahead in line • Est. wait: ~${estimatedWaitMinutes} mins`)}
                   </p>
+
+                  {isPastAppointment && !isConsultancyCompleted && (
+                    <div className="pt-1">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800 text-[11px] font-bold">
+                        <span>⏱ Past Appointment • Click "Reschedule Visit" below to choose an upcoming date</span>
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1773,7 +2165,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="p-4 rounded-2xl liquid-glass-subtle space-y-0.5">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                        {isFutureOrTomorrow ? 'Your Slot' : 'Your Booked Window'}
+                        {isPastAppointment ? 'Past Slot' : isFutureOrTomorrow ? 'Your Slot' : 'Your Booked Window'}
                       </span>
                       <div className="text-base font-black text-slate-900 dark:text-white">
                         {isFutureOrTomorrow
@@ -1783,27 +2175,61 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           : '09:00 AM (±15 min)'}
                       </div>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                        {isFutureOrTomorrow
+                        {isPastAppointment
+                          ? `Visit Date: ${appointment.appointmentDate}`
+                          : isFutureOrTomorrow
                           ? 'Scheduled slot'
                           : suggestedArrivalText || `Date: ${appointment.appointmentDate}`}
                       </span>
                     </div>
 
-                    <div className="p-4 rounded-2xl liquid-glass-subtle space-y-0.5 border border-teal-500/30">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:text-teal-300">
-                        {isFutureOrTomorrow
+                    <div className={`p-4 rounded-2xl liquid-glass-subtle space-y-0.5 border ${
+                      clinic?.isOpen === false
+                        ? 'border-rose-500/40 bg-rose-500/5'
+                        : clinic?.isOnBreak
+                        ? 'border-amber-500/50 bg-amber-500/5'
+                        : 'border-teal-500/30'
+                    }`}>
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${
+                        clinic?.isOpen === false
+                          ? 'text-rose-700 dark:text-rose-300'
+                          : clinic?.isOnBreak
+                          ? 'text-amber-800 dark:text-amber-300'
+                          : 'text-teal-700 dark:text-teal-300'
+                      }`}>
+                        {clinic?.isOpen === false
+                          ? 'Clinic Status'
+                          : clinic?.isOnBreak
+                          ? 'Clinic on Break'
+                          : isPastAppointment
+                          ? 'Tracking Status'
+                          : isFutureOrTomorrow
                           ? 'Scheduled Window'
                           : 'Expected Window'}
                       </span>
-                      <div className="text-base font-black text-teal-900 dark:text-teal-200">
-                        {isFutureOrTomorrow && multiSlotResult
+                      <div className={`text-base font-black ${
+                        clinic?.isOpen === false
+                          ? 'text-rose-900 dark:text-rose-200'
+                          : clinic?.isOnBreak
+                          ? 'text-amber-900 dark:text-amber-200'
+                          : 'text-teal-900 dark:text-teal-200'
+                      }`}>
+                        {clinic?.isOpen === false
+                          ? 'Clinic Closed'
+                          : isPastAppointment
+                          ? 'Visit Concluded'
+                          : isFutureOrTomorrow && multiSlotResult
                           ? multiSlotResult.approxAppointmentTimeText
                           : isFutureOrTomorrow
                           ? `${slotStartTimeStr} (±15 min)`
                           : displayWaitText}
                       </div>
-                      <span className="text-[11px] text-teal-700 dark:text-teal-400">
-                        {isFutureOrTomorrow && multiSlotResult
+                      <span className={`text-[11px] ${clinic?.isOpen === false ? 'text-rose-700 dark:text-rose-400' : 'text-teal-700 dark:text-teal-400'}`}>
+                        {clinic?.isOpen === false
+                          ? 'Consultations ended for today'
+                          : isPastAppointment
+                          ? 'Live tracking closes after appointment date'
+                          : isFutureOrTomorrow && multiSlotResult
                           ? `${multiSlotResult.timeWindowText} (±15 min)`
                           : isFutureOrTomorrow
                           ? 'Staggered arrival window'
@@ -2017,21 +2443,37 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 pt-1">
-                      <button
-                        onClick={() => handleActionWithAuth('view_report')}
-                        className="flex-1 py-2.5 px-4 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-glass-sm active:scale-95 border-t border-white/20"
-                      >
-                        <Eye className="w-4 h-4" />
-                        <span>{isReportIdentityVerified ? 'View Report In-App' : 'Verify & View Report'}</span>
-                      </button>
+                      {!isReportDownloaded ? (
+                        <button
+                          onClick={() => handleActionWithAuth('download_report')}
+                          className="flex-1 py-2.5 px-4 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-glass-sm active:scale-95 border-t border-white/20"
+                        >
+                          <Download className="w-4 h-4" />
+                          <span>
+                            {isReportIdentityVerified
+                              ? 'Download Report (PDF / Picture)'
+                              : 'Verify & Download Report'}
+                          </span>
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => handleActionWithAuth('view_report')}
+                            className="flex-1 py-2.5 px-4 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-glass-sm active:scale-95 border-t border-white/20"
+                          >
+                            <Eye className="w-4 h-4" />
+                            <span>View Report In-App (Offline)</span>
+                          </button>
 
-                      <button
-                        onClick={() => handleActionWithAuth('download_report')}
-                        className="py-2.5 px-4 liquid-glass-subtle text-teal-700 dark:text-teal-300 hover:bg-white/80 dark:hover:bg-slate-800/80 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer active:scale-95"
-                      >
-                        <Download className="w-4 h-4" />
-                        <span>Download PDF</span>
-                      </button>
+                          <button
+                            onClick={() => handleActionWithAuth('download_report')}
+                            className="py-2.5 px-4 liquid-glass-subtle text-teal-700 dark:text-teal-300 hover:bg-white/80 dark:hover:bg-slate-800/80 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer active:scale-95"
+                          >
+                            <Download className="w-4 h-4" />
+                            <span>Re-download</span>
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 ) : effectiveLabStatus === 'processing' ? (

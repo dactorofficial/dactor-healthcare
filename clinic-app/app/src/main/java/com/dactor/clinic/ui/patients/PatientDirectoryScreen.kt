@@ -46,6 +46,7 @@ import com.dactor.clinic.data.model.Doctor
 import com.dactor.clinic.data.model.Profile
 import com.dactor.clinic.data.model.Slot
 import com.dactor.clinic.data.repository.*
+import com.dactor.clinic.domain.util.DateTimePickers
 import com.dactor.clinic.domain.util.TrackingCodeGenerator
 import com.dactor.clinic.ui.navigation.NavRoutes
 import kotlinx.coroutines.delay
@@ -66,7 +67,8 @@ fun PatientDirectoryScreen(
     clinicRepository: ClinicRepository? = null,
     slotRepository: SlotRepository? = null,
     sessionManager: UserSessionManager? = null,
-    queueRepository: QueueRepository? = null
+    queueRepository: QueueRepository? = null,
+    patientRepository: PatientRepository? = null
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -85,6 +87,9 @@ fun PatientDirectoryScreen(
     var selectedVisitDate by remember { mutableStateOf(LocalDate.now()) }
     var datewiseSearchQuery by remember { mutableStateOf("") }
     var showDatePickerDialog by remember { mutableStateOf(false) }
+    var localPatients by remember(effectiveClinicId) { mutableStateOf<List<com.dactor.clinic.data.local.entity.PatientEntity>>(emptyList()) }
+    var remoteDatewiseAppts by remember(selectedVisitDate) { mutableStateOf<List<Appointment>>(emptyList()) }
+    var isLoadingDatewise by remember { mutableStateOf(false) }
     val directoryPrefs = remember(context) {
         context.getSharedPreferences("clinic_patient_directory", android.content.Context.MODE_PRIVATE)
     }
@@ -105,6 +110,9 @@ fun PatientDirectoryScreen(
         } ?: emptyList()
     }
     var appointments by remember(effectiveClinicId) { mutableStateOf<List<Appointment>>(cachedInitialAppts) }
+    // After today's bookings are loaded once, only bookings created/approved after this time are fetched
+    var newBookingsSince by remember(effectiveClinicId) { mutableStateOf<String?>(null) }
+    var bookingsLoadedForDate by remember(effectiveClinicId) { mutableStateOf<String?>(null) }
     var locallyAddedProfiles by remember(effectiveClinicId) {
         val savedRaw = directoryPrefs.getString("records_${effectiveClinicId.ifBlank { "default" }}", "") ?: ""
         val loaded = savedRaw.split("\n").mapNotNull { line ->
@@ -172,13 +180,55 @@ fun PatientDirectoryScreen(
         }
     }
 
-    // Schedule Next Visit (Multi-Type Clinic) Dialog State
+    // Direct Appointment Booking / Schedule Dialog State
     var showScheduleDialogForPatient by remember { mutableStateOf<PatientDetailItem?>(null) }
     var scheduleDoctorId by remember { mutableStateOf("") }
-    var scheduleDateInput by remember { mutableStateOf(LocalDate.now().plusDays(1).toString()) }
+    var scheduleDateInput by remember { mutableStateOf(LocalDate.now().toString()) }
     var scheduleTimeInput by remember { mutableStateOf("10:00 AM") }
+    var selectedScheduleSlotId by remember { mutableStateOf<String?>(null) }
+    var availableScheduleSlots by remember { mutableStateOf<List<Slot>>(emptyList()) }
+    var isLoadingScheduleSlots by remember { mutableStateOf(false) }
     var scheduleRemarksInput by remember { mutableStateOf("") }
     var isScheduling by remember { mutableStateOf(false) }
+
+    LaunchedEffect(scheduleDateInput, scheduleDoctorId, showScheduleDialogForPatient) {
+        if (showScheduleDialogForPatient != null && slotRepository != null && effectiveClinicId.isNotBlank() && scheduleDateInput.isNotBlank()) {
+            isLoadingScheduleSlots = true
+            try {
+                val allSlots = slotRepository.getSlots(effectiveClinicId, scheduleDateInput)
+                val publishedForDate = allSlots.filter { it.isPublished }
+                val doctorFiltered = if (scheduleDoctorId.isNotBlank()) {
+                    val specific = publishedForDate.filter { it.doctorId == scheduleDoctorId }
+                    if (specific.isNotEmpty()) specific else publishedForDate.filter { it.doctorId.isNullOrBlank() }
+                } else publishedForDate
+
+                val activeSlots = doctorFiltered.filter { slot ->
+                    !SlotRepository.isSlotEndTimeOver(
+                        endTimeStr = slot.endTime,
+                        dateStr = scheduleDateInput,
+                        startTimeStr = slot.startTime
+                    )
+                }.sortedBy {
+                    SlotRepository.parseTimeToMinutes(it.startTime) ?: Int.MAX_VALUE
+                }
+                availableScheduleSlots = activeSlots
+                if (selectedScheduleSlotId != null && activeSlots.none { it.id == selectedScheduleSlotId }) {
+                    selectedScheduleSlotId = null
+                }
+                if (selectedScheduleSlotId == null && activeSlots.isNotEmpty()) {
+                    val firstOpen = activeSlots.firstOrNull { it.bookedCount < it.maxCapacity } ?: activeSlots.first()
+                    selectedScheduleSlotId = firstOpen.id
+                    scheduleTimeInput = "${firstOpen.startTime} - ${firstOpen.endTime}"
+                }
+            } catch (_: Exception) {
+                availableScheduleSlots = emptyList()
+            } finally {
+                isLoadingScheduleSlots = false
+            }
+        } else {
+            availableScheduleSlots = emptyList()
+        }
+    }
 
     // Add Patient Dialog State
     var showRegisterPatientDialog by remember { mutableStateOf(false) }
@@ -235,13 +285,22 @@ fun PatientDirectoryScreen(
         }
 
         // Patient directory is strictly clinic-scoped: only patients with confirmed/approved clinic appointments or local desk registrations are included
+        if (effectiveClinicId.isNotBlank() && patientRepository != null) {
+            if (localPatients.isEmpty()) {
+                localPatients = patientRepository.getLocalPatients(effectiveClinicId)
+            }
+            if (locallyAddedProfiles.isNotEmpty()) {
+                patientRepository.migrateLegacyProfiles(effectiveClinicId, locallyAddedProfiles)
+            }
+        }
 
         if (appointmentRepository != null) {
             val isDocMode = userRole == "doctor" && savedDoctorId.isNotBlank()
             val docIdToUse = savedDoctorId
 
             val fetched = if (isDocMode && docIdToUse.isNotBlank()) {
-                appointmentRepository.getAppointmentsByDoctor(docIdToUse)
+                val docAll = appointmentRepository.getAppointmentsByDoctor(docIdToUse)
+                docAll.filter { it.appointmentDate == today }
             } else {
                 val cId = if (effectiveClinicId.isNotBlank()) effectiveClinicId
                 else effectiveSessionManager.getSavedClinicId() ?: ""
@@ -249,7 +308,20 @@ fun PatientDirectoryScreen(
                     if (doctorRepository != null && affiliatedDoctors.isEmpty()) {
                         affiliatedDoctors = doctorRepository.getDoctorsByClinic(cId)
                     }
-                    appointmentRepository.getAppointmentsByClinic(cId)
+                    // Daily Active Sync: today's bookings once, then only new or newly approved ones.
+                    // Cancellations/reschedules do not change who is in the directory.
+                    val since = newBookingsSince
+                    val result = if (since == null || bookingsLoadedForDate != today) {
+                        bookingsLoadedForDate = today
+                        appointmentRepository.getAppointmentsByDate(cId, today)
+                    } else {
+                        val fresh = appointmentRepository.getNewOrApprovedAppointmentsForDate(cId, today, since)
+                        (appointments.associateBy { it.id } + fresh.associateBy { it.id }).values.toList()
+                    }
+                    com.dactor.clinic.data.repository.AppointmentRepository.latestBookingTime(result)?.let { latest ->
+                        if (since == null || latest > since) newBookingsSince = latest
+                    }
+                    result
                 } else emptyList()
             }
             // Strict Clinic Directory Guard: Only APPROVED appointments belong in the Clinic Directory & Live OPD Queue
@@ -265,9 +337,15 @@ fun PatientDirectoryScreen(
                 appointments = approvedOnly
             }
 
-            // Load remarks in batch
-            if (billingRepository != null && fetched.isNotEmpty()) {
-                val apptIds = fetched.map { it.id }
+            // Sync patients who have appointments on the day into the persistent local patient directory
+            if (patientRepository != null && approvedOnly.isNotEmpty()) {
+                patientRepository.upsertFromAppointments(effectiveClinicId, approvedOnly)
+                localPatients = patientRepository.getLocalPatients(effectiveClinicId)
+            }
+
+            // Load remarks in batch ONLY for today's active appointments
+            if (billingRepository != null && approvedOnly.isNotEmpty()) {
+                val apptIds = approvedOnly.map { it.id }
                 val hasMissingRemarks = apptIds.any { it !in remarksMap }
                 if (remarksMap.isEmpty() || hasMissingRemarks) {
                     val map = billingRepository.getRemarksForAppointments(apptIds)
@@ -282,7 +360,7 @@ fun PatientDirectoryScreen(
     LaunchedEffect(effectiveClinicId, savedDoctorId, userRole, clinicId) {
         while (isActive) {
             loadData()
-            delay(5000L)
+            delay(90_000L)
         }
     }
 
@@ -320,14 +398,21 @@ fun PatientDirectoryScreen(
         }
     }
 
-    // Filtered list for Tab 1 (All Patients Directory for current clinic)
     // Distinct Directory Entries for Tab 1 (All Patients Directory for current clinic)
-    // Appointments are never combined across different appointment IDs; each discrete appointment has its own record
-    val allDirectoryProfiles = remember(locallyAddedProfiles, appointments) {
+    // Persisted locally in Room database (localPatients) with desk additions & today's sync
+    val allDirectoryProfiles = remember(localPatients, locallyAddedProfiles, appointments) {
         val list = mutableListOf<Profile>()
-        val seenApptIds = mutableSetOf<String>()
+        val seenIds = mutableSetOf<String>()
 
-        // 1. Only APPROVED appointments belong in the Patient Directory
+        // 1. Locally saved patient directory (persistent Room database)
+        localPatients.forEach { pat ->
+            if (pat.id !in seenIds) {
+                seenIds.add(pat.id)
+                list.add(pat.toProfile())
+            }
+        }
+
+        // 2. Add today's appointments if not already in local patients
         appointments.filter {
             it.status.equals("APPROVED", ignoreCase = true) &&
             it.status != "WAITING_FOR_APPROVAL" &&
@@ -336,8 +421,9 @@ fun PatientDirectoryScreen(
             it.status != "EXPIRED" &&
             it.checkinStatus != "cancelled"
         }.forEach { appt ->
-            if (appt.id !in seenApptIds) {
-                seenApptIds.add(appt.id)
+            val pId = appt.trackingCode10Digit.ifBlank { appt.id }
+            if (pId !in seenIds && appt.id !in seenIds) {
+                seenIds.add(pId)
                 list.add(
                     Profile(
                         id = appt.id,
@@ -353,25 +439,25 @@ fun PatientDirectoryScreen(
             }
         }
 
-        // 2. Standalone locally added profiles from desk registration (who haven't booked an online appt yet)
-        val existingPhones = appointments.map { it.patientMobile.trim() }.filter { it.isNotBlank() }.toSet()
+        // 3. Standalone locally added profiles from desk registration
         locallyAddedProfiles.forEach { p ->
-            val hasAppt = (!p.phone.isNullOrBlank() && p.phone!!.trim() in existingPhones)
-            if (!hasAppt && list.none { it.id == p.id }) {
+            if (p.id !in seenIds) {
+                seenIds.add(p.id)
                 list.add(p)
             }
         }
         list
     }
 
-    val filteredProfiles = remember(allDirectoryProfiles, appointments, searchQuery) {
+    val filteredProfiles = remember(allDirectoryProfiles, localPatients, appointments, searchQuery) {
         if (searchQuery.isBlank()) allDirectoryProfiles
         else {
             val q = searchQuery.trim().lowercase()
             allDirectoryProfiles.filter { p ->
-                val appt = appointments.find { it.id == p.id }
-                val apptCode = appt?.trackingCode10Digit ?: getDeterministicAppointmentId(p.id)
-                val apptDoctor = appt?.doctorId?.let { dId -> affiliatedDoctors.find { it.id == dId }?.fullName }
+                val pat = localPatients.find { it.id == p.id || it.phone == p.phone }
+                val appt = appointments.find { it.id == p.id || it.trackingCode10Digit == p.id }
+                val apptCode = pat?.trackingCode10Digit ?: appt?.trackingCode10Digit ?: getDeterministicAppointmentId(p.id)
+                val apptDoctor = pat?.lastDoctorName ?: appt?.doctorId?.let { dId -> affiliatedDoctors.find { it.id == dId }?.fullName }
                 (p.fullName?.lowercase()?.contains(q) == true) ||
                 (p.phone?.contains(q) == true) ||
                 p.id.lowercase().contains(q) ||
@@ -384,15 +470,47 @@ fun PatientDirectoryScreen(
 
     // Filtered & Chronologically Sorted Appointments for Tab 2 (Datewise Visits in Checking Order)
     val selectedVisitDateStr = remember(selectedVisitDate) { selectedVisitDate.toString() }
-    val datewiseAppointmentsForDay = remember(appointments, selectedVisitDateStr) {
-        appointments.filter {
-            it.appointmentDate == selectedVisitDateStr &&
-            it.status.equals("APPROVED", ignoreCase = true) &&
-            it.status != "WAITING_FOR_APPROVAL" &&
-            it.status != "pending_payment" &&
-            it.status != "UNAPPROVED" &&
-            it.status != "EXPIRED" &&
-            it.checkinStatus != "cancelled"
+
+    // On-demand datewise visits sync for Tab 2
+    LaunchedEffect(selectedVisitDateStr, effectiveClinicId) {
+        if (selectedVisitDateStr == today) {
+            remoteDatewiseAppts = emptyList()
+        } else if (effectiveClinicId.isNotBlank() && appointmentRepository != null) {
+            isLoadingDatewise = true
+            try {
+                val fetchedDate = appointmentRepository.getAppointmentsByDate(effectiveClinicId, selectedVisitDateStr)
+                    .filter {
+                        it.status.equals("APPROVED", ignoreCase = true) &&
+                        it.status != "WAITING_FOR_APPROVAL" &&
+                        it.status != "pending_payment" &&
+                        it.status != "UNAPPROVED" &&
+                        it.status != "EXPIRED" &&
+                        it.checkinStatus != "cancelled"
+                    }
+                remoteDatewiseAppts = fetchedDate
+                if (billingRepository != null && fetchedDate.isNotEmpty()) {
+                    val map = billingRepository.getRemarksForAppointments(fetchedDate.map { it.id })
+                    if (map.isNotEmpty()) remarksMap = remarksMap + map
+                }
+            } catch (_: Exception) {} finally {
+                isLoadingDatewise = false
+            }
+        }
+    }
+
+    val datewiseAppointmentsForDay = remember(appointments, remoteDatewiseAppts, selectedVisitDateStr, today) {
+        if (selectedVisitDateStr == today) {
+            appointments.filter {
+                it.appointmentDate == today &&
+                it.status.equals("APPROVED", ignoreCase = true) &&
+                it.status != "WAITING_FOR_APPROVAL" &&
+                it.status != "pending_payment" &&
+                it.status != "UNAPPROVED" &&
+                it.status != "EXPIRED" &&
+                it.checkinStatus != "cancelled"
+            }
+        } else {
+            remoteDatewiseAppts
         }
     }
 
@@ -433,12 +551,31 @@ fun PatientDirectoryScreen(
         selectedPatientForDetails = item
         coroutineScope.launch {
             isLoadingHistory = true
-            patientFullHistoryAppts = if (item.currentAppointment != null) {
-                // Strictly isolate appointments by 10-digit Appointment ID (trackingCode)
-                // Appointments with different appointment IDs from the same clinic must NEVER be grouped into the same history
-                if (item.trackingCode.isNotBlank() && appointmentRepository != null) {
-                    val sameCode = appointmentRepository.getAllAppointmentsByTrackingCode(item.trackingCode)
-                        .filter {
+            try {
+                // On-demand selective sync: viewing an individual patient initiates sync for that patient's data
+                val syncKey = item.trackingCode.ifBlank { item.userId ?: item.currentAppointment?.id ?: "" }
+                if (syncKey.isNotBlank()) {
+                    try {
+                        appointmentRepository?.syncPatientRecordOnOpen(effectiveClinicId, syncKey)
+                    } catch (_: Exception) {}
+                }
+
+                // ON-DEMAND / LAZY RETRIEVAL: When a patient is checked/inspected,
+                // retrieve their fresh changeable data (new appointments, bill status, remarks)
+                if (patientRepository != null) {
+                    val freshData = patientRepository.fetchPatientChangeableData(
+                        trackingCode = item.trackingCode,
+                        patientId = item.userId ?: item.currentAppointment?.id,
+                        clinicId = effectiveClinicId
+                    )
+                    patientFullHistoryAppts = freshData.appointments.ifEmpty {
+                        if (item.currentAppointment != null) listOf(item.currentAppointment) else emptyList()
+                    }
+                    remarksMap = remarksMap + freshData.remarks
+                    localPatients = patientRepository.getLocalPatients(effectiveClinicId)
+                } else if (appointmentRepository != null) {
+                    val sameCode = if (item.trackingCode.isNotBlank()) {
+                        appointmentRepository.getAllAppointmentsByTrackingCode(item.trackingCode).filter {
                             it.status.equals("APPROVED", ignoreCase = true) &&
                             it.status != "WAITING_FOR_APPROVAL" &&
                             it.status != "pending_payment" &&
@@ -446,28 +583,21 @@ fun PatientDirectoryScreen(
                             it.status != "EXPIRED" &&
                             it.checkinStatus != "cancelled"
                         }
-                    sameCode.ifEmpty { listOf(item.currentAppointment) }
-                } else {
-                    listOf(item.currentAppointment)
+                    } else emptyList()
+                    patientFullHistoryAppts = sameCode.ifEmpty {
+                        if (item.currentAppointment != null) listOf(item.currentAppointment) else emptyList()
+                    }
+                    if (billingRepository != null && patientFullHistoryAppts.isNotEmpty()) {
+                        val historyIds = patientFullHistoryAppts.map { it.id }
+                        val fetchedRemarks = billingRepository.getRemarksForAppointments(historyIds)
+                        remarksMap = remarksMap + fetchedRemarks
+                    }
                 }
-            } else if (appointmentRepository != null && item.trackingCode.isNotBlank()) {
-                appointmentRepository.getAllAppointmentsByTrackingCode(item.trackingCode).filter {
-                    it.status.equals("APPROVED", ignoreCase = true) &&
-                    it.status != "WAITING_FOR_APPROVAL" &&
-                    it.status != "pending_payment" &&
-                    it.status != "UNAPPROVED" &&
-                    it.status != "EXPIRED" &&
-                    it.checkinStatus != "cancelled"
-                }
-            } else emptyList()
-
-            // Fetch remarks for these patient history appointments
-            if (billingRepository != null && patientFullHistoryAppts.isNotEmpty()) {
-                val historyIds = patientFullHistoryAppts.map { it.id }
-                val fetchedRemarks = billingRepository.getRemarksForAppointments(historyIds)
-                remarksMap = remarksMap + fetchedRemarks
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                isLoadingHistory = false
             }
-            isLoadingHistory = false
         }
     }
 
@@ -567,7 +697,7 @@ fun PatientDirectoryScreen(
                             }
 
                             IconButton(
-                                onClick = { coroutineScope.launch { loadData() } },
+                                onClick = { coroutineScope.launch { newBookingsSince = null; loadData() } },
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color(0xFF475569))
@@ -897,6 +1027,9 @@ fun PatientDirectoryScreen(
                                     onScheduleNextVisit = {
                                         showScheduleDialogForPatient = detailItem
                                         scheduleDoctorId = appt.doctorId ?: affiliatedDoctors.firstOrNull()?.id ?: ""
+                                        scheduleDateInput = LocalDate.now().toString()
+                                        selectedScheduleSlotId = null
+                                        scheduleRemarksInput = ""
                                     },
                                     onOpenBilling = {
                                         navController.navigate("${NavRoutes.BillingScreen}/${appt.id}")
@@ -942,20 +1075,21 @@ fun PatientDirectoryScreen(
                                 .weight(1f)
                         ) {
                             items(filteredProfiles, key = { it.id }) { patient ->
+                                val patEntity = localPatients.find { it.id == patient.id || (!it.phone.isNullOrBlank() && it.phone == patient.phone) }
                                 val thisAppt = appointments.find { it.id == patient.id }
                                 val deterministicApptId = remember(patient.id) { getDeterministicAppointmentId(patient.id) }
-                                val assignedApptId = thisAppt?.trackingCode10Digit ?: deterministicApptId
-                                val assignedDoctor = affiliatedDoctors.find { it.id == thisAppt?.doctorId }
-                                val existingRemark = thisAppt?.let { com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarksMap[it.id]) }
+                                val assignedApptId = patEntity?.trackingCode10Digit ?: thisAppt?.trackingCode10Digit ?: deterministicApptId
+                                val assignedDoctor = affiliatedDoctors.find { it.id == (thisAppt?.doctorId ?: patEntity?.lastDoctorId) }
+                                val existingRemark = patEntity?.latestClinicalRemarks ?: thisAppt?.let { com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarksMap[it.id]) }
 
                                 val detailItem = PatientDetailItem(
-                                    patientName = patient.fullName ?: (thisAppt?.patientName ?: "Unnamed Patient"),
-                                    age = patient.age ?: thisAppt?.patientAge,
-                                    gender = patient.gender ?: (thisAppt?.patientGender ?: "Male"),
-                                    phone = patient.phone?.ifBlank { thisAppt?.patientMobile ?: "" } ?: (thisAppt?.patientMobile ?: ""),
-                                    email = patient.email.ifBlank { thisAppt?.patientEmail },
+                                    patientName = patient.fullName ?: (patEntity?.fullName ?: (thisAppt?.patientName ?: "Unnamed Patient")),
+                                    age = patient.age ?: patEntity?.age ?: thisAppt?.patientAge,
+                                    gender = patient.gender ?: patEntity?.gender ?: (thisAppt?.patientGender ?: "Male"),
+                                    phone = patient.phone?.ifBlank { patEntity?.phone ?: (thisAppt?.patientMobile ?: "") } ?: (patEntity?.phone ?: (thisAppt?.patientMobile ?: "")),
+                                    email = patient.email.ifBlank { patEntity?.email ?: thisAppt?.patientEmail },
                                     trackingCode = assignedApptId,
-                                    userId = thisAppt?.userId ?: patient.id,
+                                    userId = thisAppt?.userId ?: patEntity?.id ?: patient.id,
                                     currentAppointment = thisAppt
                                 )
 
@@ -964,14 +1098,15 @@ fun PatientDirectoryScreen(
 
                                 PatientRecordCardItem(
                                     item = detailItem,
-                                    doctorName = assignedDoctor?.fullName ?: (if (thisAppt != null) "Medical Specialist" else "Unassigned"),
-                                    scheduleDate = thisAppt?.appointmentDate ?: today,
+                                    doctorName = assignedDoctor?.fullName ?: patEntity?.lastDoctorName ?: (if (thisAppt != null) "Medical Specialist" else "Unassigned"),
+                                    scheduleDate = thisAppt?.appointmentDate ?: patEntity?.lastVisitDate ?: today,
                                     scheduleTime = thisAppt?.appointmentTime ?: "10:00:00",
                                     queueStatusText = when {
-                                        thisAppt == null -> "Registered in Patient Directory"
-                                        isCompleted -> "Visit Completed on ${thisAppt.appointmentDate}"
-                                        isCancelled -> "Cancelled Appointment"
-                                        else -> "In Dr. ${(assignedDoctor?.fullName ?: "Specialist").removePrefix("Dr. ").removePrefix("Dr.")}'s OPD Queue"
+                                        thisAppt != null && isCompleted -> "Visit Completed on ${thisAppt.appointmentDate}"
+                                        thisAppt != null && isCancelled -> "Cancelled Appointment"
+                                        thisAppt != null -> "In Dr. ${(assignedDoctor?.fullName ?: "Specialist").removePrefix("Dr. ").removePrefix("Dr.")}'s OPD Queue"
+                                        patEntity?.lastVisitDate != null -> "Last Visit: ${patEntity.lastVisitDate}"
+                                        else -> "Registered in Patient Directory"
                                     },
                                     badgeText = when {
                                         thisAppt == null -> "Directory Record"
@@ -995,6 +1130,9 @@ fun PatientDirectoryScreen(
                                     onScheduleNextVisit = {
                                         showScheduleDialogForPatient = detailItem
                                         scheduleDoctorId = thisAppt?.doctorId ?: affiliatedDoctors.firstOrNull()?.id ?: ""
+                                        scheduleDateInput = LocalDate.now().toString()
+                                        selectedScheduleSlotId = null
+                                        scheduleRemarksInput = ""
                                     },
                                     onOpenBilling = {
                                         val targetId = thisAppt?.id ?: assignedApptId
@@ -1972,7 +2110,7 @@ fun PatientDirectoryScreen(
         }
 
         // =========================================================================
-        // SCHEDULE NEXT VISIT / BOOK SLOT DIALOG (Multi-Type Clinic)
+        // DIRECT APPOINTMENT BOOKING / SLOT SELECTION DIALOG
         // =========================================================================
         showScheduleDialogForPatient?.let { pItem ->
             AlertDialog(
@@ -1980,111 +2118,381 @@ fun PatientDirectoryScreen(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = Color(0xFF0097A7))
-                        Text("Schedule Visit for ${pItem.patientName}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("Book Appointment", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Color(0xFF0F172A))
                     }
                 },
                 text = {
                     Column(
-                        modifier = Modifier.verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        modifier = Modifier
+                            .verticalScroll(rememberScrollState())
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text("Schedule a follow-up or new appointment directly into the clinic and doctor roster.", fontSize = 12.sp, color = Color(0xFF64748B))
-
-                        Text("Select Doctor:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            affiliatedDoctors.forEach { doc ->
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { scheduleDoctorId = doc.id }
+                        // 1. Patient Demographic Pill
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFFF1F5F9),
+                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(0xFFD0EEFB),
+                                    modifier = Modifier.size(40.dp)
                                 ) {
-                                    RadioButton(
-                                        selected = scheduleDoctorId == doc.id,
-                                        onClick = { scheduleDoctorId = doc.id }
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF00838F), modifier = Modifier.size(24.dp))
+                                    }
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(pItem.patientName, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF0F172A))
+                                    Text(
+                                        "${pItem.age ?: "--"} yrs | ${pItem.gender} \u2022 ${pItem.phone.ifBlank { "No Mobile" }}",
+                                        fontSize = 11.5.sp,
+                                        color = Color(0xFF64748B)
                                     )
-                                    Text("${doc.fullName} (${doc.specialty ?: "General Practice"})", fontSize = 13.sp)
                                 }
                             }
                         }
 
-                        OutlinedTextField(
-                            value = scheduleDateInput,
-                            onValueChange = { scheduleDateInput = it },
-                            label = { Text("Appointment Date (YYYY-MM-DD)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp)
-                        )
+                        // 2. Doctor Selector (if doctors exist)
+                        if (affiliatedDoctors.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Consulting Doctor *", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF334155))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    affiliatedDoctors.forEach { doc ->
+                                        val isSelected = scheduleDoctorId == doc.id || (scheduleDoctorId.isBlank() && doc.id == affiliatedDoctors.firstOrNull()?.id)
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = {
+                                                scheduleDoctorId = doc.id
+                                                selectedScheduleSlotId = null
+                                            },
+                                            label = { Text("Dr. ${doc.fullName.removePrefix("Dr. ").removePrefix("Dr.")}", fontSize = 11.sp) },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = Color(0xFF0097A7),
+                                                selectedLabelColor = Color.White
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
 
-                        OutlinedTextField(
-                            value = scheduleTimeInput,
-                            onValueChange = { scheduleTimeInput = it },
-                            label = { Text("Appointment Time (e.g. 11:00 AM)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp)
-                        )
+                        // 3. Appointment Date & Quick Chips
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Appointment Date *", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF334155))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = scheduleDateInput,
+                                    onValueChange = {
+                                        scheduleDateInput = it
+                                        selectedScheduleSlotId = null
+                                    },
+                                    label = { Text("Date (YYYY-MM-DD)") },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(
+                                    onClick = {
+                                        DateTimePickers.showDatePicker(context, scheduleDateInput) { picked ->
+                                            scheduleDateInput = picked
+                                            selectedScheduleSlotId = null
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color(0xFFE0F2FE))
+                                ) {
+                                    Icon(Icons.Default.CalendarMonth, contentDescription = "Pick Date", tint = Color(0xFF0284C7))
+                                }
+                            }
 
+                            val todayDate = remember { LocalDate.now() }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                SuggestionChip(
+                                    onClick = {
+                                        scheduleDateInput = todayDate.toString()
+                                        selectedScheduleSlotId = null
+                                    },
+                                    label = { Text("Today", fontSize = 11.sp) },
+                                    colors = SuggestionChipDefaults.suggestionChipColors(
+                                        containerColor = if (scheduleDateInput == todayDate.toString()) Color(0xFFE0F2FE) else Color.White
+                                    )
+                                )
+                                SuggestionChip(
+                                    onClick = {
+                                        scheduleDateInput = todayDate.plusDays(1).toString()
+                                        selectedScheduleSlotId = null
+                                    },
+                                    label = { Text("Tomorrow", fontSize = 11.sp) },
+                                    colors = SuggestionChipDefaults.suggestionChipColors(
+                                        containerColor = if (scheduleDateInput == todayDate.plusDays(1).toString()) Color(0xFFE0F2FE) else Color.White
+                                    )
+                                )
+                                SuggestionChip(
+                                    onClick = {
+                                        scheduleDateInput = todayDate.plusDays(2).toString()
+                                        selectedScheduleSlotId = null
+                                    },
+                                    label = { Text("+2 Days", fontSize = 11.sp) },
+                                    colors = SuggestionChipDefaults.suggestionChipColors(
+                                        containerColor = if (scheduleDateInput == todayDate.plusDays(2).toString()) Color(0xFFE0F2FE) else Color.White
+                                    )
+                                )
+                                SuggestionChip(
+                                    onClick = {
+                                        scheduleDateInput = todayDate.plusDays(7).toString()
+                                        selectedScheduleSlotId = null
+                                    },
+                                    label = { Text("+1 Week", fontSize = 11.sp) },
+                                    colors = SuggestionChipDefaults.suggestionChipColors(
+                                        containerColor = if (scheduleDateInput == todayDate.plusDays(7).toString()) Color(0xFFE0F2FE) else Color.White
+                                    )
+                                )
+                            }
+                        }
+
+                        // 4. Slot Selection
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Select Available Slot *", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF334155))
+                                if (isLoadingScheduleSlots) {
+                                    CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp, color = Color(0xFF0097A7))
+                                }
+                            }
+
+                            if (availableScheduleSlots.isNotEmpty()) {
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    items(availableScheduleSlots) { slot ->
+                                        val isSelected = selectedScheduleSlotId == slot.id
+                                        val spotsAvailable = (slot.maxCapacity - slot.bookedCount).coerceAtLeast(0)
+                                        val isFull = slot.bookedCount >= slot.maxCapacity
+                                        val timeLabel = "${slot.startTime} - ${slot.endTime}"
+
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = when {
+                                                isSelected && isFull -> Color(0xFFFEF3C7)
+                                                isSelected -> Color(0xFF0097A7)
+                                                isFull -> Color(0xFFFFFBEB)
+                                                else -> Color(0xFFF1F5F9)
+                                            },
+                                            border = BorderStroke(
+                                                width = if (isSelected) 2.dp else 1.dp,
+                                                color = when {
+                                                    isSelected && isFull -> Color(0xFFD97706)
+                                                    isSelected -> Color(0xFF0097A7)
+                                                    isFull -> Color(0xFFF59E0B)
+                                                    else -> Color(0xFFCBD5E1)
+                                                }
+                                            ),
+                                            modifier = Modifier.clickable {
+                                                selectedScheduleSlotId = slot.id
+                                                scheduleTimeInput = timeLabel
+                                            }
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                Text(
+                                                    text = timeLabel,
+                                                    fontSize = 11.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isSelected && !isFull) Color.White else Color(0xFF0F172A)
+                                                )
+                                                Text(
+                                                    text = if (isFull) "Full (Overbook)" else "$spotsAvailable spots left",
+                                                    fontSize = 9.5.sp,
+                                                    fontWeight = if (isFull) FontWeight.Bold else FontWeight.Normal,
+                                                    color = when {
+                                                        isSelected && !isFull -> Color.White.copy(alpha = 0.85f)
+                                                        isFull -> Color(0xFFB45309)
+                                                        else -> Color(0xFF16A34A)
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if (!isLoadingScheduleSlots) {
+                                Text(
+                                    "No published slots for this date/doctor. Specify custom appointment time:",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF64748B)
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedTextField(
+                                        value = scheduleTimeInput,
+                                        onValueChange = { scheduleTimeInput = it },
+                                        label = { Text("Appointment Time (HH:mm)") },
+                                        placeholder = { Text("e.g. 10:30 AM") },
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = {
+                                            DateTimePickers.showClockTimePicker(context, scheduleTimeInput) { pickedTime ->
+                                                scheduleTimeInput = pickedTime
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color(0xFFE0F2FE))
+                                    ) {
+                                        Icon(Icons.Default.AccessTime, contentDescription = "Pick Time", tint = Color(0xFF0284C7))
+                                    }
+                                }
+                            }
+                        }
+
+                        // 5. Clinical Remarks / Reason
                         OutlinedTextField(
                             value = scheduleRemarksInput,
                             onValueChange = { scheduleRemarksInput = it },
-                            label = { Text("Initial Clinical Note / Reason") },
-                            placeholder = { Text("e.g. Follow-up consultation for blood pressure check") },
+                            label = { Text("Reason for Consultation / Clinical Notes") },
+                            placeholder = { Text("e.g. Routine checkup, BP check, Follow-up") },
                             minLines = 2,
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(10.dp)
                         )
+
+                        // 6. Fee & Type Notice
+                        val isPriorPatient = appointments.any {
+                            (it.patientMobile.isNotBlank() && it.patientMobile == pItem.phone) ||
+                            (!it.userId.isNullOrBlank() && it.userId == pItem.userId)
+                        }
+                        val chosenDoctor = affiliatedDoctors.find { it.id == scheduleDoctorId } ?: affiliatedDoctors.firstOrNull()
+                        val calculatedFee = if (isPriorPatient) 0.0 else (chosenDoctor?.consultationFee ?: 500.0)
+
+                        Surface(
+                            color = if (isPriorPatient) Color(0xFFF0FDF4) else Color(0xFFF8FAFC),
+                            border = BorderStroke(1.dp, if (isPriorPatient) Color(0xFFBBF7D0) else Color(0xFFE2E8F0)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    if (isPriorPatient) Icons.Default.CheckCircle else Icons.Default.Receipt,
+                                    contentDescription = null,
+                                    tint = if (isPriorPatient) Color(0xFF16A34A) else Color(0xFF64748B),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = if (isPriorPatient) "✓ Returning patient: Follow-up visit free of charge (0 NPR)."
+                                           else "Standard consultation fee of Rs. ${calculatedFee.toInt()} will be recorded.",
+                                    fontSize = 11.5.sp,
+                                    color = if (isPriorPatient) Color(0xFF166534) else Color(0xFF475569)
+                                )
+                            }
+                        }
                     }
                 },
                 confirmButton = {
                     Button(
                         onClick = {
-                            coroutineScope.launch {
-                                isScheduling = true
-                                if (appointmentRepository != null && effectiveClinicId.isNotBlank()) {
-                                    val newAppt = Appointment(
-                                        id = java.util.UUID.randomUUID().toString(),
-                                        trackingCode10Digit = TrackingCodeGenerator.generate(),
-                                        clinicId = effectiveClinicId,
-                                        doctorId = scheduleDoctorId.ifBlank { affiliatedDoctors.firstOrNull()?.id },
-                                        userId = pItem.userId,
-                                        patientName = pItem.patientName,
-                                        patientAge = pItem.age,
-                                        patientGender = pItem.gender,
-                                        patientMobile = pItem.phone.ifBlank { "9841000000" },
-                                        patientEmail = pItem.email,
-                                        paymentStatus = "pending",
-                                        checkinStatus = "waiting",
-                                        appointmentDate = scheduleDateInput.trim(),
-                                        appointmentTime = scheduleTimeInput.trim(),
-                                        feeAmount = 0.0, // Follow-up visit: free consultation
-                                        isWalkin = true
-                                    )
-                                    val created = appointmentRepository.createWalkinAppointment(newAppt)
-                                    if (created != null) {
-                                        if (scheduleRemarksInput.isNotBlank() && billingRepository != null) {
-                                            billingRepository.saveRemarkForAppointment(created.id, effectiveClinicId, scheduleRemarksInput.trim())
+                            val cleanDate = scheduleDateInput.trim()
+                            val cleanTime = if (selectedScheduleSlotId != null) {
+                                val matched = availableScheduleSlots.find { it.id == selectedScheduleSlotId }
+                                if (matched != null) matched.startTime.trim() else scheduleTimeInput.trim()
+                            } else scheduleTimeInput.trim()
+
+                            if (cleanDate.length == 10 && cleanTime.isNotBlank()) {
+                                coroutineScope.launch {
+                                    isScheduling = true
+                                    if (appointmentRepository != null && effectiveClinicId.isNotBlank()) {
+                                        val isToday = cleanDate == LocalDate.now().toString()
+                                        val chosenDoctor = affiliatedDoctors.find { it.id == scheduleDoctorId } ?: affiliatedDoctors.firstOrNull()
+                                        val isPriorPatient = appointments.any {
+                                            (it.patientMobile.isNotBlank() && it.patientMobile == pItem.phone) ||
+                                            (!it.userId.isNullOrBlank() && it.userId == pItem.userId)
                                         }
-                                        actionMessage = "✓ Visit scheduled for ${pItem.patientName} on $scheduleDateInput!"
-                                        loadData()
-                                        showScheduleDialogForPatient = null
-                                    } else {
-                                        actionMessage = "Failed to schedule appointment. Please try again."
+                                        val calculatedFee = if (isPriorPatient) 0.0 else (chosenDoctor?.consultationFee ?: 500.0)
+
+                                        val newAppt = Appointment(
+                                            id = java.util.UUID.randomUUID().toString(),
+                                            trackingCode10Digit = TrackingCodeGenerator.generate(),
+                                            slotId = selectedScheduleSlotId,
+                                            clinicId = effectiveClinicId,
+                                            doctorId = scheduleDoctorId.ifBlank { chosenDoctor?.id },
+                                            userId = pItem.userId,
+                                            patientName = pItem.patientName,
+                                            patientAge = pItem.age ?: 28,
+                                            patientGender = pItem.gender.ifBlank { "Male" },
+                                            patientMobile = pItem.phone.ifBlank { "9841000000" },
+                                            patientEmail = pItem.email,
+                                            paymentStatus = if (calculatedFee == 0.0) "paid" else "pending",
+                                            paymentMode = if (calculatedFee == 0.0) "FREE" else "PAY_AT_DESK",
+                                            checkinStatus = if (isToday) "checked_in" else "waiting",
+                                            status = "APPROVED",
+                                            appointmentDate = cleanDate,
+                                            appointmentTime = cleanTime,
+                                            feeAmount = calculatedFee,
+                                            totalAmount = calculatedFee,
+                                            isWalkin = true
+                                        )
+                                        val created = appointmentRepository.createWalkinAppointment(newAppt, allowOverbooking = true)
+                                        if (created != null) {
+                                            if (scheduleRemarksInput.isNotBlank() && billingRepository != null) {
+                                                billingRepository.saveRemarkForAppointment(created.id, effectiveClinicId, scheduleRemarksInput.trim())
+                                            }
+                                            actionMessage = "✓ Appointment scheduled for ${pItem.patientName} on $cleanDate ($cleanTime)!"
+                                            loadData()
+                                            showScheduleDialogForPatient = null
+                                        } else {
+                                            actionMessage = "Failed to schedule appointment. Please check clinic connection and try again."
+                                        }
                                     }
+                                    isScheduling = false
                                 }
-                                isScheduling = false
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0097A7)),
                         shape = RoundedCornerShape(10.dp),
-                        enabled = !isScheduling
+                        enabled = !isScheduling && scheduleDateInput.trim().length == 10 && scheduleTimeInput.isNotBlank()
                     ) {
                         if (isScheduling) {
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
                             Spacer(Modifier.width(6.dp))
                         }
-                        Text("Confirm & Schedule", fontWeight = FontWeight.Bold, color = Color.White)
+                        Text("Confirm & Fix Schedule", fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 },
                 dismissButton = {
@@ -2257,6 +2665,29 @@ fun PatientDirectoryScreen(
                                 directoryPrefs.edit()
                                     .putString("records_${effectiveClinicId.ifBlank { "default" }}", serialized)
                                     .apply()
+
+                                if (patientRepository != null) {
+                                    val patientEntity = com.dactor.clinic.data.local.entity.PatientEntity(
+                                        id = createdProfile.id,
+                                        clinicId = effectiveClinicId.ifBlank { "default" },
+                                        fullName = createdProfile.fullName ?: newPatientName.trim(),
+                                        phone = createdProfile.phone,
+                                        gender = createdProfile.gender,
+                                        age = createdProfile.age,
+                                        email = createdProfile.email.ifBlank { null },
+                                        trackingCode10Digit = com.dactor.clinic.domain.util.PatientIdentitySync.getDeterministicAppointmentId(createdProfile.id),
+                                        lastVisitDate = null,
+                                        lastDoctorId = null,
+                                        lastDoctorName = null,
+                                        totalVisits = 1,
+                                        latestBillStatus = null,
+                                        latestClinicalRemarks = null,
+                                        syncStatus = "synced",
+                                        updatedAt = System.currentTimeMillis()
+                                    )
+                                    patientRepository.upsertPatient(patientEntity)
+                                    localPatients = patientRepository.getLocalPatients(effectiveClinicId)
+                                }
 
                                 actionMessage = "✓ Patient '${newPatientName.trim()}' saved to clinic directory! (No appointment booked)"
                                 showRegisterPatientDialog = false
@@ -2596,35 +3027,33 @@ private fun PatientRecordCardItem(
                 }
             }
 
-            // Action Row: Schedule Next Visit & Push / Edit Bill
+            // Action Row: Book Appointment & Push / Edit Bill
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (isMultiTypeClinic) {
-                    OutlinedButton(
-                        onClick = { onScheduleNextVisit() },
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, Color(0xFF0097A7)),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(38.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.CalendarMonth,
-                            contentDescription = null,
-                            tint = Color(0xFF0097A7),
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(Modifier.width(5.dp))
-                        Text(
-                            text = "Schedule Visit",
-                            color = Color(0xFF0097A7),
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                OutlinedButton(
+                    onClick = { onScheduleNextVisit() },
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, Color(0xFF0097A7)),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                ) {
+                    Icon(
+                        Icons.Default.CalendarMonth,
+                        contentDescription = null,
+                        tint = Color(0xFF0097A7),
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        text = "Book Appointment",
+                        color = Color(0xFF0097A7),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
 
                 if (onOpenBilling != null) {
@@ -2799,22 +3228,20 @@ private fun PatientFullHistoryModalDialog(
 
                 Spacer(Modifier.height(10.dp))
 
-                // Schedule Next Visit Button for Multi-Type Clinics
-                if (isMultiTypeClinic) {
-                    Button(
-                        onClick = { onScheduleNewVisit() },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0097A7)),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(42.dp)
-                    ) {
-                        Icon(Icons.Default.AddCircleOutline, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("+ Schedule Next Visit / Book Slot", fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Color.White)
-                    }
-                    Spacer(Modifier.height(10.dp))
+                // Direct Appointment Booking Button
+                Button(
+                    onClick = { onScheduleNewVisit() },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0097A7)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(42.dp)
+                ) {
+                    Icon(Icons.Default.AddCircleOutline, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("+ Book Appointment / Slot", fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Color.White)
                 }
+                Spacer(Modifier.height(10.dp))
 
                 // Visits Header
                 Row(

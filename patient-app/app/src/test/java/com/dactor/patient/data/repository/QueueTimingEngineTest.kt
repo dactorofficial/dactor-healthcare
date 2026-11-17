@@ -300,4 +300,96 @@ class QueueTimingEngineTest {
             bareDoc.resolvedProfilePictureUrl
         )
     }
+
+    @Test
+    fun testLiveQueueTimingDuringBreak_FirstPatientAnchoredToBreakEnd() {
+        val clinic = Clinic(
+            id = "c1",
+            name = "Sunrise Health Clinic",
+            isOnBreak = true,
+            avgConsultationTimeMinutes = 10
+        )
+        val q1 = com.dactor.patient.data.model.QueueEntry(
+            id = "q-1",
+            appointmentId = "appt-1",
+            clinicId = "c1",
+            queuePosition = 1,
+            status = "waiting"
+        )
+        val q2 = com.dactor.patient.data.model.QueueEntry(
+            id = "q-2",
+            appointmentId = "appt-2",
+            clinicId = "c1",
+            queuePosition = 2,
+            status = "waiting"
+        )
+
+        val estimate = QueueRepository.calculateLiveQueueTimingEstimate(
+            clinic = clinic,
+            isDoctorInClinic = true,
+            allClinicQueueEntries = listOf(q1, q2),
+            targetEntry = q1,
+            fallbackPatientsAhead = 0,
+            appointmentTime = "01:00 PM - 02:00 PM"
+        )
+
+        assertTrue(estimate.isClinicOnBreak)
+        assertNotNull(estimate.expectedExactTimeText)
+        assertNotNull(estimate.estimatedTimeLeftText)
+        assertTrue(estimate.doctorStatusBanner?.contains("break", ignoreCase = true) == true)
+        assertTrue(estimate.slotNoticeText.contains("#1 in queue", ignoreCase = true))
+    }
+
+    @Test
+    fun testLiveQueueTimingDuringBreak_SecondPatientStaggeredByAvgMins() {
+        val clinic = Clinic(
+            id = "c1",
+            name = "Sunrise Health Clinic",
+            isOnBreak = true,
+            avgConsultationTimeMinutes = 10
+        )
+        val q1 = com.dactor.patient.data.model.QueueEntry(
+            id = "q-1",
+            appointmentId = "appt-1",
+            clinicId = "c1",
+            queuePosition = 1,
+            status = "waiting"
+        )
+        val q2 = com.dactor.patient.data.model.QueueEntry(
+            id = "q-2",
+            appointmentId = "appt-2",
+            clinicId = "c1",
+            queuePosition = 2,
+            status = "waiting"
+        )
+
+        val estimateFirst = QueueRepository.calculateLiveQueueTimingEstimate(
+            clinic = clinic,
+            isDoctorInClinic = true,
+            allClinicQueueEntries = listOf(q1, q2),
+            targetEntry = q1,
+            fallbackPatientsAhead = 0,
+            appointmentTime = "01:00 PM - 02:00 PM"
+        )
+
+        val estimateSecond = QueueRepository.calculateLiveQueueTimingEstimate(
+            clinic = clinic,
+            isDoctorInClinic = true,
+            allClinicQueueEntries = listOf(q1, q2),
+            targetEntry = q2,
+            fallbackPatientsAhead = 1,
+            appointmentTime = "01:00 PM - 02:00 PM"
+        )
+
+        assertTrue(estimateFirst.isClinicOnBreak)
+        assertTrue(estimateSecond.isClinicOnBreak)
+        assertTrue(estimateSecond.slotNoticeText.contains("1 person ahead", ignoreCase = true))
+
+        // Compare exact times: second patient must be after first patient by 10 minutes
+        val timeFormat = java.time.format.DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.US)
+        val timeFirst = java.time.LocalTime.parse(estimateFirst.expectedExactTimeText, timeFormat)
+        val timeSecond = java.time.LocalTime.parse(estimateSecond.expectedExactTimeText, timeFormat)
+        val diffMins = java.time.Duration.between(timeFirst, timeSecond).toMinutes()
+        assertEquals(10L, diffMins)
+    }
 }

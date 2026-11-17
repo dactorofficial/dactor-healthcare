@@ -54,6 +54,12 @@ class AppUpdateRepository @Inject constructor(
             "A critical update is available. Please update to continue using Dactor."
         ) ?: "A critical update is available. Please update to continue using Dactor."
         var isCompulsory = prefs.getBoolean("cached_is_compulsory", true)
+        var isTemporarilyClosed = prefs.getBoolean("cached_is_temporarily_closed", false)
+        var closureTitle = prefs.getString("cached_closure_title", "App Temporarily Closed") ?: "App Temporarily Closed"
+        var closureMessage = prefs.getString(
+            "cached_closure_message",
+            "Dactor Patient App is temporarily closed for scheduled maintenance. Please check back shortly."
+        ) ?: "Dactor Patient App is temporarily closed for scheduled maintenance. Please check back shortly."
 
         try {
             // 1. Try querying dedicated app_versions table first
@@ -74,6 +80,9 @@ class AppUpdateRepository @Inject constructor(
                     if (matched.updateUrl.isNotBlank()) updateUrl = matched.updateUrl
                     if (!matched.releaseNotes.isNullOrBlank()) releaseNotes = matched.releaseNotes
                     isCompulsory = matched.isCompulsory
+                    isTemporarilyClosed = matched.isTemporarilyClosed
+                    if (!matched.closureTitle.isNullOrBlank()) closureTitle = matched.closureTitle
+                    if (!matched.closureMessage.isNullOrBlank()) closureMessage = matched.closureMessage
                     fetchedFromAppVersions = true
                 }
             } catch (_: Exception) {
@@ -114,6 +123,15 @@ class AppUpdateRepository @Inject constructor(
                             "system_config:patient_app_is_compulsory" -> {
                                 isCompulsory = cleanVal.equals("true", ignoreCase = true)
                             }
+                            "system_config:patient_app_temporarily_closed" -> {
+                                isTemporarilyClosed = cleanVal.equals("true", ignoreCase = true)
+                            }
+                            "system_config:patient_app_closure_title" -> {
+                                if (cleanVal.isNotBlank()) closureTitle = cleanVal
+                            }
+                            "system_config:patient_app_closure_message" -> {
+                                if (cleanVal.isNotBlank()) closureMessage = cleanVal
+                            }
                         }
                     }
                 } catch (_: Exception) {}
@@ -127,6 +145,9 @@ class AppUpdateRepository @Inject constructor(
                 .putString("cached_update_url", updateUrl)
                 .putString("cached_release_notes", releaseNotes)
                 .putBoolean("cached_is_compulsory", isCompulsory)
+                .putBoolean("cached_is_temporarily_closed", isTemporarilyClosed)
+                .putString("cached_closure_title", closureTitle)
+                .putString("cached_closure_message", closureMessage)
                 .apply()
         } catch (_: Exception) {
             // Network failure: uses cached values
@@ -144,7 +165,10 @@ class AppUpdateRepository @Inject constructor(
             latestVersionName = latestName,
             updateUrl = updateUrl,
             releaseNotes = releaseNotes,
-            isCompulsory = isCompulsory
+            isCompulsory = isCompulsory,
+            isTemporarilyClosed = isTemporarilyClosed,
+            closureTitle = closureTitle,
+            closureMessage = closureMessage
         )
     }
 }

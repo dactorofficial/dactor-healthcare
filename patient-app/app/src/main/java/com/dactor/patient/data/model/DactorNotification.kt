@@ -202,24 +202,32 @@ data class NotificationTemplateData(
                 val rawRightVal = map["rightVal"]?.takeIf { it.isNotBlank() } ?: "Active Queue"
                 val rawLeftVal = map["leftVal"]?.takeIf { it.isNotBlank() } ?: "Soon, be ready"
 
-                val effectiveRightVal = if (isFirstPosition) {
-                    "Your turn, arrive fast"
+                val isArriveSoon = notifType == NotificationType.ARRIVE_SOON ||
+                    title.contains("Arrive Soon", ignoreCase = true) ||
+                    cleanMsg.contains("arrive soon", ignoreCase = true)
+
+                val effectiveRightVal = if (isArriveSoon) {
+                    map["rightVal"]?.takeIf { it.isNotBlank() } ?: if (isFirstPosition) "Your turn, arrive soon" else "Active Queue"
+                } else if (isFirstPosition) {
+                    "Your turn, arrive soon"
                 } else {
                     rawRightVal
                 }
 
-                val effectiveLeftVal = if (isFirstPosition) {
-                    "Arrive Fast"
+                val effectiveLeftVal = if (isArriveSoon) {
+                    "Arrive Soon"
+                } else if (isFirstPosition) {
+                    "Arrive Soon"
                 } else {
                     rawLeftVal
                 }
 
                 return NotificationTemplateData(
-                    title = title.ifBlank { "Your Turn is Coming Soon!" },
+                    title = title.ifBlank { if (isArriveSoon) "Arrive Soon \u2022 Turn Approaching" else "Your Turn is Coming Soon!" },
                     cleanMessage = cleanMsg,
-                    leftLabel = map["leftLabel"]?.takeIf { it.isNotBlank() }?.let { if (it.length > 25) "Estimated Time" else it } ?: "Estimated Time",
+                    leftLabel = if (isArriveSoon) "Turn Status" else (map["leftLabel"]?.takeIf { it.isNotBlank() }?.let { if (it.length > 25) "Estimated Time" else it } ?: "Estimated Time"),
                     leftValue = effectiveLeftVal,
-                    rightLabel = if (effectiveRightVal.contains("arrive fast", ignoreCase = true)) "Turn Status" else (map["rightLabel"]?.takeIf { it.isNotBlank() }?.let { if (it.length > 25) "Your Appointment" else it } ?: "Your Appointment"),
+                    rightLabel = if (isArriveSoon) "Queue Position" else if (effectiveRightVal.contains("arrive fast", ignoreCase = true) || effectiveRightVal.contains("arrive soon", ignoreCase = true)) "Turn Status" else (map["rightLabel"]?.takeIf { it.isNotBlank() }?.let { if (it.length > 25) "Your Appointment" else it } ?: "Your Appointment"),
                     rightValue = effectiveRightVal,
                     trackingCode = map["code"] ?: map["trackingCode"],
                     isQueueReminder = isQueueReminderType || notifType == NotificationType.MANUAL_ALERT,
@@ -288,7 +296,7 @@ data class NotificationTemplateData(
                     leftLabel = "Turn Status",
                     leftValue = "Arrive Soon",
                     rightLabel = "Queue Position",
-                    rightValue = if (isFirstPosition) "Your turn, arrive fast" else (waitMatch?.groupValues?.get(1) ?: "Be Ready"),
+                    rightValue = if (isFirstPosition) "Your turn, arrive soon" else (waitMatch?.groupValues?.get(1) ?: "Be Ready"),
                     isQueueReminder = true,
                     statusBadge = derivedBadge
                 )
@@ -303,14 +311,14 @@ data class NotificationTemplateData(
                     statusBadge = derivedBadge
                 )
                 else -> {
-                    val fallbackRightVal = if (isFirstPosition) "Your turn, arrive fast" else (timeMatch?.groupValues?.get(1)?.trim() ?: "Soon, be ready")
-                    val fallbackLeftVal = if (isFirstPosition) "Arrive Fast" else (waitMatch?.groupValues?.get(1)?.trim() ?: "Soon, be ready")
+                    val fallbackRightVal = if (isFirstPosition) "Your turn, arrive soon" else (timeMatch?.groupValues?.get(1)?.trim() ?: "Soon, be ready")
+                    val fallbackLeftVal = if (isFirstPosition) "Arrive Soon" else (waitMatch?.groupValues?.get(1)?.trim() ?: "Soon, be ready")
                     NotificationTemplateData(
                         title = title.ifBlank { "Your Turn is Coming Soon!" },
                         cleanMessage = cleanMsg,
                         leftLabel = "Estimated Time",
                         leftValue = fallbackLeftVal,
-                        rightLabel = if (fallbackRightVal.contains("arrive fast", ignoreCase = true)) "Turn Status" else "Your Appointment",
+                        rightLabel = if (fallbackRightVal.contains("arrive fast", ignoreCase = true) || fallbackRightVal.contains("arrive soon", ignoreCase = true)) "Turn Status" else "Your Appointment",
                         rightValue = fallbackRightVal,
                         isQueueReminder = isQueueReminderType,
                         statusBadge = derivedBadge

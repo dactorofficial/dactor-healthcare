@@ -1,5 +1,13 @@
 import { supabase } from '../lib/supabase'
 import {
+  sanitizeSearchQuery,
+  sanitizeUuid,
+  sanitizeTrackingCode,
+  sanitizePhoneNumber,
+  buildSafePostgrestOrFilter,
+} from './securitySanitizer'
+import { cacheManager } from './cacheManager'
+import {
   Clinic,
   ClinicInvitation,
   Doctor,
@@ -264,11 +272,16 @@ export async function getDoctors(): Promise<Doctor[]> {
 
 export async function getDoctorsByClinic(clinicId: string): Promise<Doctor[]> {
   try {
+    const validClinicId = sanitizeUuid(clinicId)
+    if (!validClinicId) {
+      console.warn('Invalid clinic ID provided to getDoctorsByClinic:', clinicId)
+      return []
+    }
     // 1. Direct doctors assigned to clinic
     const { data: directData, error: directErr } = await supabase
       .from('doctors')
       .select('*')
-      .or(`clinic_id.eq.${clinicId},active_clinic_id.eq.${clinicId},primary_clinic_id.eq.${clinicId}`)
+      .or(`clinic_id.eq.${validClinicId},active_clinic_id.eq.${validClinicId},primary_clinic_id.eq.${validClinicId}`)
       .order('full_name', { ascending: true })
 
     if (directErr) throw directErr
@@ -401,23 +414,44 @@ export async function getAppointmentByTrackingCode(code: string): Promise<Appoin
       .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
       .eq('tracking_code_10_digit', cleanCode)
       .order('appointment_date', { ascending: false })
-      .limit(1)
-      .maybeSingle()
 
-    if (!data && cleanCode !== cleanCode.toUpperCase()) {
+    if ((!data || data.length === 0) && cleanCode !== cleanCode.toUpperCase()) {
       const res = await supabase
         .from('appointments')
         .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
         .eq('tracking_code_10_digit', cleanCode.toUpperCase())
         .order('appointment_date', { ascending: false })
-        .limit(1)
-        .maybeSingle()
       data = res.data
       error = res.error
     }
 
-    if (error) return null
-    return data ? mapAppointment(data) : null
+    if (error || !data || data.length === 0) return null
+
+    const todayStr = getLocalDateIsoString()
+    const mappedList = data.map(mapAppointment)
+
+    // Priority 1: Active or confirmed appointment for TODAY
+    const activeToday = mappedList.find(
+      (a) =>
+        a.appointmentDate === todayStr &&
+        a.checkinStatus?.toLowerCase() !== 'cancelled' &&
+        a.status?.toUpperCase() !== 'CANCELLED'
+    )
+    if (activeToday) return activeToday
+
+    // Priority 2: Upcoming future appointment (soonest date first)
+    const upcomingFuture = mappedList
+      .filter(
+        (a) =>
+          a.appointmentDate > todayStr &&
+          a.checkinStatus?.toLowerCase() !== 'cancelled' &&
+          a.status?.toUpperCase() !== 'CANCELLED'
+      )
+      .sort((a, b) => a.appointmentDate.localeCompare(b.appointmentDate))[0]
+    if (upcomingFuture) return upcomingFuture
+
+    // Priority 3: Latest past or completed appointment
+    return mappedList[0] || null
   } catch {
     return null
   }
@@ -472,6 +506,34 @@ export async function getAppointmentByTrackingCodeOrContact(identifier: string):
       if (byCode) return byCode
     }
 
+    const pickBestAppointment = (list: any[]) => {
+      const today = getLocalDateIsoString()
+      const mapped = list.map(mapAppointment)
+      const activeToday = mapped.find(
+        (a) =>
+          a.appointmentDate === today &&
+          a.checkinStatus?.toLowerCase() !== 'cancelled' &&
+          a.status?.toUpperCase() !== 'CANCELLED'
+      )
+      if (activeToday) return activeToday
+      const upcoming = mapped
+        .filter(
+          (a) =>
+            a.appointmentDate > today &&
+            a.checkinStatus?.toLowerCase() !== 'cancelled' &&
+            a.status?.toUpperCase() !== 'CANCELLED'
+        )
+        .sort((a, b) => a.appointmentDate.localeCompare(b.appointmentDate))[0]
+      if (upcoming) return upcoming
+      return (
+        mapped.find(
+          (a) =>
+            a.checkinStatus?.toLowerCase() !== 'completed' &&
+            a.checkinStatus?.toLowerCase() !== 'cancelled'
+        ) || mapped[0]
+      )
+    }
+
     // 2. Try Email
     if (clean.includes('@') && clean.includes('.')) {
       const { data, error } = await supabase
@@ -482,8 +544,7 @@ export async function getAppointmentByTrackingCodeOrContact(identifier: string):
         .limit(10)
 
       if (!error && data && data.length > 0) {
-        const active = data.find((a: any) => a.checkin_status !== 'completed' && a.checkin_status !== 'cancelled') || data[0]
-        return mapAppointment(active)
+        return pickBestAppointment(data)
       }
     }
 
@@ -499,8 +560,7 @@ export async function getAppointmentByTrackingCodeOrContact(identifier: string):
         .limit(10)
 
       if (!error && data && data.length > 0) {
-        const active = data.find((a: any) => a.checkin_status !== 'completed' && a.checkin_status !== 'cancelled') || data[0]
-        return mapAppointment(active)
+        return pickBestAppointment(data)
       }
     }
 
@@ -1371,12 +1431,17 @@ export async function autoTransferUncompletedQueueToNoShow(
     const todayStr = new Date().toISOString().split('T')[0]
     const nowIso = new Date().toISOString()
 
-    // 1. Sweep uncompleted past appointments directly
+    // 1. Sweep uncompleted past appointments (or today if includeToday = true)
     let apptQuery = supabase
       .from('appointments')
       .select('id, appointment_date, appointment_time, checkin_status, slot_id')
-      .lt('appointment_date', todayStr)
       .not('checkin_status', 'in', '("completed","cancelled","done","no_show","processing","report_prepared")')
+
+    if (includeToday) {
+      apptQuery = apptQuery.lte('appointment_date', todayStr)
+    } else {
+      apptQuery = apptQuery.lt('appointment_date', todayStr)
+    }
 
     if (clinicId) {
       apptQuery = apptQuery.eq('clinic_id', clinicId)
@@ -1423,10 +1488,12 @@ export async function autoTransferUncompletedQueueToNoShow(
     if (activeEntries && activeEntries.length > 0) {
       for (const entry of activeEntries) {
         const appt: any = entry.appointments
-        const isPast = appt ? appt.appointment_date < todayStr : (entry.created_at && entry.created_at.slice(0, 10) < todayStr)
+        const isPastOrToday = includeToday
+          ? (appt ? appt.appointment_date <= todayStr : true)
+          : (appt ? appt.appointment_date < todayStr : (entry.created_at && entry.created_at.slice(0, 10) < todayStr))
         const isUncompleted = appt ? !['completed', 'cancelled', 'done', 'processing', 'report_prepared'].includes(appt.checkin_status || '') : true
 
-        if (isPast && isUncompleted) {
+        if (isPastOrToday && isUncompleted) {
           await supabase
             .from('queue_entries')
             .update({ status: 'no_show', completed_at: nowIso, updated_at: nowIso })
@@ -1830,13 +1897,39 @@ export async function shiftAppointmentDate(
       }
 
       const rpcPayload = rpcResult.data as any
-      const explicitFalse = rpcPayload && typeof rpcPayload === 'object' && rpcPayload.success === false
-      if (!rpcResult.error && !explicitFalse) {
+      const isExplicitSuccess =
+        !rpcResult.error &&
+        rpcPayload &&
+        typeof rpcPayload === 'object' &&
+        rpcPayload.success === true
+
+      if (isExplicitSuccess) {
+        // Clear session cache for tracking code so live queue refreshes with authoritative new date
+        try {
+          const code = trackingCode || oldAppt?.tracking_code_10_digit
+          if (code) {
+            sessionStorage.removeItem(`dactor_queue_cache_${code}`)
+          }
+          sessionStorage.removeItem(`dactor_queue_cache_${appointmentId}`)
+        } catch (_) {}
+
+        // Always reconcile slot capacity for old and new slots
+        if (oldAppt?.slot_id && oldAppt.slot_id !== validSlotId) {
+          reconcileSlotBookedCount(oldAppt.slot_id).catch(() => {})
+        }
+        if (validSlotId) {
+          reconcileSlotBookedCount(validSlotId).catch(() => {})
+        }
         return true
       }
-      if (explicitFalse) {
-        console.warn('reschedule_patient_appointment rejected:', rpcPayload?.error || rpcPayload)
-        return false
+
+      const explicitFalse =
+        rpcPayload && typeof rpcPayload === 'object' && rpcPayload.success === false
+      if (explicitFalse && rpcPayload?.error) {
+        console.warn('reschedule_patient_appointment rejected by RPC:', rpcPayload.error)
+        if (/slot.*full|already.*full|cannot be rescheduled/i.test(rpcPayload.error)) {
+          return false
+        }
       }
     } catch (rpcErr) {
       console.warn('reschedule_patient_appointment RPC fallback notice:', rpcErr)
@@ -2006,6 +2099,15 @@ export async function shiftAppointmentDate(
         created_at: new Date().toISOString(),
       })
     } catch {}
+
+    // Clear session cache for tracking code so live queue refreshes with authoritative new date
+    try {
+      const code = trackingCode || oldAppt?.tracking_code_10_digit
+      if (code) {
+        sessionStorage.removeItem(`dactor_queue_cache_${code}`)
+      }
+      sessionStorage.removeItem(`dactor_queue_cache_${appointmentId}`)
+    } catch (_) {}
 
     return true
   } catch (err) {
@@ -3434,6 +3536,8 @@ export async function updateClinic(id: string, updates: Partial<Clinic>): Promis
       specialties: updates.specialties !== undefined ? updates.specialties : (currentMeta.specialties ?? current?.specialties),
       is_on_break: updates.isOnBreak !== undefined ? updates.isOnBreak : (currentMeta.is_on_break ?? current?.is_on_break),
       break_updated_at: updates.breakUpdatedAt !== undefined ? updates.breakUpdatedAt : (currentMeta.break_updated_at ?? current?.break_updated_at),
+      is_open: updates.isOpen !== undefined ? updates.isOpen : (currentMeta.is_open ?? current?.is_open ?? true),
+      closed_at: updates.closedAt !== undefined ? updates.closedAt : (currentMeta.closed_at ?? current?.closed_at),
       weekly_schedule_json: updates.weeklyScheduleJson !== undefined ? updates.weeklyScheduleJson : (currentMeta.weekly_schedule_json ?? current?.weekly_schedule_json),
       declared_holidays: updates.declaredHolidays !== undefined ? updates.declaredHolidays : (currentMeta.declared_holidays ?? current?.declared_holidays),
       manual_avg_consultation_time_minutes: updates.manualAvgConsultationTimeMinutes !== undefined ? updates.manualAvgConsultationTimeMinutes : (currentMeta.manual_avg_consultation_time_minutes ?? current?.manual_avg_consultation_time_minutes),
@@ -3476,6 +3580,8 @@ export async function updateClinic(id: string, updates: Partial<Clinic>): Promis
     if (updates.panNumber !== undefined) payload.pan_number = updates.panNumber
     if (updates.managerPhone !== undefined) payload.manager_phone = updates.managerPhone
     if (updates.isOnBreak !== undefined) payload.is_on_break = updates.isOnBreak
+    if (updates.isOpen !== undefined) payload.is_open = updates.isOpen
+    if (updates.closedAt !== undefined) payload.closed_at = updates.closedAt
     if (updates.weeklyScheduleJson !== undefined) payload.weekly_schedule_json = updates.weeklyScheduleJson
     if (updates.declaredHolidays !== undefined) payload.declared_holidays = updates.declaredHolidays
     if (updates.manualAvgConsultationTimeMinutes !== undefined) payload.manual_avg_consultation_time_minutes = updates.manualAvgConsultationTimeMinutes
@@ -3500,6 +3606,20 @@ export async function updateClinic(id: string, updates: Partial<Clinic>): Promis
     return true
   } catch (err) {
     console.error('Error updating clinic:', err)
+    return false
+  }
+}
+
+export async function updateClinicOpenStatus(clinicId: string, isOpen: boolean): Promise<boolean> {
+  try {
+    const closedAt = !isOpen ? new Date().toISOString() : null
+    const ok = await updateClinic(clinicId, {
+      isOpen,
+      closedAt: closedAt ?? undefined
+    })
+    return ok
+  } catch (err) {
+    console.error('Error updating clinic open status:', err)
     return false
   }
 }
@@ -3561,17 +3681,28 @@ export async function sendManualNotification(
   expectedTime?: string,
   trackingCode?: string,
   userId?: string,
-  _clinicId?: string
+  _clinicId?: string,
+  type = 'queue_alert'
 ): Promise<boolean> {
   try {
+    const isArriveSoon = type === 'arrive_soon' ||
+      title.toLowerCase().includes('arrive soon') ||
+      message.toLowerCase().includes('arrive soon')
+
     const cleanBody = message.replace(/\[\[META:.*?\]\]/g, '').trim()
-    const pos = (estimatedTimeLeft || '').replace(/[|\]]/g, '').trim()
+    const pos = (estimatedTimeLeft || (isArriveSoon ? 'Arrive Soon' : '')).replace(/[|\]]/g, '').trim()
     const expected = (expectedTime || '').replace(/[|\]]/g, '').trim()
     const code = (trackingCode || '').replace(/[|\]]/g, '').trim()
 
     let taggedMessage = cleanBody
-    if (code || pos || expected) {
-      taggedMessage = `${cleanBody}\n[[META:trackingCode=${code}|pos=${pos}|expected=${expected}|code=${code}|leftLabel=Est. Time|leftVal=${pos || 'Soon'}|rightLabel=Expected|rightVal=${expected || 'Queue Active'}]]`
+    if (message.includes('[[META:')) {
+      taggedMessage = message
+    } else if (code || pos || expected || isArriveSoon) {
+      const leftLabel = isArriveSoon ? 'Turn Status' : 'Est. Time'
+      const leftVal = isArriveSoon ? 'Arrive Soon' : (pos || 'Soon')
+      const rightLabel = isArriveSoon ? 'Queue Position' : 'Expected'
+      const rightVal = expected || (isArriveSoon ? 'Turn Approaching' : 'Queue Active')
+      taggedMessage = `${cleanBody}\n[[META:trackingCode=${code}|pos=${pos}|expected=${expected}|code=${code}|leftLabel=${leftLabel}|leftVal=${leftVal}|rightLabel=${rightLabel}|rightVal=${rightVal}|statusBadge=ARRIVE SOON]]`
     }
 
     const { error } = await supabase.from('notifications').insert({
@@ -3580,7 +3711,7 @@ export async function sendManualNotification(
       user_id: userId && userId.length === 36 ? userId : null,
       title: title.trim(),
       message: taggedMessage,
-      type: 'queue_alert',
+      type: isArriveSoon ? 'arrive_soon' : type,
       target_audience: 'specific',
       is_read: false,
       created_at: new Date().toISOString(),
@@ -3677,15 +3808,27 @@ export async function sendEarlyArrivalInvite(params: {
 
 export async function searchPatientRecords(clinicId: string, searchQuery: string): Promise<Appointment[]> {
   try {
-    const q = searchQuery.trim().toLowerCase()
-    if (!q) return []
+    const validClinicId = sanitizeUuid(clinicId)
+    if (!validClinicId) return []
+
+    const cleanTerm = sanitizeSearchQuery(searchQuery, 64)
+    if (!cleanTerm) return []
+
+    const safeOr = buildSafePostgrestOrFilter([
+      { column: 'tracking_code_10_digit', op: 'ilike', value: cleanTerm },
+      { column: 'patient_mobile', op: 'ilike', value: cleanTerm },
+      { column: 'patient_name', op: 'ilike', value: cleanTerm },
+      { column: 'patient_email', op: 'ilike', value: cleanTerm },
+    ])
+    if (!safeOr) return []
 
     const { data, error } = await supabase
       .from('appointments')
       .select('*, doctor:doctors(*), clinic:clinics(*), queue_entries(*)')
-      .eq('clinic_id', clinicId)
-      .or(`tracking_code_10_digit.ilike.%${q}%,patient_mobile.ilike.%${q}%,patient_name.ilike.%${q}%,patient_email.ilike.%${q}%`)
+      .eq('clinic_id', validClinicId)
+      .or(safeOr)
       .order('appointment_date', { ascending: false })
+      .limit(50)
 
     if (error) throw error
     return (data || []).map(mapAppointment)
@@ -3699,50 +3842,54 @@ export async function searchPatientRecords(clinicId: string, searchQuery: string
 // TAXONOMY API
 // ==========================================
 export async function getMedicalSpecialties(): Promise<MedicalSpecialty[]> {
-  try {
-    const { data, error } = await supabase
-      .from('medical_specialties')
-      .select('*')
-      .order('name', { ascending: true })
+  return cacheManager.getOrFetch('taxonomy_specialties', async () => {
+    try {
+      const { data, error } = await supabase
+        .from('medical_specialties')
+        .select('*')
+        .order('name', { ascending: true })
 
-    if (error) throw error
-    return (data || []).filter(s => s.category !== 'system_config' && !s.name?.startsWith('system_config'))
-  } catch {
-    return [
-      { id: '1', name: 'General Physician', description: 'Primary Care, Fever, Infection, Blood Pressure' },
-      { id: '2', name: 'Cardiology (Heart Care)', description: 'Heart, ECG, Hypertension, Chest Pain' },
-      { id: '3', name: 'Pathology & Diagnostic Lab', description: 'Blood tests, Biochemistry, Histopathology' },
-      { id: '4', name: 'Pediatrics & Child Health', description: 'Infant, Child Care, Growth, Vaccines' },
-      { id: '5', name: 'Orthopedics & Joint Care', description: 'Bones, Fractures, Arthritis, Spine' },
-      { id: '6', name: 'Dermatology & Skin Care', description: 'Skin, Allergies, Hair, Cosmetic Health' },
-      { id: '7', name: 'Gynecology & Women Health', description: 'Maternity, Antenatal, Reproductive Care' },
-      { id: '8', name: 'Dental Care & Dentistry', description: 'Teeth, Root Canal, Orthodontics' },
-      { id: '9', name: 'ENT (Ear, Nose, Throat)', description: 'Sinus, Hearing, Throat Infection' },
-    ]
-  }
+      if (error) throw error
+      return (data || []).filter(s => s.category !== 'system_config' && !s.name?.startsWith('system_config'))
+    } catch {
+      return [
+        { id: '1', name: 'General Physician', description: 'Primary Care, Fever, Infection, Blood Pressure' },
+        { id: '2', name: 'Cardiology (Heart Care)', description: 'Heart, ECG, Hypertension, Chest Pain' },
+        { id: '3', name: 'Pathology & Diagnostic Lab', description: 'Blood tests, Biochemistry, Histopathology' },
+        { id: '4', name: 'Pediatrics & Child Health', description: 'Infant, Child Care, Growth, Vaccines' },
+        { id: '5', name: 'Orthopedics & Joint Care', description: 'Bones, Fractures, Arthritis, Spine' },
+        { id: '6', name: 'Dermatology & Skin Care', description: 'Skin, Allergies, Hair, Cosmetic Health' },
+        { id: '7', name: 'Gynecology & Women Health', description: 'Maternity, Antenatal, Reproductive Care' },
+        { id: '8', name: 'Dental Care & Dentistry', description: 'Teeth, Root Canal, Orthodontics' },
+        { id: '9', name: 'ENT (Ear, Nose, Throat)', description: 'Sinus, Hearing, Throat Infection' },
+      ]
+    }
+  }, 15)
 }
 
 export async function getMedicalQualifications(): Promise<MedicalQualification[]> {
-  try {
-    const { data, error } = await supabase
-      .from('medical_qualifications')
-      .select('*')
-      .order('degree_name', { ascending: true })
+  return cacheManager.getOrFetch('taxonomy_qualifications', async () => {
+    try {
+      const { data, error } = await supabase
+        .from('medical_qualifications')
+        .select('*')
+        .order('degree_name', { ascending: true })
 
-    if (error) throw error
-    return data || []
-  } catch {
-    return [
-      { id: '1', degreeName: 'MBBS', fullTitle: 'Bachelor of Medicine, Bachelor of Surgery' },
-      { id: '2', degreeName: 'MD - Internal Medicine', fullTitle: 'Doctor of Medicine' },
-      { id: '3', degreeName: 'MS - General Surgery', fullTitle: 'Master of Surgery' },
-      { id: '4', degreeName: 'BDS', fullTitle: 'Bachelor of Dental Surgery' },
-      { id: '5', degreeName: 'DM - Cardiology', fullTitle: 'Doctorate in Medicine' },
-      { id: '6', degreeName: 'BMLT / B.Sc. MLT', fullTitle: 'Bachelor in Medical Lab Technology' },
-      { id: '7', degreeName: 'CMLT / DMLT', fullTitle: 'Diploma in Medical Lab Technology' },
-      { id: '8', degreeName: 'M.Sc. MLT / Biochemistry', fullTitle: 'Master in Medical Lab Technology' },
-    ]
-  }
+      if (error) throw error
+      return data || []
+    } catch {
+      return [
+        { id: '1', degreeName: 'MBBS', fullTitle: 'Bachelor of Medicine, Bachelor of Surgery' },
+        { id: '2', degreeName: 'MD - Internal Medicine', fullTitle: 'Doctor of Medicine' },
+        { id: '3', degreeName: 'MS - General Surgery', fullTitle: 'Master of Surgery' },
+        { id: '4', degreeName: 'BDS', fullTitle: 'Bachelor of Dental Surgery' },
+        { id: '5', degreeName: 'DM - Cardiology', fullTitle: 'Doctorate in Medicine' },
+        { id: '6', degreeName: 'BMLT / B.Sc. MLT', fullTitle: 'Bachelor in Medical Lab Technology' },
+        { id: '7', degreeName: 'CMLT / DMLT', fullTitle: 'Diploma in Medical Lab Technology' },
+        { id: '8', degreeName: 'M.Sc. MLT / Biochemistry', fullTitle: 'Master in Medical Lab Technology' },
+      ]
+    }
+  }, 15)
 }
 
 // ==========================================
@@ -3771,28 +3918,30 @@ export const DEFAULT_NEPAL_CITIES = [
  * Guarantees 'All Nepal' is at index 0 and unique.
  */
 export async function getCityLocations(): Promise<string[]> {
-  try {
-    const { data, error } = await supabase
-      .from('medical_qualifications')
-      .select('degree_name, is_active')
-      .eq('level', 'LOCATION_OPTION')
-      .eq('is_active', true)
-      .order('degree_name', { ascending: true })
+  return cacheManager.getOrFetch('city_locations', async () => {
+    try {
+      const { data, error } = await supabase
+        .from('medical_qualifications')
+        .select('degree_name, is_active')
+        .eq('level', 'LOCATION_OPTION')
+        .eq('is_active', true)
+        .order('degree_name', { ascending: true })
 
-    if (error) throw error
-    if (!data || data.length === 0) {
+      if (error) throw error
+      if (!data || data.length === 0) {
+        return DEFAULT_NEPAL_CITIES
+      }
+
+      const cityNames = data
+        .map((d: any) => d.degree_name?.trim())
+        .filter((n: string | undefined): n is string => Boolean(n) && n.toLowerCase() !== 'all nepal')
+
+      return ['All Nepal', ...(Array.from(new Set(cityNames)) as string[])]
+    } catch (err) {
+      console.warn('Error fetching cities from database, using defaults:', err)
       return DEFAULT_NEPAL_CITIES
     }
-
-    const cityNames = data
-      .map((d: any) => d.degree_name?.trim())
-      .filter((n: string | undefined): n is string => Boolean(n) && n.toLowerCase() !== 'all nepal')
-
-    return ['All Nepal', ...(Array.from(new Set(cityNames)) as string[])]
-  } catch (err) {
-    console.warn('Error fetching cities from database, using defaults:', err)
-    return DEFAULT_NEPAL_CITIES
-  }
+  }, 15)
 }
 
 /**
@@ -4032,6 +4181,8 @@ function mapClinic(c: any): Clinic {
     photoUrl: resolveStorageUrl(rawPhoto, 'clinic_photos'),
     isOnBreak: c.is_on_break ?? meta.is_on_break ?? false,
     breakUpdatedAt: c.break_updated_at || meta.break_updated_at,
+    isOpen: c.is_open !== undefined ? c.is_open : (meta.is_open !== undefined ? meta.is_open : true),
+    closedAt: c.closed_at || meta.closed_at,
     weeklyScheduleJson: c.weekly_schedule_json || meta.weekly_schedule_json,
     declaredHolidays: c.declared_holidays || meta.declared_holidays || [],
     avgConsultationTimeMinutes: c.avg_consultation_time_minutes ?? meta.avg_consultation_time_minutes ?? 10,
@@ -4726,10 +4877,13 @@ export async function getPatientProfileByEmail(email: string): Promise<PatientPr
 
 export async function getPatientProfileById(id: string): Promise<PatientProfile | null> {
   try {
+    const cleanId = (id || '').trim().replace(/[,()]/g, '')
+    if (!cleanId) return null
+
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
-      .or(`id.eq.${id},auth_uid.eq.${id}`)
+      .or(`id.eq.${cleanId},auth_uid.eq.${cleanId}`)
       .limit(1)
 
     if (error || !data || data.length === 0) return null
@@ -5098,19 +5252,27 @@ export async function getAppointmentsByPatient(criteria: {
     const filters: string[] = []
 
     if (criteria.userId) {
-      filters.push(`user_id.eq.${criteria.userId}`)
+      const cleanUserId = (criteria.userId || '').trim().replace(/[,()]/g, '')
+      if (cleanUserId) {
+        filters.push(`user_id.eq.${cleanUserId}`)
+      }
     }
     if (criteria.email) {
-      filters.push(`patient_email.ilike.${criteria.email.trim().toLowerCase()}`)
+      const cleanEmail = criteria.email.trim().toLowerCase().replace(/[,()]/g, '')
+      if (cleanEmail) {
+        filters.push(`patient_email.ilike.${cleanEmail}`)
+      }
     }
     if (criteria.phone) {
-      const cleanPhone = criteria.phone.trim()
-      if (cleanPhone.length >= 6) {
+      const cleanPhone = sanitizePhoneNumber(criteria.phone)
+      if (cleanPhone) {
         filters.push(`patient_mobile.eq.${cleanPhone}`)
       }
     }
     if (criteria.trackingCodes && criteria.trackingCodes.length > 0) {
-      const codes = criteria.trackingCodes.map((c) => c.trim()).filter(Boolean)
+      const codes = criteria.trackingCodes
+        .map((c) => sanitizeTrackingCode(c))
+        .filter((c): c is string => Boolean(c))
       if (codes.length > 0) {
         filters.push(`tracking_code_10_digit.in.(${codes.join(',')})`)
       }
@@ -5124,6 +5286,7 @@ export async function getAppointmentsByPatient(criteria: {
       .or(filters.join(','))
       .order('appointment_date', { ascending: false })
       .order('created_at', { ascending: false })
+      .limit(50)
 
     if (error) throw error
     return (data || []).map(mapAppointment)
@@ -5942,6 +6105,64 @@ export async function getClinicPatientDirectory(clinicId: string): Promise<Clini
   }
 }
 
+/**
+ * On-demand lazy retrieval of a specific patient's latest changeable information
+ * (new appointments, latest billing status, clinical remarks).
+ * Reduces server load by querying only this patient instead of entire historical tables.
+ */
+export async function refreshPatientChangeableData(
+  trackingCodes: string[],
+  patientPhone?: string,
+  clinicId?: string
+): Promise<{ appointments: Appointment[]; invoices: any[] }> {
+  try {
+    let query = supabase
+      .from('appointments')
+      .select('*, doctor:doctors(*), clinic:clinics(*), queue_entries(*)')
+
+    if (clinicId) {
+      query = query.eq('clinic_id', clinicId)
+    }
+
+    const cleanCodes = (trackingCodes || []).filter((c) => c && c !== 'N/A')
+    if (cleanCodes.length > 0) {
+      query = query.in('tracking_code_10_digit', cleanCodes)
+    } else if (patientPhone && patientPhone !== 'N/A') {
+      query = query.eq('patient_mobile', patientPhone)
+    } else {
+      return { appointments: [], invoices: [] }
+    }
+
+    const { data: rawAppts, error } = await query
+    if (error) throw error
+
+    const validAppts: Appointment[] = (rawAppts || []).filter(
+      (a: any) =>
+        a.status === 'APPROVED' &&
+        a.status !== 'WAITING_FOR_APPROVAL' &&
+        a.status !== 'pending_payment' &&
+        a.status !== 'UNAPPROVED' &&
+        a.status !== 'EXPIRED' &&
+        a.checkin_status !== 'cancelled'
+    )
+
+    let invoices: any[] = []
+    if (validAppts.length > 0) {
+      const apptIds = validAppts.map((a) => a.id)
+      const { data: rawInvs } = await supabase
+        .from('invoices')
+        .select('*')
+        .in('appointment_id', apptIds)
+      invoices = rawInvs || []
+    }
+
+    return { appointments: validAppts, invoices }
+  } catch (err) {
+    console.error('Error in refreshPatientChangeableData:', err)
+    return { appointments: [], invoices: [] }
+  }
+}
+
 // ==========================================
 // CLINIC SUBSCRIPTION, ARCHIVE, SLOTS & INVITATIONS API
 // ==========================================
@@ -6079,7 +6300,27 @@ export async function getClinicExpenses(clinicId: string): Promise<any[]> {
       .eq('clinic_id', clinicId)
       .order('expense_date', { ascending: false })
     if (error) throw error
-    return data || []
+    return (data || []).map((row: any) => {
+      const vNum = row.voucher_number || row.receipt_no || undefined
+      const rNo = row.receipt_no || row.voucher_number || undefined
+      let rem = row.remarks || row.notes || undefined
+      let eTime = row.expense_time || undefined
+      if (!eTime && rem && /^\[(\d{1,2}:\d{2})\]\s*/.test(rem)) {
+        const match = rem.match(/^\[(\d{1,2}:\d{2})\]\s*(.*)/)
+        if (match) {
+          eTime = match[1]
+          rem = match[2] || undefined
+        }
+      }
+      return {
+        ...row,
+        voucher_number: vNum,
+        receipt_no: rNo,
+        remarks: rem,
+        notes: rem,
+        expense_time: eTime,
+      }
+    })
   } catch (e) {
     console.warn('Error fetching clinic_expenses:', e)
     return []
@@ -6087,13 +6328,65 @@ export async function getClinicExpenses(clinicId: string): Promise<any[]> {
 }
 
 export async function addClinicExpense(expense: any): Promise<any> {
-  const { data, error } = await supabase
+  const vNum = expense.voucher_number || expense.receipt_no || null
+  const rem = expense.remarks || expense.notes || null
+  const eTime = expense.expense_time || null
+  const combinedNotes = eTime ? `[${eTime}] ${rem || ''}`.trim() : (rem || null)
+
+  const insertPayload: Record<string, any> = {
+    clinic_id: expense.clinic_id,
+    title: expense.title,
+    category: expense.category || 'OTHER',
+    amount: Number(expense.amount) || 0,
+    payment_method: expense.payment_method || 'CASH',
+    expense_date: expense.expense_date,
+    receipt_no: vNum,
+    notes: combinedNotes,
+    payee_name: expense.payee_name || null,
+  }
+
+  if (expense.id) {
+    insertPayload.id = expense.id
+  }
+
+  let { data, error } = await supabase
     .from('clinic_expenses')
-    .insert([expense])
+    .insert([insertPayload])
     .select()
     .single()
-  if (error) throw error
-  return data
+
+  if (error) {
+    const minimalPayload: Record<string, any> = {
+      clinic_id: expense.clinic_id,
+      title: expense.title,
+      category: expense.category || 'OTHER',
+      amount: Number(expense.amount) || 0,
+      payment_method: expense.payment_method || 'CASH',
+      expense_date: expense.expense_date,
+    }
+    if (vNum) minimalPayload.receipt_no = vNum
+    if (combinedNotes) minimalPayload.notes = combinedNotes
+    if (expense.payee_name) minimalPayload.payee_name = expense.payee_name
+    if (expense.id) minimalPayload.id = expense.id
+
+    const retryRes = await supabase
+      .from('clinic_expenses')
+      .insert([minimalPayload])
+      .select()
+      .single()
+
+    if (retryRes.error) throw retryRes.error
+    data = retryRes.data
+  }
+
+  return {
+    ...data,
+    voucher_number: data.voucher_number || data.receipt_no || vNum,
+    receipt_no: data.receipt_no || data.voucher_number || vNum,
+    remarks: data.remarks || rem,
+    notes: data.notes || combinedNotes,
+    expense_time: data.expense_time || eTime,
+  }
 }
 
 export async function deleteClinicExpense(expenseId: string): Promise<boolean> {
@@ -7001,4 +7294,65 @@ export async function markPayAtDeskCollected(appointmentId: string, clinicId?: s
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to mark payment collected' }
   }
+}
+
+// ==========================================
+// REMOTE APP OPERATIONAL STATUS & CLOSURE CHECK
+// ==========================================
+export interface AppClosureStatus {
+  isTemporarilyClosed: boolean
+  title: string
+  message: string
+}
+
+export async function checkAppClosureStatus(appName: string = 'web_app'): Promise<AppClosureStatus> {
+  let isTemporarilyClosed = false
+  let title = 'Web Portal Temporarily Closed'
+  let message = 'Dactor Web Portal is temporarily closed for scheduled maintenance. Please check back shortly.'
+
+  // 1. Try querying app_versions table
+  try {
+    const { data, error } = await supabase
+      .from('app_versions')
+      .select('is_temporarily_closed, closure_title, closure_message')
+      .eq('app_name', appName)
+      .maybeSingle()
+
+    if (!error && data) {
+      if (typeof data.is_temporarily_closed === 'boolean') {
+        isTemporarilyClosed = data.is_temporarily_closed
+      }
+      if (data.closure_title) {
+        title = data.closure_title
+      }
+      if (data.closure_message) {
+        message = data.closure_message
+      }
+      return { isTemporarilyClosed, title, message }
+    }
+  } catch {}
+
+  // 2. Dual-layer fallback: query medical_specialties (category = 'system_config')
+  try {
+    const { data: configs } = await supabase
+      .from('medical_specialties')
+      .select('name, search_keywords, description')
+      .eq('category', 'system_config')
+
+    if (configs && configs.length > 0) {
+      for (const row of configs) {
+        if (row.name === `system_config:${appName}_temporarily_closed`) {
+          isTemporarilyClosed = String(row.search_keywords || '').trim().toLowerCase() === 'true'
+        }
+        if (row.name === `system_config:${appName}_closure_title`) {
+          title = row.description || row.search_keywords || title
+        }
+        if (row.name === `system_config:${appName}_closure_message`) {
+          message = row.description || row.search_keywords || message
+        }
+      }
+    }
+  } catch {}
+
+  return { isTemporarilyClosed, title, message }
 }

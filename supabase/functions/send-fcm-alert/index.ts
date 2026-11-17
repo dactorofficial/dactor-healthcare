@@ -332,13 +332,6 @@ Deno.serve(async (req) => {
             .ilike("email", callerEmail)
             .maybeSingle();
           if (clinicRow) authorized = true;
-        } else {
-          const { data: clinicRow } = await service
-            .from("clinics")
-            .select("id")
-            .eq("id", clinicId)
-            .maybeSingle();
-          if (clinicRow) authorized = true;
         }
       }
 
@@ -440,13 +433,6 @@ Deno.serve(async (req) => {
             .select("id")
             .eq("id", clinicId)
             .ilike("email", callerEmail)
-            .maybeSingle();
-          if (clinicRow) authorized = true;
-        } else {
-          const { data: clinicRow } = await service
-            .from("clinics")
-            .select("id")
-            .eq("id", clinicId)
             .maybeSingle();
           if (clinicRow) authorized = true;
         }
@@ -551,12 +537,16 @@ Deno.serve(async (req) => {
       if (authStaff === true) authorized = true;
     }
     if (!authorized) {
-      const { data: clinicRow } = await service
-        .from("clinics")
-        .select("id")
-        .eq("id", appointment.clinic_id)
-        .maybeSingle();
-      if (clinicRow) authorized = true;
+      const callerEmail = typeof body?.clinicEmail === "string" ? body.clinicEmail.trim().toLowerCase() : "";
+      if (callerEmail) {
+        const { data: clinicRow } = await service
+          .from("clinics")
+          .select("id")
+          .eq("id", appointment.clinic_id)
+          .ilike("email", callerEmail)
+          .maybeSingle();
+        if (clinicRow) authorized = true;
+      }
     }
 
     if (!authorized) {

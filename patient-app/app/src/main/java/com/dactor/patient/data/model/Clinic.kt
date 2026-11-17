@@ -45,6 +45,8 @@ data class Clinic(
     @SerialName("avg_time_mode") val avgTimeMode: String? = "auto",
     @SerialName("is_on_break") val isOnBreak: Boolean? = false,
     @SerialName("break_updated_at") val breakUpdatedAt: String? = null,
+    @SerialName("is_open") val isOpen: Boolean? = true,
+    @SerialName("closed_at") val closedAt: String? = null,
     @SerialName("weekly_schedule_json") val weeklyScheduleJson: String? = null,
     @SerialName("declared_holidays") val declaredHolidays: List<String> = emptyList()
 ) {

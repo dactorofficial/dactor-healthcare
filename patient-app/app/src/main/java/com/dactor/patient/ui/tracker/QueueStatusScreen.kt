@@ -1,5 +1,6 @@
 package com.dactor.patient.ui.tracker
 
+import androidx.lifecycle.repeatOnLifecycle
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -79,26 +80,39 @@ fun QueueStatusScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    val cachedPrewarmAppt = remember(appointmentIdOrCode) {
+    val cachedMaster = remember(appointmentIdOrCode) {
         val query = appointmentIdOrCode.trim()
-        if (query.isBlank()) null
-        else {
-            val list = appointmentRepository?.getCachedAppointments().orEmpty() +
-                appointmentRepository?.getCachedRecords().orEmpty() +
-                (sessionManager?.getCachedActiveAppointments() ?: emptyList()) +
-                (sessionManager?.getCachedRecords() ?: emptyList())
-            list.firstOrNull { it.id == query || it.trackingCode10Digit == query }
+        if (query.isBlank()) null else sessionManager?.getCachedTrackerMaster(query)
+    }
+    val cachedPrewarmAppt = remember(appointmentIdOrCode, cachedMaster) {
+        cachedMaster?.appointment ?: run {
+            val query = appointmentIdOrCode.trim()
+            if (query.isBlank()) null
+            else {
+                val list = appointmentRepository?.getCachedAppointments().orEmpty() +
+                    appointmentRepository?.getCachedRecords().orEmpty() +
+                    (sessionManager?.getCachedActiveAppointments() ?: emptyList()) +
+                    (sessionManager?.getCachedRecords() ?: emptyList())
+                list.firstOrNull { it.id == query || it.trackingCode10Digit == query }
+            }
         }
     }
     val cachedPrewarmQueue = remember(appointmentIdOrCode, cachedPrewarmAppt) {
-        val query = appointmentIdOrCode.trim()
-        sessionManager?.getCachedQueueStatus(query)
-            ?: cachedPrewarmAppt?.let { sessionManager?.getCachedQueueStatus(it.id) }
+        val todayStr = java.time.LocalDate.now().toString()
+        // STRICT: Only prewarm queue status for TODAY'S appointment. NEVER prewarm past or future appointments with stale queue entries!
+        if (cachedPrewarmAppt?.appointmentDate == todayStr) {
+            val query = appointmentIdOrCode.trim()
+            sessionManager?.getCachedQueueStatus(query)
+                ?: cachedPrewarmAppt?.let { sessionManager?.getCachedQueueStatus(it.id) }
+        } else null
     }
-    val cachedPrewarmClinic = remember(cachedPrewarmAppt) {
-        cachedPrewarmAppt?.clinicId?.takeIf { it.isNotBlank() }?.let {
+    val cachedPrewarmClinic = remember(cachedPrewarmAppt, cachedMaster) {
+        cachedMaster?.clinic ?: cachedPrewarmAppt?.clinicId?.takeIf { it.isNotBlank() }?.let {
             clinicRepository?.getCachedClinicById(it)
         }
+    }
+    val cachedPrewarmDoctor = remember(cachedMaster) {
+        cachedMaster?.doctor
     }
 
     var appointment by remember { mutableStateOf<Appointment?>(cachedPrewarmAppt) }
@@ -112,14 +126,17 @@ fun QueueStatusScreen(
     var liveTimingEstimate by remember { mutableStateOf<LiveQueueTimingEstimate?>(null) }
     var multiSlotResult by remember { mutableStateOf<com.dactor.patient.data.repository.MultiSlotPositionResult?>(null) }
 
-    var doctorName by remember { mutableStateOf("") }
-    var doctorSpecialty by remember { mutableStateOf("") }
-    var doctorPhotoUrl by remember { mutableStateOf<String?>(null) }
-    var isDoctorInClinic by remember { mutableStateOf(false) }
+    var doctorName by remember { mutableStateOf(cachedPrewarmDoctor?.fullName ?: "") }
+    var doctorSpecialty by remember { mutableStateOf(cachedPrewarmDoctor?.specialty ?: "") }
+    var doctorPhotoUrl by remember { mutableStateOf<String?>(cachedPrewarmDoctor?.resolvedProfilePictureUrl ?: cachedPrewarmDoctor?.profilePictureUrl) }
+    var isDoctorInClinic by remember { mutableStateOf(cachedPrewarmDoctor?.isInClinic ?: false) }
 
     var tokenNumber by remember { mutableIntStateOf(cachedPrewarmQueue?.queuePosition ?: 0) }
     var patientsAhead by remember { mutableIntStateOf(if (cachedPrewarmQueue != null) (cachedPrewarmQueue.queuePosition - 1).coerceAtLeast(0) else -1) } // -1 = not yet loaded
     var clinicAvgTimeMinutes by remember { mutableIntStateOf(cachedPrewarmClinic?.getEffectiveAvgMinutes() ?: 10) }
+    // Doctor's running average from the server; re-read only when a consultation finishes
+    var doctorAvgMinutes by remember { mutableStateOf<Int?>(null) }
+    var lastFinishedCount by remember { mutableStateOf<Int?>(null) }
     var queueStatus by remember { mutableStateOf(cachedPrewarmQueue?.status ?: "waiting") } // "waiting", "inside", "done", "sample_collected", "processing", "report_prepared"
     var insideAt by remember { mutableStateOf<String?>(cachedPrewarmQueue?.insideAt) }
     var currentEpochSecond by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
@@ -163,6 +180,20 @@ fun QueueStatusScreen(
     var billingInvoice by remember { mutableStateOf<BillingInvoice?>(null) }
     var clinicalRemarks by remember { mutableStateOf<String?>(null) }
     var labReports by remember { mutableStateOf<List<LabReport>>(emptyList()) }
+    var downloadedReportFile by remember { mutableStateOf<java.io.File?>(null) }
+
+    // Check for locally downloaded report file whenever appointment or reports update
+    LaunchedEffect(appointment?.id, labReports.size) {
+        val primaryRep = labReports.firstOrNull { it.stage == "prepared" } ?: labReports.firstOrNull()
+        if (primaryRep != null) {
+            downloadedReportFile = com.dactor.patient.util.LabReportPdfDownloader.findDownloadedReportFile(
+                context = context,
+                report = primaryRep,
+                clinicName = clinicName,
+                patientName = rawPatientName
+            )
+        }
+    }
 
     // Multi-visit clinic history states
     var multiClinicAppointments by remember { mutableStateOf<List<Appointment>>(emptyList()) }
@@ -232,13 +263,17 @@ fun QueueStatusScreen(
         }
     }
 
-    suspend fun refreshData() {
+    suspend fun refreshData(isDeltaOnly: Boolean = false) {
         val queryCode = appointmentIdOrCode.trim()
         if (queryCode.isBlank()) return
 
         try {
-            val appt = appointmentRepository?.getAppointmentByTrackingCode(queryCode)
-                ?: appointmentRepository?.getAppointmentById(queryCode)
+            val appt = if (isDeltaOnly && appointment != null) {
+                appointment
+            } else {
+                appointmentRepository?.getAppointmentByTrackingCode(queryCode)
+                    ?: appointmentRepository?.getAppointmentById(queryCode)
+            }
 
             if (appt != null) {
                 appointment = appt
@@ -253,8 +288,10 @@ fun QueueStatusScreen(
                     sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} \u2022 ${appt.appointmentDate}")
                 }
 
-                // Always load lab reports so live workflow stage (Processing / Prepared) is accurate
-                loadConfidentialDetails(appt)
+                // Load confidential details and lab reports only on initial full load or manual refresh
+                if (!isDeltaOnly) {
+                    loadConfidentialDetails(appt)
+                }
 
                 // Auto-unlock only when signed-in account explicitly matches email or userId
                 val savedEmail = sessionManager?.getSavedEmail()?.trim()?.lowercase()
@@ -267,24 +304,29 @@ fun QueueStatusScreen(
                     isSavedToProfile = true
                 }
 
-                // Fetch clinic info
+                // Fetch clinic info (only when missing, on full refresh, or periodically during delta poll)
                 if (appt.clinicId.isNotBlank()) {
-                    val clinic = clinicRepository?.getClinicById(appt.clinicId, forceRefresh = (clinicObj == null))
-                    clinicObj = clinic
-                    if (clinic != null) {
-                        clinicName = clinic.name
-                        clinicAddress = clinic.addressText ?: "Nepal"
-                        clinicPhone = clinic.contactPhone?.trim() ?: ""
-                        clinicLatitude = clinic.latitude ?: 27.7172
-                        clinicLongitude = clinic.longitude ?: 85.3240
-                        clinicType = clinic.type ?: "single_visit"
-                        clinicAvgTimeMinutes = clinic.getEffectiveAvgMinutes()
+                    val shouldRefreshClinic = !isDeltaOnly || clinicObj == null || (System.currentTimeMillis() % 12_000L < 4_500L)
+                    if (shouldRefreshClinic) {
+                        val clinic = clinicRepository?.getClinicById(appt.clinicId, forceRefresh = (clinicObj == null))
+                        if (clinic != null) {
+                            clinicObj = clinic
+                            clinicName = clinic.name
+                            clinicAddress = clinic.addressText ?: "Nepal"
+                            clinicPhone = clinic.contactPhone?.trim() ?: ""
+                            clinicLatitude = clinic.latitude ?: 27.7172
+                            clinicLongitude = clinic.longitude ?: 85.3240
+                            clinicType = clinic.type ?: "single_visit"
+                            clinicAvgTimeMinutes = doctorAvgMinutes ?: clinic.getEffectiveAvgMinutes()
+                        }
                     }
                 }
 
-                // Fetch doctor info
-                if (!appt.doctorId.isNullOrBlank() && (doctorName.isBlank() || doctorPhotoUrl == null)) {
+                // Fetch doctor info (only when missing or on full refresh)
+                var resolvedDoc: com.dactor.patient.data.model.Doctor? = null
+                if (!appt.doctorId.isNullOrBlank() && (!isDeltaOnly || doctorName.isBlank() || doctorPhotoUrl == null)) {
                     val doctor = doctorRepository?.getDoctorById(appt.doctorId)
+                    resolvedDoc = doctor
                     if (doctor != null) {
                         doctorName = doctor.fullName
                         doctorSpecialty = doctor.specialty ?: "General Physician"
@@ -295,33 +337,35 @@ fun QueueStatusScreen(
 
                 // Strictly isolate appointments by the exact same 10-digit Appointment ID (trackingCode10Digit)
                 // Appointments with different appointment IDs from the same clinic must NEVER be grouped or shown together
-                val targetCode = appt.trackingCode10Digit
-                try {
-                    val sameCodeVisits = if (targetCode.isNotBlank() && appointmentRepository != null) {
-                        try {
-                            appointmentRepository.getAllAppointmentsByTrackingCode(targetCode)
-                        } catch (_: Exception) {
-                            listOf(appt)
-                        }
-                    } else listOf(appt)
-                    val combined = (sameCodeVisits + listOf(appt))
-                        .distinctBy { it.id }
-                        .filter { it.trackingCode10Digit == targetCode }
-                    val sorted = combined.sortedWith(
-                        compareByDescending<Appointment> { it.appointmentDate }
-                            .thenByDescending { it.appointmentTime }
-                    )
-                    multiClinicAppointments = sorted
-                    val apptIds = sorted.map { it.id }
-                    val invMap = appointmentRepository?.getInvoicesForAppointments(apptIds) ?: emptyMap()
-                    appointmentInvoicesMap = invMap
-                } catch (e: Exception) {
-                    multiClinicAppointments = listOf(appt)
+                if (!isDeltaOnly) {
+                    val targetCode = appt.trackingCode10Digit
+                    try {
+                        val sameCodeVisits = if (targetCode.isNotBlank() && appointmentRepository != null) {
+                            try {
+                                appointmentRepository.getAllAppointmentsByTrackingCode(targetCode)
+                            } catch (_: Exception) {
+                                listOf(appt)
+                            }
+                        } else listOf(appt)
+                        val combined = (sameCodeVisits + listOf(appt))
+                            .distinctBy { it.id }
+                            .filter { it.trackingCode10Digit == targetCode }
+                        val sorted = combined.sortedWith(
+                            compareByDescending<Appointment> { it.appointmentDate }
+                                .thenByDescending { it.appointmentTime }
+                        )
+                        multiClinicAppointments = sorted
+                        val apptIds = sorted.map { it.id }
+                        val invMap = appointmentRepository?.getInvoicesForAppointments(apptIds) ?: emptyMap()
+                        appointmentInvoicesMap = invMap
+                    } catch (e: Exception) {
+                        multiClinicAppointments = listOf(appt)
+                    }
                 }
 
                 // Fetch queue token and live status (combining queue_entries, appointment checkin_status, and lab_reports)
                 val isPendingClinicApproval = (!appt.status.equals("APPROVED", ignoreCase = true) && !appt.status.equals("confirmed", ignoreCase = true)) || appt.status == "WAITING_FOR_APPROVAL" || appt.status == "pending_payment"
-                var qEntry = if (isPendingClinicApproval) null else queueRepository?.getQueueStatus(appt.id)
+                var qEntry = if (isPendingClinicApproval) null else queueRepository?.getQueueStatus(appt.id, forceRefresh = isDeltaOnly)
                 val isUpcomingOrToday = !isPendingClinicApproval && appt.appointmentDate >= today && appt.checkinStatus.lowercase() in listOf("waiting", "checked_in", "in_queue", "confirmed", "booked")
                 val isAlreadyDone = qEntry?.status?.lowercase() in listOf("done", "completed") || appt.checkinStatus.lowercase() in listOf("done", "completed")
                 if (isUpcomingOrToday && !isAlreadyDone && qEntry == null) {
@@ -368,28 +412,39 @@ fun QueueStatusScreen(
                     else -> "waiting"
                 }
 
-                // Multi-slot cumulative position across the appointment's date
-                val slotResult = if (isPendingClinicApproval) null else queueRepository?.calculateMultiSlotDailyPosition(
-                    clinicId = appt.clinicId,
-                    doctorId = appt.doctorId,
-                    appointmentDate = appt.appointmentDate,
-                    targetAppointmentId = appt.id,
-                    targetSlotId = appt.slotId,
-                    targetAppointmentTime = appt.appointmentTime,
-                    avgConsultationMinutes = clinicAvgTimeMinutes
-                )
-                multiSlotResult = slotResult
+                // Multi-slot cumulative position across the appointment's date (calculate only once or on full refresh)
+                if (!isDeltaOnly || multiSlotResult == null) {
+                    val slotResult = if (isPendingClinicApproval) null else queueRepository?.calculateMultiSlotDailyPosition(
+                        clinicId = appt.clinicId,
+                        doctorId = appt.doctorId,
+                        appointmentDate = appt.appointmentDate,
+                        targetAppointmentId = appt.id,
+                        targetSlotId = appt.slotId,
+                        targetAppointmentTime = appt.appointmentTime,
+                        avgConsultationMinutes = clinicAvgTimeMinutes
+                    )
+                    multiSlotResult = slotResult
+                }
+
+                val slotResult = multiSlotResult
+
+                // Save master cache on initial full refresh
+                if (!isDeltaOnly) {
+                    sessionManager?.saveCachedTrackerMaster(queryCode, appt, clinicObj, resolvedDoc)
+                }
 
                 val parsedApptDate = com.dactor.patient.data.repository.QueueRepository.parseLocalDateSafe(appt.appointmentDate)
                 val isAppointmentToday = (parsedApptDate?.isEqual(java.time.LocalDate.now()) == true) || (appt.appointmentDate.trim().take(10) == java.time.LocalDate.now().toString())
                 val isTomorrow = parsedApptDate?.isEqual(java.time.LocalDate.now().plusDays(1)) ?: false
                 val isFutureDate = parsedApptDate?.isAfter(java.time.LocalDate.now()) ?: false
+                val isPastDate = (parsedApptDate?.isBefore(java.time.LocalDate.now()) == true) && !isAppointmentToday
                 val isFutureOrTomorrow = !isAppointmentToday && (isTomorrow || isFutureDate || slotResult?.isFutureDate == true || slotResult?.isTomorrow == true)
 
                 // Count queue patients ahead:
                 // For future dates/tomorrow, use multi-slot cumulative day position.
                 // For today, count LIVE queue patients ahead (waiting + inside).
-                if (isPendingClinicApproval) {
+                // For past dates or pending approval, silence live queue countdown and clear token position.
+                if (isPendingClinicApproval || isPastDate) {
                     patientsAhead = -1
                     tokenNumber = 0
                     liveTimingEstimate = null
@@ -398,7 +453,7 @@ fun QueueStatusScreen(
                     tokenNumber = slotResult?.cumulativePosition ?: (if (tokenNumber > 0) tokenNumber else 1)
                     liveTimingEstimate = null // Silence live countdown for advance dates
                 } else if (appt.clinicId.isNotBlank() && isAppointmentToday) {
-                    val clinicEntries = queueRepository?.getQueueEntriesForClinic(appt.clinicId) ?: emptyList()
+                    val clinicEntries = queueRepository?.getTodayQueueEntriesForClinic(appt.clinicId) ?: emptyList()
                     val myPos = qEntry?.queuePosition ?: tokenNumber
                     val sortedActive = clinicEntries
                         .filter { it.status == "waiting" || it.status == "inside" || it.status == "in_consultation" }
@@ -416,6 +471,17 @@ fun QueueStatusScreen(
                     tokenNumber = if (myPos > 0) myPos else (slotResult?.cumulativePosition ?: 1)
                     isAnyoneInsideDoctorCabin = clinicEntries.any { it.status == "inside" || it.status == "in_consultation" }
 
+                    // Expected time is calculated here on the phone. The doctor's running average is
+                    // fetched again only when another consultation has finished.
+                    val finishedCount = clinicEntries.count { it.status in listOf("done", "completed", "processing", "sample_collected", "report_prepared") }
+                    if (finishedCount != lastFinishedCount || doctorAvgMinutes == null) {
+                        lastFinishedCount = finishedCount
+                        queueRepository?.getDoctorAvgConsultationSeconds(appt.trackingCode10Digit)?.let { sec ->
+                            doctorAvgMinutes = kotlin.math.round(sec / 60.0).toInt().coerceAtLeast(1)
+                            clinicAvgTimeMinutes = doctorAvgMinutes!!
+                        }
+                    }
+
                     // Real estimated timing calculation using QueueRepository engine
                     val timing = QueueRepository.calculateLiveQueueTimingEstimate(
                         clinic = clinicObj,
@@ -425,7 +491,8 @@ fun QueueStatusScreen(
                         fallbackPatientsAhead = liveAhead,
                         appointmentTime = appt.appointmentTime,
                         optInEarlyCall = appt.optInEarlyCall,
-                        appointmentDate = appt.appointmentDate
+                        appointmentDate = appt.appointmentDate,
+                        avgMinutesOverride = doctorAvgMinutes
                     )
                     liveTimingEstimate = timing
 
@@ -584,10 +651,17 @@ fun QueueStatusScreen(
         }
     }
 
+    val trackerLifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     LaunchedEffect(appointmentIdOrCode) {
-        while (isActive) {
-            refreshData()
-            delay(4000L) // auto-refresh queue position and doctor status every 4 seconds
+        // Initial full load & master sync
+        refreshData(isDeltaOnly = false)
+        // Refresh every 30 s only while the screen is visible (paused in the background);
+        // the expected time itself is recalculated on the phone from these inputs.
+        trackerLifecycleOwner.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            while (isActive) {
+                delay(30_000L)
+                refreshData(isDeltaOnly = true)
+            }
         }
     }
 
@@ -779,7 +853,11 @@ fun QueueStatusScreen(
             report = primaryReport,
             patientName = rawPatientName.ifBlank { "Registered Patient" },
             clinicName = clinicName.ifBlank { "Dactor Diagnostic & Pathology Lab" },
-            doctorName = doctorName.ifBlank { "Certified Pathologist / Lab Technician" }
+            doctorName = doctorName.ifBlank { "Certified Pathologist / Lab Technician" },
+            autoOpen = false,
+            onComplete = { file ->
+                downloadedReportFile = file
+            }
         )
     }
 
@@ -968,9 +1046,56 @@ fun QueueStatusScreen(
                     }
                 }
 
-                // ── A. CLINIC ON BREAK ALERT BANNER ───────────────────
+                // ── A0. CLINIC CLOSED ALERT BANNER ───────────────────
                 val isPayAtDeskPendingNotice = appointment?.paymentMode == "PAY_AT_DESK" && appointment?.status != "APPROVED"
-                if (!isConsultancyCompleted && !isPayAtDeskPendingNotice && clinicObj?.isOnBreak == true) {
+                val isClinicClosed = clinicObj?.isOpen == false
+                if (!isConsultancyCompleted && !isPayAtDeskPendingNotice && isClinicClosed) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color(0xFFFEE2E2),
+                        border = BorderStroke(1.5.dp, Color(0xFFEF4444)),
+                        shadowElevation = 2.dp,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFFEF4444),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Default.Lock,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "CLINIC IS CURRENTLY CLOSED",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF991B1B)
+                                )
+                                Text(
+                                    text = "The clinic has closed for today. Live queue tracking and consultations have concluded.",
+                                    fontSize = 11.5.sp,
+                                    color = Color(0xFFB91C1C),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ── A. CLINIC ON BREAK ALERT BANNER ───────────────────
+                if (!isConsultancyCompleted && !isPayAtDeskPendingNotice && clinicObj?.isOnBreak == true && !isClinicClosed) {
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = Color(0xFFFEE2E2),
@@ -1006,7 +1131,7 @@ fun QueueStatusScreen(
                                 )
                                 val todayBreak = clinicObj?.getTodaySchedule()?.takeIf { it.hasBreak }
                                 val breakTimingStr = if (todayBreak != null && !todayBreak.breakStart.isNullOrBlank() && !todayBreak.breakEnd.isNullOrBlank()) {
-                                    "Scheduled Break: ${todayBreak.breakStart} \u2013 ${todayBreak.breakEnd}. Consultations will resume shortly."
+                                    "Scheduled Break: ${todayBreak.breakStart} \u2013 ${todayBreak.breakEnd}. Consultations resume at ${todayBreak.breakEnd}."
                                 } else {
                                     "Consultations are paused temporarily. Will resume shortly."
                                 }
@@ -1506,7 +1631,8 @@ fun QueueStatusScreen(
                         val isApptDateToday = (parsedDate?.isEqual(java.time.LocalDate.now()) == true) || (apptDateRaw == todayStr)
                         val isTomorrow = (parsedDate?.isEqual(java.time.LocalDate.now().plusDays(1)) == true) || (multiSlotResult?.isTomorrow == true)
                         val isFutureDate = (parsedDate?.isAfter(java.time.LocalDate.now()) == true) || (multiSlotResult?.isFutureDate == true)
-                        val isFutureOrTomorrow = !isApptDateToday && (isTomorrow || isFutureDate || multiSlotResult?.isFutureDate == true || multiSlotResult?.isTomorrow == true)
+                        val isPastDate = (parsedDate?.isBefore(java.time.LocalDate.now()) == true) && !isApptDateToday
+                        val isFutureOrTomorrow = !isApptDateToday && !isPastDate && (isTomorrow || isFutureDate || multiSlotResult?.isFutureDate == true || multiSlotResult?.isTomorrow == true)
                         val isLate = isApptDateToday && (liveTimingEstimate?.isPatientLate == true)
 
                         val resolvedDateLabel = when {
@@ -1530,9 +1656,11 @@ fun QueueStatusScreen(
                                 Surface(
                                     shape = CircleShape,
                                     color = when {
+                                        isClinicClosed || isNoShow -> Color(0xFFFFE4E6)
                                         isLate -> Color(0xFFFFE4E6)
                                         queueStatus == "inside" -> Color(0xFFDBEAFE)
-                                        queueStatus == "done" -> Color(0xFFDCFCE7)
+                                        queueStatus == "done" || isConsultancyCompleted -> Color(0xFFDCFCE7)
+                                        isPastDate -> Color(0xFFF1F5F9)
                                         patientsAhead == 0 -> Color(0xFFDCFCE7)
                                         else -> Color(0xFFE0F2FE)
                                     },
@@ -1542,9 +1670,11 @@ fun QueueStatusScreen(
                                 Surface(
                                     shape = CircleShape,
                                     color = when {
+                                        isClinicClosed || isNoShow -> Color(0xFFE11D48)
                                         isLate -> Color(0xFFE11D48)
                                         queueStatus == "inside" -> Color(0xFF2563EB)
-                                        queueStatus == "done" -> Color(0xFF059669)
+                                        queueStatus == "done" || isConsultancyCompleted -> Color(0xFF059669)
+                                        isPastDate -> Color(0xFF64748B)
                                         patientsAhead == 0 -> Color(0xFF10B981)
                                         else -> Color(0xFF0284C7)
                                     },
@@ -1556,19 +1686,24 @@ fun QueueStatusScreen(
                                         verticalArrangement = Arrangement.Center
                                     ) {
                                         val topBadgeLabel = when {
+                                            isClinicClosed -> "CLOSED"
+                                            isNoShow -> "NO SHOW"
                                             isLate -> "LATE"
                                             queueStatus == "inside" -> "CURRENT"
-                                            queueStatus == "done" -> "VISIT"
+                                            queueStatus == "done" || isConsultancyCompleted -> "VISIT"
                                             isTomorrow -> "TOMORROW"
                                             isFutureOrTomorrow -> "RANK"
+                                            isPastDate -> "PAST"
                                             patientsAhead == 0 -> "UP NEXT"
                                             else -> "POSITION"
                                         }
                                         val mainBadgeText = when {
+                                            isClinicClosed || isNoShow -> "\u2715"
                                             isLate -> "!"
                                             queueStatus == "inside" -> "NOW"
-                                            queueStatus == "done" -> "✓"
+                                            queueStatus == "done" || isConsultancyCompleted -> "✓"
                                             isFutureOrTomorrow -> "$resolvedRankNumber"
+                                            isPastDate -> "\u2014"
                                             patientsAhead >= 0 -> "$patientsAhead"
                                             else -> "\u2014"
                                         }
@@ -1601,15 +1736,19 @@ fun QueueStatusScreen(
                                 ) {
                                     Text(
                                         text = when {
+                                            isClinicClosed -> "Clinic is Closed for Today"
+                                            isNoShow -> "Visit Concluded as No-Show"
                                             isLate -> "Arrive soon, you are late"
-                                            !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow) -> "Loading queue status..."
+                                            !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow && !isPastDate) -> "Loading queue status..."
                                             isLabClinic && isReportReady -> "Status: Prepared"
                                             isLabClinic && isSampleProcessing -> "Status: Processing"
+                                            isLabClinic && isPastDate -> "Past Lab Order \u2022 $resolvedDateLabel"
                                             isLabClinic && patientsAhead == 0 -> "Next for Sample Collection!"
                                             isLabClinic && patientsAhead > 0 -> "$patientsAhead Patients Ahead"
                                             isLabClinic -> "Waiting for Sample Collection"
                                             queueStatus == "inside" -> "You are in OPD session"
-                                            queueStatus == "done" -> "Consultation completed"
+                                            queueStatus == "done" || isConsultancyCompleted -> "Consultation completed"
+                                            isPastDate -> "Past Visit \u2022 $resolvedDateLabel"
                                             isTomorrow -> "Tomorrow \u2022 Position #$resolvedRankNumber in line"
                                             isFutureOrTomorrow -> "$resolvedDateLabel \u2022 Position #$resolvedRankNumber in line"
                                             patientsAhead == 0 -> "You're next in line"
@@ -1619,19 +1758,21 @@ fun QueueStatusScreen(
                                         fontSize = 17.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = when {
+                                            isClinicClosed || isNoShow -> Color(0xFFDC2626)
                                             isLate -> Color(0xFFDC2626)
                                             isLabClinic && isReportReady -> Color(0xFF059669)
                                             isLabClinic && isSampleProcessing -> Color(0xFFD97706)
                                             queueStatus == "inside" -> Color(0xFF2563EB)
-                                            queueStatus == "done" -> Color(0xFF059669)
+                                            queueStatus == "done" || isConsultancyCompleted -> Color(0xFF059669)
                                             isFutureOrTomorrow && !isTomorrow -> Color(0xFF5B21B6)
+                                            isPastDate -> Color(0xFF475569)
                                             else -> Color(0xFF0F172A)
                                         },
                                         modifier = Modifier.weight(1f),
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    if (tokenNumber > 0) {
+                                    if (tokenNumber > 0 && !isPastDate) {
                                         Surface(
                                             shape = RoundedCornerShape(6.dp),
                                             color = Color(0xFFF1F5F9),
@@ -1652,13 +1793,17 @@ fun QueueStatusScreen(
                                 }
                                 Text(
                                     text = when {
+                                        isClinicClosed -> "The clinic has closed for today. Live queue consultations have concluded."
+                                        isNoShow -> "Token was not attended before clinic closed and has been moved to No-Show."
                                         isLate -> "Another patient was called inside \u2022 Please arrive now"
-                                        !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow) -> "Syncing queue details with clinic..."
+                                        !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow && !isPastDate) -> "Syncing queue details with clinic..."
                                         isLabClinic && isReportReady -> "Report Prepared \u2022 Verify Name/Phone to View"
                                         isLabClinic && isSampleProcessing -> "Sample Collected \u2022 Processing in Lab"
+                                        isLabClinic && isPastDate -> "Diagnostic lab order from $resolvedDateLabel. Records saved below."
                                         isLabClinic && patientsAhead == 0 -> "Proceed for sample collection"
                                         queueStatus == "inside" -> "With doctor in consultation room"
-                                        queueStatus == "done" -> "Thank you for visiting"
+                                        queueStatus == "done" || isConsultancyCompleted -> "Completed on $resolvedDateLabel \u2022 Details saved below"
+                                        isPastDate -> "Scheduled on $resolvedDateLabel. Live tracking is active on appointment day."
                                         isTomorrow -> "Scheduled for Tomorrow \u2022 Clinic starts at 08:00 AM"
                                         isFutureOrTomorrow -> "Scheduled for $resolvedDateLabel \u2022 Approx. ${multiSlotResult?.approxAppointmentTimeText ?: (appointment?.appointmentTime ?: "")}"
                                         !liveTimingEstimate?.slotNoticeText.isNullOrBlank() -> liveTimingEstimate!!.slotNoticeText
@@ -1685,6 +1830,21 @@ fun QueueStatusScreen(
                                             fontSize = 11.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = if (isTomorrow) Color(0xFF0369A1) else Color(0xFF4338CA),
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                } else if (isPastDate && !isConsultancyCompleted) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFFF8FAFC),
+                                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "⏱ Past Appointment \u2022 Use Reschedule below to pick an upcoming date",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color(0xFF64748B),
                                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                                         )
                                     }
@@ -1951,11 +2111,13 @@ fun QueueStatusScreen(
                                     shape = RoundedCornerShape(14.dp),
                                     color = when {
                                         isLate -> Color(0xFFFEE2E2)
+                                        liveTimingEstimate?.isClinicOnBreak == true -> Color(0xFFFEF3C7)
                                         liveTimingEstimate?.canOfferEarlyArrival == true -> Color(0xFFDCFCE7)
                                         else -> Color(0xFFE0F2FE)
                                     },
                                     border = when {
                                         isLate -> BorderStroke(1.5.dp, Color(0xFFEF4444))
+                                        liveTimingEstimate?.isClinicOnBreak == true -> BorderStroke(1.dp, Color(0xFFF59E0B))
                                         liveTimingEstimate?.canOfferEarlyArrival == true -> BorderStroke(1.dp, Color(0xFF86EFAC))
                                         else -> null
                                     },
@@ -1963,6 +2125,7 @@ fun QueueStatusScreen(
                                 ) {
                                     val timing = liveTimingEstimate
                                     val displayWait = when {
+                                        isClinicClosed || isNoShow -> "Clinic Closed"
                                         isLate -> "Arrive soon, you are late"
                                         isFutureOrTomorrow && !multiSlotResult?.approxAppointmentTimeText.isNullOrBlank() -> {
                                             multiSlotResult!!.approxAppointmentTimeText
@@ -1970,13 +2133,18 @@ fun QueueStatusScreen(
                                         else -> timing?.estimatedTimeLeftText?.takeIf { it.isNotBlank() }
                                             ?: (if (patientsAhead > 0) "~${patientsAhead * clinicAvgTimeMinutes} min" else "< 5 min")
                                     }
-                                    val isArriveFast = !isLate && !isFutureOrTomorrow && (displayWait.contains("Arrive Fast", ignoreCase = true) ||
+                                    val isArriveFast = !isLate && !isFutureOrTomorrow && (timing?.isClinicOnBreak != true) && (displayWait.contains("Arrive Fast", ignoreCase = true) ||
+                                        displayWait.contains("Arrive Soon", ignoreCase = true) ||
                                         timing?.expectedExactTimeText?.contains("arrive fast", ignoreCase = true) == true ||
-                                        (patientsAhead == 0 && timing?.estimatedTimeLeftText?.contains("Arrive Fast", ignoreCase = true) == true))
+                                        timing?.expectedExactTimeText?.contains("arrive soon", ignoreCase = true) == true ||
+                                        (patientsAhead == 0 && (timing?.estimatedTimeLeftText?.contains("Arrive Fast", ignoreCase = true) == true || timing?.estimatedTimeLeftText?.contains("Arrive Soon", ignoreCase = true) == true)))
                                     val displayWindow = when {
+                                        isClinicClosed || isNoShow -> "Consultations ended for today"
                                         isLate -> "Report to clinic desk immediately"
                                         isFutureOrTomorrow && !multiSlotResult?.timeWindowText.isNullOrBlank() -> multiSlotResult!!.timeWindowText
-                                        isArriveFast -> "Your turn, arrive fast"
+                                        isArriveFast -> "Your turn, arrive soon"
+                                        timing?.isClinicOnBreak == true && !timing.timeWindowText.isNullOrBlank() -> timing.timeWindowText
+                                        timing?.isClinicOnBreak == true && !timing.approxTimeText.isNullOrBlank() -> timing.approxTimeText
                                         !timing?.timeWindowText.isNullOrBlank() -> timing!!.timeWindowText
                                         !timing?.approxTimeText.isNullOrBlank() -> timing!!.approxTimeText
                                         !timing?.expectedExactTimeText.isNullOrBlank() && timing.expectedExactTimeText != "Soon, be ready" -> "Approx. ${timing.expectedExactTimeText} (±15 min)"
@@ -1995,12 +2163,14 @@ fun QueueStatusScreen(
                                             Icon(
                                                 when {
                                                     isLate -> Icons.Default.Warning
+                                                    timing?.isClinicOnBreak == true -> Icons.Default.PauseCircle
                                                     timing?.canOfferEarlyArrival == true -> Icons.Default.Bolt
                                                     else -> Icons.Default.PhoneCallback
                                                 },
                                                 contentDescription = null,
                                                 tint = when {
                                                     isLate -> Color(0xFFE11D48)
+                                                    timing?.isClinicOnBreak == true -> Color(0xFFD97706)
                                                     timing?.canOfferEarlyArrival == true -> Color(0xFF16A34A)
                                                     else -> Color(0xFF0284C7)
                                                 },
@@ -2009,6 +2179,7 @@ fun QueueStatusScreen(
                                             Text(
                                                 text = when {
                                                     isLate -> "URGENT ACTION"
+                                                    timing?.isClinicOnBreak == true -> "Clinic on Break"
                                                     timing?.canOfferEarlyArrival == true -> "Doctor Free Early"
                                                     isFutureOrTomorrow -> "Expected Slot"
                                                     else -> "Expected window"
@@ -2016,6 +2187,7 @@ fun QueueStatusScreen(
                                                 fontSize = 12.sp,
                                                 color = when {
                                                     isLate -> Color(0xFFBE123C)
+                                                    timing?.isClinicOnBreak == true -> Color(0xFFB45309)
                                                     timing?.canOfferEarlyArrival == true -> Color(0xFF16A34A)
                                                     else -> Color(0xFF0284C7)
                                                 },
@@ -2028,6 +2200,7 @@ fun QueueStatusScreen(
                                             fontWeight = FontWeight.Bold,
                                             color = when {
                                                 isLate -> Color(0xFF9F1239)
+                                                timing?.isClinicOnBreak == true -> Color(0xFF92400E)
                                                 timing?.canOfferEarlyArrival == true -> Color(0xFF15803D)
                                                 else -> Color(0xFF0284C7)
                                             },
@@ -2038,8 +2211,12 @@ fun QueueStatusScreen(
                                         Text(
                                             text = displayWindow,
                                             fontSize = 11.5.sp,
-                                            fontWeight = if (isLate) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isLate) Color(0xFFBE123C) else Color(0xFF64748B),
+                                            fontWeight = if (isLate || timing?.isClinicOnBreak == true) FontWeight.Bold else FontWeight.Normal,
+                                            color = when {
+                                                isLate -> Color(0xFFBE123C)
+                                                timing?.isClinicOnBreak == true -> Color(0xFFB45309)
+                                                else -> Color(0xFF64748B)
+                                            },
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis,
                                             lineHeight = 14.sp
@@ -3100,16 +3277,45 @@ fun QueueStatusScreen(
                             )
 
                             if (isReportReady) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
+                                val isDownloaded = downloadedReportFile != null || (labReports.isNotEmpty() && labReports.any {
+                                    com.dactor.patient.util.LabReportPdfDownloader.isReportDownloadedLocally(context, it, clinicName, rawPatientName)
+                                })
+
+                                if (!isDownloaded) {
+                                    // ONLY SHOW DOWNLOAD (View in App removed until one has downloaded the photo / pdf)
                                     Button(
                                         onClick = {
                                             if (!isReportIdentityVerified && !isUnlocked) {
-                                                pendingVerificationAction = "view_report"
+                                                pendingVerificationAction = "download_report"
                                                 showVerificationDialog = true
                                             } else {
+                                                triggerDirectReportDownload()
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                        modifier = Modifier.fillMaxWidth().height(44.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.FileDownload,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            text = if (isReportIdentityVerified || isUnlocked) "Download Report (PDF / Picture)" else "Verify & Download Report",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                } else {
+                                    // SHOW VIEW IN APP ONLY AFTER DOWNLOADED
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Button(
+                                            onClick = {
                                                 coroutineScope.launch {
                                                     val appt = appointment
                                                     if (appt != null && labReports.isEmpty()) {
@@ -3120,39 +3326,30 @@ fun QueueStatusScreen(
                                                     }
                                                     showLabReportDialog = true
                                                 }
-                                            }
-                                        },
-                                        shape = RoundedCornerShape(12.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isReportIdentityVerified) Icons.Default.Visibility else Icons.Default.LockOpen,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(15.dp)
-                                        )
-                                        Spacer(Modifier.width(5.dp))
-                                        Text(
-                                            text = if (isReportIdentityVerified) "View In-App" else "Verify & View",
-                                            fontSize = 11.5.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-
-                                    if (hasUploadedFile) {
-                                        OutlinedButton(
-                                            onClick = {
-                                                if (!isReportIdentityVerified) {
-                                                    pendingVerificationAction = "download_report"
-                                                    showVerificationDialog = true
-                                                } else {
-                                                    triggerDirectReportDownload()
-                                                }
                                             },
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                            modifier = Modifier.weight(1f).height(44.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Visibility,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                            Spacer(Modifier.width(5.dp))
+                                            Text(
+                                                text = "View In-App (Offline)",
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        OutlinedButton(
+                                            onClick = { triggerDirectReportDownload() },
                                             shape = RoundedCornerShape(12.dp),
                                             border = BorderStroke(1.5.dp, Color(0xFF059669)),
                                             colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White),
-                                            modifier = Modifier.weight(1f)
+                                            modifier = Modifier.weight(0.9f).height(44.dp)
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.FileDownload,
@@ -3160,10 +3357,10 @@ fun QueueStatusScreen(
                                                 tint = Color(0xFF059669),
                                                 modifier = Modifier.size(15.dp)
                                             )
-                                            Spacer(Modifier.width(5.dp))
+                                            Spacer(Modifier.width(4.dp))
                                             Text(
-                                                text = if (isReportIdentityVerified) "Download File" else "Verify & Download",
-                                                fontSize = 11.5.sp,
+                                                text = "Re-download",
+                                                fontSize = 11.sp,
                                                 color = Color(0xFF059669),
                                                 fontWeight = FontWeight.Bold
                                             )
@@ -4132,56 +4329,115 @@ fun QueueStatusScreen(
                                         }
                                     }
 
-                                    // In-app picture preview if the clinic uploaded an image/photo of the report
-                                    if (hasRemoteFile && isImg) {
-                                        Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            AsyncImage(
-                                                model = rep.fileUrl,
-                                                contentDescription = "Uploaded Lab Report Image",
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .heightIn(min = 180.dp, max = 340.dp)
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .background(Color(0xFFE2E8F0)),
-                                                contentScale = ContentScale.Fit
-                                            )
+                                    val localFile = com.dactor.patient.util.LabReportPdfDownloader.findDownloadedReportFile(
+                                        context,
+                                        rep,
+                                        clinicName,
+                                        rawPatientName
+                                    ) ?: downloadedReportFile
+
+                                    // In-app viewer: Loaded strictly from local downloaded file, never re-downloading from server
+                                    if (isImg) {
+                                        if (localFile != null && localFile.exists()) {
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                AsyncImage(
+                                                    model = localFile,
+                                                    contentDescription = "Downloaded Lab Report Image",
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .heightIn(min = 180.dp, max = 340.dp)
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(Color(0xFFE2E8F0)),
+                                                    contentScale = ContentScale.Fit
+                                                )
+                                            }
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = Color(0xFFECFDF5),
+                                                border = BorderStroke(1.dp, Color(0xFFA7F3D0)),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                                ) {
+                                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(13.dp))
+                                                    Text(
+                                                        text = "Offline View • Loaded from Dactor Reports/${localFile.name}",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = Color(0xFF065F46)
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = Color(0xFFFFFBEB),
+                                                border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(
+                                                    text = "Report picture is prepared. Tap 'Download' below to save it locally in Dactor Reports and view offline.",
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFF92400E),
+                                                    modifier = Modifier.padding(10.dp)
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        // PDF Report
+                                        if (localFile != null && localFile.exists()) {
+                                            Button(
+                                                onClick = {
+                                                    com.dactor.patient.util.LabReportPdfDownloader.openLocalReportFile(context, localFile, "application/pdf")
+                                                },
+                                                shape = RoundedCornerShape(8.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                                modifier = Modifier.fillMaxWidth().height(36.dp)
+                                            ) {
+                                                Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                Spacer(Modifier.width(6.dp))
+                                                Text("Open Downloaded PDF (Offline)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                            }
                                         }
                                     }
 
-                                    if (hasRemoteFile) {
-                                        OutlinedButton(
-                                            onClick = {
-                                                com.dactor.patient.util.LabReportPdfDownloader.downloadAndSaveReportFile(
-                                                    context = context,
-                                                    report = rep,
-                                                    patientName = rawPatientName.ifBlank { "Registered Patient" },
-                                                    clinicName = clinicName.ifBlank { "Diagnostic Lab" },
-                                                    doctorName = doctorName.ifBlank { "Pathologist" }
-                                                )
-                                            },
-                                            shape = RoundedCornerShape(8.dp),
-                                            border = BorderStroke(1.dp, Color(0xFF059669)),
-                                            modifier = Modifier.fillMaxWidth().height(36.dp),
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = if (isImg) Icons.Default.Image else Icons.Default.PictureAsPdf,
-                                                contentDescription = null,
-                                                tint = Color(0xFF059669),
-                                                modifier = Modifier.size(14.dp)
+                                    OutlinedButton(
+                                        onClick = {
+                                            com.dactor.patient.util.LabReportPdfDownloader.downloadAndSaveReportFile(
+                                                context = context,
+                                                report = rep,
+                                                patientName = rawPatientName.ifBlank { "Registered Patient" },
+                                                clinicName = clinicName.ifBlank { "Diagnostic Lab" },
+                                                doctorName = doctorName.ifBlank { "Pathologist" },
+                                                autoOpen = false,
+                                                onComplete = { file -> downloadedReportFile = file }
                                             )
-                                            Spacer(Modifier.width(6.dp))
-                                            Text(
-                                                text = if (isImg) "Download Report Picture" else "Open / Download Uploaded PDF",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color(0xFF059669)
-                                            )
-                                        }
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = BorderStroke(1.dp, Color(0xFF059669)),
+                                        modifier = Modifier.fillMaxWidth().height(36.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (localFile != null) Icons.Default.Refresh else Icons.Default.FileDownload,
+                                            contentDescription = null,
+                                            tint = Color(0xFF059669),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            text = if (localFile != null) "Re-download Report to Dactor Reports" else (if (isImg) "Download Report Picture" else "Download Report PDF"),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF059669)
+                                        )
                                     }
                                 }
                             }

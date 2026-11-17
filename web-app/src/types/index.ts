@@ -27,6 +27,8 @@ export interface Clinic {
   photoUrl?: string
   isOnBreak?: boolean
   breakUpdatedAt?: string
+  isOpen?: boolean
+  closedAt?: string
   weeklyScheduleJson?: string
   declaredHolidays?: string[]
   avgConsultationTimeMinutes?: number
@@ -94,6 +96,7 @@ export interface Doctor {
   primaryClinicId?: string
   kycStatus?: string // approved, pending, rejected
   profilePictureUrl?: string
+  cabinStatus?: string
   licenseDocUrl?: string
   certificatesDocUrl?: string
   description?: string

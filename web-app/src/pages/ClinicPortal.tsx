@@ -63,6 +63,7 @@ import {
 import { ClinicPaymentLogsView } from '../components/ClinicPaymentLogsView'
 import dactorLogo from '../assets/logo.svg'
 import { printAppointmentBill, printPrescription } from '../utils/medicalDocPrinter'
+import { setDefaultTabSEO } from '../utils/seo'
 import { GlassCard, GlassButton, GlassBadge } from '../components/glass'
 import { DateScroller } from '../components/DateScroller'
 import { generateTrackingCode } from '../utils/trackingCode'
@@ -79,6 +80,7 @@ import {
   triggerSync,
   subscribeSyncState,
   SyncStatus,
+  syncIndividualPatientRecord,
 } from '../services/clinicSyncManager'
 import {
   syncBackupToGoogleDrive,
@@ -144,6 +146,7 @@ import {
   uploadReceiptFile,
   updateDoctorPresence,
   updateClinicBreak,
+  updateClinicOpenStatus,
   searchPatientRecords,
   updateClinic,
   toggleClinicHoliday,
@@ -153,6 +156,7 @@ import {
   checkEmailPortalAssociation,
   getClinicPatientDirectory,
   buildClinicPatientDirectory,
+  refreshPatientChangeableData,
   ClinicPatientDirectoryEntry,
   PatientDirectoryConsultation,
   getSupportUrl,
@@ -194,6 +198,8 @@ import {
   requestAuthorizedDocumentUrl,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
+import { convertImagesToPdf } from '../utils/imageToPdf'
+import { saveBlobLocally } from '../utils/reportFileManager'
 import { playClinicChime } from '../utils/audioChime'
 import {
   parsePaymentRecords,
@@ -209,6 +215,7 @@ import {
   checkRedirectGoogleUser,
   onFirebaseAuthStateChanged,
 } from '../lib/firebase'
+import { signOutKeepingData } from '../utils/cacheCleaner'
 
 interface ClinicPortalProps {
   onLogout?: () => void
@@ -312,7 +319,7 @@ function calculateLiveQueueTimingEstimate(
     return `${h.toString().padStart(2, '0')}:${m} ${ampm}`
   }
 
-  // 1. Check if doctor is not inside the clinic
+  // 2. Check if doctor is not inside the clinic
   if (doctor && doctor.isInClinic === false) {
     return {
       statusText: 'Doctor is not inside the clinic (He/She is not in)',
@@ -324,21 +331,6 @@ function calculateLiveQueueTimingEstimate(
       remainingMinutes: 0,
       timeWindowText: 'Doctor Away',
       approxTimeText: 'Doctor Away',
-    }
-  }
-
-  // 2. Check if clinic is on break
-  if (clinic.isOnBreak) {
-    return {
-      statusText: 'Clinic is currently on break. Consultations will resume shortly.',
-      estimatedWait: 'On Break',
-      exactTimeStr: 'On Break',
-      isDoctorAway: false,
-      isOnBreak: true,
-      isSoonBeReady: false,
-      remainingMinutes: 0,
-      timeWindowText: 'On Break',
-      approxTimeText: 'On Break',
     }
   }
 
@@ -416,6 +408,76 @@ function calculateLiveQueueTimingEstimate(
         ? 'No one ahead of you. You are up next!'
         : `${patientsAhead} ahead in line. Est. wait: ~${patientsAhead * avgMins} mins`)
 
+  // Check if clinic is on break
+  if (clinic.isOnBreak) {
+    let breakEndHours = 14
+    let breakEndMinutes = 0
+
+    if (clinic.weeklyScheduleJson) {
+      try {
+        const schedList = JSON.parse(clinic.weeklyScheduleJson)
+        if (Array.isArray(schedList)) {
+          const todayDay = now.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase()
+          const todayItem = schedList.find((s: any) =>
+            String(s.dayOfWeek || s.day || '').toUpperCase().startsWith(todayDay.slice(0, 3))
+          )
+          if (todayItem && todayItem.hasBreak && todayItem.breakEnd) {
+            const m = todayItem.breakEnd.match(/^(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*([APap][Mm]))?/)
+            if (m) {
+              let h = parseInt(m[1], 10)
+              const min = parseInt(m[2], 10)
+              const ampm = m[3]?.toUpperCase()
+              if (ampm === 'PM' && h < 12) h += 12
+              if (ampm === 'AM' && h === 12) h = 0
+              breakEndHours = h
+              breakEndMinutes = min
+            }
+          }
+        }
+      } catch {}
+    }
+
+    const breakEndDate = new Date()
+    breakEndDate.setHours(breakEndHours, breakEndMinutes, 0, 0)
+
+    const effectiveBreakEnd = now.getTime() > breakEndDate.getTime()
+      ? new Date(now.getTime() + 5 * 60000)
+      : breakEndDate
+
+    const breakStaggered = new Date(effectiveBreakEnd.getTime() + patientsAhead * avgMins * 60000)
+    const finalExpected = (slotStartDate && slotStartDate.getTime() > breakStaggered.getTime())
+      ? new Date(slotStartDate.getTime() + patientsAhead * avgMins * 60000)
+      : breakStaggered
+
+    const diffMins = Math.round((finalExpected.getTime() - now.getTime()) / 60000)
+    const waitStr = diffMins > 60
+      ? `~${Math.round(diffMins / 60)} hr`
+      : diffMins > 0
+      ? `~${diffMins} min`
+      : 'Resuming shortly'
+
+    const fmt = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    const startWin = new Date(finalExpected.getTime() - 5 * 60000)
+    const endWin = new Date(finalExpected.getTime() + 10 * 60000)
+
+    return {
+      statusText: patientsAhead === 0
+        ? `Clinic on break. Patient is #1 in queue; consultation resumes around ${fmt(effectiveBreakEnd)}.`
+        : `Clinic on break. ${patientsAhead} ahead; consultation resumes around ${fmt(finalExpected)}.`,
+      estimatedWait: waitStr,
+      exactTimeStr: fmt(finalExpected),
+      isDoctorAway: false,
+      isOnBreak: true,
+      isSoonBeReady: patientsAhead === 0 || diffMins <= 5,
+      remainingMinutes: Math.max(0, diffMins),
+      timeWindowText: `${fmt(startWin)} – ${fmt(endWin)}`,
+      approxTimeText: `around ${fmt(finalExpected)}`,
+      slotNoticeText: `Clinic on break • Resumes at ${fmt(effectiveBreakEnd)}`,
+      canOfferEarlyArrival: false,
+      suggestedArrivalText: arrivalAdvice,
+    }
+  }
+
   // Dynamic wait based on active queue
   let remainingForInside = 0
   if (insidePatient) {
@@ -438,7 +500,7 @@ function calculateLiveQueueTimingEstimate(
     } else {
       // Position 1 and current time is within slot or slot is over:
       finalExpectedTime = now
-      waitStr = 'Arrive Fast'
+      waitStr = 'Arrive Soon'
       remainingMins = 0
     }
   } else {
@@ -456,9 +518,9 @@ function calculateLiveQueueTimingEstimate(
     }
   }
 
-  const isArriveFast = waitStr === 'Arrive Fast'
+  const isArriveFast = waitStr === 'Arrive Fast' || waitStr === 'Arrive Soon'
   const windowText = isArriveFast ? 'Immediate' : formatTimeWindow(finalExpectedTime)
-  const approxText = isArriveFast ? 'Your turn, arrive fast' : formatApproxTime(finalExpectedTime)
+  const approxText = isArriveFast ? 'Your turn, arrive soon' : formatApproxTime(finalExpectedTime)
 
   const isSoon = patientsAhead === 0 || remainingMins <= 3 || waitStr.includes('Soon') || isArriveFast
 
@@ -478,7 +540,7 @@ function calculateLiveQueueTimingEstimate(
   }
 }
 
-export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
+export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
   // Authentication & Profile State
   const [clinics, setClinics] = useState<Clinic[]>([])
   const [selectedClinic, setSelectedClinic] = useState<Clinic | null>(null)
@@ -537,6 +599,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   })
 
   useEffect(() => {
+    setDefaultTabSEO('portal')
     getSupportUrl().then((url) => {
       if (url) setSupportUrl(url)
     })
@@ -762,6 +825,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     const handleScroll = () => {
       if (!ticking) {
         window.requestAnimationFrame(() => {
+          const hasScrollableContent = document.documentElement.scrollHeight > window.innerHeight + 250
+          if (!hasScrollableContent) {
+            setIsScrolledDown(false)
+            ticking = false
+            return
+          }
           const currentScrollY = window.scrollY
           // If scrolled down more than 90px and scrolling downwards -> collapse top controls smoothly
           if (currentScrollY > 90 && currentScrollY > lastScrollY + 12) {
@@ -835,11 +904,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [loading, setLoading] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
-  // Doctor In-Clinic Presence & Clinic Break
+  // Doctor In-Clinic Presence & Clinic Break & Open/Close Status
   const [doctorInClinic, setDoctorInClinic] = useState<boolean>(true)
   const [clinicOnBreak, setClinicOnBreak] = useState<boolean>(false)
+  const [clinicIsOpen, setClinicIsOpen] = useState<boolean>(true)
   const [updatingPresence, setUpdatingPresence] = useState(false)
   const [updatingBreak, setUpdatingBreak] = useState(false)
+  const [updatingOpenStatus, setUpdatingOpenStatus] = useState(false)
+  const [showCloseClinicModal, setShowCloseClinicModal] = useState(false)
 
   // Average Consultation Time Mode & Settings
   const [avgTimeMode, setAvgTimeMode] = useState<'auto' | 'manual'>('auto')
@@ -869,6 +941,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [pushAlertRightVal, setPushAlertRightVal] = useState('')
   const [sendingPushAlert, setSendingPushAlert] = useState(false)
   const [pushAlertSentSuccess, setPushAlertSentSuccess] = useState(false)
+  const [alertedApptIds, setAlertedApptIds] = useState<Set<string>>(new Set())
 
   // Timed Slots Publisher State
   const [slotDoctorId, setSlotDoctorId] = useState<string>('')
@@ -959,10 +1032,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [scheduleNextDoctorId, setScheduleNextDoctorId] = useState('')
   const [scheduleNextDate, setScheduleNextDate] = useState(() => {
     const d = new Date()
-    d.setDate(d.getDate() + 1)
     return d.toISOString().split('T')[0]
   })
   const [scheduleNextTime, setScheduleNextTime] = useState('10:00 AM')
+  const [scheduleNextSlotId, setScheduleNextSlotId] = useState('')
+  const [scheduleNextSlots, setScheduleNextSlots] = useState<Slot[]>([])
+  const [isLoadingScheduleNextSlots, setIsLoadingScheduleNextSlots] = useState(false)
   const [scheduleNextRemarks, setScheduleNextRemarks] = useState('Follow-up consultation')
   const [isSchedulingNextVisit, setIsSchedulingNextVisit] = useState(false)
 
@@ -1072,6 +1147,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const [labUploadModalOpen, setLabUploadModalOpen] = useState(false)
   const [targetLabAppt, setTargetLabAppt] = useState<Appointment | null>(null)
   const [reportFile, setReportFile] = useState<File | null>(null)
+  const [reportImageFiles, setReportImageFiles] = useState<File[]>([])
+  const [reportImagePreviews, setReportImagePreviews] = useState<string[]>([])
+  const [isProcessingPdf, setIsProcessingPdf] = useState(false)
   const [reportCompressionInfo, setReportCompressionInfo] = useState<string | null>(null)
   const [technicianNotes, setTechnicianNotes] = useState('')
   const [uploadingReport, setUploadingReport] = useState(false)
@@ -1220,6 +1298,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
   const syncClinicToSettings = (clinicObj: Clinic) => {
     setClinicOnBreak(clinicObj.isOnBreak ?? false)
+    setClinicIsOpen(clinicObj.isOpen !== false)
     setAvgTimeMode((clinicObj.avgTimeMode as any) || 'auto')
     setManualAvgMinutes(clinicObj.manualAvgConsultationTimeMinutes || 10)
     if (clinicObj.weeklyScheduleJson) {
@@ -1467,13 +1546,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       )
       .subscribe()
 
-    const interval = setInterval(() => {
-      fetchPayAtDesk(selectedClinic.id)
-    }, 10000)
+    // Pending pay-at-desk requests: every 30 s while the tab is visible, at once when it becomes visible
+    const refreshIfVisible = () => {
+      if (!document.hidden) fetchPayAtDesk(selectedClinic.id)
+    }
+    const interval = setInterval(refreshIfVisible, 30000)
+    document.addEventListener('visibilitychange', refreshIfVisible)
 
     return () => {
       supabase.removeChannel(sub)
       clearInterval(interval)
+      document.removeEventListener('visibilitychange', refreshIfVisible)
     }
   }, [selectedClinic?.id])
 
@@ -1702,16 +1785,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     setPendingEntity(null)
     setCurrentView('auth_choice')
     try {
-      localStorage.removeItem('dactor_clinic_logged_in')
-      localStorage.removeItem('dactor_clinic_email')
-      localStorage.removeItem('dactor_clinic_role')
-      localStorage.removeItem('dactor_pending_verification')
-      if (localStorage.getItem('dactor_last_active_role') === 'clinic_manager') {
-        localStorage.removeItem('dactor_last_active_role')
-        localStorage.removeItem('dactor_last_active_portal')
-      }
-      firebaseSignOut()
-      window.dispatchEvent(new Event('storage'))
+      signOutKeepingData().catch(() => {})
+      if (onLogout) onLogout()
     } catch {}
   }
 
@@ -1963,11 +2038,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     if (regClinicAddress.trim().length < 3) errors.address = 'Physical clinic address is required.'
     const cleanPan = regClinicPan.replace(/\D/g, '')
     if (cleanPan.length !== 9) errors.pan = 'PAN number must be exactly 9 digits.'
-    // Strip optional +977 or 977 country code before validating 10-digit Nepal mobile number
+    // Strip optional +977 or 977 country code before validating 7-10 digit Nepal phone number (telephone or mobile)
     const cleanPhone = normalizeNepalPhone(regClinicPhone)
-    if (cleanPhone.length !== 10 || !cleanPhone.startsWith('9')) errors.phone = 'Clinic phone must be 10 digits starting with 9.'
+    if (cleanPhone.length < 7 || cleanPhone.length > 10) errors.phone = 'Clinic phone must be 7 to 10 digits (telephone or mobile).'
     const cleanMgr = normalizeNepalPhone(regManagerPhone)
-    if (cleanMgr.length !== 10 || !cleanMgr.startsWith('9')) errors.managerPhone = 'Manager phone must be 10 digits starting with 9.'
+    if (cleanMgr.length < 7 || cleanMgr.length > 10) errors.managerPhone = 'Manager phone must be 7 to 10 digits (telephone or mobile).'
     if (!regClinicTermsAccepted) errors.terms = 'You must accept the Regulatory Terms & Conditions to register.'
     if (regClinicPictures.length > 4) errors.pictures = 'Maximum 4 clinic pictures allowed.'
 
@@ -2377,6 +2452,60 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
   }
 
+  // Clinic Open / Closed Status Toggle & Sweep
+  const handleToggleClinicOpen = () => {
+    if (!selectedClinic) return
+    if (clinicIsOpen) {
+      setShowCloseClinicModal(true)
+    } else {
+      handleConfirmReopenClinic()
+    }
+  }
+
+  const handleConfirmReopenClinic = async () => {
+    if (!selectedClinic) return
+    setUpdatingOpenStatus(true)
+    try {
+      const ok = await updateClinicOpenStatus(selectedClinic.id, true)
+      if (ok) {
+        setClinicIsOpen(true)
+        setSelectedClinic({ ...selectedClinic, isOpen: true, closedAt: undefined })
+      }
+    } catch (err) {
+      console.error('Error reopening clinic:', err)
+    } finally {
+      setUpdatingOpenStatus(false)
+    }
+  }
+
+  const handleConfirmCloseClinic = async () => {
+    if (!selectedClinic) return
+    setUpdatingOpenStatus(true)
+    try {
+      const closedAt = new Date().toISOString()
+      const ok = await updateClinicOpenStatus(selectedClinic.id, false)
+      if (ok) {
+        setClinicIsOpen(false)
+        setSelectedClinic({ ...selectedClinic, isOpen: false, closedAt })
+      }
+
+      // Automatically transfer all remaining patients in today's live queue to No-Show
+      const res = await autoTransferUncompletedQueueToNoShow(selectedClinic.id, true)
+
+      // Refresh appointments to reflect No-Show statuses
+      const freshAppts = await getAppointmentsByClinic(selectedClinic.id)
+      if (freshAppts) setAppointments(freshAppts)
+
+      setShowCloseClinicModal(false)
+      alert(`Clinic is now CLOSED. Automatically transferred ${res.count} active patient(s) in the live queue to No-Show.`)
+    } catch (err) {
+      console.error('Error closing clinic and transferring queue:', err)
+      alert('Failed to close clinic. Please try again.')
+    } finally {
+      setUpdatingOpenStatus(false)
+    }
+  }
+
   // Average Consultation Time Mode Save
   const handleSaveAvgTimeSettings = async () => {
     if (!selectedClinic) return
@@ -2467,11 +2596,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       selectedDoctor
     )
 
-    setPushAlertLeftVal(estimate.estimatedWait)
-    setPushAlertRightVal(estimate.exactTimeStr)
-    setPushAlertTitle(`Token #${appt.trackingCode10Digit}: Live OPD Queue Alert`)
+    const pos = appt.queueNumber || '1'
+    setPushAlertLeftVal('Arrive Soon')
+    setPushAlertRightVal(estimate.exactTimeStr.includes('arrive') ? 'Your turn, arrive soon' : `Position #${pos}`)
+    setPushAlertTitle(`Arrive Soon • Turn Approaching (#${pos})`)
     setPushAlertMessage(
-      `Dear ${appt.patientName}, doctor is ready for consultation. Please proceed to Cabin 1.`
+      `Hi ${appt.patientName}, your turn is approaching! Please arrive at the clinic soon to avoid missing your turn.`
     )
     setPushAlertModalOpen(true)
     setPushAlertSentSuccess(false)
@@ -2481,6 +2611,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     e.preventDefault()
     if (!pushAlertTargetAppt || !selectedClinic) return
     setSendingPushAlert(true)
+    setAlertedApptIds((prev) => new Set(prev).add(pushAlertTargetAppt.id))
     try {
       const ok = await sendManualNotification(
         pushAlertTargetAppt.id,
@@ -2490,7 +2621,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
         pushAlertRightVal,
         pushAlertTargetAppt.trackingCode10Digit,
         pushAlertTargetAppt.userId || undefined,
-        selectedClinic.id
+        selectedClinic.id,
+        'arrive_soon'
       )
 
       if (ok) {
@@ -2564,10 +2696,16 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   const handleWalkinSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const errors: { [key: string]: string } = {}
-    if (!walkinName.trim()) errors.name = 'Patient name is required.'
-    if (!walkinAge || Number(walkinAge) <= 0) errors.age = 'Valid age is required.'
-    if (walkinMobile.trim() && walkinMobile.replace(/\D/g, '').length < 8) {
-      errors.mobile = 'Mobile number must be 8-10 digits if provided.'
+    if (walkinIsFollowup) {
+      if (!walkinRetainedAppt) {
+        errors.followup = 'Please enter a valid 10-digit code to retrieve patient details before fixing appointment.'
+      }
+    } else {
+      if (!walkinName.trim()) errors.name = 'Patient name is required.'
+      if (!walkinAge || Number(walkinAge) <= 0) errors.age = 'Valid age is required.'
+      if (walkinMobile.trim() && walkinMobile.replace(/\D/g, '').length < 8) {
+        errors.mobile = 'Mobile number must be 8-10 digits if provided.'
+      }
     }
     if (isLabClinic && walkinSelectedTests.length === 0) {
       errors.tests = 'Please select at least one diagnostic lab test.'
@@ -3508,17 +3646,51 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
   }
 
-  // Patient Directory Search
+  // Patient Directory Search (with offline IndexedDB fallback & on-demand caching)
   const handlePatientSearch = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!patientSearchQuery.trim() || !selectedClinic) return
 
     setSearchingPatients(true)
+    const cleanQ = patientSearchQuery.trim().toLowerCase()
     try {
-      const results = await searchPatientRecords(selectedClinic.id, patientSearchQuery.trim())
-      setPatientSearchResults(results)
+      let results = await searchPatientRecords(selectedClinic.id, patientSearchQuery.trim())
+      if (results && results.length > 0) {
+        // Cache to local IndexedDB store for offline directory queries
+        try {
+          await putRecords('appointments', results)
+        } catch {}
+      } else if (typeof window !== 'undefined') {
+        // Offline fallback to local IndexedDB store
+        try {
+          const localAppts = await getStore<Appointment>('appointments')
+          results = localAppts.filter(a =>
+            a.clinicId === selectedClinic.id && (
+              a.patientName?.toLowerCase().includes(cleanQ) ||
+              a.patientMobile?.includes(cleanQ) ||
+              a.trackingCode10Digit?.toLowerCase().includes(cleanQ) ||
+              a.id?.toLowerCase().includes(cleanQ)
+            )
+          )
+        } catch {}
+      }
+      setPatientSearchResults(results || [])
     } catch (err) {
-      console.error('Error searching patients:', err)
+      console.error('Error searching patients, falling back to offline store:', err)
+      try {
+        const localAppts = await getStore<Appointment>('appointments')
+        const fallbackResults = localAppts.filter(a =>
+          a.clinicId === selectedClinic.id && (
+            a.patientName?.toLowerCase().includes(cleanQ) ||
+            a.patientMobile?.includes(cleanQ) ||
+            a.trackingCode10Digit?.toLowerCase().includes(cleanQ) ||
+            a.id?.toLowerCase().includes(cleanQ)
+          )
+        )
+        setPatientSearchResults(fallbackResults)
+      } catch {
+        setPatientSearchResults([])
+      }
     } finally {
       setSearchingPatients(false)
     }
@@ -3577,13 +3749,50 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
     }
   }
 
+  // Fetch published slots for Direct Patient Appointment Booking / Schedule Next Visit
+  useEffect(() => {
+    if (!scheduleNextModalOpen || !selectedClinic?.id || !scheduleNextDate) {
+      setScheduleNextSlots([])
+      return
+    }
+    let active = true
+    setIsLoadingScheduleNextSlots(true)
+    getSlots(selectedClinic.id, scheduleNextDate)
+      .then((slots) => {
+        if (!active) return
+        const published = slots.filter((s) => s.isPublished)
+        const docFiltered = scheduleNextDoctorId
+          ? published.filter((s) => s.doctorId === scheduleNextDoctorId || !s.doctorId)
+          : published
+        const valid = docFiltered.filter((s) => !isSlotTimeExpired(s.endTime, scheduleNextDate, s.startTime))
+        setScheduleNextSlots(valid)
+        if (valid.length > 0) {
+          const firstOpen = valid.find((s) => s.bookedCount < s.maxCapacity) || valid[0]
+          setScheduleNextSlotId(firstOpen.id)
+          setScheduleNextTime(`${firstOpen.startTime} - ${firstOpen.endTime}`)
+        } else {
+          setScheduleNextSlotId('')
+        }
+      })
+      .catch((err) => {
+        console.error('Error fetching slots for schedule next visit:', err)
+        if (active) setScheduleNextSlots([])
+      })
+      .finally(() => {
+        if (active) setIsLoadingScheduleNextSlots(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [scheduleNextModalOpen, selectedClinic?.id, scheduleNextDate, scheduleNextDoctorId])
+
   // Schedule Next Follow-Up Visit
   const handleOpenScheduleNextVisit = (pat: any) => {
     setScheduleNextPatient(pat)
     setScheduleNextDoctorId(clinicDoctors[0]?.id || selectedDoctor?.id || '')
     const d = new Date()
-    d.setDate(d.getDate() + 1)
     setScheduleNextDate(d.toISOString().split('T')[0])
+    setScheduleNextSlotId('')
     setScheduleNextTime('10:00 AM')
     setScheduleNextRemarks('Follow-up consultation')
     setScheduleNextModalOpen(true)
@@ -3601,6 +3810,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
       const created = await createAppointment({
         clinicId: selectedClinic.id,
         doctorId: scheduleNextDoctorId,
+        slotId: scheduleNextSlotId || undefined,
         patientName: scheduleNextPatient.fullName,
         patientMobile: scheduleNextPatient.phone !== 'N/A' ? scheduleNextPatient.phone : '',
         patientGender: scheduleNextPatient.gender || 'Male',
@@ -3634,22 +3844,66 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
   }
 
   // Diagnostic Lab 3-Stage Workflow
-  const handleLabReportFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    if (file.type.startsWith('image/')) {
-      const origSizeKb = Math.round(file.size / 1024)
-      const compressed = await compressImage(file, 300 * 1024, 1800)
-      const newSizeKb = Math.round(compressed.size / 1024)
-      setReportFile(compressed)
-      setReportCompressionInfo(
-        `Optimized report scan from ${origSizeKb} KB down to ${newSizeKb} KB (≤ 300 KB)`
-      )
-    } else {
-      setReportFile(file)
+  const processReportImages = async (files: File[]) => {
+    if (files.length === 0) {
+      setReportFile(null)
       setReportCompressionInfo(null)
+      setReportImageFiles([])
+      setReportImagePreviews((prev) => {
+        prev.forEach((p) => URL.revokeObjectURL(p))
+        return []
+      })
+      return
     }
+
+    setIsProcessingPdf(true)
+    try {
+      const previews = files.map((f) => URL.createObjectURL(f))
+      setReportImagePreviews((prev) => {
+        prev.forEach((p) => URL.revokeObjectURL(p))
+        return previews
+      })
+      setReportImageFiles(files)
+
+      const baseName = `Lab_Report_${targetLabAppt?.trackingCode10Digit || 'scan'}`
+      const converted = await convertImagesToPdf(files, 100 * 1024, baseName)
+      setReportFile(converted.file)
+      setReportCompressionInfo(converted.summary)
+    } catch (err) {
+      console.error('Error generating unified report PDF:', err)
+      alert('Failed to convert images to unified PDF.')
+    } finally {
+      setIsProcessingPdf(false)
+    }
+  }
+
+  const handleLabReportFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(e.target.files || [])
+    if (selectedFiles.length === 0) return
+
+    if (selectedFiles.length === 1 && selectedFiles[0].type === 'application/pdf') {
+      const pdfFile = selectedFiles[0]
+      setReportImageFiles([])
+      setReportImagePreviews((prev) => {
+        prev.forEach((p) => URL.revokeObjectURL(p))
+        return []
+      })
+      setReportFile(pdfFile)
+      const sizeKb = Math.round(pdfFile.size / 1024)
+      setReportCompressionInfo(`PDF Document: ${pdfFile.name} (${sizeKb} KB)`)
+      return
+    }
+
+    const imageFiles = selectedFiles.filter((f) => f.type.startsWith('image/'))
+    if (imageFiles.length > 0) {
+      const combined = [...reportImageFiles, ...imageFiles]
+      await processReportImages(combined)
+    }
+  }
+
+  const handleRemoveReportImage = async (indexToRemove: number) => {
+    const remaining = reportImageFiles.filter((_, idx) => idx !== indexToRemove)
+    await processReportImages(remaining)
   }
 
   const handleUploadReportSubmit = async (e: React.FormEvent) => {
@@ -3663,6 +3917,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
 
       if (reportFile) {
         fileType = reportFile.type.includes('image') ? 'image' : 'pdf'
+        // Save locally to computer & cache in memory
+        try {
+          saveBlobLocally(reportFile, reportFile.name, targetLabAppt.trackingCode10Digit)
+        } catch (saveErr) {
+          console.warn('Local file save warning:', saveErr)
+        }
         const uploaded = await uploadReportFile(reportFile.name, reportFile)
         if (uploaded) {
           fileUrl = uploaded
@@ -4486,9 +4746,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      Clinic Reception Mobile *
+                      Clinic Reception Phone (Telephone or Mobile) *
                     </label>
-                    {regClinicPhone.length === 10 && regClinicPhone.startsWith('9') && (
+                    {regClinicPhone.length >= 7 && regClinicPhone.length <= 10 && (
                       <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center space-x-0.5">
                         <CheckCircle2 className="w-3 h-3" />
                         <span>Valid</span>
@@ -4510,7 +4770,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                         })
                       }
                     }}
-                    placeholder="98XXXXXXXX"
+                    placeholder="014XXXXXX or 98XXXXXXXX"
                     className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-mono font-bold text-slate-900 dark:text-white outline-none"
                   />
                   {regClinicErrors.phone && (
@@ -4521,9 +4781,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      Clinic Manager Mobile *
+                      Clinic Manager Phone (Telephone or Mobile) *
                     </label>
-                    {regManagerPhone.length === 10 && regManagerPhone.startsWith('9') && (
+                    {regManagerPhone.length >= 7 && regManagerPhone.length <= 10 && (
                       <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center space-x-0.5">
                         <CheckCircle2 className="w-3 h-3" />
                         <span>Valid</span>
@@ -5242,6 +5502,25 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
           >
             <Coffee className="w-3.5 h-3.5" />
             <span>{clinicOnBreak ? 'On Break' : 'Take Break'}</span>
+          </button>
+
+          {/* Clinic Open / Closed Toggle */}
+          <button
+            onClick={handleToggleClinicOpen}
+            disabled={updatingOpenStatus}
+            className={`flex items-center space-x-1.5 px-2.5 sm:px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+              clinicIsOpen
+                ? 'bg-emerald-500/15 border-emerald-400/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-500/25'
+                : 'bg-rose-500/15 border-rose-400/40 text-rose-800 dark:text-rose-300 hover:bg-rose-500/25'
+            }`}
+            title={clinicIsOpen ? "Clinic is currently OPEN. Click to close clinic and transfer remaining live queue to No-Show." : "Clinic is currently CLOSED. Click to reopen clinic."}
+          >
+            <span
+              className={`w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full ${
+                clinicIsOpen ? 'bg-emerald-500 animate-pulse shadow-sm shadow-emerald-500/50' : 'bg-rose-500 shadow-sm shadow-rose-500/50'
+              }`}
+            />
+            <span className="font-bold">{clinicIsOpen ? 'Clinic: Open' : 'Clinic: Closed'}</span>
           </button>
 
           {!isLabClinic && (
@@ -6136,6 +6415,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                     onClick={(e) => {
                                       e.stopPropagation()
                                       setTargetLabAppt(appt)
+                                      setReportFile(null)
+                                      setReportImageFiles([])
+                                      setReportImagePreviews([])
+                                      setReportCompressionInfo(null)
                                       setLabUploadModalOpen(true)
                                     }}
                                     className="px-3 py-1.5 bg-gradient-to-r from-brand-600 to-teal-600 hover:from-brand-700 hover:to-teal-700 text-white rounded-lg font-bold text-xs shadow-sm cursor-pointer active:scale-[0.98] inline-flex items-center space-x-1"
@@ -6273,10 +6556,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                           e.stopPropagation()
                                           handleOpenPushAlertModal(appt)
                                         }}
-                                        className="px-2.5 py-1.5 bg-purple-500/15 hover:bg-purple-500/25 text-purple-700 dark:text-purple-300 border border-purple-300/50 rounded-xl font-bold text-xs cursor-pointer inline-flex items-center space-x-1"
+                                        className={`px-2.5 py-1.5 rounded-xl font-bold text-xs cursor-pointer inline-flex items-center space-x-1 ${alertedApptIds.has(appt.id) ? 'bg-teal-500/20 text-teal-700 dark:text-teal-300 border border-teal-400/50' : 'bg-purple-500/15 hover:bg-purple-500/25 text-purple-700 dark:text-purple-300 border border-purple-300/50'}`}
                                       >
                                         <Bell className="w-3.5 h-3.5" />
-                                        <span>Push Alert</span>
+                                        <span>{alertedApptIds.has(appt.id) ? 'Arrive Soon' : 'Push Alert'}</span>
                                       </button>
 
                                       {/* Shift Date */}
@@ -6746,17 +7029,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                     Diagnostic Pathology Center Desk: Select tests to register sample collection token.
                   </span>
                 </div>
-              ) : isSingleDoctorClinic ? (
-                <div className="p-3.5 bg-emerald-50/80 backdrop-blur-md border border-emerald-200/80 rounded-2xl flex items-center space-x-2.5 text-xs text-emerald-900">
-                  <Stethoscope className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span className="font-semibold">
-                    Single-Visit Clinic: Auto-assigning verified attending specialist.
-                  </span>
-                </div>
               ) : (
-                /* Polyclinic Consultation Type Toggle */
+                /* OPD Consultation Type Toggle (All OPD clinics including Single-Doctor & Polyclinic) */
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-700 block">Consultation Type</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700 block">Consultation Type</label>
+                    {isSingleDoctorClinic && (
+                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/70 px-2 py-0.5 rounded-full border border-emerald-200">
+                        {clinicDoctors[0]?.fullName || 'Attending Specialist'}
+                      </span>
+                    )}
+                  </div>
                   <div className="grid grid-cols-2 gap-2.5">
                     <button
                       type="button"
@@ -6793,258 +7076,297 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </div>
               )}
 
-              {/* Polyclinic Follow-Up 10-Digit Code Lookup */}
-              {isPolyclinic && walkinIsFollowup && (
-                <div className="p-3.5 bg-emerald-50/75 backdrop-blur-md border border-emerald-200/80 rounded-2xl space-y-2">
-                  <label className="text-xs font-bold text-emerald-900 block">
-                    Enter Previous 10-Digit Appointment ID *
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      maxLength={10}
-                      value={walkinFollowupCode}
-                      onChange={(e) => setWalkinFollowupCode(e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase())}
-                      placeholder="e.g. 1234567890 or 982DCE95B6"
-                      className="w-full px-3.5 py-2 rounded-xl text-sm font-mono font-black border border-emerald-300 bg-white/85 backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                    {walkinLookupLoading && (
-                      <RefreshCw className="w-4 h-4 animate-spin text-emerald-600 absolute right-3 top-1/2 -translate-y-1/2" />
-                    )}
-                  </div>
-                  {walkinLookupError && (
-                    <p className="text-[11px] text-rose-600 font-bold">{walkinLookupError}</p>
-                  )}
-                  {walkinRetainedAppt && (
-                    <div className="p-2.5 bg-white/85 backdrop-blur-md border border-emerald-300 rounded-xl flex items-start space-x-2 text-xs text-emerald-900">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                      <div>
-                        <strong>Verified Patient: {walkinRetainedAppt.patientName}</strong>
-                        <div className="text-[10px] text-slate-500">
-                          Previous Visit: {walkinRetainedAppt.appointmentDate} • Token #{walkinRetainedAppt.trackingCode10Digit}
-                        </div>
-                        <div className="text-[10px] font-bold text-emerald-700">✓ 100% Free Follow-Up Fee (Rs. 0)</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Patient Full Name */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Patient Full Name <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={walkinName}
-                  onChange={(e) => {
-                    setWalkinName(e.target.value)
-                    if (walkinErrors.name) setWalkinErrors({ ...walkinErrors, name: '' })
-                  }}
-                  placeholder="Enter Patient Full Name"
-                  className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
-                    walkinErrors.name ? 'border-rose-500 bg-rose-50/50' : 'liquid-glass-input'
-                  } focus:outline-none focus:ring-2 focus:ring-brand-500`}
-                />
-                {walkinErrors.name && (
-                  <p className="text-[11px] text-rose-600 font-bold mt-1">{walkinErrors.name}</p>
-                )}
-              </div>
-
-              {/* Age and Gender */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    Age <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    value={walkinAge}
-                    onChange={(e) => {
-                      setWalkinAge(e.target.value)
-                      if (walkinErrors.age) setWalkinErrors({ ...walkinErrors, age: '' })
-                    }}
-                    placeholder="e.g. 28"
-                    className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
-                      walkinErrors.age ? 'border-rose-500 bg-rose-50/50' : 'liquid-glass-input'
-                    } focus:outline-none focus:ring-2 focus:ring-brand-500`}
-                  />
-                  {walkinErrors.age && (
-                    <p className="text-[11px] text-rose-600 font-bold mt-1">{walkinErrors.age}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Gender</label>
-                  <select
-                    value={walkinGender}
-                    onChange={(e) => setWalkinGender(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  >
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Mobile Number */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Mobile Number <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="tel"
-                  value={walkinMobile}
-                  onChange={(e) => {
-                    setWalkinMobile(e.target.value)
-                    if (walkinErrors.mobile) setWalkinErrors({ ...walkinErrors, mobile: '' })
-                  }}
-                  placeholder="e.g. 98XXXXXXXX"
-                  className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
-                    walkinErrors.mobile ? 'border-rose-500 bg-rose-50/50' : 'liquid-glass-input'
-                  } focus:outline-none focus:ring-2 focus:ring-brand-500`}
-                />
-                {walkinErrors.mobile && (
-                  <p className="text-[11px] text-rose-600 font-bold mt-1">{walkinErrors.mobile}</p>
-                )}
-              </div>
-
-              {/* Email Address */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Email Address <span className="text-slate-400 font-normal">(Optional - auto-links to patient Google account)</span>
-                </label>
-                <input
-                  type="email"
-                  value={walkinEmail}
-                  onChange={(e) => setWalkinEmail(e.target.value)}
-                  placeholder="e.g. patient@gmail.com"
-                  className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
-                />
-              </div>
-
-              {/* Diagnostic Lab Tests Checklist vs Doctor Selector */}
-              {isLabClinic ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-slate-700 block">
-                      Select Diagnostic Pathology Tests <span className="text-rose-500">*</span>
+              {/* Streamlined Follow-Up Mode: ONLY ask for the 10-digit code */}
+              {!isLabClinic && walkinIsFollowup ? (
+                <div className="space-y-3">
+                  <div className="p-3.5 bg-emerald-50/75 backdrop-blur-md border border-emerald-200/80 rounded-2xl space-y-2">
+                    <label className="text-xs font-bold text-emerald-900 block">
+                      Enter Previous 10-Digit Appointment ID *
                     </label>
-                    <span className="text-xs font-bold text-purple-700">
-                      Total: Rs. {walkinSelectedTests.reduce((acc, t) => acc + (t.price || 0), 0)}
-                    </span>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        maxLength={10}
+                        value={walkinFollowupCode}
+                        onChange={(e) => setWalkinFollowupCode(e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase())}
+                        placeholder="e.g. 1234567890 or 982DCE95B6"
+                        className="w-full px-3.5 py-2.5 rounded-xl text-sm font-mono font-black border border-emerald-300 bg-white/85 backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                      {walkinLookupLoading && (
+                        <RefreshCw className="w-4 h-4 animate-spin text-emerald-600 absolute right-3 top-1/2 -translate-y-1/2" />
+                      )}
+                    </div>
+                    {walkinLookupError && (
+                      <p className="text-[11px] text-rose-600 font-bold">{walkinLookupError}</p>
+                    )}
+                    {walkinErrors.followup && (
+                      <p className="text-[11px] text-rose-600 font-bold">{walkinErrors.followup}</p>
+                    )}
+                    <p className="text-[10.5px] text-slate-500 font-medium">
+                      Enter code from patient receipt or SMS. Patient information, attending doctor, and available slot will be retrieved automatically.
+                    </p>
                   </div>
 
-                  {services.length === 0 ? (
-                    <div className="p-3 liquid-glass-subtle rounded-xl border border-white/70 text-xs text-slate-600 space-y-1.5">
-                      {[
-                        { id: 's1', serviceName: 'Complete Blood Count (CBC)', price: 450 },
-                        { id: 's2', serviceName: 'Lipid Profile', price: 900 },
-                        { id: 's3', serviceName: 'Liver Function Test (LFT)', price: 1100 },
-                        { id: 's4', serviceName: 'Thyroid Function Test (TSH)', price: 1200 },
-                        { id: 's5', serviceName: 'Fasting Blood Sugar (FBS)', price: 200 },
-                      ].map((item) => {
-                        const isChecked = walkinSelectedTests.some((t) => t.id === item.id)
-                        return (
-                          <div
-                            key={item.id}
-                            onClick={() => {
-                              if (isChecked) {
-                                setWalkinSelectedTests(walkinSelectedTests.filter((t) => t.id !== item.id))
-                              } else {
-                                setWalkinSelectedTests([...walkinSelectedTests, item as any])
-                              }
-                            }}
-                            className={`p-2.5 rounded-lg border flex items-center justify-between cursor-pointer transition ${
-                              isChecked ? 'bg-purple-50/85 border-purple-400 shadow-glass-sm' : 'bg-white/75 border-white/80'
-                            }`}
-                          >
-                            <span className="font-semibold text-xs text-slate-800">{item.serviceName}</span>
-                            <span className="font-bold text-xs text-slate-900">Rs. {item.price}</span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                      {services.map((s) => {
-                        const isChecked = walkinSelectedTests.some((t) => t.id === s.id)
-                        return (
-                          <div
-                            key={s.id}
-                            onClick={() => {
-                              if (isChecked) {
-                                setWalkinSelectedTests(walkinSelectedTests.filter((t) => t.id !== s.id))
-                              } else {
-                                setWalkinSelectedTests([...walkinSelectedTests, s])
-                              }
-                            }}
-                            className={`p-2.5 rounded-lg border flex items-center justify-between cursor-pointer transition ${
-                              isChecked ? 'bg-purple-50/85 border-purple-400 shadow-glass-sm' : 'bg-white/75 border-white/80'
-                            }`}
-                          >
-                            <span className="font-semibold text-xs text-slate-800">{s.serviceName}</span>
-                            <span className="font-bold text-xs text-slate-900">Rs. {s.price || 500}</span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                  {walkinErrors.tests && (
-                    <p className="text-[11px] text-rose-600 font-bold">{walkinErrors.tests}</p>
-                  )}
-                </div>
-              ) : isSingleDoctorClinic ? (
-                /* Single Doctor Card */
-                <div className="p-3.5 bg-emerald-50/75 backdrop-blur-md border border-emerald-200/80 rounded-2xl space-y-1">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 block">
-                    Attending Specialist Doctor
-                  </span>
-                  <div className="flex items-center justify-between text-xs">
-                    <div>
-                      <strong className="text-slate-900 text-sm">
-                        {clinicDoctors[0]?.fullName || 'Verified Attending Specialist'}
-                      </strong>
-                      <div className="text-emerald-700 font-semibold">
-                        {clinicDoctors[0]?.specialty || 'General Medicine'} • {clinicDoctors[0]?.education || 'MBBS, MD'}
+                  {/* Verified Patient Profile Card */}
+                  {walkinRetainedAppt && (
+                    <div className="p-3.5 bg-white/90 backdrop-blur-md border border-emerald-300 rounded-2xl space-y-2.5 shadow-glass-sm">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          <span className="text-xs font-bold text-emerald-900">Verified Returning Patient</span>
+                        </div>
+                        <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full border border-emerald-200">
+                          100% Free (Rs. 0)
+                        </span>
+                      </div>
+                      <div>
+                        <div className="text-sm font-black text-slate-900">{walkinRetainedAppt.patientName}</div>
+                        <div className="text-xs text-slate-600 font-medium mt-0.5">
+                          {walkinRetainedAppt.patientAge ? `${walkinRetainedAppt.patientAge} yrs • ` : ''}
+                          {walkinRetainedAppt.patientGender || 'Male'} • +977 {walkinRetainedAppt.patientMobile || '–'}
+                        </div>
+                        {walkinRetainedAppt.patientEmail && (
+                          <div className="text-[11px] text-slate-500">{walkinRetainedAppt.patientEmail}</div>
+                        )}
+                      </div>
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                        <span className="text-slate-500">
+                          Prior Visit: <strong>{walkinRetainedAppt.appointmentDate}</strong> (Token #{walkinRetainedAppt.trackingCode10Digit})
+                        </span>
+                        <span className="font-bold text-brand-700">
+                          Dr. {clinicDoctors.find(d => d.id === walkinDoctorId)?.fullName || walkinRetainedAppt.doctor?.fullName || 'Doctor'}
+                        </span>
                       </div>
                     </div>
-                    <span className="font-black text-emerald-900 text-sm bg-white/85 px-2.5 py-1 rounded-lg border border-emerald-200">
-                      Rs. {clinicDoctors[0]?.consultationFee || 500}
-                    </span>
-                  </div>
-                </div>
-              ) : clinicDoctors.length === 0 ? (
-                /* General / Facility Clinic Card (No Doctors Listed) */
-                <div className="p-3.5 bg-blue-50/75 backdrop-blur-md border border-blue-200/80 rounded-2xl flex items-center justify-between text-xs">
-                  <div>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-blue-800 block">
-                      Clinic Reception Counter
-                    </span>
-                    <strong className="text-slate-900 text-sm">General Consultation Queue</strong>
-                  </div>
-                  <span className="font-black text-blue-900 text-sm bg-white/85 px-2.5 py-1 rounded-lg border border-blue-200">
-                    Rs. 500
-                  </span>
+                  )}
+
+                  {!walkinRetainedAppt && !walkinLookupLoading && (
+                    <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl flex items-center space-x-2 text-xs text-blue-900">
+                      <AlertCircle className="w-4 h-4 text-blue-600 shrink-0" />
+                      <span>Please enter the patient's 10-digit code above. Patient details and the next available slot will be retrieved automatically.</span>
+                    </div>
+                  )}
                 </div>
               ) : (
-                /* Polyclinic Doctor Dropdown */
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Attending Specialist Doctor</label>
-                  <select
-                    value={walkinDoctorId}
-                    onChange={(e) => setWalkinDoctorId(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  >
-                    {clinicDoctors.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.fullName} ({d.specialty || 'General'}) – {walkinIsFollowup && walkinRetainedAppt ? 'FREE' : `Rs. ${d.consultationFee || 500}`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                /* Standard New Patient Form or Diagnostic Lab Checklist */
+                <>
+                  {/* Patient Full Name */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">
+                      Patient Full Name <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={walkinName}
+                      onChange={(e) => {
+                        setWalkinName(e.target.value)
+                        if (walkinErrors.name) setWalkinErrors({ ...walkinErrors, name: '' })
+                      }}
+                      placeholder="Enter Patient Full Name"
+                      className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
+                        walkinErrors.name ? 'border-rose-500 bg-rose-50/50' : 'liquid-glass-input'
+                      } focus:outline-none focus:ring-2 focus:ring-brand-500`}
+                    />
+                    {walkinErrors.name && (
+                      <p className="text-[11px] text-rose-600 font-bold mt-1">{walkinErrors.name}</p>
+                    )}
+                  </div>
+
+                  {/* Age and Gender */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">
+                        Age <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        value={walkinAge}
+                        onChange={(e) => {
+                          setWalkinAge(e.target.value)
+                          if (walkinErrors.age) setWalkinErrors({ ...walkinErrors, age: '' })
+                        }}
+                        placeholder="e.g. 28"
+                        className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
+                          walkinErrors.age ? 'border-rose-500 bg-rose-50/50' : 'liquid-glass-input'
+                        } focus:outline-none focus:ring-2 focus:ring-brand-500`}
+                      />
+                      {walkinErrors.age && (
+                        <p className="text-[11px] text-rose-600 font-bold mt-1">{walkinErrors.age}</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Gender</label>
+                      <select
+                        value={walkinGender}
+                        onChange={(e) => setWalkinGender(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      >
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Mobile Number */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">
+                      Mobile Number <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="tel"
+                      value={walkinMobile}
+                      onChange={(e) => {
+                        setWalkinMobile(e.target.value)
+                        if (walkinErrors.mobile) setWalkinErrors({ ...walkinErrors, mobile: '' })
+                      }}
+                      placeholder="e.g. 98XXXXXXXX"
+                      className={`w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border ${
+                        walkinErrors.mobile ? 'border-rose-500 bg-rose-50/50' : 'liquid-glass-input'
+                      } focus:outline-none focus:ring-2 focus:ring-brand-500`}
+                    />
+                    {walkinErrors.mobile && (
+                      <p className="text-[11px] text-rose-600 font-bold mt-1">{walkinErrors.mobile}</p>
+                    )}
+                  </div>
+
+                  {/* Email Address */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block mb-1">
+                      Email Address <span className="text-slate-400 font-normal">(Optional - auto-links to patient Google account)</span>
+                    </label>
+                    <input
+                      type="email"
+                      value={walkinEmail}
+                      onChange={(e) => setWalkinEmail(e.target.value)}
+                      placeholder="e.g. patient@gmail.com"
+                      className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    />
+                  </div>
+
+                  {/* Diagnostic Lab Tests Checklist vs Doctor Selector */}
+                  {isLabClinic ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-slate-700 block">
+                          Select Diagnostic Pathology Tests <span className="text-rose-500">*</span>
+                        </label>
+                        <span className="text-xs font-bold text-purple-700">
+                          Total: Rs. {walkinSelectedTests.reduce((acc, t) => acc + (t.price || 0), 0)}
+                        </span>
+                      </div>
+
+                      {services.length === 0 ? (
+                        <div className="p-3 liquid-glass-subtle rounded-xl border border-white/70 text-xs text-slate-600 space-y-1.5">
+                          {[
+                            { id: 's1', serviceName: 'Complete Blood Count (CBC)', price: 450 },
+                            { id: 's2', serviceName: 'Lipid Profile', price: 900 },
+                            { id: 's3', serviceName: 'Liver Function Test (LFT)', price: 1100 },
+                            { id: 's4', serviceName: 'Thyroid Function Test (TSH)', price: 1200 },
+                            { id: 's5', serviceName: 'Fasting Blood Sugar (FBS)', price: 200 },
+                          ].map((item) => {
+                            const isChecked = walkinSelectedTests.some((t) => t.id === item.id)
+                            return (
+                              <div
+                                key={item.id}
+                                onClick={() => {
+                                  if (isChecked) {
+                                    setWalkinSelectedTests(walkinSelectedTests.filter((t) => t.id !== item.id))
+                                  } else {
+                                    setWalkinSelectedTests([...walkinSelectedTests, item as any])
+                                  }
+                                }}
+                                className={`p-2.5 rounded-lg border flex items-center justify-between cursor-pointer transition ${
+                                  isChecked ? 'bg-purple-50/85 border-purple-400 shadow-glass-sm' : 'bg-white/75 border-white/80'
+                                }`}
+                              >
+                                <span className="font-semibold text-xs text-slate-800">{item.serviceName}</span>
+                                <span className="font-bold text-xs text-slate-900">Rs. {item.price}</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                          {services.map((s) => {
+                            const isChecked = walkinSelectedTests.some((t) => t.id === s.id)
+                            return (
+                              <div
+                                key={s.id}
+                                onClick={() => {
+                                  if (isChecked) {
+                                    setWalkinSelectedTests(walkinSelectedTests.filter((t) => t.id !== s.id))
+                                  } else {
+                                    setWalkinSelectedTests([...walkinSelectedTests, s])
+                                  }
+                                }}
+                                className={`p-2.5 rounded-lg border flex items-center justify-between cursor-pointer transition ${
+                                  isChecked ? 'bg-purple-50/85 border-purple-400 shadow-glass-sm' : 'bg-white/75 border-white/80'
+                                }`}
+                              >
+                                <span className="font-semibold text-xs text-slate-800">{s.serviceName}</span>
+                                <span className="font-bold text-xs text-slate-900">Rs. {s.price || 500}</span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                      {walkinErrors.tests && (
+                        <p className="text-[11px] text-rose-600 font-bold">{walkinErrors.tests}</p>
+                      )}
+                    </div>
+                  ) : isSingleDoctorClinic ? (
+                    /* Single Doctor Card */
+                    <div className="p-3.5 bg-emerald-50/75 backdrop-blur-md border border-emerald-200/80 rounded-2xl space-y-1">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 block">
+                        Attending Specialist Doctor
+                      </span>
+                      <div className="flex items-center justify-between text-xs">
+                        <div>
+                          <strong className="text-slate-900 text-sm">
+                            {clinicDoctors[0]?.fullName || 'Verified Attending Specialist'}
+                          </strong>
+                          <div className="text-emerald-700 font-semibold">
+                            {clinicDoctors[0]?.specialty || 'General Medicine'} • {clinicDoctors[0]?.education || 'MBBS, MD'}
+                          </div>
+                        </div>
+                        <span className="font-black text-emerald-900 text-sm bg-white/85 px-2.5 py-1 rounded-lg border border-emerald-200">
+                          Rs. {clinicDoctors[0]?.consultationFee || 500}
+                        </span>
+                      </div>
+                    </div>
+                  ) : clinicDoctors.length === 0 ? (
+                    /* General / Facility Clinic Card (No Doctors Listed) */
+                    <div className="p-3.5 bg-blue-50/75 backdrop-blur-md border border-blue-200/80 rounded-2xl flex items-center justify-between text-xs">
+                      <div>
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-blue-800 block">
+                          Clinic Reception Counter
+                        </span>
+                        <strong className="text-slate-900 text-sm">General Consultation Queue</strong>
+                      </div>
+                      <span className="font-black text-blue-900 text-sm bg-white/85 px-2.5 py-1 rounded-lg border border-blue-200">
+                        Rs. 500
+                      </span>
+                    </div>
+                  ) : (
+                    /* Polyclinic Doctor Dropdown */
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">Attending Specialist Doctor</label>
+                      <select
+                        value={walkinDoctorId}
+                        onChange={(e) => setWalkinDoctorId(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold liquid-glass-input focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      >
+                        {clinicDoctors.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.fullName} ({d.specialty || 'General'}) – {walkinIsFollowup && walkinRetainedAppt ? 'FREE' : `Rs. ${d.consultationFee || 500}`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </>
               )}
 
               {/* Appointment Date */}
@@ -7215,20 +7537,26 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
               {/* Submit Button */}
               {(() => {
                 const isOverbookingSlot = walkinAvailableSlots.some(s => s.id === walkinSlotId && (s.bookedCount || 0) >= (s.maxCapacity || 5))
+                const isFollowUpDisabled = walkinIsFollowup && !walkinRetainedAppt
                 return (
                   <GlassButton
                     type="submit"
                     variant="primary"
                     size="lg"
                     fullWidth
+                    disabled={loading || isFollowUpDisabled}
                     rightIcon={<ChevronRight className="w-4 h-4" />}
                   >
                     {isLabClinic
                       ? isOverbookingSlot
                         ? `Confirm & Overbook Lab Token (Rs. ${walkinSelectedTests.reduce((acc, t) => acc + (t.price || 0), 0)})`
                         : `Issue Diagnostic Lab Token (Rs. ${walkinSelectedTests.reduce((acc, t) => acc + (t.price || 0), 0)})`
-                      : walkinIsFollowup && walkinRetainedAppt
-                      ? 'Issue Live OPD Token (100% FREE Follow-Up)'
+                      : walkinIsFollowup
+                      ? walkinRetainedAppt
+                        ? isOverbookingSlot
+                          ? 'Confirm & Overbook Follow-Up (100% FREE)'
+                          : 'Fix Follow-Up Appointment (100% FREE)'
+                        : 'Enter Valid 10-Digit Code to Fix Appointment'
                       : isOverbookingSlot
                       ? 'Confirm & Overbook Live OPD Token'
                       : 'Issue Live OPD Token'}
@@ -7901,9 +8229,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                           <button
                             type="button"
                             onClick={() => handleOpenPushAlertModal(appt)}
-                            className="px-2.5 py-1 bg-purple-50/85 text-purple-700 hover:bg-purple-100 rounded-lg text-[11px] font-bold cursor-pointer"
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${alertedApptIds.has(appt.id) ? 'bg-teal-50 text-teal-700 hover:bg-teal-100' : 'bg-purple-50/85 text-purple-700 hover:bg-purple-100'}`}
                           >
-                            Push Alert
+                            {alertedApptIds.has(appt.id) ? 'Arrive Soon' : 'Push Alert'}
                           </button>
                           <button
                             type="button"
@@ -9464,10 +9792,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                   type="button"
                                   onClick={() => handleOpenScheduleNextVisit(pat)}
                                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-[11px] shadow-xs transition-colors cursor-pointer"
-                                  title="Schedule Next Follow-Up Visit"
+                                  title="Book New Appointment / Schedule Visit"
                                 >
                                   <CalendarPlus className="w-3 h-3" />
-                                  <span>Next Visit</span>
+                                  <span>Book Appt</span>
                                 </button>
                                 <button
                                   type="button"
@@ -9480,7 +9808,33 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => setExpandedPatientId(isExpanded ? null : pat.id)}
+                                  onClick={async () => {
+                                    const nextExpanded = isExpanded ? null : pat.id
+                                    setExpandedPatientId(nextExpanded)
+                                    if (nextExpanded) {
+                                      // ON-DEMAND LAZY SYNC: Retrieve changeable information (new appointments, bills) for checked patient
+                                      try {
+                                        const syncKey = (pat.trackingCodes && pat.trackingCodes[0]) || pat.phone || pat.id
+                                        if (syncKey && selectedClinic?.id) {
+                                          syncIndividualPatientRecord(selectedClinic.id, syncKey).catch(() => {})
+                                        }
+                                        const freshData = await refreshPatientChangeableData(
+                                          pat.trackingCodes || [],
+                                          pat.phone,
+                                          selectedClinic?.id
+                                        )
+                                        if (freshData.appointments && freshData.appointments.length > 0) {
+                                          setAppointments((prev) => {
+                                            const map = new Map(prev.map((a) => [a.id, a]))
+                                            freshData.appointments.forEach((a) => map.set(a.id, a))
+                                            return Array.from(map.values())
+                                          })
+                                        }
+                                      } catch (err) {
+                                        console.error('Failed to lazy load patient changeable data:', err)
+                                      }
+                                    }
+                                  }}
                                   className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/80 hover:bg-white text-slate-700 font-bold text-[11px] border border-slate-300 transition-colors cursor-pointer"
                                   title="View Consultations Timeline"
                                 >
@@ -9803,6 +10157,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                             <button
                               onClick={() => {
                                 setTargetLabAppt(appt)
+                                setReportFile(null)
+                                setReportImageFiles([])
+                                setReportImagePreviews([])
+                                setReportCompressionInfo(null)
                                 setLabUploadModalOpen(true)
                               }}
                               className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-bold text-[11px] shadow-glass-sm cursor-pointer"
@@ -12381,7 +12739,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-3">
                 <div>
                   <label className="text-xs font-bold text-slate-700 block mb-1">
                     Visit Date <span className="text-rose-500">*</span>
@@ -12389,21 +12747,72 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                   <input
                     type="date"
                     value={scheduleNextDate}
-                    onChange={(e) => setScheduleNextDate(e.target.value)}
+                    onChange={(e) => {
+                      setScheduleNextDate(e.target.value)
+                      setScheduleNextSlotId('')
+                    }}
                     min={new Date().toISOString().split('T')[0]}
                     className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-bold focus:outline-none focus:ring-2 focus:ring-cyan-500"
                     required
                   />
                 </div>
+
                 <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">Time Slot</label>
-                  <input
-                    type="text"
-                    value={scheduleNextTime}
-                    onChange={(e) => setScheduleNextTime(e.target.value)}
-                    placeholder="10:00 AM"
-                    className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-700 block">
+                      Select Available OPD Slot <span className="text-rose-500">*</span>
+                    </label>
+                    {isLoadingScheduleNextSlots && (
+                      <span className="text-[10px] text-teal-600 font-semibold animate-pulse">Loading slots...</span>
+                    )}
+                  </div>
+
+                  {isLoadingScheduleNextSlots ? (
+                    <div className="p-3 bg-slate-50/70 border border-slate-200/80 rounded-xl text-center text-xs text-slate-500">
+                      Loading published OPD slots for {scheduleNextDate}...
+                    </div>
+                  ) : scheduleNextSlots.length > 0 ? (
+                    <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto p-1 border border-slate-200/70 rounded-xl bg-white/40">
+                      {scheduleNextSlots.map((slot) => {
+                        const isSelected = scheduleNextSlotId === slot.id
+                        const spotsLeft = Math.max(0, slot.maxCapacity - slot.bookedCount)
+                        const isFull = slot.bookedCount >= slot.maxCapacity
+                        return (
+                          <button
+                            type="button"
+                            key={slot.id}
+                            onClick={() => {
+                              setScheduleNextSlotId(slot.id)
+                              setScheduleNextTime(`${slot.startTime} - ${slot.endTime}`)
+                            }}
+                            className={`p-2 rounded-xl text-left border transition-all text-xs cursor-pointer ${
+                              isSelected
+                                ? 'bg-teal-600 text-white border-teal-700 shadow-sm'
+                                : isFull
+                                ? 'bg-amber-50 text-slate-800 border-amber-300 hover:border-amber-400'
+                                : 'bg-white/80 text-slate-800 border-slate-200 hover:border-teal-400'
+                            }`}
+                          >
+                            <div className="font-bold text-[11px]">{slot.startTime} - {slot.endTime}</div>
+                            <div className={`text-[10px] ${isSelected ? 'text-teal-100' : isFull ? 'text-amber-700 font-bold' : 'text-slate-500'}`}>
+                              {isFull ? 'Full (Overbooking)' : `${spotsLeft} spots left`}
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-[11px] text-slate-500 mb-1.5">No published slots for this date. Enter custom appointment time:</p>
+                      <input
+                        type="text"
+                        value={scheduleNextTime}
+                        onChange={(e) => setScheduleNextTime(e.target.value)}
+                        placeholder="10:00 AM"
+                        className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -12555,19 +12964,96 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
             <form onSubmit={handleUploadReportSubmit} className="space-y-4">
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Upload PDF Report or Scan (Auto-Compress to &le; 300 KB)
+                  Upload Diagnostic Report (Multi-Picture / X-Rays or PDF &le; 100 KB)
                 </label>
                 <input
                   type="file"
+                  multiple
                   accept="application/pdf,image/*"
                   onChange={handleLabReportFileChange}
                   className="w-full text-xs text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100 cursor-pointer"
                 />
-                {reportCompressionInfo && (
-                  <p className="text-[11px] text-teal-700 font-bold bg-teal-50/85 p-2 rounded-lg border border-teal-200 mt-1">
-                    ⚡ {reportCompressionInfo}
+                {isProcessingPdf && (
+                  <p className="text-[11px] text-teal-700 font-bold bg-teal-50/85 p-2 rounded-lg border border-teal-200 mt-2 flex items-center gap-2">
+                    <span className="animate-spin text-sm">⏳</span> Compressing &amp; stitching into unified PDF (&le; 100 KB)...
                   </p>
                 )}
+                {reportCompressionInfo && (
+                  <div className="flex items-center justify-between bg-teal-50/85 p-2 rounded-lg border border-teal-200 mt-2">
+                    <p className="text-[11px] text-teal-700 font-bold">
+                      ⚡ {reportCompressionInfo}
+                    </p>
+                    {reportFile && (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const url = URL.createObjectURL(reportFile)
+                            window.open(url, '_blank')
+                          }}
+                          className="text-[11px] font-bold text-teal-800 hover:text-teal-950 bg-teal-200/60 hover:bg-teal-200 px-2 py-0.5 rounded transition-colors flex items-center gap-1 cursor-pointer"
+                          title="Preview local combined PDF"
+                        >
+                          👁️ Preview PDF
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            saveBlobLocally(reportFile, reportFile.name, targetLabAppt?.trackingCode10Digit || 'scan')
+                          }}
+                          className="text-[11px] font-bold text-emerald-800 hover:text-emerald-950 bg-emerald-200/60 hover:bg-emerald-200 px-2 py-0.5 rounded transition-colors flex items-center gap-1 cursor-pointer"
+                          title="Save PDF directly to PC downloads"
+                        >
+                          💾 Save PDF
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {reportImagePreviews.length > 0 && (
+                  <div className="mt-2.5">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-bold text-slate-700">
+                        Selected Pages / Scans ({reportImagePreviews.length}):
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => processReportImages([])}
+                        className="text-[10px] text-red-600 hover:text-red-700 font-semibold cursor-pointer"
+                      >
+                        Clear All
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2 overflow-x-auto py-1">
+                      {reportImagePreviews.map((src, idx) => (
+                        <div
+                          key={idx}
+                          className="relative flex-shrink-0 w-16 h-20 rounded-lg overflow-hidden border border-slate-300 shadow-xs group"
+                        >
+                          <img
+                            src={src}
+                            alt={`Page ${idx + 1}`}
+                            className="w-full h-full object-cover"
+                          />
+                          <span className="absolute top-1 left-1 bg-black/70 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
+                            P{idx + 1}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveReportImage(idx)}
+                            className="absolute top-1 right-1 w-4 h-4 bg-red-600 text-white rounded-full flex items-center justify-center text-[10px] hover:bg-red-700 shadow cursor-pointer"
+                            title="Remove page"
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <p className="text-[10.5px] text-slate-500 mt-1.5">
+                  💡 Select 1 or multiple pictures (X-rays, blood reports, urine panels). They will be automatically combined into a single diagnostic PDF and compressed to &le; 100 KB locally.
+                </p>
               </div>
 
               <div>
@@ -12599,10 +13085,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </GlassButton>
                 <button
                   type="submit"
-                  disabled={uploadingReport}
-                  className="flex-1 py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-teal-600/20 cursor-pointer"
+                  disabled={uploadingReport || isProcessingPdf}
+                  className="flex-1 py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs transition-colors shadow-md shadow-teal-600/20 cursor-pointer disabled:opacity-50"
                 >
-                  {uploadingReport ? 'Uploading File...' : 'Mark Prepared & Notify'}
+                  {uploadingReport ? 'Uploading File...' : isProcessingPdf ? 'Compressing PDF...' : 'Mark Prepared & Notify'}
                 </button>
               </div>
             </form>
@@ -13133,6 +13619,83 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = () => {
                 </GlassButton>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: CLOSE CLINIC & TRANSFER LIVE QUEUE TO NO-SHOW      */}
+      {/* ========================================================= */}
+      {showCloseClinicModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
+          <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-white/60">
+              <div className="flex items-center space-x-2">
+                <div className="w-9 h-9 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-600 flex items-center justify-center shrink-0">
+                  <AlertCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">
+                    Close Clinic for Today?
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    {selectedClinic?.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCloseClinicModal(false)}
+                disabled={updatingOpenStatus}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-slate-600">
+              <p className="font-semibold text-slate-800">
+                Are you sure you want to mark the clinic as CLOSED for today?
+              </p>
+              <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 space-y-2 text-rose-900">
+                <div className="flex items-start space-x-2">
+                  <span className="font-bold">•</span>
+                  <span>
+                    When any patient live tracks the queue, their screen will immediately display <strong>CLINIC IS CURRENTLY CLOSED</strong>.
+                  </span>
+                </div>
+                <div className="flex items-start space-x-2">
+                  <span className="font-bold">•</span>
+                  <span>
+                    All remaining waiting and inside patients in today's live queue (<strong>{appointments.filter((a) => a.checkinStatus === 'waiting' || a.checkinStatus === 'inside' || a.checkinStatus === 'in_consultation').length} patient(s)</strong>) will automatically be moved to <strong>No-Show</strong>.
+                  </span>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500 italic">
+                You can reopen the clinic at any time by toggling the button back to Open.
+              </p>
+            </div>
+
+            <div className="flex space-x-3 pt-2">
+              <GlassButton
+                type="button"
+                variant="ghost"
+                size="md"
+                onClick={() => setShowCloseClinicModal(false)}
+                disabled={updatingOpenStatus}
+                className="flex-1"
+              >
+                Cancel
+              </GlassButton>
+              <button
+                type="button"
+                onClick={handleConfirmCloseClinic}
+                disabled={updatingOpenStatus}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md transition disabled:opacity-50 cursor-pointer"
+              >
+                {updatingOpenStatus ? 'Closing Clinic...' : 'Confirm & Close Clinic'}
+              </button>
+            </div>
           </div>
         </div>
       )}

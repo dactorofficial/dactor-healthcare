@@ -26,6 +26,12 @@ import {
 } from '../services/db'
 import { LabReport, Appointment } from '../types'
 import { updatePageSEO } from '../utils/seo'
+import {
+  buildReportFileName,
+  downloadAndCacheReport,
+  isReportDownloadedLocally,
+  getCachedBlobUrl,
+} from '../utils/reportFileManager'
 
 export const LabReports: React.FC = () => {
   const [code, setCode] = useState('')
@@ -53,6 +59,34 @@ export const LabReports: React.FC = () => {
   // Rate limiting state
   const [rateLimitState, setRateLimitState] = useState(() => getReportPhoneRateLimitState(''))
   const [cooldownSeconds, setCooldownSeconds] = useState(0)
+  const [isDownloaded, setIsDownloaded] = useState(false)
+  const [isDownloading, setIsDownloading] = useState(false)
+
+  useEffect(() => {
+    const repId = reports[0]?.id || code
+    setIsDownloaded(isReportDownloadedLocally(repId))
+  }, [reports, code])
+
+  const handleDownload = async () => {
+    if (!signedUrl) return
+    setIsDownloading(true)
+    try {
+      const rep = reports[0]
+      const isImage = rep?.reportFileType === 'image' || Boolean(signedUrl.match(/\.(jpeg|jpg|png|webp)$/i))
+      const ext = isImage ? (signedUrl.includes('.png') ? 'png' : 'jpg') : 'pdf'
+      const fileName = buildReportFileName(
+        (appointment as any)?.clinic?.name || 'Diagnostic_Lab',
+        appointment?.patientName || rep?.patientName,
+        rep?.testName,
+        code,
+        ext
+      )
+      await downloadAndCacheReport(signedUrl, fileName, rep?.id || code)
+      setIsDownloaded(true)
+    } finally {
+      setIsDownloading(false)
+    }
+  }
 
   // Cooldown countdown effect
   useEffect(() => {
@@ -373,16 +407,37 @@ export const LabReports: React.FC = () => {
                       </div>
 
                       <div className="w-full sm:w-auto flex items-center space-x-2">
-                        <a
-                          href={signedUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          download
-                          className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white text-xs font-bold rounded-xl transition-all flex items-center justify-center space-x-1.5 shadow-glass-sm active:scale-95 border-t border-white/20"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>Download Report</span>
-                        </a>
+                        {!isDownloaded ? (
+                          <button
+                            onClick={handleDownload}
+                            disabled={isDownloading}
+                            className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all flex items-center justify-center space-x-1.5 shadow-glass-sm active:scale-95 border-t border-white/20 cursor-pointer"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>{isDownloading ? 'Downloading...' : 'Download Report'}</span>
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => {
+                                const localUrl = getCachedBlobUrl(reports[0]?.id || code) || signedUrl
+                                window.open(localUrl, '_blank')
+                              }}
+                              className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white text-xs font-bold rounded-xl transition-all flex items-center justify-center space-x-1.5 shadow-glass-sm active:scale-95 border-t border-white/20 cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>View in App (Offline)</span>
+                            </button>
+                            <button
+                              onClick={handleDownload}
+                              disabled={isDownloading}
+                              className="px-3 py-2 liquid-glass-subtle text-teal-700 dark:text-teal-300 rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1 cursor-pointer"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Re-download</span>
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   ) : (

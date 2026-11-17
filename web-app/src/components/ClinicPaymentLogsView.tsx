@@ -219,7 +219,7 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
       if (dateFilter === 'today' && expDate !== todayStr) return false
       if (dateFilter === 'yesterday' && expDate !== yesterdayStr) return false
       if (dateFilter === 'week' && expDate < weekStartStr) return false
-      if (dateFilter === 'month' && !expDate.startsWith(monthStartStr)) return false
+      if (dateFilter === 'month' && expDate < monthStartStr) return false
       if (dateFilter === 'custom' && (expDate < customStartDate || expDate > customEndDate)) return false
 
       if (selectedMethod !== 'all' && exp.payment_method?.toUpperCase() !== selectedMethod.toUpperCase()) return false
@@ -229,7 +229,9 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
           exp.title?.toLowerCase().includes(q) ||
           exp.category?.toLowerCase().includes(q) ||
           (exp.voucher_number && exp.voucher_number.toLowerCase().includes(q)) ||
-          (exp.remarks && exp.remarks.toLowerCase().includes(q))
+          (exp.receipt_no && exp.receipt_no.toLowerCase().includes(q)) ||
+          (exp.remarks && exp.remarks.toLowerCase().includes(q)) ||
+          (exp.notes && exp.notes.toLowerCase().includes(q))
         if (!matches) return false
       }
       return true
@@ -784,15 +786,15 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
 
         {/* Tab 1: Chronological Ledger */}
         {activeTab === 'ledger' && (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto max-h-[calc(100vh-280px)] overflow-y-auto rounded-xl border border-slate-200/80 dark:border-slate-800/80">
             {filteredLogs.length === 0 ? (
               <div className="p-12 text-center text-slate-400 text-xs">
                 No payment transactions found matching the selected period and filters.
               </div>
             ) : (
               <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200/80 dark:border-slate-800/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50 dark:bg-slate-800/40">
+                <thead className="sticky top-0 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md shadow-sm z-10">
+                  <tr className="border-b border-slate-200/80 dark:border-slate-800/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/80 dark:bg-slate-800/80">
                     <th className="py-3 px-4">Date & Time</th>
                     <th className="py-3 px-4">Patient / Tracking Code</th>
                     <th className="py-3 px-4">Doctor & Specialty</th>
@@ -949,9 +951,10 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
                 </button>
               </div>
             ) : (
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200/80 dark:border-slate-800/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50 dark:bg-slate-800/40">
+              <div className="overflow-x-auto max-h-[calc(100vh-280px)] overflow-y-auto rounded-xl border border-slate-200/80 dark:border-slate-800/80">
+                <table className="w-full text-left border-collapse">
+                  <thead className="sticky top-0 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md shadow-sm z-10">
+                    <tr className="border-b border-slate-200/80 dark:border-slate-800/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/80 dark:bg-slate-800/80">
                     <th className="py-3 px-4">Date & Time</th>
                     <th className="py-3 px-4">Expense Title</th>
                     <th className="py-3 px-4">Category</th>
@@ -988,10 +991,10 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-slate-600 dark:text-slate-400 font-mono text-[11px]">
-                        {exp.voucher_number ? `#${exp.voucher_number}` : '—'}
+                        {(exp.voucher_number || exp.receipt_no) ? `#${exp.voucher_number || exp.receipt_no}` : '—'}
                       </td>
                       <td className="py-3.5 px-4 text-slate-500 dark:text-slate-400 max-w-[200px] truncate">
-                        {exp.remarks || '—'}
+                        {exp.remarks || exp.notes || '—'}
                       </td>
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <span className="text-sm font-black text-rose-600 dark:text-rose-400">
@@ -1011,6 +1014,7 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         )}
@@ -1077,10 +1081,10 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
                 No doctor consultations recorded for {doctorAnalyticsPeriod}.
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto max-h-[calc(100vh-280px)] overflow-y-auto rounded-xl border border-slate-200/80 dark:border-slate-800/80">
                 <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-200/80 dark:border-slate-800/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50 dark:bg-slate-800/40">
+                  <thead className="sticky top-0 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md shadow-sm z-10">
+                    <tr className="border-b border-slate-200/80 dark:border-slate-800/80 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/80 dark:bg-slate-800/80">
                       <th className="py-3 px-4">Doctor & Specialty</th>
                       <th className="py-3 px-4 text-center">New Patients Seen</th>
                       <th className="py-3 px-4 text-center">Follow-up Patients</th>
@@ -1237,15 +1241,15 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
               </div>
 
               {/* Settlement History Table */}
-              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden max-h-[50vh] overflow-y-auto">
                 {commissionSettlements.length === 0 ? (
                   <div className="p-6 text-center text-xs text-slate-400">
                     No settlements recorded yet. 5% fees accrue automatically as Pay-at-Desk consultations are completed.
                   </div>
                 ) : (
                   <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 dark:bg-slate-800/50 text-[11px] text-slate-400 uppercase">
+                    <thead className="sticky top-0 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md shadow-sm z-10">
+                      <tr className="border-b border-slate-200/80 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-800/80 text-[11px] text-slate-400 uppercase">
                         <th className="py-2.5 px-3">Settlement Date</th>
                         <th className="py-2.5 px-3">Period</th>
                         <th className="py-2.5 px-3">Appointments</th>
@@ -1291,15 +1295,15 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
                 </p>
               </div>
 
-              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden max-h-[50vh] overflow-y-auto">
                 {subscriptionPayments.length === 0 ? (
                   <div className="p-6 text-center text-xs text-slate-400">
                     No renewal receipts on file. When license renewals are completed, they appear here permanently.
                   </div>
                 ) : (
                   <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 dark:bg-slate-800/50 text-[11px] text-slate-400 uppercase">
+                    <thead className="sticky top-0 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-md shadow-sm z-10">
+                      <tr className="border-b border-slate-200/80 dark:border-slate-800/80 bg-slate-50/80 dark:bg-slate-800/80 text-[11px] text-slate-400 uppercase">
                         <th className="py-2.5 px-3">Payment Date</th>
                         <th className="py-2.5 px-3">Plan</th>
                         <th className="py-2.5 px-3">Method & Txn Ref</th>
