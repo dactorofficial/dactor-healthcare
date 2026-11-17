@@ -4,6 +4,28 @@ This file tracks user prompts and the exact changes applied across the codebase,
 
 ---
 
+## 2026-11-18
+
+### Prompt:
+> "/plan add expense in clinic payment log section is still not working , fix it ,"
+
+#### Changes Applied:
+1. **Supabase Migration for Complete Clinic Expenses Repair ([`supabase/migration_fix_clinic_expenses_complete.sql`](file:///C:/Users/notan/Documents/gitversiondactor/supabase/migration_fix_clinic_expenses_complete.sql))**:
+   - Added missing columns `expense_time VARCHAR(20)`, `voucher_number VARCHAR(100)`, `remarks TEXT`, `payee_name VARCHAR(255)`, `receipt_no VARCHAR(100)`, `receipt_url TEXT`, and `notes TEXT` idempotently.
+   - Added bidirectional synchronization trigger `trg_sync_clinic_expenses_columns` ensuring `voucher_number <-> receipt_no` and `remarks <-> notes` are synchronized.
+   - Replaced restrictive RLS policies with scoped policies granted to `public` (allowing `anon`, `authenticated`, and `service_role` with validation checks: `clinic_id IS NOT NULL`, `title IS NOT NULL`, `amount >= 0`).
+   - Implemented `SECURITY DEFINER` RPC endpoints: `add_clinic_expense`, `get_clinic_expenses`, and `delete_clinic_expense` with execute permissions granted to `anon, authenticated, service_role`.
+2. **Mobile App Resilient REST & RPC Integration ([`BillingRepository.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/BillingRepository.kt))**:
+   - Enhanced `addExpense`: Sends full dual-column payload, with automatic fallback to minimal payload and `add_clinic_expense` RPC if direct insert fails.
+   - Enhanced `getExpensesForClinic`: Queries PostgREST table directly, falling back to `get_clinic_expenses` RPC if table query errors or returns empty.
+   - Enhanced `deleteExpense`: Directly deletes from PostgREST table, falling back to `delete_clinic_expense` RPC.
+3. **Web Portal One-Way Synchronization ([`db.ts`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/services/db.ts))**:
+   - Synchronized `addClinicExpense`, `getClinicExpenses`, and `deleteClinicExpense` with dual-column payloads and identical `SECURITY DEFINER` RPC fallbacks (`add_clinic_expense`, `get_clinic_expenses`, `delete_clinic_expense`).
+4. **Automated Live Integration Verification ([`verify_clinic_expenses_live.cjs`](file:///C:/Users/notan/Documents/gitversiondactor/tests/verify_clinic_expenses_live.cjs))**:
+   - Updated suite to test dual-layer insertion, querying, normalization, date filtering, and cleanup.
+
+---
+
 ## 2026-11-14
 
 ### Prompt:

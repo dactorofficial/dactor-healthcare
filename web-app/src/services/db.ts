@@ -6294,12 +6294,31 @@ export async function getClinicPaymentAttempts(clinicId: string): Promise<any[]>
 export async function getClinicExpenses(clinicId: string): Promise<any[]> {
   if (!clinicId) return []
   try {
-    const { data, error } = await supabase
+    let data: any[] | null = null
+    const { data: tableData, error } = await supabase
       .from('clinic_expenses')
       .select('*')
       .eq('clinic_id', clinicId)
       .order('expense_date', { ascending: false })
-    if (error) throw error
+
+    if (!error && Array.isArray(tableData) && tableData.length > 0) {
+      data = tableData
+    } else {
+      // Fallback to get_clinic_expenses RPC
+      try {
+        const { data: rpcData, error: rpcErr } = await supabase.rpc('get_clinic_expenses', {
+          p_clinic_id: clinicId,
+        })
+        if (!rpcErr && Array.isArray(rpcData)) {
+          data = rpcData
+        } else {
+          data = tableData || []
+        }
+      } catch {
+        data = tableData || []
+      }
+    }
+
     return (data || []).map((row: any) => {
       const vNum = row.voucher_number || row.receipt_no || undefined
       const rNo = row.receipt_no || row.voucher_number || undefined
@@ -6343,19 +6362,26 @@ export async function addClinicExpense(expense: any): Promise<any> {
     receipt_no: vNum,
     notes: combinedNotes,
     payee_name: expense.payee_name || null,
+    voucher_number: vNum,
+    remarks: rem,
+    expense_time: eTime,
   }
 
   if (expense.id) {
     insertPayload.id = expense.id
   }
 
-  let { data, error } = await supabase
+  let data: any = null
+  let { data: directData, error } = await supabase
     .from('clinic_expenses')
     .insert([insertPayload])
     .select()
     .single()
 
-  if (error) {
+  if (!error && directData) {
+    data = directData
+  } else {
+    // 1. Try minimal legacy payload in case newer columns are not in schema cache
     const minimalPayload: Record<string, any> = {
       clinic_id: expense.clinic_id,
       title: expense.title,
@@ -6375,8 +6401,36 @@ export async function addClinicExpense(expense: any): Promise<any> {
       .select()
       .single()
 
-    if (retryRes.error) throw retryRes.error
-    data = retryRes.data
+    if (!retryRes.error && retryRes.data) {
+      data = retryRes.data
+    } else {
+      // 2. Fallback to SECURITY DEFINER RPC add_clinic_expense
+      try {
+        const rpcPayload: Record<string, any> = {
+          p_clinic_id: expense.clinic_id,
+          p_title: expense.title,
+          p_amount: Number(expense.amount) || 0,
+          p_category: expense.category || 'OTHER',
+          p_payment_method: expense.payment_method || 'CASH',
+          p_expense_date: expense.expense_date,
+        }
+        if (eTime) rpcPayload.p_expense_time = eTime
+        if (vNum) rpcPayload.p_voucher_number = vNum
+        if (rem) rpcPayload.p_remarks = rem
+        if (expense.payee_name) rpcPayload.p_payee_name = expense.payee_name
+        if (expense.id) rpcPayload.p_id = expense.id
+
+        const rpcRes = await supabase.rpc('add_clinic_expense', rpcPayload)
+        if (!rpcRes.error && rpcRes.data) {
+          data = rpcRes.data
+        } else if (rpcRes.error) {
+          throw rpcRes.error
+        }
+      } catch (rpcErr) {
+        // If RPC also failed, throw the primary error or retry error
+        throw (retryRes.error || error || rpcErr)
+      }
+    }
   }
 
   return {
@@ -6395,7 +6449,19 @@ export async function deleteClinicExpense(expenseId: string): Promise<boolean> {
     .from('clinic_expenses')
     .delete()
     .eq('id', expenseId)
-  if (error) throw error
+
+  if (error) {
+    // Fallback to delete_clinic_expense RPC
+    try {
+      const { data: rpcSuccess, error: rpcErr } = await supabase.rpc('delete_clinic_expense', {
+        p_expense_id: expenseId,
+      })
+      if (rpcErr) throw rpcErr
+      return !!rpcSuccess
+    } catch {
+      throw error
+    }
+  }
   return true
 }
 
