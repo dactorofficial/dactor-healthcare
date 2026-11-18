@@ -313,7 +313,7 @@ open class ClinicRepository @Inject constructor(
         return json.encodeToString(ClinicExtendedMeta.serializer(), meta)
     }
 
-    suspend fun getClinicById(id: String): Clinic? = withContext(Dispatchers.IO) {
+    open suspend fun getClinicById(id: String): Clinic? = withContext(Dispatchers.IO) {
         try {
             val clinic = supabaseClient.postgrest["clinics"]
                 .select {

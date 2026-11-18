@@ -983,7 +983,7 @@ open class AppointmentRepository @Inject constructor(
         }
     }
 
-    suspend fun getAppointmentsByDoctor(doctorId: String, date: String? = null, forceRefresh: Boolean = false): List<Appointment> = withContext(Dispatchers.IO) {
+    open suspend fun getAppointmentsByDoctor(doctorId: String, date: String? = null, forceRefresh: Boolean = false): List<Appointment> = withContext(Dispatchers.IO) {
         if (doctorId.isBlank()) return@withContext emptyList()
         val cacheKey = if (date != null) "${doctorId}_$date" else doctorId
         if (!forceRefresh) {

@@ -14,7 +14,17 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.RealtimeChannel
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
@@ -123,7 +133,7 @@ open class QueueRepository @Inject constructor(
         }
     }
 
-    suspend fun syncQueueDeltaForDoctor(doctorId: String, clinicId: String? = null): List<QueueEntry> = withContext(Dispatchers.IO) {
+    open suspend fun syncQueueDeltaForDoctor(doctorId: String, clinicId: String? = null): List<QueueEntry> = withContext(Dispatchers.IO) {
         if (doctorId.isBlank()) return@withContext emptyList()
         val cacheKey = "${doctorId}_${clinicId ?: "all"}"
         try {
@@ -306,7 +316,7 @@ open class QueueRepository @Inject constructor(
         }
     }
 
-    suspend fun getQueueForDoctor(
+    open suspend fun getQueueForDoctor(
         doctorId: String,
         clinicId: String? = null,
         forceRefresh: Boolean = false
@@ -858,7 +868,7 @@ open class QueueRepository @Inject constructor(
      * Automatically transfers patients in live queue whose appointment is not completed to 'no_show'.
      * Handles past-day appointments (where appointment_date < today) and optionally today's expired slots/appointments.
      */
-    suspend fun autoTransferUncompletedQueueToNoShow(
+    open suspend fun autoTransferUncompletedQueueToNoShow(
         clinicId: String,
         includeTodayExpired: Boolean = false,
         todayCutoffMinutes: Int = 60
@@ -1835,6 +1845,54 @@ open class QueueRepository @Inject constructor(
         } catch (e: Exception) {
             e.printStackTrace()
             false
+        }
+    }
+
+    /**
+     * Creates a reactive Flow emitting on any doctor queue entry or appointment change.
+     * Encapsulates Supabase Realtime channel lifecycle.
+     */
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    open fun observeDoctorQueueRealtime(doctorId: String, clinicId: String): Flow<Unit> = callbackFlow {
+        if (doctorId.isBlank() || clinicId.isBlank()) {
+            close()
+            return@callbackFlow
+        }
+
+        val channelTopic = "doctor_live_queue_${doctorId}_${clinicId}"
+        val channel: RealtimeChannel = supabaseClient.channel(channelTopic)
+
+        val queueChanges = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+            table = "queue_entries"
+            filter = "doctor_id=eq.$doctorId"
+        }
+
+        val apptChanges = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+            table = "appointments"
+            filter = "doctor_id=eq.$doctorId"
+        }
+
+        val job = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            try {
+                channel.subscribe()
+                merge(queueChanges, apptChanges)
+                    .debounce(300L)
+                    .collect {
+                        trySend(Unit)
+                    }
+            } catch (e: Exception) {
+                Log.e("QueueRepo", "Realtime subscription failed: ${e.message}")
+            }
+        }
+
+        awaitClose {
+            job.cancel()
+            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    channel.unsubscribe()
+                    supabaseClient.realtime.removeChannel(channel)
+                } catch (_: Exception) {}
+            }
         }
     }
 

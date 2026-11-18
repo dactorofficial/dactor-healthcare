@@ -9,7 +9,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class SlotRepository @Inject constructor(
+open class SlotRepository @Inject constructor(
     private val supabaseClient: SupabaseClient
 ) {
     companion object {
@@ -109,7 +109,7 @@ class SlotRepository @Inject constructor(
         }
     }
 
-    suspend fun getSlots(clinicId: String, date: String): List<Slot> = withContext(Dispatchers.IO) {
+    open suspend fun getSlots(clinicId: String, date: String): List<Slot> = withContext(Dispatchers.IO) {
         try {
             val slots = supabaseClient.postgrest["slots"]
                 .select {

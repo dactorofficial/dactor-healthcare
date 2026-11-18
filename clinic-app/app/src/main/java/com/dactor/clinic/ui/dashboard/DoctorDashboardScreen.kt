@@ -36,12 +36,18 @@ import com.dactor.clinic.data.model.Clinic
 import com.dactor.clinic.data.model.ClinicInvitation
 import com.dactor.clinic.data.model.Doctor
 import com.dactor.clinic.data.repository.AppointmentRepository
+import com.dactor.clinic.data.repository.BillingRepository
 import com.dactor.clinic.data.repository.ClinicRepository
 import com.dactor.clinic.data.repository.DoctorRepository
 import com.dactor.clinic.data.repository.InvitationRepository
 import com.dactor.clinic.data.repository.LabReportRepository
 import com.dactor.clinic.data.repository.QueueRepository
+import com.dactor.clinic.data.repository.SlotRepository
 import com.dactor.clinic.ui.navigation.NavRoutes
+import com.dactor.clinic.ui.queue.DoctorLiveQueueContent
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.material3.TabRowDefaults.SecondaryIndicator
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -57,7 +63,9 @@ fun DoctorDashboardScreen(
     appointmentRepository: AppointmentRepository? = null,
     invitationRepository: InvitationRepository? = null,
     clinicRepository: ClinicRepository? = null,
-    labReportRepository: LabReportRepository? = null
+    labReportRepository: LabReportRepository? = null,
+    slotRepository: SlotRepository? = null,
+    billingRepository: BillingRepository? = null
 ) {
     val context = LocalContext.current
     val sessionManager = remember { com.dactor.clinic.data.local.UserSessionManager(context) }
@@ -306,7 +314,11 @@ fun DoctorDashboardScreen(
         "Dentist"
     )
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    var selectedMainTab by remember { mutableIntStateOf(0) } // 0: Live Queue (default), 1: Dashboard & Workspace
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             Surface(
                 color = MaterialTheme.colorScheme.surface,
@@ -606,10 +618,74 @@ fun DoctorDashboardScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(scrollState)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            // Main Top Tabs: Live Queue (default) vs Dashboard & Workspace
+            TabRow(
+                selectedTabIndex = selectedMainTab,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = Color(0xFF0284C7),
+                indicator = { tabPositions ->
+                    SecondaryIndicator(
+                        Modifier.tabIndicatorOffset(tabPositions[selectedMainTab]),
+                        color = Color(0xFF0284C7)
+                    )
+                }
+            ) {
+                Tab(
+                    selected = selectedMainTab == 0,
+                    onClick = { selectedMainTab = 0 },
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.FormatListNumbered,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text("Live Queue", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                )
+                Tab(
+                    selected = selectedMainTab == 1,
+                    onClick = { selectedMainTab = 1 },
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Dashboard,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text("Dashboard & Workspace", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                )
+            }
+
+            if (selectedMainTab == 0) {
+                val targetDocId = doctor?.id ?: effectiveDocId
+                val targetClinicId = clinic?.id ?: doctor?.activeClinicId ?: doctor?.clinicId.orEmpty()
+                DoctorLiveQueueContent(
+                    navController = navController,
+                    doctorId = targetDocId,
+                    clinicId = targetClinicId,
+                    viewModel = hiltViewModel(),
+                    snackbarHostState = snackbarHostState,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(scrollState)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
             if (doctor == null && isLoading) {
                 com.dactor.clinic.ui.common.ShimmerListPlaceholder(count = 4)
             } else if (doctor == null && !isLoading && sessionManager.getSavedDoctorId().isNullOrBlank()) {
@@ -1536,6 +1612,8 @@ fun DoctorDashboardScreen(
                 }
             }
             }
+        }
+        }
         }
     }
 
