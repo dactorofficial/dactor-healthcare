@@ -129,6 +129,8 @@ fun ClinicSettingsScreen(
     // UI state
     var showLocationPicker by remember { mutableStateOf(false) }
     var showTermsDialog by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
+    var appLanguage by remember { mutableStateOf(sessionManager.getAppLanguage()) }
     var isSaving by remember { mutableStateOf(false) }
     var showSuccessMessage by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -2023,6 +2025,60 @@ fun ClinicSettingsScreen(
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(4.dp))
 
+                // Section: App Preferences & Language
+                Card(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("App Preferences", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            onClick = { showLanguageDialog = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Icon(Icons.Default.Language, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                                    Column {
+                                        Text("App Language", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                        Text(if (appLanguage == "ne") "नेपाली (Nepali)" else "English", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFEFF6FF),
+                                    border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                                    onClick = { showLanguageDialog = true }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text("Change", fontSize = 11.5.sp, color = Color(0xFF1D4ED8), fontWeight = FontWeight.Bold)
+                                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color(0xFF1D4ED8), modifier = Modifier.size(14.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(4.dp))
+
                 // Section 4: Legal & Regulatory Policies
                 Card(
                     shape = RoundedCornerShape(14.dp),
@@ -2212,6 +2268,54 @@ fun ClinicSettingsScreen(
     // TERMS AND CONDITIONS DIALOG
     if (showTermsDialog) {
         ClinicTermsAndConditionsDialog(onDismiss = { showTermsDialog = false })
+    }
+
+    // LANGUAGE SELECTION DIALOG
+    if (showLanguageDialog) {
+        AlertDialog(
+            onDismissRequest = { showLanguageDialog = false },
+            title = { Text("Choose Language / भाषा छान्नुहोस्", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                appLanguage = "en"
+                                sessionManager.setAppLanguage("en")
+                                showLanguageDialog = false
+                            }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("English", fontWeight = FontWeight.SemiBold)
+                        if (appLanguage == "en") Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                    HorizontalDivider()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                appLanguage = "ne"
+                                sessionManager.setAppLanguage("ne")
+                                showLanguageDialog = false
+                            }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("नेपाली (Nepali)", fontWeight = FontWeight.SemiBold)
+                        if (appLanguage == "ne") Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLanguageDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
     }
 
     // DELETE CLINIC ACCOUNT CONFIRMATION DIALOG
