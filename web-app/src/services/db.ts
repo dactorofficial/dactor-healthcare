@@ -2952,25 +2952,57 @@ function saveLocalReadNotificationIds(ids: string[]): void {
 }
 
 export async function getClinicNotifications(_clinicId: string): Promise<DactorNotification[]> {
-  try {
-    const { data, error } = await supabase
-      .from('notifications')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(50)
+  // Query request removed from doctor and clinic portal (restricted strictly to patient app)
+  return []
+}
 
+export async function getPatientConsultationQuery(params: {
+  patientId?: string
+  trackingCode?: string
+  phone?: string
+}): Promise<{
+  hasPatientId: boolean
+  hasActiveAppointmentToday: boolean
+  queryIntervalSeconds: number
+  appointment?: any
+  notifications: DactorNotification[]
+}> {
+  try {
+    const { data, error } = await supabase.rpc('get_patient_consultation_query', {
+      p_patient_id: params.patientId && params.patientId.length === 36 ? params.patientId : null,
+      p_tracking_code: params.trackingCode || null,
+      p_phone: params.phone || null,
+    })
     if (error) throw error
-    const readSet = getLocalReadNotificationIds()
-    return (data || []).map((n) => {
-      const mapped = mapNotification(n)
-      if (readSet.has(mapped.id)) {
-        mapped.isRead = true
+    if (!data) {
+      return {
+        hasPatientId: Boolean(params.patientId),
+        hasActiveAppointmentToday: false,
+        queryIntervalSeconds: 7200,
+        notifications: [],
       }
+    }
+    const readSet = getLocalReadNotificationIds()
+    const notifs = (data.notifications || []).map((n: any) => {
+      const mapped = mapNotification(n)
+      if (readSet.has(mapped.id)) mapped.isRead = true
       return mapped
     })
+    return {
+      hasPatientId: Boolean(data.has_patient_id),
+      hasActiveAppointmentToday: Boolean(data.has_active_appointment_today),
+      queryIntervalSeconds: data.query_interval_seconds || (data.has_active_appointment_today ? 10 : 7200),
+      appointment: data.appointment || null,
+      notifications: notifs,
+    }
   } catch (err) {
-    console.error('Error fetching notifications:', err)
-    return []
+    console.warn('getPatientConsultationQuery error:', err)
+    return {
+      hasPatientId: Boolean(params.patientId),
+      hasActiveAppointmentToday: false,
+      queryIntervalSeconds: 7200,
+      notifications: [],
+    }
   }
 }
 
@@ -6321,6 +6353,165 @@ export async function refreshPatientChangeableData(
   } catch (err) {
     console.error('Error in refreshPatientChangeableData:', err)
     return { appointments: [], invoices: [] }
+  }
+}
+
+/**
+ * Targeted Live Queue Sync: refreshes authoritative status ONLY for
+ * the upcoming 3-4 patients currently waiting/inside in queue.
+ */
+export async function refreshAppointmentsByIds(ids: string[]): Promise<Appointment[]> {
+  if (!ids || ids.length === 0) return []
+  try {
+    const { data, error } = await supabase
+      .from('appointments')
+      .select('*, doctor:doctors(*), clinic:clinics(*), queue_entries(*)')
+      .in('id', ids)
+
+    if (error) throw error
+    return (data || []).map((a: any) => ({
+      ...a,
+      clinicName: a.clinic?.name || a.clinicName,
+      doctorName: a.doctor?.full_name || a.doctorName,
+      appointmentDate: a.appointment_date,
+      appointmentTime: a.appointment_time,
+      paymentStatus: a.payment_status,
+      checkinStatus: a.checkin_status,
+      patientName: a.patient_name,
+      patientAge: a.patient_age,
+      patientGender: a.patient_gender,
+      patientMobile: a.patient_mobile,
+      feeAmount: a.fee_amount,
+      totalAmount: a.total_amount,
+      trackingCode10Digit: a.tracking_code_10_digit,
+      clinicId: a.clinic_id,
+      doctorId: a.doctor_id,
+      userId: a.user_id,
+      isWalkin: a.is_walkin,
+      queueEntryId: a.queue_entries?.[0]?.id,
+      queuePosition: a.queue_entries?.[0]?.queue_position,
+      queueStatus: a.queue_entries?.[0]?.status,
+    }))
+  } catch (err) {
+    console.error('Error refreshing appointments by IDs:', err)
+    return []
+  }
+}
+
+/**
+ * Incrementally checks if newly booked or approved appointments exist for today
+ * that are not yet tracked in the active queue.
+ */
+export async function checkNewAppointments(
+  clinicId: string,
+  doctorId: string | null,
+  date: string,
+  knownApptIds: string[],
+  sinceIso?: string
+): Promise<Appointment[]> {
+  if (!clinicId || !date) return []
+  try {
+    let query = supabase
+      .from('appointments')
+      .select('*, doctor:doctors(*), clinic:clinics(*), queue_entries(*)')
+      .eq('clinic_id', clinicId)
+      .eq('appointment_date', date)
+      .eq('status', 'APPROVED')
+      .neq('checkin_status', 'cancelled')
+
+    if (doctorId) {
+      query = query.eq('doctor_id', doctorId)
+    }
+    if (sinceIso) {
+      query = query.gte('created_at', sinceIso)
+    }
+
+    const { data, error } = await query
+    if (error) throw error
+
+    const knownSet = new Set(knownApptIds || [])
+    const filtered = (data || []).filter(
+      (a: any) =>
+        !knownSet.has(a.id) &&
+        a.status === 'APPROVED' &&
+        a.status !== 'WAITING_FOR_APPROVAL' &&
+        a.status !== 'pending_payment' &&
+        a.status !== 'UNAPPROVED' &&
+        a.status !== 'EXPIRED' &&
+        a.checkin_status !== 'cancelled'
+    )
+
+    return filtered.map((a: any) => ({
+      ...a,
+      clinicName: a.clinic?.name || a.clinicName,
+      doctorName: a.doctor?.full_name || a.doctorName,
+      appointmentDate: a.appointment_date,
+      appointmentTime: a.appointment_time,
+      paymentStatus: a.payment_status,
+      checkinStatus: a.checkin_status,
+      patientName: a.patient_name,
+      patientAge: a.patient_age,
+      patientGender: a.patient_gender,
+      patientMobile: a.patient_mobile,
+      feeAmount: a.fee_amount,
+      totalAmount: a.total_amount,
+      trackingCode10Digit: a.tracking_code_10_digit,
+      clinicId: a.clinic_id,
+      doctorId: a.doctor_id,
+      userId: a.user_id,
+      isWalkin: a.is_walkin,
+      queueEntryId: a.queue_entries?.[0]?.id,
+      queuePosition: a.queue_entries?.[0]?.queue_position,
+      queueStatus: a.queue_entries?.[0]?.status,
+    }))
+  } catch (err) {
+    console.error('Error checking new appointments:', err)
+    return []
+  }
+}
+
+/**
+ * Removes rogue / cancelled / rescheduled queue entries.
+ */
+export async function removeRogueQueueEntry(appointmentId: string): Promise<boolean> {
+  if (!appointmentId) return false
+  try {
+    const { error } = await supabase
+      .from('queue_entries')
+      .delete()
+      .eq('appointment_id', appointmentId)
+    if (error) throw error
+    return true
+  } catch (err) {
+    console.error('Error removing rogue queue entry:', err)
+    return false
+  }
+}
+
+/**
+ * Auto-enrolls newly approved appointment into queue entries.
+ */
+export async function autoEnrollNewAppointment(
+  clinicId: string,
+  doctorId: string | null,
+  appointmentId: string,
+  nextPos: number
+): Promise<boolean> {
+  if (!clinicId || !appointmentId) return false
+  try {
+    const { error } = await supabase.from('queue_entries').insert({
+      id: crypto.randomUUID(),
+      appointment_id: appointmentId,
+      clinic_id: clinicId,
+      doctor_id: doctorId || null,
+      queue_position: nextPos,
+      status: 'waiting',
+    })
+    if (error) throw error
+    return true
+  } catch (err) {
+    console.warn('Error auto-enrolling queue entry:', err)
+    return false
   }
 }
 

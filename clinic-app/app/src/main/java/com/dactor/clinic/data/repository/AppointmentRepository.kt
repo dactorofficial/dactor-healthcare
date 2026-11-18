@@ -123,6 +123,104 @@ open class AppointmentRepository @Inject constructor(
         clinicAppointmentsCache.clear()
         doctorAppointmentsCache.clear()
     }
+
+    /**
+     * Targeted live queue refresh: fetches authoritative appointment state ONLY for
+     * the upcoming 3-4 patients currently waiting/inside in queue, minimizing database load.
+     */
+    open suspend fun refreshAppointmentsByIds(ids: List<String>): List<Appointment> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext emptyList()
+        try {
+            val appts = supabaseClient.postgrest["appointments"]
+                .select {
+                    filter {
+                        isIn("id", ids)
+                    }
+                }.decodeList<Appointment>()
+            if (appts.isNotEmpty()) {
+                val attached = attachQueueStatus(appts)
+                try {
+                    appointmentDao?.upsertAll(attached.map { AppointmentEntity.fromDomainModel(it, syncStatus = "synced") })
+                } catch (_: Exception) {}
+                attached.forEach { appt ->
+                    appt.clinicId.takeIf { it.isNotBlank() }?.let { cid ->
+                        val currentList = clinicAppointmentsCache[cid] ?: emptyList()
+                        clinicAppointmentsCache[cid] = currentList.filter { it.id != appt.id } + appt
+                    }
+                    appt.doctorId?.takeIf { it.isNotBlank() }?.let { did ->
+                        val dateKey = "${did}_${appt.appointmentDate}"
+                        val currentDocList = doctorAppointmentsCache[dateKey] ?: emptyList()
+                        doctorAppointmentsCache[dateKey] = currentDocList.filter { it.id != appt.id } + appt
+                        val allDocList = doctorAppointmentsCache[did] ?: emptyList()
+                        if (allDocList.isNotEmpty()) {
+                            doctorAppointmentsCache[did] = allDocList.filter { it.id != appt.id } + appt
+                        }
+                    }
+                }
+                return@withContext attached
+            }
+            emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /**
+     * Incrementally checks if newly booked or approved appointments exist for today
+     * that are not yet enrolled or tracked in the active queue.
+     */
+    open suspend fun checkNewAppointments(
+        clinicId: String,
+        doctorId: String? = null,
+        date: String,
+        knownApptIds: Set<String>,
+        sinceIso: String? = null
+    ): List<Appointment> = withContext(Dispatchers.IO) {
+        if (clinicId.isBlank() || date.isBlank()) return@withContext emptyList()
+        try {
+            val appts = supabaseClient.postgrest["appointments"]
+                .select {
+                    filter {
+                        eq("clinic_id", clinicId)
+                        eq("appointment_date", date)
+                        eq("status", "APPROVED")
+                        if (!doctorId.isNullOrBlank()) {
+                            eq("doctor_id", doctorId)
+                        }
+                        if (!sinceIso.isNullOrBlank()) {
+                            gte("created_at", sinceIso)
+                        }
+                    }
+                }.decodeList<Appointment>()
+            val newAppts = appts.filter {
+                it.id !in knownApptIds &&
+                it.checkinStatus != "cancelled" &&
+                !it.status.equals("WAITING_FOR_APPROVAL", ignoreCase = true) &&
+                !it.status.equals("pending_payment", ignoreCase = true) &&
+                !it.status.equals("UNAPPROVED", ignoreCase = true) &&
+                !it.status.equals("EXPIRED", ignoreCase = true)
+            }
+            if (newAppts.isNotEmpty()) {
+                val attached = attachQueueStatus(newAppts, clinicId = clinicId, doctorId = doctorId)
+                try {
+                    appointmentDao?.upsertAll(attached.map { AppointmentEntity.fromDomainModel(it, syncStatus = "synced") })
+                } catch (_: Exception) {}
+                attached.forEach { appt ->
+                    val currentList = clinicAppointmentsCache[clinicId] ?: emptyList()
+                    clinicAppointmentsCache[clinicId] = currentList.filter { it.id != appt.id } + appt
+                    appt.doctorId?.takeIf { it.isNotBlank() }?.let { did ->
+                        val dateKey = "${did}_${appt.appointmentDate}"
+                        val currentDocList = doctorAppointmentsCache[dateKey] ?: emptyList()
+                        doctorAppointmentsCache[dateKey] = currentDocList.filter { it.id != appt.id } + appt
+                    }
+                }
+                return@withContext attached
+            }
+            emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
     private suspend fun attachQueueStatus(
         appointments: List<Appointment>,
         clinicId: String? = null,

@@ -87,6 +87,10 @@ import {
   saveLabReport,
   transitionDiagnosticToProcessing,
   isDiagnosticLabClinic,
+  refreshAppointmentsByIds,
+  checkNewAppointments,
+  removeRogueQueueEntry,
+  autoEnrollNewAppointment,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
 import { extractCleanClinicalRemarks } from '../utils/paymentLedger'
@@ -1423,6 +1427,85 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     () => liveQueue.filter((a) => a.checkinStatus === 'waiting').length,
     [liveQueue]
   )
+
+  // Targeted 2.5s sliding window live queue refresh (upcoming 3-4 patients & new appointments)
+  useEffect(() => {
+    if (!currentDoctor || !selectedClinic?.id || deskTab !== 'today_queue') return
+
+    let isPolling = false
+    const interval = setInterval(async () => {
+      if (isPolling) return
+      isPolling = true
+      try {
+        // 1. Sliding window lookahead: Upcoming 3-4 patients in line
+        const upcomingItems = liveQueue.slice(0, 4)
+        const upcomingIds = upcomingItems.map((a) => a.id)
+
+        if (upcomingIds.length > 0) {
+          const refreshed = await refreshAppointmentsByIds(upcomingIds)
+          if (refreshed.length > 0) {
+            const freshMap = new Map(refreshed.map((a) => [a.id, a]))
+            let modified = false
+
+            setAppointments((prev) => {
+              const updated = prev.map((item) => {
+                const fresh = freshMap.get(item.id)
+                if (!fresh) return item
+
+                const isCancelled =
+                  (fresh.status || '').toUpperCase() === 'CANCELLED' ||
+                  (fresh.checkinStatus || '').toLowerCase() === 'cancelled'
+                const isRescheduledDate =
+                  fresh.appointmentDate && fresh.appointmentDate !== selectedQueueDate
+
+                if (isCancelled || isRescheduledDate) {
+                  modified = true
+                  removeRogueQueueEntry(item.id).catch(() => {})
+                  return { ...item, status: 'CANCELLED', checkinStatus: 'cancelled' }
+                }
+
+                if (fresh.appointmentTime && fresh.appointmentTime !== item.appointmentTime) {
+                  modified = true
+                  return { ...item, appointmentTime: fresh.appointmentTime }
+                }
+
+                return { ...item, ...fresh }
+              })
+              return modified ? updated : prev
+            })
+          }
+        }
+
+        // 2. Incrementally check newly booked or approved appointments for today
+        const knownIds = appointments.map((a) => a.id)
+        const newAppts = await checkNewAppointments(
+          selectedClinic.id,
+          currentDoctor.id,
+          selectedQueueDate,
+          knownIds
+        )
+
+        if (newAppts.length > 0) {
+          let maxPos = Math.max(0, ...liveQueue.map((a) => a.queuePosition || 0))
+          for (const newAppt of newAppts) {
+            maxPos++
+            autoEnrollNewAppointment(selectedClinic.id, currentDoctor.id, newAppt.id, maxPos).catch(() => {})
+          }
+          setAppointments((prev) => {
+            const currentIds = new Set(prev.map((a) => a.id))
+            const toAdd = newAppts.filter((a) => !currentIds.has(a.id))
+            return toAdd.length > 0 ? [...prev, ...toAdd] : prev
+          })
+        }
+      } catch (err) {
+        console.warn('Targeted doctor queue refresh error:', err)
+      } finally {
+        isPolling = false
+      }
+    }, 2500)
+
+    return () => clearInterval(interval)
+  }, [currentDoctor?.id, selectedClinic?.id, selectedQueueDate, deskTab, liveQueue, appointments])
 
   const completedTodayCount = useMemo(
     () =>

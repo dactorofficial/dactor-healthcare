@@ -51,6 +51,7 @@ class DoctorQueueViewModel @Inject constructor(
     private var networkMonitorJob: Job? = null
     private val pendingOverrides = ConcurrentHashMap<String, Pair<String, Long>>()
     private var cachedToday: LocalDate = LocalDate.now()
+    private var isSelectiveRefreshing: Boolean = false
 
     init {
         monitorNetworkRestoration()
@@ -606,6 +607,124 @@ class DoctorQueueViewModel @Inject constructor(
                     )
                 } catch (_: Exception) {}
                 loadDoctorQueue(forceRefresh = true)
+            }
+        }
+    }
+
+    /**
+     * Targeted 2-3s live queue refresh: verifies that the upcoming 3-4 patients
+     * are not cancelled or rescheduled, and incrementally checks for new appointments for today.
+     */
+    fun refreshUpcomingPatientsAndCheckNew() {
+        val s = _uiState.value
+        if (s.doctorId.isBlank() || s.clinicId.isBlank() || isSelectiveRefreshing) return
+
+        // 1. Sliding window lookahead: Upcoming 3-4 patients in line
+        val upcomingItems = s.liveQueue.take(4)
+        val upcomingIds = upcomingItems.map { it.appointmentId }
+
+        viewModelScope.launch {
+            isSelectiveRefreshing = true
+            try {
+                // 1a. Authoritatively verify upcoming 3-4 patients
+                if (upcomingIds.isNotEmpty()) {
+                    val refreshedAppts = appointmentRepository.refreshAppointmentsByIds(upcomingIds)
+                    val refreshedMap = refreshedAppts.associateBy { it.id }
+
+                    var queueModified = false
+                    val updatedLive = _uiState.value.liveQueue.mapNotNull { item ->
+                        val fresh = refreshedMap[item.appointmentId] ?: return@mapNotNull item
+
+                        val isCancelled = fresh.status.equals("CANCELLED", ignoreCase = true) ||
+                                fresh.checkinStatus?.lowercase() == "cancelled"
+                        val isRescheduledDate = fresh.appointmentDate.isNotBlank() && fresh.appointmentDate != s.selectedDate
+
+                        if (isCancelled || isRescheduledDate) {
+                            queueModified = true
+                            launch {
+                                queueRepository.removeRogueQueueEntry(item.appointmentId)
+                            }
+                            val reason = if (isCancelled) "cancelled" else "rescheduled to ${fresh.appointmentDate}"
+                            _eventFlow.tryEmit(DoctorQueueEvent.ShowToast("Appointment for ${item.patientName} was $reason"))
+                            return@mapNotNull null
+                        }
+
+                        // Check if time updated
+                        if (fresh.appointmentTime.isNotBlank() && fresh.appointmentTime != item.appointmentTime) {
+                            queueModified = true
+                            item.copy(appointmentTime = fresh.appointmentTime)
+                        } else {
+                            item
+                        }
+                    }
+
+                    if (queueModified) {
+                        val reindexed = updatedLive.mapIndexed { idx, itm -> itm.copy(queuePosition = idx + 1) }
+                        _uiState.update { current ->
+                            current.copy(
+                                liveQueue = reindexed,
+                                insideCount = reindexed.count { it.status == "inside" },
+                                waitingCount = reindexed.count { it.status == "waiting" }
+                            )
+                        }
+                    }
+                }
+
+                // 2. Incrementally discover newly booked or approved appointments for today
+                val allKnownApptIds = (_uiState.value.liveQueue + _uiState.value.completedQueue).map { it.appointmentId }.toSet()
+                val newAppts = appointmentRepository.checkNewAppointments(
+                    clinicId = s.clinicId,
+                    doctorId = s.doctorId,
+                    date = s.selectedDate,
+                    knownApptIds = allKnownApptIds
+                )
+
+                if (newAppts.isNotEmpty()) {
+                    val currentLive = _uiState.value.liveQueue
+                    var nextPos = (currentLive.map { it.queuePosition }.maxOrNull() ?: 0) + 1
+                    val newItems = mutableListOf<QueueItemUi>()
+
+                    for (appt in newAppts) {
+                        queueRepository.autoEnrollNewAppointment(s.clinicId, s.doctorId, appt.id, nextPos)
+                        newItems.add(
+                            QueueItemUi(
+                                id = java.util.UUID.randomUUID().toString(),
+                                appointmentId = appt.id,
+                                patientName = appt.patientName,
+                                patientAge = appt.patientAge ?: 0,
+                                patientGender = appt.patientGender.orEmpty(),
+                                patientMobile = appt.patientMobile.orEmpty(),
+                                trackingCode = appt.trackingCode10Digit.takeIf { it.isNotBlank() } ?: appt.id.take(8),
+                                queuePosition = nextPos++,
+                                status = "waiting",
+                                appointmentDate = appt.appointmentDate,
+                                appointmentTime = appt.appointmentTime,
+                                doctorId = appt.doctorId ?: s.doctorId,
+                                doctorName = s.doctorName,
+                                paymentMode = appt.paymentMode,
+                                paymentStatus = appt.paymentStatus,
+                                totalAmount = if (appt.totalAmount > 0.0) appt.totalAmount else appt.feeAmount,
+                                userId = appt.userId,
+                                isWalkin = appt.isWalkin
+                            )
+                        )
+                    }
+
+                    val merged = (currentLive + newItems)
+                        .sortedWith(compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }.thenBy { it.queuePosition })
+                        .mapIndexed { idx, itm -> itm.copy(queuePosition = idx + 1) }
+
+                    _uiState.update { current ->
+                        current.copy(
+                            liveQueue = merged,
+                            insideCount = merged.count { it.status == "inside" },
+                            waitingCount = merged.count { it.status == "waiting" }
+                        )
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                isSelectiveRefreshing = false
             }
         }
     }

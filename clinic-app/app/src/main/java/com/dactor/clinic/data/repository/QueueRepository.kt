@@ -168,6 +168,83 @@ open class QueueRepository @Inject constructor(
         }
     }
 
+    /**
+     * Authoritatively removes rogue / cancelled / rescheduled queue entries
+     * from both remote Supabase, local Room DAO, and in-memory caches.
+     */
+    open suspend fun removeRogueQueueEntry(appointmentId: String): Boolean = withContext(Dispatchers.IO) {
+        if (appointmentId.isBlank()) return@withContext false
+        try {
+            supabaseClient.postgrest["queue_entries"].delete {
+                filter {
+                    eq("appointment_id", appointmentId)
+                }
+            }
+            try {
+                val cached = queueDao?.getQueueEntryByAppointmentId(appointmentId)
+                if (cached != null) {
+                    queueDao.softDelete(cached.id)
+                }
+            } catch (_: Exception) {}
+
+            clinicQueueCache.forEach { (cid, pair) ->
+                val filtered = pair.second.filter { it.appointmentId != appointmentId }
+                clinicQueueCache[cid] = Pair(pair.first, filtered)
+            }
+            doctorQueueCache.forEach { (did, pair) ->
+                val filtered = pair.second.filter { it.appointmentId != appointmentId }
+                doctorQueueCache[did] = Pair(pair.first, filtered)
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Enrolls newly booked or approved appointments into the active queue with the next queue position.
+     */
+    open suspend fun autoEnrollNewAppointment(
+        clinicId: String,
+        doctorId: String?,
+        appointmentId: String,
+        currentMaxPos: Int = 0
+    ): QueueEntry? = withContext(Dispatchers.IO) {
+        if (clinicId.isBlank() || appointmentId.isBlank()) return@withContext null
+        try {
+            val cleanDocId = doctorId?.takeIf { com.dactor.clinic.domain.util.PatientIdentitySync.isValidUuid(it) }
+            val newEntryDto = QueueEntryInsertDto(
+                id = java.util.UUID.randomUUID().toString(),
+                appointmentId = appointmentId,
+                clinicId = clinicId,
+                doctorId = cleanDocId,
+                queuePosition = currentMaxPos + 1,
+                status = "waiting"
+            )
+            try {
+                supabaseClient.postgrest["queue_entries"].insert(newEntryDto)
+            } catch (_: Exception) {
+                if (cleanDocId != null) {
+                    supabaseClient.postgrest["queue_entries"].insert(newEntryDto.copy(doctorId = null))
+                }
+            }
+            val entry = QueueEntry(
+                id = newEntryDto.id,
+                appointmentId = appointmentId,
+                clinicId = clinicId,
+                doctorId = newEntryDto.doctorId,
+                queuePosition = newEntryDto.queuePosition,
+                status = "waiting"
+            )
+            try {
+                queueDao?.upsert(com.dactor.clinic.data.local.entity.QueueEntryEntity.fromDomainModel(entry, syncStatus = "synced"))
+            } catch (_: Exception) {}
+            entry
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     suspend fun getQueueForClinic(clinicId: String, forceRefresh: Boolean = false): List<QueueEntry> = withContext(Dispatchers.IO) {
         if (clinicId.isBlank()) return@withContext emptyList()
         if (!forceRefresh) {
@@ -1468,34 +1545,8 @@ open class QueueRepository @Inject constructor(
     }
 
     suspend fun getClinicNotifications(clinicId: String): List<DactorNotification> = withContext(Dispatchers.IO) {
-        try {
-            val apptIds = try {
-                supabaseClient.postgrest["appointments"]
-                    .select { filter { eq("clinic_id", clinicId) } }
-                    .decodeList<Appointment>()
-                    .map { it.id }
-            } catch (e: Exception) {
-                emptyList()
-            }
-            val allNotes = try {
-                supabaseClient.postgrest["notifications"]
-                    .select {
-                        order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
-                        limit(50)
-                    }.decodeList<DactorNotification>()
-            } catch (e: Exception) {
-                emptyList()
-            }
-            if (apptIds.isEmpty()) {
-                allNotes.take(30)
-            } else {
-                val apptIdSet = apptIds.toSet()
-                allNotes.filter { it.appointmentId == null || apptIdSet.contains(it.appointmentId) }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            emptyList()
-        }
+        // Query request removed from doctor and clinic portal (restricted to patient app)
+        emptyList()
     }
 
     suspend fun markAsRead(id: String): Boolean = withContext(Dispatchers.IO) {

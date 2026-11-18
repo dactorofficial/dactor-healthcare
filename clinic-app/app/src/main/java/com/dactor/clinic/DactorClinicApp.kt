@@ -27,12 +27,10 @@ class DactorClinicApp : Application() {
             Log.e("DactorClinicApp", "Failed to create notification channel", e)
         }
 
-        // 3. Start background alarm receiver for closed-app notification checks
+        // 3. Ensure any background notification alarm is stopped (queries restricted to patient app)
         try {
-            NotificationAlarmReceiver.startPeriodicAlarm(this)
-        } catch (e: Throwable) {
-            Log.e("DactorClinicApp", "Failed to start background notification alarm", e)
-        }
+            NotificationAlarmReceiver.stopPeriodicAlarm(this)
+        } catch (_: Throwable) {}
 
         // 4. Local Crash Diagnostics Vault
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()

@@ -452,14 +452,24 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     })
   }, [appointment, publicQueueStatus, clinic, isUnlocked])
 
-  // Live auto-refresh every 2 seconds (matching Android QueueStatusScreen.kt)
+  // Live auto-refresh every 10 seconds for ongoing appointment today (matching Android QueueStatusScreen.kt)
   useEffect(() => {
     if (!activeCode) return
+    const isFinished =
+      publicQueueStatus?.status?.toLowerCase() === 'done' ||
+      publicQueueStatus?.status?.toLowerCase() === 'completed' ||
+      publicQueueStatus?.status?.toLowerCase() === 'cancelled' ||
+      appointment?.checkinStatus?.toLowerCase() === 'completed' ||
+      appointment?.checkinStatus?.toLowerCase() === 'cancelled'
+
+    if (isFinished) return
+
     const interval = setInterval(() => {
       fetchQueueData(activeCode, true)
-    }, 2000)
+    }, 10000) // 10-second interval when patient has ongoing appointment on appointment day
+
     return () => clearInterval(interval)
-  }, [activeCode])
+  }, [activeCode, appointment?.checkinStatus, publicQueueStatus?.status])
 
   // Active Supabase Realtime WebSocket subscription for instant alerts & queue changes
   useEffect(() => {

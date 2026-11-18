@@ -4,6 +4,33 @@ This file tracks user prompts and the exact changes applied across the codebase,
 
 ---
 
+## 2026-11-19
+
+### Prompt:
+> "change the following thing in backend notification system remove the query request from doctor and clinic portal let it only be in pateint app , when a patient id is there present in the mobile , it will request queery from the server in two ways , that are when a patient is having any appointment on going , at the day of appointment , the patient would request queery from , the server on every 10 second interval , the query can be realted for estimated time , doctor consultation update and other etc , other wise when no any appointment is scheldueld on that day , just , request a queery at every 2 hours from the server , all these to optimize queery request , /plan"
+
+#### Changes Applied:
+1. **Backend Database Migration ([`supabase/migration_optimize_patient_consultation_query.sql`](file:///C:/Users/notan/Documents/gitversiondactor/supabase/migration_optimize_patient_consultation_query.sql))**:
+   - Implemented `public.get_patient_consultation_query(p_patient_id UUID, p_tracking_code TEXT, p_phone TEXT)` atomic RPC.
+   - Evaluates ongoing appointment presence on the current date (`appointment_date = CURRENT_DATE` and not completed/cancelled).
+   - Dynamically calculates doctor presence, cabin status, patients ahead in line, current token called, estimated wait time, and unread notification alerts.
+   - Automatically determines and returns query interval: `10` seconds when an appointment is active today, and `7200` seconds (2 hours) on idle days.
+2. **Doctor & Clinic Portal Query Elimination**:
+   - **`clinic-app` ([`MainActivity.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/MainActivity.kt), [`DactorClinicApp.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/DactorClinicApp.kt), [`NotificationAlarmReceiver.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/service/NotificationAlarmReceiver.kt), [`QueueRepository.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/QueueRepository.kt), [`NotificationRepository.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/NotificationRepository.kt))**: Removed the 4-second activity polling loop, disabled periodic background wake-up alarms, and converted notification fetchers to return empty lists without issuing server queries.
+   - **`web-app` ([`ClinicPortal.tsx`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/pages/ClinicPortal.tsx), [`db.ts`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/services/db.ts))**: Removed `getClinicNotifications` from initial load and set `db.ts` to return empty lists with zero server queries.
+3. **Patient Mobile Dual-Interval Scheduling & Guard ([`MainActivity.kt`](file:///C:/Users/notan/Documents/gitversiondactor/patient-app/app/src/main/java/com/dactor/patient/MainActivity.kt), [`QueueStatusScreen.kt`](file:///C:/Users/notan/Documents/gitversiondactor/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt), [`NotificationAlarmReceiver.kt`](file:///C:/Users/notan/Documents/gitversiondactor/patient-app/app/src/main/java/com/dactor/patient/service/NotificationAlarmReceiver.kt), [`DactorPatientApp.kt`](file:///C:/Users/notan/Documents/gitversiondactor/patient-app/app/src/main/java/com/dactor/patient/DactorPatientApp.kt), [`NotificationSyncWorker.kt`](file:///C:/Users/notan/Documents/gitversiondactor/patient-app/app/src/main/java/com/dactor/patient/service/NotificationSyncWorker.kt))**:
+   - Enforced patient ID presence guard: halts background periodic queries if patient ID is absent.
+   - Dynamic query intervals: queries every **10 seconds** when an ongoing appointment is scheduled for today (fetching estimated time, doctor consultation status, and alerts), and throttles to **2 hours** when no appointment is scheduled today.
+   - Adjusted `QueueStatusScreen.kt` live polling interval to 10 seconds with automatic termination on completion.
+   - Configured WorkManager periodic background work to 2 hours.
+4. **App-to-Website Logic Synchronization ([`LiveQueue.tsx`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/pages/LiveQueue.tsx), [`db.ts`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/services/db.ts), [`App.tsx`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/App.tsx))**:
+   - Synchronized `LiveQueue.tsx` to 10-second auto-refresh for active appointments on the day of appointment, halting when finished.
+   - Added client-side `getPatientConsultationQuery` helper in `db.ts`.
+5. **Automated Verification Test ([`tests/test_notification_query_optimization.cjs`](file:///C:/Users/notan/Documents/gitversiondactor/tests/test_notification_query_optimization.cjs))**:
+   - 15/15 test assertions passing across all 4 suites.
+
+---
+
 ## 2026-11-18
 
 ### Prompt:

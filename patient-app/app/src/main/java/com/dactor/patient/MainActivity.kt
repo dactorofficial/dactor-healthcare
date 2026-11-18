@@ -6,6 +6,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.lifecycle.lifecycleScope
@@ -157,17 +159,17 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 6. Lightweight Fallback Polling (Every 12s to ensure reliability even if WebSocket disconnects)
+        // 6. Optimized Dual Query Loop (10s on active appointment days, 2h on idle days)
         lifecycleScope.launch(Dispatchers.IO) {
-            // Give cold-start a brief head start before fallback polling begins
             delay(5000L)
             while (isActive) {
-                try {
+                val nextDelayMs: Long = try {
                     checkAndDispatchNotifications(isColdStart = false)
                 } catch (e: Exception) {
                     e.printStackTrace()
+                    10_000L
                 }
-                delay(12000L)
+                delay(nextDelayMs)
             }
         }
 
@@ -190,43 +192,86 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            com.dactor.patient.ui.theme.DactorPatientTheme {
-                androidx.compose.material3.Surface(
-                    modifier = androidx.compose.ui.Modifier
-                        .fillMaxSize()
-                        .navigationBarsPadding(),
-                    color = androidx.compose.material3.MaterialTheme.colorScheme.background
-                ) {
-                    com.dactor.patient.ui.components.NetworkConnectivityGate {
-                        com.dactor.patient.ui.components.AppUpdateEnforcer(appUpdateRepository = appUpdateRepository)
-                        com.dactor.patient.ui.components.NotificationPermissionEnforcer()
-                        DactorNavHost(
-                            navController = navController,
-                            authRepository = authRepository,
-                            clinicRepository = clinicRepository,
-                            doctorRepository = doctorRepository,
-                            appointmentRepository = appointmentRepository,
-                            queueRepository = queueRepository,
-                            slotRepository = slotRepository,
-                            labReportRepository = labReportRepository,
-                            notificationRepository = notificationRepository,
-                            draftManager = draftManager,
-                            sessionManager = sessionManager,
-                            confirmedPaymentTrackingFlow = confirmedPaymentTrackingFlow,
-                            onConsumeConfirmedPayment = { confirmedPaymentTrackingFlow.value = null }
-                        )
+            var currentLanguage by androidx.compose.runtime.remember {
+                androidx.compose.runtime.mutableStateOf(
+                    com.dactor.patient.ui.i18n.AppLanguage.fromCode(sessionManager.getAppLanguage())
+                )
+            }
+            var showFirstLaunchLanguagePrompt by androidx.compose.runtime.remember {
+                androidx.compose.runtime.mutableStateOf(!sessionManager.hasChosenInitialLanguage())
+            }
+
+            val appStrings = if (currentLanguage == com.dactor.patient.ui.i18n.AppLanguage.NEPALI) {
+                com.dactor.patient.ui.i18n.NepaliStrings
+            } else {
+                com.dactor.patient.ui.i18n.EnglishStrings
+            }
+
+            androidx.compose.runtime.CompositionLocalProvider(
+                com.dactor.patient.ui.i18n.LocalAppStrings provides appStrings,
+                com.dactor.patient.ui.i18n.LocalAppLanguage provides currentLanguage,
+                com.dactor.patient.ui.i18n.LocalUpdateAppLanguage provides { newLang ->
+                    sessionManager.setAppLanguage(newLang.code)
+                    currentLanguage = newLang
+                }
+            ) {
+                com.dactor.patient.ui.theme.DactorPatientTheme {
+                    androidx.compose.material3.Surface(
+                        modifier = androidx.compose.ui.Modifier
+                            .fillMaxSize()
+                            .navigationBarsPadding(),
+                        color = androidx.compose.material3.MaterialTheme.colorScheme.background
+                    ) {
+                        com.dactor.patient.ui.components.NetworkConnectivityGate {
+                            com.dactor.patient.ui.components.AppUpdateEnforcer(appUpdateRepository = appUpdateRepository)
+                            com.dactor.patient.ui.components.NotificationPermissionEnforcer()
+                            DactorNavHost(
+                                navController = navController,
+                                authRepository = authRepository,
+                                clinicRepository = clinicRepository,
+                                doctorRepository = doctorRepository,
+                                appointmentRepository = appointmentRepository,
+                                queueRepository = queueRepository,
+                                slotRepository = slotRepository,
+                                labReportRepository = labReportRepository,
+                                notificationRepository = notificationRepository,
+                                draftManager = draftManager,
+                                sessionManager = sessionManager,
+                                confirmedPaymentTrackingFlow = confirmedPaymentTrackingFlow,
+                                onConsumeConfirmedPayment = { confirmedPaymentTrackingFlow.value = null }
+                            )
+
+                            if (showFirstLaunchLanguagePrompt) {
+                                com.dactor.patient.ui.components.LanguageSelectionDialog(
+                                    currentLanguage = currentLanguage,
+                                    isFirstLaunch = true,
+                                    onDismissRequest = { showFirstLaunchLanguagePrompt = false },
+                                    onLanguageSelected = { chosenLang ->
+                                        sessionManager.setAppLanguage(chosenLang.code)
+                                        currentLanguage = chosenLang
+                                        showFirstLaunchLanguagePrompt = false
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    private suspend fun checkAndDispatchNotifications(isColdStart: Boolean = false) {
+    private suspend fun checkAndDispatchNotifications(isColdStart: Boolean = false): Long {
         val userId = authRepository.getCurrentUser() ?: sessionManager.getSavedPatientId()
+        val savedCodes = sessionManager.getSavedTrackingCodes().map { it.first }
+
+        // If no patient ID is present in the mobile and no saved tracking codes, skip query and throttle to 2 hours
+        if (userId.isNullOrBlank() && savedCodes.isEmpty()) {
+            return 2 * 60 * 60 * 1000L // 2 hours
+        }
+
         val email = sessionManager.getSavedEmail()?.takeIf { it.isNotBlank() }
             ?: authRepository.getCurrentUserEmail()?.takeIf { it.isNotBlank() }
         val phone = sessionManager.getSavedPhone()?.takeIf { it.isNotBlank() }
-        val savedCodes = sessionManager.getSavedTrackingCodes().map { it.first }
         val allIds = savedCodes.toMutableSet()
 
         var patientAppointments = emptyList<com.dactor.patient.data.model.Appointment>()
@@ -243,10 +288,26 @@ class MainActivity : ComponentActivity() {
             }
         } catch (_: Exception) {}
 
-        val notifs = notificationRepository.getNotifications(
-            userId = userId,
-            appointmentIds = allIds.toList()
-        )
+        // Check if patient has any appointment ongoing on the day of appointment
+        val todayStr = try {
+            java.time.LocalDate.now().toString()
+        } catch (_: Exception) { "" }
+
+        val hasOngoingAppointmentToday = patientAppointments.any { appt ->
+            val apptDate = appt.appointmentDate.trim().take(10)
+            val isToday = apptDate.isNotBlank() && apptDate == todayStr
+            val isOngoing = appt.checkinStatus.lowercase() !in listOf("completed", "done", "cancelled", "rejected", "noshow", "no_show")
+            isToday && isOngoing
+        }
+
+        val notifs = try {
+            notificationRepository.getNotifications(
+                userId = userId,
+                appointmentIds = allIds.toList()
+            )
+        } catch (_: Exception) {
+            emptyList()
+        }
 
         val fifteenMinutesAgoMs = System.currentTimeMillis() - (15 * 60 * 1000L)
 
@@ -336,6 +397,12 @@ class MainActivity : ComponentActivity() {
 
             // Fix premature "seen" marking bug: mark seen ONLY AFTER successful match and display
             sessionManager.markNotificationSeen(notif.id)
+        }
+
+        return if (hasOngoingAppointmentToday) {
+            10_000L // 10-second interval when patient has ongoing appointment on appointment day
+        } else {
+            2 * 60 * 60 * 1000L // 2-hour interval when no appointment is scheduled on that day
         }
     }
 

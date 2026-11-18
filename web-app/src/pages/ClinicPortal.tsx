@@ -130,7 +130,6 @@ import {
   saveLabReport,
   uploadReportFile,
   getLabReportsByClinic,
-  getClinicNotifications,
   markAllNotificationsAsRead,
   sendBroadcastNotification,
   createClinic,
@@ -157,6 +156,10 @@ import {
   getClinicPatientDirectory,
   buildClinicPatientDirectory,
   refreshPatientChangeableData,
+  refreshAppointmentsByIds,
+  checkNewAppointments,
+  removeRogueQueueEntry,
+  autoEnrollNewAppointment,
   ClinicPatientDirectoryEntry,
   PatientDirectoryConsultation,
   getSupportUrl,
@@ -1437,13 +1440,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         try {
           await autoTransferUncompletedQueueToNoShow(selectedClinic.id, false)
         } catch {}
-        const [docs, appts, srvs, reps, invs, notifs, invites, sysDocs] = await Promise.all([
+        const [docs, appts, srvs, reps, invs, invites, sysDocs] = await Promise.all([
           getDoctorsByClinic(selectedClinic.id),
           getAppointmentsByClinic(selectedClinic.id),
           getClinicServices(selectedClinic.id),
           getLabReportsByClinic(selectedClinic.id),
           getBillingInvoicesByClinic(selectedClinic.id),
-          getClinicNotifications(selectedClinic.id),
           getClinicInvitations(selectedClinic.id),
           getDoctors(),
         ])
@@ -1473,7 +1475,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         setServices(srvs)
         setLabReports(reps)
         setInvoices(invs)
-        setClinicNotifications(notifs)
+        setClinicNotifications([])
         setClinicInvitations(invites)
         setAllSystemDoctors(sysDocs)
         syncClinicToSettings(selectedClinic)
@@ -4375,7 +4377,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         a.status === 'WAITING_FOR_APPROVAL' ||
         a.status === 'pending_payment' ||
         a.status === 'UNAPPROVED' ||
-        a.status === 'EXPIRED'
+        a.status === 'EXPIRED' ||
+        a.checkinStatus === 'cancelled'
       ) {
         return false
       }
@@ -4388,6 +4391,91 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
       return (a.appointmentTime || '').localeCompare(b.appointmentTime || '')
     })
   }, [appointments, selectedQueueDate])
+
+  // Targeted 2.5s sliding window live queue refresh (upcoming 3-4 patients & new appointments)
+  useEffect(() => {
+    if (!selectedClinic?.id || deskTab !== 'queue') return
+
+    let isPolling = false
+    const interval = setInterval(async () => {
+      if (isPolling) return
+      isPolling = true
+      try {
+        // 1. Sliding window lookahead: Active inside + upcoming waiting patients (up to 4)
+        const activeQueue = todayAppointments.filter(
+          (a) =>
+            a.checkinStatus === 'waiting' ||
+            a.checkinStatus === 'in_consultation' ||
+            a.checkinStatus === 'inside'
+        )
+        const upcomingItems = activeQueue.slice(0, 4)
+        const upcomingIds = upcomingItems.map((a) => a.id)
+
+        if (upcomingIds.length > 0) {
+          const refreshed = await refreshAppointmentsByIds(upcomingIds)
+          if (refreshed.length > 0) {
+            const freshMap = new Map(refreshed.map((a) => [a.id, a]))
+            let modified = false
+
+            setAppointments((prev) => {
+              const updated = prev.map((item) => {
+                const fresh = freshMap.get(item.id)
+                if (!fresh) return item
+
+                const isCancelled =
+                  (fresh.status || '').toUpperCase() === 'CANCELLED' ||
+                  (fresh.checkinStatus || '').toLowerCase() === 'cancelled'
+                const isRescheduledDate =
+                  fresh.appointmentDate && fresh.appointmentDate !== selectedQueueDate
+
+                if (isCancelled || isRescheduledDate) {
+                  modified = true
+                  removeRogueQueueEntry(item.id).catch(() => {})
+                  return { ...item, status: 'CANCELLED', checkinStatus: 'cancelled' }
+                }
+
+                if (fresh.appointmentTime && fresh.appointmentTime !== item.appointmentTime) {
+                  modified = true
+                  return { ...item, appointmentTime: fresh.appointmentTime }
+                }
+
+                return { ...item, ...fresh }
+              })
+              return modified ? updated : prev
+            })
+          }
+        }
+
+        // 2. Incrementally check newly booked or approved appointments for today
+        const knownIds = appointments.map((a) => a.id)
+        const newAppts = await checkNewAppointments(
+          selectedClinic.id,
+          selectedDoctor?.id || null,
+          selectedQueueDate,
+          knownIds
+        )
+
+        if (newAppts.length > 0) {
+          let maxPos = Math.max(0, ...todayAppointments.map((a) => a.queuePosition || 0))
+          for (const newAppt of newAppts) {
+            maxPos++
+            autoEnrollNewAppointment(selectedClinic.id, newAppt.doctorId || null, newAppt.id, maxPos).catch(() => {})
+          }
+          setAppointments((prev) => {
+            const currentIds = new Set(prev.map((a) => a.id))
+            const toAdd = newAppts.filter((a) => !currentIds.has(a.id))
+            return toAdd.length > 0 ? [...prev, ...toAdd] : prev
+          })
+        }
+      } catch (err) {
+        console.warn('Targeted clinic queue refresh error:', err)
+      } finally {
+        isPolling = false
+      }
+    }, 2500)
+
+    return () => clearInterval(interval)
+  }, [selectedClinic?.id, deskTab, selectedQueueDate, selectedDoctor?.id, todayAppointments, appointments])
 
   const noShowAppointments = useMemo(
     () =>

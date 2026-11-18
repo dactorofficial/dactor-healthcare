@@ -132,12 +132,17 @@ fun DoctorLiveQueueContent(
         }
     }
 
-    // 1-second ticking timer for elapsed times and midnight rollover
+    // 1-second ticking timer for elapsed times, midnight rollover, and targeted 2s upcoming queue refresh
     LaunchedEffect(Unit) {
+        var tickCount = 0
         while (isActive) {
             delay(1000L)
             currentEpochSecond = System.currentTimeMillis() / 1000L
             viewModel.onTickSecond()
+            tickCount++
+            if (tickCount % 2 == 0) {
+                viewModel.refreshUpcomingPatientsAndCheckNew()
+            }
         }
     }
 

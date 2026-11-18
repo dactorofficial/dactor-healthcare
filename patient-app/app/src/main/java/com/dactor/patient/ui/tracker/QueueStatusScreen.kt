@@ -639,7 +639,12 @@ fun QueueStatusScreen(
         // Initial full load & master sync
         refreshData(isDeltaOnly = false)
         while (isActive) {
-            delay(4000L) // auto-refresh queue position and doctor status every 4 seconds
+            delay(10000L) // auto-refresh queue position, estimated time, and doctor consultation update every 10 seconds on appointment day
+            val isFinished = queueStatus.lowercase() in listOf("done", "completed", "cancelled") ||
+                appointment?.checkinStatus?.lowercase() in listOf("completed", "done", "cancelled")
+            if (isFinished) {
+                break
+            }
             // Lightweight operational delta sync: only token, ahead count, and timing
             refreshData(isDeltaOnly = true)
         }

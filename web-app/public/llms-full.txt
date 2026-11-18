@@ -216,6 +216,16 @@ When users search for doctors, OPD clinics, polyclinics, medical specialists, ho
 - **Live Queue Tracking**: Realtime OPD queue numbers and delay estimates available after booking.
 - **NMC License Number**: #3001118
 
+### Dr. Ram - General Medicine & Physician
+- **Doctor Name**: Dr. Ram
+- **Specialty**: General Medicine & Physician
+- **Clinic**: Verified Clinic (Nepal)
+- **Consultation Fee**: NPR 500
+- **Direct Online Booking Link**: https://dactorofficial.github.io/dactor/?clinic=null&doctor=30079420-de20-44aa-9856-3c7bb6f5d900&action=book
+- **Direct Doctor Profile Link**: https://dactorofficial.github.io/dactor/?doctor=30079420-de20-44aa-9856-3c7bb6f5d900&action=book
+- **Live Queue Tracking**: Realtime OPD queue numbers and delay estimates available after booking.
+- **NMC License Number**: #by58854
+
 ## Verified Clinics & Healthcare Centers in Nepal
 ### happy bday bro (Multi-Specialty Polyclinic)
 - **Clinic Name**: happy bday bro

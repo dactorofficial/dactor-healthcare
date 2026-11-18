@@ -28,18 +28,21 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
         val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "dactor:AlarmSyncWakeLock")
         wakeLock?.acquire(60_000L) // 1 minute max lock
 
-        // Schedule next check in 30 seconds
-        scheduleNextAlarm(context, 30_000L)
-
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val sessionManager = UserSessionManager(context)
-                val client = AppModule.provideSupabaseClient()
                 val userId = sessionManager.getSavedPatientId()
+                val savedCodes = sessionManager.getSavedTrackingCodes().map { it.first.trim() }.filter { it.isNotBlank() }
+
+                // When no patient ID or tracking codes are present in mobile, do not reschedule recurrent alarms
+                if (userId.isNullOrBlank() && savedCodes.isEmpty()) {
+                    return@launch
+                }
+
+                val client = AppModule.provideSupabaseClient()
                 val savedEmail = sessionManager.getSavedEmail()?.trim()?.lowercase()
                 val savedPhone = sessionManager.getSavedPhone()?.filter { it.isDigit() }?.takeLast(10)
-                val savedCodes = sessionManager.getSavedTrackingCodes().map { it.first.trim() }.filter { it.isNotBlank() }
                 val resolvedIds = savedCodes.toMutableSet()
                 val myAppointments = mutableListOf<Appointment>()
 
@@ -86,8 +89,17 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
 
                     val todayStr = LocalDate.now().toString()
                     val todayActiveAppts = myAppointments.filter {
-                        it.appointmentDate.trim().take(10) == todayStr && it.checkinStatus.lowercase() !in listOf("completed", "done", "cancelled")
+                        it.appointmentDate.trim().take(10) == todayStr && it.checkinStatus.lowercase() !in listOf("completed", "done", "cancelled", "rejected", "noshow")
                     }
+
+                    // Dynamically reschedule next background alarm based on active appointment status:
+                    // 10s if ongoing appointment today; 2 hours if no appointment today
+                    val nextIntervalMs = if (todayActiveAppts.isNotEmpty()) {
+                        10_000L // 10-second interval when patient has ongoing appointment on appointment day
+                    } else {
+                        2 * 60 * 60 * 1000L // 2-hour interval when no appointment scheduled on that day
+                    }
+                    scheduleNextAlarm(context, nextIntervalMs)
                     if (todayActiveAppts.isNotEmpty()) {
                         val apptIds = todayActiveAppts.map { it.id }
                         val queueEntries = try {

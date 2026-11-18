@@ -496,9 +496,53 @@ fun QueueBoardScreen(
                 val apptsDeferred = async<List<Appointment>> {
                     try {
                         if (isDeltaOnly) {
-                            appointmentRepository?.getCachedClinicAppointments(effectiveClinicId)?.takeIf { it.isNotEmpty() }
+                            val cached = appointmentRepository?.getCachedClinicAppointments(effectiveClinicId)?.takeIf { it.isNotEmpty() }
                                 ?: appointmentRepository?.getAppointmentsByClinic(effectiveClinicId)
                                 ?: emptyList()
+
+                            // Targeted sliding window refresh: verify only upcoming 3-4 patients
+                            val upcomingActive = queueItems.filter { it.status == "inside" || it.status == "waiting" }.take(4)
+                            val upcomingIds = upcomingActive.map { it.appointmentId }
+                            val refreshed = if (upcomingIds.isNotEmpty()) {
+                                appointmentRepository?.refreshAppointmentsByIds(upcomingIds) ?: emptyList()
+                            } else emptyList()
+
+                            // Check and cleanup if cancelled or rescheduled
+                            refreshed.forEach { appt ->
+                                val isCancelled = appt.status.equals("CANCELLED", ignoreCase = true) ||
+                                        appt.checkinStatus?.lowercase() == "cancelled"
+                                val isRescheduledDate = appt.appointmentDate.isNotBlank() && appt.appointmentDate != selectedQueueDate
+                                if (isCancelled || isRescheduledDate) {
+                                    coroutineScope.launch {
+                                        queueRepository.removeRogueQueueEntry(appt.id)
+                                    }
+                                    val action = if (isCancelled) "cancelled" else "rescheduled to ${appt.appointmentDate}"
+                                    notificationSentMessage = "Notice: Appointment for ${appt.patientName} was $action."
+                                }
+                            }
+
+                            // Incrementally check new appointments for today
+                            val currentKnownIds = (cached.map { it.id } + queueItems.map { it.appointmentId }).toSet()
+                            val newAppts = appointmentRepository?.checkNewAppointments(
+                                clinicId = effectiveClinicId,
+                                doctorId = selectedDoctorFilterId,
+                                date = selectedQueueDate,
+                                knownApptIds = currentKnownIds
+                            ) ?: emptyList()
+
+                            if (newAppts.isNotEmpty()) {
+                                var curMax = queueItems.map { it.queuePosition }.maxOrNull() ?: 0
+                                newAppts.forEach { newAppt ->
+                                    curMax++
+                                    coroutineScope.launch {
+                                        queueRepository.autoEnrollNewAppointment(effectiveClinicId, newAppt.doctorId, newAppt.id, curMax)
+                                    }
+                                }
+                            }
+
+                            val refreshedMap = refreshed.associateBy { it.id }
+                            val mergedCached = cached.map { refreshedMap[it.id] ?: it }
+                            mergedCached + newAppts
                         } else {
                             appointmentRepository?.getAppointmentsByClinic(effectiveClinicId) ?: emptyList()
                         }
@@ -541,7 +585,9 @@ fun QueueBoardScreen(
                         val appt = apptMap[entry.appointmentId]
                         appt != null &&
                             appt.status.equals("APPROVED", ignoreCase = true) &&
-                            appt.checkinStatus != "cancelled"
+                            !appt.status.equals("CANCELLED", ignoreCase = true) &&
+                            appt.checkinStatus != "cancelled" &&
+                            (appt.appointmentDate.isBlank() || appt.appointmentDate == selectedQueueDate)
                     }
                     .map { entry ->
                         val appt = apptMap[entry.appointmentId]

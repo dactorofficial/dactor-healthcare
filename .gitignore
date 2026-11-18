@@ -2,6 +2,9 @@ node_modules/
 **/node_modules/
 __pycache__/
 *.env
+.env
+.env.*
+!.env.example
 .DS_Store
 desktop.ini
 **/desktop.ini

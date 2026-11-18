@@ -51,6 +51,10 @@ class UserSessionManager @Inject constructor(
     fun getSavedClinicId(): String? = prefs.getString("clinic_id", null)
     fun getClinicId(): String = getSavedClinicId().orEmpty()
     fun getSavedDoctorId(): String? = prefs.getString("doctor_id", null)
+    fun getAppLanguage(): String = prefs.getString("app_language", "en") ?: "en"
+    fun setAppLanguage(lang: String) {
+        prefs.edit().putString("app_language", lang).apply()
+    }
     fun saveActiveClinicIdForDoctor(clinicId: String) {
         prefs.edit().putString("doctor_active_clinic_id", clinicId.trim()).apply()
     }

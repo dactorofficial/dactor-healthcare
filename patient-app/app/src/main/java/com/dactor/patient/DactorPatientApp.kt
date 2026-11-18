@@ -30,12 +30,12 @@ class DactorPatientApp : Application() {
                 .build()
 
             val syncWorkRequest = PeriodicWorkRequestBuilder<NotificationSyncWorker>(
-                15, TimeUnit.MINUTES
+                2, TimeUnit.HOURS
             ).setConstraints(constraints).build()
 
             WorkManager.getInstance(this).enqueueUniquePeriodicWork(
                 "DactorNotificationSyncWork",
-                ExistingPeriodicWorkPolicy.KEEP,
+                ExistingPeriodicWorkPolicy.UPDATE,
                 syncWorkRequest
             )
         } catch (e: Exception) {

@@ -88,6 +88,9 @@ fun ProfileScreen(
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
+    val strings = com.dactor.patient.ui.i18n.LocalAppStrings.current
+    val currentLanguage = com.dactor.patient.ui.i18n.LocalAppLanguage.current
+    val updateLanguage = com.dactor.patient.ui.i18n.LocalUpdateAppLanguage.current
 
     var patientId by remember { mutableStateOf<String?>(null) }
     var userEmail by remember { mutableStateOf<String?>(null) }
@@ -132,6 +135,9 @@ fun ProfileScreen(
 
     // Dialog state for Terms and Conditions
     var showTermsDialog by remember { mutableStateOf(false) }
+
+    // Dialog state for Language selection
+    var showLanguageDialog by remember { mutableStateOf(false) }
 
     var showTransactionHistoryDialog by remember { mutableStateOf(false) }
     var transactionHistoryList by remember { mutableStateOf<List<com.dactor.patient.data.model.PatientTransactionRecord>>(emptyList()) }
@@ -1018,8 +1024,71 @@ fun ProfileScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("Settings & Account Preferences", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text(strings.settingsHeader, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             Spacer(Modifier.height(6.dp))
+
+                            // 0. LANGUAGE PREFERENCE (TINY OPTION TO CHANGE LATER)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { showLanguageDialog = true }
+                                    .padding(vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(0xFFEFF6FF),
+                                        border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                Icons.Default.Language,
+                                                contentDescription = null,
+                                                tint = Color(0xFF2563EB),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                    Column {
+                                        Text(strings.appLanguageLabel, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                        Text(
+                                            if (currentLanguage == com.dactor.patient.ui.i18n.AppLanguage.NEPALI) "नेपाली (Nepali)" else "English",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFEFF6FF),
+                                    border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                                    modifier = Modifier.clickable { showLanguageDialog = true }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            strings.changeLanguageBtn,
+                                            fontSize = 11.5.sp,
+                                            color = Color(0xFF1D4ED8),
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Icon(
+                                            Icons.Default.ChevronRight,
+                                            contentDescription = null,
+                                            tint = Color(0xFF1D4ED8),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            HorizontalDivider()
 
                             // 1. EDIT PROFILE DETAILS
                             if (isLoggedIn) {
@@ -1659,6 +1728,19 @@ fun ProfileScreen(
             isLoading = isLoadingTransactions,
             onRefresh = { loadTransactionHistory() },
             onDismiss = { showTransactionHistoryDialog = false }
+        )
+    }
+
+    // LANGUAGE SELECTION DIALOG (CHANGE LATER IN APP)
+    if (showLanguageDialog) {
+        com.dactor.patient.ui.components.LanguageSelectionDialog(
+            currentLanguage = currentLanguage,
+            isFirstLaunch = false,
+            onDismissRequest = { showLanguageDialog = false },
+            onLanguageSelected = { newLang ->
+                updateLanguage(newLang)
+                showLanguageDialog = false
+            }
         )
     }
 }

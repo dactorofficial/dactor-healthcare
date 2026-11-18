@@ -122,48 +122,6 @@ class MainActivity : ComponentActivity() {
             e.printStackTrace()
         }
 
-        // 4. Start background watcher for broadcast and staff alerts while activity is alive
-        lifecycleScope.launch(Dispatchers.IO) {
-            var isFirstPoll = true
-            while (isActive) {
-                try {
-                    val userId = authRepository.getCurrentUser()
-                    val notifs = notificationRepository.getNotifications(userId = userId)
-                    val fifteenMinutesAgoMs = System.currentTimeMillis() - (15 * 60 * 1000L)
-
-                    for (notif in notifs) {
-                        if (seenNotifIds.contains(notif.id)) continue
-
-                        val createdEpochMs = try {
-                            if (!notif.createdAt.isNullOrBlank()) {
-                                java.time.Instant.parse(notif.createdAt).toEpochMilli()
-                            } else 0L
-                        } catch (_: Exception) {
-                            0L
-                        }
-                        val isCreatedRecently = createdEpochMs >= fifteenMinutesAgoMs
-
-                        if (isFirstPoll && !isCreatedRecently) {
-                            seenNotifIds.add(notif.id)
-                            continue
-                        }
-
-                        val notifId = (notif.id.hashCode() and 0x7FFFFFFF) % 100000
-                        NotificationHelper.showSystemNotification(
-                            context = this@MainActivity,
-                            id = notifId,
-                            title = notif.title.ifBlank { "Dactor Clinic Alert" },
-                            message = notif.message
-                        )
-                        seenNotifIds.add(notif.id)
-                    }
-                    isFirstPoll = false
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-                delay(4000L)
-            }
-        }
         setContent {
             com.dactor.clinic.ui.theme.DactorClinicTheme {
                 Surface(

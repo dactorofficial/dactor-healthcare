@@ -16,8 +16,11 @@ import {
   ShieldCheck,
   Headphones,
   Home,
+  Globe,
 } from 'lucide-react'
 import dactorLogo from '../assets/logo.svg'
+import { useLanguage } from '../utils/i18n'
+import { LanguageSelectionModal } from './LanguageSelectionModal'
 
 interface NavbarProps {
   activeTab: string
@@ -45,6 +48,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const { language } = useLanguage()
+  const [langModalOpen, setLangModalOpen] = useState(false)
 
   // Explicit landing page navigation handler that avoids auto-redirection loop
   const navigateToHomeExplicitly = () => {
@@ -223,6 +228,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                   {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
                 </span>
               )}
+            </button>
+
+            {/* Tiny Language Switcher Pill */}
+            <button
+              onClick={() => setLangModalOpen(true)}
+              className="flex items-center space-x-1 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:text-brand-600 bg-white/60 hover:bg-white/90 border border-white/60 rounded-xl shadow-glass-sm transition-all duration-150 cursor-pointer backdrop-blur-md active:scale-95"
+              title="Change Language / भाषा परिवर्तन गर्नुहोस्"
+            >
+              <Globe className="w-3.5 h-3.5 text-blue-600" />
+              <span className="text-[11px] font-extrabold">{language === 'ne' ? 'नेपाली' : 'EN'}</span>
             </button>
 
             {/* ========================================================= */}
@@ -422,6 +437,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                   {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
                 </span>
               )}
+            </button>
+
+            {/* Tiny Language Switcher Pill (Mobile) */}
+            <button
+              onClick={() => setLangModalOpen(true)}
+              className="p-1.5 px-2 flex items-center space-x-1 text-slate-700 hover:text-brand-600 bg-white/60 border border-white/60 rounded-xl shadow-glass-sm transition-colors cursor-pointer backdrop-blur-md text-xs font-bold"
+              title="Language"
+            >
+              <Globe className="w-3.5 h-3.5 text-blue-600" />
+              <span className="text-[10px] font-extrabold">{language === 'ne' ? 'नेपाली' : 'EN'}</span>
             </button>
 
             {isInsidePortal && isLoggedIn && onLogout && (
@@ -643,6 +668,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         )}
       </div>
+
+      <LanguageSelectionModal isOpen={langModalOpen} onClose={() => setLangModalOpen(false)} />
     </header>
   )
 }

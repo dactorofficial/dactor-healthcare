@@ -55,7 +55,10 @@ import {
   MessageSquare,
   QrCode,
   Store,
+  Globe,
 } from 'lucide-react'
+import { useLanguage } from '../utils/i18n'
+import { LanguageSelectionModal } from '../components/LanguageSelectionModal'
 function triggerConfettiBurst() {
   try {
     const canvas = document.createElement('canvas')
@@ -347,6 +350,10 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   // ==========================================
   const [patientUser, setPatientUser] = useState<PatientProfile | null>(null)
   const [isAuthLoading, setIsAuthLoading] = useState(true)
+
+  // Language state & modal
+  const { language, strings } = useLanguage()
+  const [showLanguageModal, setShowLanguageModal] = useState(false)
 
   // Auth Modals & Inputs (Strictly Google Sign-In Only)
   const [showAuthModal, setShowAuthModal] = useState(false)
@@ -6882,6 +6889,31 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       </p>
                     </div>
 
+                    {/* App Language Preference Card (1:1 Parity with Mobile ProfileScreen.kt) */}
+                    <div className="p-4 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/50 flex items-center justify-center text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 shrink-0">
+                          <Globe className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="font-bold text-slate-900 dark:text-white">
+                            {strings.appLanguageLabel}
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {language === 'ne' ? 'नेपाली (Nepali)' : 'English (US)'}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowLanguageModal(true)}
+                        className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300 font-bold text-xs shadow-xs hover:bg-blue-50 dark:hover:bg-slate-700 transition cursor-pointer self-start sm:self-center"
+                      >
+                        <span>{strings.changeLanguageBtn}</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
                     {/* NMC Compliance Box */}
                     <div className="p-4 rounded-2xl bg-blue-500/10 border border-blue-500/20 space-y-1 text-xs text-blue-800 dark:text-blue-200">
                       <div className="flex items-center space-x-2 font-bold">
@@ -8909,6 +8941,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           </div>
         )
       })()}
+
+      <LanguageSelectionModal
+        isOpen={showLanguageModal}
+        onClose={() => setShowLanguageModal(false)}
+      />
     </div>
   )
 }

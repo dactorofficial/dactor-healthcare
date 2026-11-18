@@ -23,8 +23,8 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
         val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "dactor:ClinicAlarmWakeLock")
         wakeLock?.acquire(60_000L) // 1 minute max lock
 
-        // Reschedule next background sync check in 30 seconds
-        scheduleNextAlarm(context, 30_000L)
+        // Background query requests removed from doctor and clinic portal (restricted to patient app)
+        stopPeriodicAlarm(context)
 
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
@@ -102,7 +102,7 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
         const val ACTION_CHECK_ALERTS = "com.dactor.clinic.ACTION_CHECK_ALERTS"
         private const val ALARM_REQUEST_CODE = 20091
 
-        fun scheduleNextAlarm(context: Context, delayMillis: Long = 30_000L) {
+        fun stopPeriodicAlarm(context: Context) {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
             val intent = Intent(context, NotificationAlarmReceiver::class.java).apply {
                 action = ACTION_CHECK_ALERTS
@@ -113,26 +113,19 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            val triggerAtMillis = System.currentTimeMillis() + delayMillis
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
-                        alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-                    } else {
-                        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-                    }
-                } else {
-                    alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-                }
-            } catch (_: Exception) {
-                try {
-                    alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-                } catch (_: Exception) {}
-            }
+                alarmManager.cancel(pendingIntent)
+            } catch (_: Exception) {}
+        }
+
+        fun scheduleNextAlarm(context: Context, delayMillis: Long = 30_000L) {
+            // Disabled: query requests removed from doctor and clinic portal
+            stopPeriodicAlarm(context)
         }
 
         fun startPeriodicAlarm(context: Context) {
-            scheduleNextAlarm(context, 5_000L)
+            // Disabled: query requests removed from doctor and clinic portal
+            stopPeriodicAlarm(context)
         }
     }
 }

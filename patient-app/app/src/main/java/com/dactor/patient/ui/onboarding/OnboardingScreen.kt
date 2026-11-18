@@ -81,80 +81,81 @@ fun OnboardingScreen(
     var isGoogleLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
+    val strings = com.dactor.patient.ui.i18n.LocalAppStrings.current
     val slides = listOf(
         // 0. APPOINTMENTS
         OnboardingSlideData(
-            badgeText = "SMART CLINIC VISITS",
+            badgeText = strings.slide1Badge,
             badgeColor = Color(0xFFE3F2FD),
             badgeTextColor = Color(0xFF1565C0),
             icon = Icons.Default.CalendarMonth,
             iconColor = Color(0xFF1E88E5),
             iconBgColor = Color(0xFFBBDEFB),
-            title = "Instant Clinic Appointments",
-            description = "Skip the long waiting lines. Browse verified specialist doctors and clinics across Nepal, compare fees, and reserve your guaranteed OPD slot in seconds.",
-            pill1Text = "Guaranteed OPD Slot Confirmation",
+            title = strings.slide1Title,
+            description = strings.slide1Desc,
+            pill1Text = strings.slide1Pill1,
             pill1Icon = Icons.Default.CheckCircle,
-            pill2Text = "Verified Clinics & Doctors Across Nepal",
+            pill2Text = strings.slide1Pill2,
             pill2Icon = Icons.Default.Verified
         ),
         // 1. QUEUE TRACKING
         OnboardingSlideData(
-            badgeText = "LIVE TOKEN MONITOR",
+            badgeText = strings.slide2Badge,
             badgeColor = Color(0xFFE0F2FE),
             badgeTextColor = Color(0xFF0369A1),
             icon = Icons.Default.HourglassTop,
             iconColor = Color(0xFF0284C7),
             iconBgColor = Color(0xFFBAE6FD),
-            title = "Real-Time Queue Tracking",
-            description = "Track your token number live from home or on the road. Know the exact number of patients ahead of you so you only reach the clinic when it's your turn.",
-            pill1Text = "Live Token Count & Minutes Remaining",
+            title = strings.slide2Title,
+            description = strings.slide2Desc,
+            pill1Text = strings.slide2Pill1,
             pill1Icon = Icons.Default.Timer,
-            pill2Text = "Never Wait in Crowded Lobbies",
+            pill2Text = strings.slide2Pill2,
             pill2Icon = Icons.Default.DirectionsWalk
         ),
         // 2. DIRECT NOTIFICATION
         OnboardingSlideData(
-            badgeText = "INSTANT ALERTS & SOUNDS",
+            badgeText = strings.slide3Badge,
             badgeColor = Color(0xFFFEF3C7),
             badgeTextColor = Color(0xFFB45309),
             icon = Icons.Default.NotificationsActive,
             iconColor = Color(0xFFD97706),
             iconBgColor = Color(0xFFFDE68A),
-            title = "Direct Notification & Alerts",
-            description = "Never miss your turn! Get instant audible sound alerts and popup notifications when your token is called into the doctor's cabin or when lab reports are ready.",
-            pill1Text = "Loud Ringtone for Token Callouts",
+            title = strings.slide3Title,
+            description = strings.slide3Desc,
+            pill1Text = strings.slide3Pill1,
             pill1Icon = Icons.Default.VolumeUp,
-            pill2Text = "Instant Doctor & Lab Status Updates",
+            pill2Text = strings.slide3Pill2,
             pill2Icon = Icons.Default.Bolt
         ),
         // 3. DOCTOR PRESENCE
         OnboardingSlideData(
-            badgeText = "LIVE CLINIC PRESENCE",
+            badgeText = strings.slide4Badge,
             badgeColor = Color(0xFFDCFCE7),
             badgeTextColor = Color(0xFF15803D),
             icon = Icons.Default.MedicalServices,
             iconColor = Color(0xFF16A34A),
             iconBgColor = Color(0xFFBBF7D0),
-            title = "Live Doctor Availability",
-            description = "Know before you leave home! See if your doctor has physically checked into the clinic, their active consulting hours, and real-time OPD schedule updates.",
-            pill1Text = "Doctor In-Clinic Real-Time Status",
+            title = strings.slide4Title,
+            description = strings.slide4Desc,
+            pill1Text = strings.slide4Pill1,
             pill1Icon = Icons.Default.CheckCircle,
-            pill2Text = "Active OPD Schedule & Break Timers",
+            pill2Text = strings.slide4Pill2,
             pill2Icon = Icons.Default.AccessTime
         ),
         // 4. GET STARTED (handled separately for Sign-In / Guest)
         OnboardingSlideData(
-            badgeText = "WELCOME TO DACTOR",
+            badgeText = strings.slide5Badge,
             badgeColor = Color(0xFFE3F2FD),
             badgeTextColor = Color(0xFF1565C0),
             icon = Icons.Default.HealthAndSafety,
             iconColor = Color(0xFF1E88E5),
             iconBgColor = Color(0xFFBBDEFB),
-            title = "Healthcare at Your Fingertips",
-            description = "Search clinics, explore doctors, track live queues with code, and receive real-time notifications. Sign in with Google anytime to book slots.",
-            pill1Text = "Search Clinics & Doctors Freely",
+            title = strings.slide5Title,
+            description = strings.slide5Desc,
+            pill1Text = strings.slide1Pill1,
             pill1Icon = Icons.Default.Search,
-            pill2Text = "Track Live Queues with 10-Digit Code",
+            pill2Text = strings.slide2Pill1,
             pill2Icon = Icons.Default.QrCode2
         )
     )
@@ -544,7 +545,7 @@ fun OnboardingScreen(
                             color = Color(0xFFE3F2FD)
                         ) {
                             Text(
-                                text = "GET STARTED",
+                                text = strings.slide5Badge,
                                 color = Color(0xFF1565C0),
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 11.sp,
@@ -556,7 +557,7 @@ fun OnboardingScreen(
                         Spacer(modifier = Modifier.height(14.dp))
 
                         Text(
-                            text = "Welcome to Dactor Nepal",
+                            text = strings.slide5Title,
                             fontSize = 24.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = Color(0xFF0D3B66),
@@ -566,7 +567,7 @@ fun OnboardingScreen(
                         Spacer(modifier = Modifier.height(8.dp))
 
                         Text(
-                            text = "Connect with top verified medical clinics and specialist doctors. Track live queues and receive instant health alerts.",
+                            text = strings.slide5Desc,
                             fontSize = 13.5.sp,
                             color = Color(0xFF475569),
                             textAlign = TextAlign.Center,
@@ -608,7 +609,7 @@ fun OnboardingScreen(
                                     } else {
                                         Icon(Icons.Default.AccountCircle, contentDescription = "Google", modifier = Modifier.size(22.dp))
                                         Spacer(Modifier.width(10.dp))
-                                        Text("Sign in with Google", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                        Text(strings.signInWithGoogle, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                                     }
                                 }
 
@@ -622,7 +623,7 @@ fun OnboardingScreen(
                                     border = BorderStroke(1.5.dp, Color(0xFF1E88E5))
                                 ) {
                                     Text(
-                                        "Continue as Guest",
+                                        strings.continueAsGuest,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp,
                                         color = Color(0xFF1E88E5)
@@ -638,7 +639,7 @@ fun OnboardingScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
-                                        text = "In Guest Mode, you can search clinics, explore doctors, track live queues with code, and receive real-time notifications. Sign-in is only required to book an appointment.",
+                                        text = strings.guestModeDesc,
                                         fontSize = 11.sp,
                                         color = Color(0xFF0D3B66),
                                         textAlign = TextAlign.Center,
@@ -709,7 +710,7 @@ fun OnboardingScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
                             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
                         ) {
-                            Text("Next", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(strings.nextBtn, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             Spacer(Modifier.width(6.dp))
                             Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
                         }

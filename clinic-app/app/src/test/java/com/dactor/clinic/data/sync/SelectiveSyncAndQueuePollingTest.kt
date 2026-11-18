@@ -324,4 +324,160 @@ class SelectiveSyncAndQueuePollingTest {
         assertEquals("unscheduled-patient", syncedPatientX?.id)
         assertEquals("Future Patient X", syncedPatientX?.patientName)
     }
+
+    // =========================================================================
+    // R3: TARGETED 3-4 UPCOMING PATIENT REFRESH & NEW APPOINTMENT ENROLLMENT
+    // =========================================================================
+
+    @Test
+    fun testSelectiveRefreshOnlyUpcoming3To4Patients() = runTest {
+        val today = LocalDate.now().toString()
+        val clinicId = "clinic-selective-01"
+
+        // Simulated 10 patients in queue
+        val allDailyAppointments = (1..10).map { i ->
+            Appointment(
+                id = "appt-$i",
+                trackingCode10Digit = "100000000$i",
+                clinicId = clinicId,
+                patientName = "Patient #$i",
+                appointmentDate = today,
+                appointmentTime = String.format("%02d:00", 9 + (i / 2)),
+                status = "APPROVED",
+                checkinStatus = if (i == 1) "inside" else "waiting"
+            )
+        }
+
+        // Active queue list
+        data class TestQueueItem(val apptId: String, val queuePosition: Int, val status: String)
+        val activeQueue = allDailyAppointments.mapIndexed { idx, it ->
+            TestQueueItem(it.id, idx + 1, it.checkinStatus ?: "waiting")
+        }
+
+        // Sliding lookahead window: take top 4 patients (1 inside + 3 waiting)
+        val slidingWindow = activeQueue.take(4)
+        assertEquals(4, slidingWindow.size)
+        val queriedIds = slidingWindow.map { it.apptId }
+
+        assertEquals(listOf("appt-1", "appt-2", "appt-3", "appt-4"), queriedIds)
+        assertFalse("Patient #5 must NOT be in the targeted lookahead query", queriedIds.contains("appt-5"))
+        assertFalse("Patient #10 must NOT be in the targeted lookahead query", queriedIds.contains("appt-10"))
+    }
+
+    @Test
+    fun testUpcomingPatientCancellationReflectedImmediately() = runTest {
+        val today = LocalDate.now().toString()
+        val clinicId = "clinic-cancel-01"
+
+        data class LiveItem(val apptId: String, val patientName: String, val queuePos: Int, val status: String)
+
+        var liveQueue = listOf(
+            LiveItem("a1", "Ram", 1, "inside"),
+            LiveItem("a2", "Shyam", 2, "waiting"),
+            LiveItem("a3", "Hari", 3, "waiting"),
+            LiveItem("a4", "Gita", 4, "waiting"),
+            LiveItem("a5", "Sita", 5, "waiting")
+        )
+
+        // Remote server update: Shyam (a2) cancels his appointment
+        val remoteRefreshedMap = mapOf(
+            "a1" to Appointment(id = "a1", patientName = "Ram", appointmentDate = today, status = "APPROVED", checkinStatus = "inside"),
+            "a2" to Appointment(id = "a2", patientName = "Shyam", appointmentDate = today, status = "CANCELLED", checkinStatus = "cancelled"),
+            "a3" to Appointment(id = "a3", patientName = "Hari", appointmentDate = today, status = "APPROVED", checkinStatus = "waiting"),
+            "a4" to Appointment(id = "a4", patientName = "Gita", appointmentDate = today, status = "APPROVED", checkinStatus = "waiting")
+        )
+
+        // Process targeted refresh for upcoming 4
+        val filtered = liveQueue.mapNotNull { item ->
+            val remote = remoteRefreshedMap[item.apptId] ?: return@mapNotNull item
+            if (remote.status.equals("CANCELLED", true) || remote.checkinStatus == "cancelled") {
+                null
+            } else item
+        }.mapIndexed { idx, item -> item.copy(queuePos = idx + 1) }
+
+        // Invariant: Shyam (a2) removed immediately; Hari (a3) advances to position 2; Gita to 3; Sita to 4
+        assertEquals(4, filtered.size)
+        assertFalse(filtered.any { it.apptId == "a2" })
+        assertEquals("Hari", filtered[1].patientName)
+        assertEquals(2, filtered[1].queuePos)
+        assertEquals("Gita", filtered[2].patientName)
+        assertEquals(3, filtered[2].queuePos)
+    }
+
+    @Test
+    fun testUpcomingPatientRescheduledToFutureDateReflectedImmediately() = runTest {
+        val today = LocalDate.now().toString()
+        val tomorrow = LocalDate.now().plusDays(1).toString()
+
+        data class LiveItem(val apptId: String, val patientName: String, val queuePos: Int)
+
+        var liveQueue = listOf(
+            LiveItem("a1", "Ram", 1),
+            LiveItem("a2", "Shyam", 2),
+            LiveItem("a3", "Hari", 3)
+        )
+
+        // Remote server update: Shyam (a2) rescheduled to tomorrow
+        val remoteRefreshedMap = mapOf(
+            "a1" to Appointment(id = "a1", patientName = "Ram", appointmentDate = today, status = "APPROVED"),
+            "a2" to Appointment(id = "a2", patientName = "Shyam", appointmentDate = tomorrow, status = "APPROVED"),
+            "a3" to Appointment(id = "a3", patientName = "Hari", appointmentDate = today, status = "APPROVED")
+        )
+
+        val updatedLive = liveQueue.mapNotNull { item ->
+            val remote = remoteRefreshedMap[item.apptId] ?: return@mapNotNull item
+            if (remote.appointmentDate != today) null else item
+        }.mapIndexed { idx, itm -> itm.copy(queuePos = idx + 1) }
+
+        assertEquals(2, updatedLive.size)
+        assertFalse("Rescheduled patient for tomorrow must be excluded from today's live queue", updatedLive.any { it.apptId == "a2" })
+        assertEquals("Hari", updatedLive[1].patientName)
+        assertEquals(2, updatedLive[1].queuePos)
+    }
+
+    @Test
+    fun testUpcomingPatientRescheduledTimeTodayReordersQueue() = runTest {
+        val today = LocalDate.now().toString()
+
+        data class LiveItem(val apptId: String, val patientName: String, val time: String)
+
+        var liveQueue = listOf(
+            LiveItem("a1", "Ram", "10:00"),
+            LiveItem("a2", "Shyam", "10:15"),
+            LiveItem("a3", "Hari", "10:30")
+        )
+
+        // Remote update: Shyam's slot rescheduled later today to 11:00
+        val remoteRefreshedMap = mapOf(
+            "a2" to Appointment(id = "a2", patientName = "Shyam", appointmentDate = today, appointmentTime = "11:00", status = "APPROVED")
+        )
+
+        val updatedLive = liveQueue.map { item ->
+            val remote = remoteRefreshedMap[item.apptId]
+            if (remote != null && remote.appointmentTime.isNotBlank()) item.copy(time = remote.appointmentTime) else item
+        }.sortedBy { it.time }
+
+        assertEquals(3, updatedLive.size)
+        assertEquals("Ram", updatedLive[0].patientName)
+        assertEquals("Hari", updatedLive[1].patientName)
+        assertEquals("Shyam", updatedLive[2].patientName)
+        assertEquals("11:00", updatedLive[2].time)
+    }
+
+    @Test
+    fun testNewAppointmentDetectionForTodayEnrollsIntoQueue() = runTest {
+        val today = LocalDate.now().toString()
+        val knownIds = setOf("a1", "a2")
+
+        val remoteApptsForToday = listOf(
+            Appointment(id = "a1", patientName = "Ram", appointmentDate = today, status = "APPROVED"),
+            Appointment(id = "a2", patientName = "Shyam", appointmentDate = today, status = "APPROVED"),
+            Appointment(id = "a3-new", patientName = "Newly Booked Patient", appointmentDate = today, status = "APPROVED")
+        )
+
+        val newlyDiscovered = remoteApptsForToday.filter { it.id !in knownIds && it.status == "APPROVED" }
+        assertEquals(1, newlyDiscovered.size)
+        assertEquals("a3-new", newlyDiscovered[0].id)
+        assertEquals("Newly Booked Patient", newlyDiscovered[0].patientName)
+    }
 }

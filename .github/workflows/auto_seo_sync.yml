@@ -36,6 +36,10 @@ jobs:
           node-version: 20
 
       - name: Run Dynamic SEO & Prerendering Generator
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://ojfoofojcpabqegxmsab.supabase.co' }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
         run: |
           node web-app/scripts/generate-seo.js
 

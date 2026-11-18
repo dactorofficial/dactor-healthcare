@@ -10,11 +10,42 @@ import { fileURLToPath } from 'url'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-const SUPABASE_URL = 'https://ojfoofojcpabqegxmsab.supabase.co'
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9qZm9vZm9qY3BhYnFlZ3htc2FiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNTM1MTgsImV4cCI6MjEwNTkyOTUxOH0.pH1yOGykaaQTzlQxeCvcQ78HQwxhTSi4yA8JmvT-Y9Y'
-const BASE_URL = 'https://dactorofficial.github.io/dactor'
-const ROOT_URL = 'https://dactorofficial.github.io'
-const INDEXNOW_KEY = 'dactor2026indexnow8b1223ce'
+// Helper to load .env into process.env without external dependencies
+function loadEnvFile(envPath) {
+  try {
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, 'utf8')
+      const lines = content.split('\n')
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith('#')) continue
+        const match = trimmed.match(/^([\w.-]+)\s*=\s*(.*)?$/)
+        if (match) {
+          const key = match[1]
+          let val = (match[2] || '').trim()
+          if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+            val = val.slice(1, -1)
+          }
+          if (!process.env[key]) {
+            process.env[key] = val
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`[SEO] Notice loading env file (${envPath}):`, err.message)
+  }
+}
+
+// Load local environment files if present
+loadEnvFile(path.resolve(__dirname, '../.env'))
+loadEnvFile(path.resolve(__dirname, '../../.env'))
+
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || 'https://ojfoofojcpabqegxmsab.supabase.co'
+const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
+const BASE_URL = process.env.BASE_URL || 'https://dactorofficial.github.io/dactor'
+const ROOT_URL = process.env.ROOT_URL || 'https://dactorofficial.github.io'
+const INDEXNOW_KEY = process.env.INDEXNOW_KEY || 'dactor2026indexnow8b1223ce'
 
 async function fetchSupabase(table, query = '') {
   const url = `${SUPABASE_URL}/rest/v1/${table}?${query}`
