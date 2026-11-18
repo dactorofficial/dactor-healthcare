@@ -1418,6 +1418,60 @@ export async function transitionQueueEntryStatus(
   return data as TransitionQueueEntryStatusResult
 }
 
+export interface DoctorQueueTransitionResult {
+  success: boolean
+  conflict?: boolean
+  error?: string
+  message?: string
+  currentStatus?: string
+}
+
+export async function transitionDoctorQueueStatus(
+  appointmentId: string,
+  expectedStatus: string,
+  newStatus: string,
+  doctorId: string,
+  queueEntryId?: string | null
+): Promise<DoctorQueueTransitionResult> {
+  let targetEntryId = queueEntryId
+  if (!targetEntryId) {
+    const { data: qe } = await supabase
+      .from('queue_entries')
+      .select('id, status')
+      .eq('appointment_id', appointmentId)
+      .maybeSingle()
+    if (qe?.id) {
+      targetEntryId = qe.id
+    }
+  }
+
+  if (targetEntryId) {
+    const rpcRes = await transitionQueueEntryStatus(
+      targetEntryId,
+      expectedStatus,
+      newStatus,
+      'doctor',
+      doctorId
+    )
+    if (rpcRes.success === false) {
+      const isConflict =
+        rpcRes.error === 'CONFLICT' ||
+        String(rpcRes.message || '').toLowerCase().includes('just updated')
+      return {
+        success: false,
+        conflict: isConflict,
+        error: rpcRes.error,
+        message: isConflict ? 'This entry was just updated' : (rpcRes.message || 'Status transition failed'),
+        currentStatus: rpcRes.current_status || undefined,
+      }
+    }
+  }
+
+  // Synchronize appointment checkin_status
+  await updateAppointmentStatus(appointmentId, newStatus)
+  return { success: true }
+}
+
 /**
  * Atomically transitions a diagnostic appointment into `processing` via the
  * authoritative `transition_diagnostic_to_processing` RPC when deployed, falling
@@ -3728,18 +3782,30 @@ export async function sendManualNotification(
   type = 'queue_alert'
 ): Promise<boolean> {
   try {
-    const isArriveSoon = type === 'arrive_soon' ||
-      title.toLowerCase().includes('arrive soon') ||
-      message.toLowerCase().includes('arrive soon')
+    const isCallInside =
+      type === 'call_inside' ||
+      type === 'turn_call' ||
+      title.toLowerCase().includes('calling you inside') ||
+      title.toLowerCase().includes('call in')
+
+    const isArriveSoon =
+      !isCallInside &&
+      (type === 'arrive_soon' ||
+        title.toLowerCase().includes('arrive soon') ||
+        message.toLowerCase().includes('arrive soon'))
+
+    const resolvedType = isCallInside ? 'turn_call' : isArriveSoon ? 'arrive_soon' : type
 
     const cleanBody = message.replace(/\[\[META:.*?\]\]/g, '').trim()
-    const pos = (estimatedTimeLeft || (isArriveSoon ? 'Arrive Soon' : '')).replace(/[|\]]/g, '').trim()
+    const pos = (estimatedTimeLeft || (isArriveSoon ? 'Arrive Soon' : (isCallInside ? 'Inside Now' : ''))).replace(/[|\]]/g, '').trim()
     const expected = (expectedTime || '').replace(/[|\]]/g, '').trim()
     const code = (trackingCode || '').replace(/[|\]]/g, '').trim()
 
     let taggedMessage = cleanBody
     if (message.includes('[[META:')) {
       taggedMessage = message
+    } else if (isCallInside) {
+      taggedMessage = `${cleanBody}\n[[META:trackingCode=${code}|pos=1|expected=Inside Now|code=${code}|leftLabel=Turn Status|leftVal=Inside Now|rightLabel=Queue Position|rightVal=Position #1|statusBadge=CALL INSIDE]]`
     } else if (code || pos || expected || isArriveSoon) {
       const leftLabel = isArriveSoon ? 'Turn Status' : 'Est. Time'
       const leftVal = isArriveSoon ? 'Arrive Soon' : (pos || 'Soon')
@@ -3754,7 +3820,7 @@ export async function sendManualNotification(
       user_id: userId && userId.length === 36 ? userId : null,
       title: title.trim(),
       message: taggedMessage,
-      type: isArriveSoon ? 'arrive_soon' : type,
+      type: resolvedType,
       target_audience: 'specific',
       is_read: false,
       created_at: new Date().toISOString(),
@@ -3769,7 +3835,7 @@ export async function sendManualNotification(
             appointmentId: appointmentId || undefined,
             trackingCode: code || undefined,
             userId: userId || undefined,
-            type: isArriveSoon ? 'arrive_soon' : type,
+            type: resolvedType,
           },
         }).catch(() => {})
       } catch {}
@@ -3779,6 +3845,57 @@ export async function sendManualNotification(
   } catch {
     return false
   }
+}
+
+export async function notifyCallInside(
+  appointmentId: string,
+  patientName: string,
+  doctorName: string,
+  trackingCode?: string,
+  roomNumber?: string,
+  userId?: string,
+  clinicId?: string
+): Promise<boolean> {
+  const roomText = roomNumber ? `room ${roomNumber}` : 'the consultation room'
+  const title = '🔔 Doctor is Calling You Inside!'
+  const cleanMsg = `Dear ${patientName}, Dr. ${doctorName} is ready for your consultation. Please proceed to ${roomText} now.`
+  return sendManualNotification(
+    appointmentId,
+    title,
+    cleanMsg,
+    'Inside Now',
+    undefined,
+    trackingCode,
+    userId,
+    clinicId,
+    'call_inside'
+  )
+}
+
+export async function notifyArriveSoon(
+  appointmentId: string,
+  patientName: string,
+  doctorName?: string,
+  trackingCode?: string,
+  queuePosition: number = 1,
+  estTimeText: string = '~ 10-15 mins',
+  userId?: string,
+  clinicId?: string
+): Promise<boolean> {
+  const title = `🔔 Arrive Soon • Turn Approaching (#${queuePosition})`
+  const docText = doctorName ? `Dr. ${doctorName}'s cabin` : 'the clinic'
+  const cleanMsg = `Hi ${patientName}, your turn is approaching! Please arrive towards ${docText} soon.`
+  return sendManualNotification(
+    appointmentId,
+    title,
+    cleanMsg,
+    'Arrive Soon',
+    estTimeText,
+    trackingCode,
+    userId,
+    clinicId,
+    'arrive_soon'
+  )
 }
 
 
@@ -4346,6 +4463,7 @@ function mapAppointment(a: any): Appointment {
     clinicId: a.clinic_id,
     doctorId: a.doctor_id,
     slotId: a.slot_id || null,
+    queueEntryId: qe?.id || null,
     patientName: a.patient_name,
     patientAge: a.patient_age,
     patientGender: a.patient_gender,

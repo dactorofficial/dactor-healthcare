@@ -160,6 +160,7 @@ export interface Appointment {
   clinicId: string
   doctorId?: string | null
   slotId?: string | null
+  queueEntryId?: string | null
   patientName: string
   patientAge?: number | null
   patientGender?: string | null
