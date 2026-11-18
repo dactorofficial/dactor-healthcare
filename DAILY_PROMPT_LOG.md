@@ -31,6 +31,47 @@ This file tracks user prompts and the exact changes applied across the codebase,
 
 ---
 
+### Prompt:
+> "add language preference setting dialog to ClinicSettingsScreen"
+
+#### Changes Applied:
+1. **Clinic App Language Settings Dialog ([`ClinicSettingsScreen.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/ui/settings/ClinicSettingsScreen.kt))**:
+   - Added Language preference row with globe icon displaying current selected language.
+   - Built interactive `LanguageSelectionDialog` supporting English, Nepali, Hindi, Maithili, and Bhojpuri.
+   - Fixed missing `clickable` import to ensure modal selection rows trigger language updates cleanly.
+
+---
+
+### Prompt:
+> "/plan in live queue of doctor and clinic , side , only refresh the data for upcomind 3-4 patients , only to check and ensure that the apponitment is cancel or rescheduled and to check new appointments as well"
+
+#### Changes Applied:
+1. **Sliding Window Lookahead & Refresh Repository Layer**:
+   - **`clinic-app` ([`AppointmentRepository.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt), [`QueueRepository.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/QueueRepository.kt))**:
+     - Added `refreshAppointmentsByIds(ids: List<String>)` to batch-fetch up to 10 upcoming appointments by ID, update Room cache, and return fresh state.
+     - Added `checkNewAppointments(clinicId, doctorId, date, knownApptIds, sinceIso)` to query newly approved/booked appointments today without full scans.
+     - Added `removeRogueQueueEntry(appointmentId)` to purge cancelled or rescheduled appointments from remote and local queue storage.
+     - Added `autoEnrollNewAppointment(...)` to enroll new appointments at the end of the queue.
+2. **Doctor Cabin & Clinic Queue Board Integration**:
+   - **`clinic-app` ([`DoctorQueueViewModel.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/DoctorQueueViewModel.kt), [`DoctorQueueScreen.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/DoctorQueueScreen.kt))**:
+     - Implemented `refreshUpcomingPatientsAndCheckNew()` guarded by `isSelectiveRefreshing`.
+     - Targeted window: active patient (`inside`) + first 3 `waiting` patients.
+     - Automatically purges cancelled appointments and non-today rescheduled appointments, reorders if consultation time changed today, and discovers new appointments.
+     - Triggered on a 2-second periodic tick inside active queue loop.
+   - **`clinic-app` ([`QueueBoardScreen.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/QueueBoardScreen.kt))**:
+     - Upgraded `loadQueue(isDeltaOnly = true)` to target upcoming 3–4 patients in reception board, cleanly removing cancelled/rescheduled entries.
+3. **App-to-Website Logic Synchronization (1:1 Parity)**:
+   - **`web-app` ([`db.ts`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/services/db.ts), [`DoctorPortal.tsx`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/pages/DoctorPortal.tsx), [`ClinicPortal.tsx`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/pages/ClinicPortal.tsx))**:
+     - Added matching `refreshAppointmentsByIds`, `checkNewAppointments`, `removeRogueQueueEntry`, and `autoEnrollNewAppointment` in `db.ts`.
+     - Integrated 2.5s targeted polling intervals in Doctor Portal (`deskTab === 'today_queue'`) and Clinic Portal (`deskTab === 'queue'`).
+4. **Automated Unit Verification**:
+   - **`clinic-app` ([`SelectiveSyncAndQueuePollingTest.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/test/java/com/dactor/clinic/data/sync/SelectiveSyncAndQueuePollingTest.kt))**:
+     - Added 5 unit tests validating 3–4 patient window limits, immediate cancellation eviction, rescheduling date eviction, rescheduling time reordering, and new appointment auto-enrollment.
+     - All 12 unit tests passed (`BUILD SUCCESSFUL in 14m 12s`).
+   - **`web-app`**: `npm run build` completed cleanly in 22.58s with zero errors.
+
+---
+
 ## 2026-11-18
 
 ### Prompt:
