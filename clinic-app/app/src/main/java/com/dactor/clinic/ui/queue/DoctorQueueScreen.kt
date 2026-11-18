@@ -105,6 +105,7 @@ fun DoctorLiveQueueContent(
     val lifecycleOwner = LocalLifecycleOwner.current
     var expandedItemId by remember { mutableStateOf<String?>(null) }
     var currentEpochSecond by remember { mutableLongStateOf(System.currentTimeMillis() / 1000L) }
+    var pendingAlertConfirmation by remember { mutableStateOf<Pair<QueueItemUi, String>?>(null) }
 
     // Initialize ViewModel when doctorId or clinicId changes
     LaunchedEffect(doctorId, clinicId) {
@@ -280,8 +281,17 @@ fun DoctorLiveQueueContent(
                                     viewModel.reorderQueue(reordered)
                                 }
                             },
+                            cooldownUntilEpoch = uiState.alertCooldownUntilEpoch[item.id],
+                            isSendingAlert = uiState.inFlightAlerts.contains(item.id),
+                            alertSentBadge = uiState.alertSentBadges[item.id],
+                            onWalkInAlertClick = { targetItem ->
+                                pendingAlertConfirmation = targetItem to "arrive_soon"
+                            },
+                            onCallInAlertClick = { targetItem ->
+                                pendingAlertConfirmation = targetItem to "call_inside"
+                            },
                             onSendAlertClick = { targetItem ->
-                                viewModel.sendPatientNotification(targetItem, alertType = "arrive_soon")
+                                pendingAlertConfirmation = targetItem to "arrive_soon"
                             }
                         )
                     }
@@ -312,6 +322,47 @@ fun DoctorLiveQueueContent(
                     }
                 }
             }
+        }
+
+        // Confirmation Dialog for Patient Notifications (Walk In / Call In)
+        pendingAlertConfirmation?.let { (targetItem, alertType) ->
+            val alertLabel = if (alertType.lowercase().contains("call")) "Call In (Call Inside)" else "Walk In (Arrive Soon)"
+            AlertDialog(
+                onDismissRequest = { pendingAlertConfirmation = null },
+                title = {
+                    Text(
+                        text = "Confirm Notification",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Send $alertLabel alert to ${targetItem.patientName}?",
+                        fontSize = 14.sp
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val alertToDispatch = alertType
+                            val itemToDispatch = targetItem
+                            pendingAlertConfirmation = null
+                            viewModel.sendPatientNotification(itemToDispatch, alertToDispatch)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7))
+                    ) {
+                        Text("Confirm")
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(
+                        onClick = { pendingAlertConfirmation = null }
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
         }
 
         // Loading Indicator

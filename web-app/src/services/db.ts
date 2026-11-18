@@ -3769,7 +3769,7 @@ export async function sendManualNotification(
             appointmentId: appointmentId || undefined,
             trackingCode: code || undefined,
             userId: userId || undefined,
-            type: 'queue_alert',
+            type: isArriveSoon ? 'arrive_soon' : type,
           },
         }).catch(() => {})
       } catch {}

@@ -36,8 +36,20 @@ fun DoctorQueueItemCard(
     onClinicalRxClick: ((String) -> Unit)? = null,
     onMovePosition: ((QueueItemUi, Int) -> Unit)? = null,
     onSendAlertClick: ((QueueItemUi) -> Unit)? = null,
+    cooldownUntilEpoch: Long? = null,
+    isSendingAlert: Boolean = false,
+    alertSentBadge: String? = null,
+    onWalkInAlertClick: ((QueueItemUi) -> Unit)? = null,
+    onCallInAlertClick: ((QueueItemUi) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val cooldownUntil = cooldownUntilEpoch ?: 0L
+    val nowEpoch = currentEpochSecond * 1000L
+    val cooldownRemainingSec = ((cooldownUntil - nowEpoch) / 1000L).coerceAtLeast(0L).toInt()
+    val isCoolingDown = cooldownRemainingSec > 0
+    val isSending = isSendingAlert
+    val isAccountlessWalkin = item.isWalkin && item.userId.isNullOrBlank()
+
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -227,6 +239,35 @@ fun DoctorQueueItemCard(
                                 }
                             }
                         }
+
+                        // Notification Sent Status Badge / Cooldown Countdown
+                        if (isCoolingDown || !alertSentBadge.isNullOrBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFFE0F2FE),
+                                border = BorderStroke(0.5.dp, Color(0xFF38BDF8)),
+                                modifier = Modifier.padding(top = 2.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.NotificationsActive,
+                                        contentDescription = null,
+                                        tint = Color(0xFF0284C7),
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                    Text(
+                                        text = if (isCoolingDown) "Alert Sent (${cooldownRemainingSec}s)" else (alertSentBadge ?: "Alert Sent"),
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0369A1)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -345,6 +386,139 @@ fun DoctorQueueItemCard(
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold
                         )
+                    }
+                }
+            }
+
+            // Dedicated Patient Notification Actions: Walk In (Arrive Soon) & Call In (Call Inside)
+            if (item.status == "waiting" && (onWalkInAlertClick != null || onCallInAlertClick != null)) {
+                Spacer(modifier = Modifier.height(6.dp))
+                if (isAccountlessWalkin) {
+                    OutlinedButton(
+                        onClick = {},
+                        enabled = false,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            disabledContainerColor = Color(0xFFF1F5F9),
+                            disabledContentColor = Color(0xFF94A3B8)
+                        ),
+                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            Icons.Default.PersonOff,
+                            contentDescription = null,
+                            tint = Color(0xFF94A3B8),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Walk-in (No App Account)",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF94A3B8)
+                        )
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // "Walk In" (Arrive Soon Alert)
+                        if (onWalkInAlertClick != null) {
+                            OutlinedButton(
+                                onClick = { onWalkInAlertClick(item) },
+                                enabled = !isSending && !isCoolingDown,
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = Color(0xFF0369A1),
+                                    disabledContentColor = if (isCoolingDown) Color(0xFF0284C7) else Color(0xFF94A3B8)
+                                ),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isCoolingDown) Color(0xFFBAE6FD) else Color(0xFF7DD3FC)
+                                ),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                if (isSending) {
+                                    CircularProgressIndicator(
+                                        color = Color(0xFF0284C7),
+                                        modifier = Modifier.size(13.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Sending...", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                } else if (isCoolingDown) {
+                                    Icon(
+                                        Icons.Default.Schedule,
+                                        contentDescription = null,
+                                        tint = Color(0xFF0284C7),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("Walk In (${cooldownRemainingSec}s)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                } else {
+                                    Icon(
+                                        Icons.Default.DirectionsRun,
+                                        contentDescription = null,
+                                        tint = Color(0xFF0284C7),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Walk In", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        // "Call In" (Call Inside Alert)
+                        if (onCallInAlertClick != null) {
+                            OutlinedButton(
+                                onClick = { onCallInAlertClick(item) },
+                                enabled = !isSending && !isCoolingDown,
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = Color(0xFF0D9488),
+                                    disabledContentColor = if (isCoolingDown) Color(0xFF0D9488) else Color(0xFF94A3B8)
+                                ),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isCoolingDown) Color(0xFF99F6E4) else Color(0xFF5EEAD4)
+                                ),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                if (isSending) {
+                                    CircularProgressIndicator(
+                                        color = Color(0xFF0D9488),
+                                        modifier = Modifier.size(13.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Sending...", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                } else if (isCoolingDown) {
+                                    Icon(
+                                        Icons.Default.Schedule,
+                                        contentDescription = null,
+                                        tint = Color(0xFF0D9488),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text("Call In (${cooldownRemainingSec}s)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                } else {
+                                    Icon(
+                                        Icons.Default.Campaign,
+                                        contentDescription = null,
+                                        tint = Color(0xFF0D9488),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Call In", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.lifecycle.lifecycleScope
@@ -42,6 +43,8 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var appUpdateRepository: AppUpdateRepository
 
     private val confirmedPaymentTrackingFlow = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    private val pendingTrackerAppointmentFlow = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    private var navHostControllerRef: androidx.navigation.NavHostController? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -169,6 +172,24 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
+            val navController = androidx.navigation.compose.rememberNavController()
+            navHostControllerRef = navController
+
+            val pendingTrackerApptId = pendingTrackerAppointmentFlow.collectAsState().value
+            androidx.compose.runtime.LaunchedEffect(pendingTrackerApptId) {
+                if (!pendingTrackerApptId.isNullOrBlank()) {
+                    val targetRoute = com.dactor.patient.ui.navigation.NavRoutes.QueueStatus.createRoute(pendingTrackerApptId)
+                    try {
+                        navController.navigate(targetRoute) {
+                            launchSingleTop = true
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                    pendingTrackerAppointmentFlow.value = null
+                }
+            }
+
             com.dactor.patient.ui.theme.DactorPatientTheme {
                 androidx.compose.material3.Surface(
                     modifier = androidx.compose.ui.Modifier
@@ -180,6 +201,7 @@ class MainActivity : ComponentActivity() {
                         com.dactor.patient.ui.components.AppUpdateEnforcer(appUpdateRepository = appUpdateRepository)
                         com.dactor.patient.ui.components.NotificationPermissionEnforcer()
                         DactorNavHost(
+                            navController = navController,
                             authRepository = authRepository,
                             clinicRepository = clinicRepository,
                             doctorRepository = doctorRepository,
@@ -380,6 +402,33 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleDeepLink(intent: Intent?) {
+        // 1. Process notification deep links with navigate_to == "tracker"
+        if (intent != null) {
+            val navigateTo = intent.getStringExtra("navigate_to")
+            if (navigateTo.equals("tracker", ignoreCase = true)) {
+                val appointmentId = intent.getStringExtra("appointment_id")
+                    ?: intent.getStringExtra("tracking_code")
+                if (!appointmentId.isNullOrBlank()) {
+                    val targetRoute = com.dactor.patient.ui.navigation.NavRoutes.QueueStatus.createRoute(appointmentId)
+                    val activeNav = navHostControllerRef
+                    if (activeNav != null) {
+                        lifecycleScope.launch(Dispatchers.Main) {
+                            try {
+                                activeNav.navigate(targetRoute) {
+                                    launchSingleTop = true
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    } else {
+                        pendingTrackerAppointmentFlow.value = appointmentId
+                    }
+                }
+            }
+        }
+
+        // 2. Process URI deep links
         val uri = intent?.data ?: return
         lifecycleScope.launch(Dispatchers.IO) {
             try {

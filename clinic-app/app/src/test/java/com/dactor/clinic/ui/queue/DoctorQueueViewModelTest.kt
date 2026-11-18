@@ -536,6 +536,236 @@ class DoctorQueueViewModelTest {
         assertEquals("no_show", state.completedQueue[0].status)
     }
 
+    @Test
+    fun testWalkInAlertTriggersNotificationPipeline() = runTest(testDispatcher) {
+        val appt = Appointment(
+            id = "appt-alert-1",
+            doctorId = testDoctorId,
+            clinicId = testClinicId,
+            appointmentDate = testDate.toString(),
+            patientName = "Notification Patient",
+            userId = "user-123",
+            isWalkin = false,
+            status = "APPROVED",
+            checkinStatus = "waiting"
+        )
+        val entry = QueueEntry(
+            id = "entry-alert-1",
+            clinicId = testClinicId,
+            appointmentId = "appt-alert-1",
+            doctorId = testDoctorId,
+            queuePosition = 1,
+            status = "waiting"
+        )
+
+        fakeQueueRepo.entriesToReturn = listOf(entry)
+        fakeApptRepo.appointmentsToReturn = listOf(appt)
+
+        viewModel.initialize(testDoctorId, testClinicId, testDate)
+        testScheduler.advanceUntilIdle()
+
+        val item = viewModel.uiState.value.liveQueue.first()
+        viewModel.sendWalkInAlert(item)
+        testScheduler.advanceUntilIdle()
+
+        assertTrue(
+            "sendManualNotification should be invoked for appt-alert-1",
+            fakeQueueRepo.sendManualNotificationCalls.contains("appt-alert-1")
+        )
+        val cooldownUntil = viewModel.uiState.value.alertCooldownUntilEpoch[item.id]
+        assertNotNull("Cooldown expiry epoch should be recorded", cooldownUntil)
+        assertTrue("Cooldown should be set in the future", (cooldownUntil ?: 0L) > System.currentTimeMillis())
+        assertEquals("Alert Sent", viewModel.uiState.value.alertSentBadges[item.id])
+    }
+
+    @Test
+    fun testCallInsideAlertTriggersNotificationPipeline() = runTest(testDispatcher) {
+        val appt = Appointment(
+            id = "appt-call-1",
+            doctorId = testDoctorId,
+            clinicId = testClinicId,
+            appointmentDate = testDate.toString(),
+            patientName = "Call Patient",
+            userId = "user-456",
+            isWalkin = false,
+            status = "APPROVED",
+            checkinStatus = "waiting"
+        )
+        val entry = QueueEntry(
+            id = "entry-call-1",
+            clinicId = testClinicId,
+            appointmentId = "appt-call-1",
+            doctorId = testDoctorId,
+            queuePosition = 1,
+            status = "waiting"
+        )
+
+        fakeQueueRepo.entriesToReturn = listOf(entry)
+        fakeApptRepo.appointmentsToReturn = listOf(appt)
+
+        viewModel.initialize(testDoctorId, testClinicId, testDate)
+        testScheduler.advanceUntilIdle()
+
+        val item = viewModel.uiState.value.liveQueue.first()
+        viewModel.sendCallInAlert(item)
+        testScheduler.advanceUntilIdle()
+
+        assertTrue(
+            "notifyCallInside should be invoked for appt-call-1",
+            fakeQueueRepo.notifyCallInsideCalls.contains("appt-call-1")
+        )
+        val cooldownUntil = viewModel.uiState.value.alertCooldownUntilEpoch[item.id]
+        assertNotNull("Cooldown expiry epoch should be recorded", cooldownUntil)
+        assertEquals("Call In Sent", viewModel.uiState.value.alertSentBadges[item.id])
+    }
+
+    @Test
+    fun testSixtySecondCooldownBlocksImmediateDuplicateSends() = runTest(testDispatcher) {
+        val appt = Appointment(
+            id = "appt-cooldown-1",
+            doctorId = testDoctorId,
+            clinicId = testClinicId,
+            appointmentDate = testDate.toString(),
+            patientName = "Spam Prevention Patient",
+            userId = "user-789",
+            isWalkin = false,
+            status = "APPROVED",
+            checkinStatus = "waiting"
+        )
+        val entry = QueueEntry(
+            id = "entry-cooldown-1",
+            clinicId = testClinicId,
+            appointmentId = "appt-cooldown-1",
+            doctorId = testDoctorId,
+            queuePosition = 1,
+            status = "waiting"
+        )
+
+        fakeQueueRepo.entriesToReturn = listOf(entry)
+        fakeApptRepo.appointmentsToReturn = listOf(appt)
+
+        viewModel.initialize(testDoctorId, testClinicId, testDate)
+        testScheduler.advanceUntilIdle()
+
+        val item = viewModel.uiState.value.liveQueue.first()
+
+        // First send -> succeeds
+        viewModel.sendWalkInAlert(item)
+        testScheduler.advanceUntilIdle()
+        assertEquals(1, fakeQueueRepo.sendManualNotificationCalls.size)
+
+        // Capture events
+        val events = mutableListOf<DoctorQueueEvent>()
+        val job = launch {
+            viewModel.eventFlow.collect { events.add(it) }
+        }
+
+        // Second immediate send -> blocked by 60s cooldown!
+        viewModel.sendWalkInAlert(item)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals("Duplicate send within 60s must NOT reach repository", 1, fakeQueueRepo.sendManualNotificationCalls.size)
+        val errorEvent = events.filterIsInstance<DoctorQueueEvent.ShowError>().firstOrNull()
+        assertNotNull("Cooldown error should be emitted", errorEvent)
+        assertTrue(
+            "Error message should mention cooldown or waiting seconds",
+            errorEvent?.message?.contains("seconds", ignoreCase = true) == true ||
+            errorEvent?.message?.contains("recently sent", ignoreCase = true) == true
+        )
+        job.cancel()
+    }
+
+    @Test
+    fun testWalkInWithoutAccountRejected() = runTest(testDispatcher) {
+        val apptWalkin = Appointment(
+            id = "appt-walkin-anon",
+            doctorId = testDoctorId,
+            clinicId = testClinicId,
+            appointmentDate = testDate.toString(),
+            patientName = "Desk Walkin Patient",
+            userId = null, // NO APP ACCOUNT
+            isWalkin = true,
+            status = "APPROVED",
+            checkinStatus = "waiting"
+        )
+        val entryWalkin = QueueEntry(
+            id = "entry-walkin-anon",
+            clinicId = testClinicId,
+            appointmentId = "appt-walkin-anon",
+            doctorId = testDoctorId,
+            queuePosition = 1,
+            status = "waiting"
+        )
+
+        fakeQueueRepo.entriesToReturn = listOf(entryWalkin)
+        fakeApptRepo.appointmentsToReturn = listOf(apptWalkin)
+
+        viewModel.initialize(testDoctorId, testClinicId, testDate)
+        testScheduler.advanceUntilIdle()
+
+        val item = viewModel.uiState.value.liveQueue.first()
+        assertTrue("Item should be identified as walk-in", item.isWalkin)
+        assertNull("Item should have no user ID", item.userId)
+
+        val events = mutableListOf<DoctorQueueEvent>()
+        val job = launch {
+            viewModel.eventFlow.collect { events.add(it) }
+        }
+
+        viewModel.sendWalkInAlert(item)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals("No notification should be dispatched for accountless walk-in", 0, fakeQueueRepo.sendManualNotificationCalls.size)
+        val errorEvent = events.filterIsInstance<DoctorQueueEvent.ShowError>().firstOrNull()
+        assertNotNull("Error should be emitted for walkin without account", errorEvent)
+        assertTrue(
+            "Error should state walk-in has no app account",
+            errorEvent?.message?.contains("no app account", ignoreCase = true) == true
+        )
+        job.cancel()
+    }
+
+    @Test
+    fun testInFlightSendingStateTracked() = runTest(testDispatcher) {
+        val appt = Appointment(
+            id = "appt-inflight",
+            doctorId = testDoctorId,
+            clinicId = testClinicId,
+            appointmentDate = testDate.toString(),
+            patientName = "Inflight Patient",
+            userId = "user-inflight",
+            isWalkin = false,
+            status = "APPROVED",
+            checkinStatus = "waiting"
+        )
+        val entry = QueueEntry(
+            id = "entry-inflight",
+            clinicId = testClinicId,
+            appointmentId = "appt-inflight",
+            doctorId = testDoctorId,
+            queuePosition = 1,
+            status = "waiting"
+        )
+
+        fakeQueueRepo.entriesToReturn = listOf(entry)
+        fakeApptRepo.appointmentsToReturn = listOf(appt)
+
+        var capturedInFlightDuringSend = false
+        fakeQueueRepo.onSendNotificationHook = {
+            capturedInFlightDuringSend = viewModel.uiState.value.inFlightAlerts.contains("entry-inflight")
+        }
+
+        viewModel.initialize(testDoctorId, testClinicId, testDate)
+        testScheduler.advanceUntilIdle()
+
+        val item = viewModel.uiState.value.liveQueue.first()
+        viewModel.sendWalkInAlert(item)
+        testScheduler.advanceUntilIdle()
+
+        assertTrue("inFlightAlerts must contain entry-inflight during the operation", capturedInFlightDuringSend)
+        assertFalse("inFlightAlerts must be cleared after completion", viewModel.uiState.value.inFlightAlerts.contains("entry-inflight"))
+    }
+
     // ── Test Doubles ──────────────────────────────────────────────────
 
     class TestQueueRepository(
@@ -548,6 +778,10 @@ class DoctorQueueViewModelTest {
         var shouldFailConflict: Boolean = false
         var conflictCurrentStatus: String = "no_show"
         var conflictMessage: String = "This entry was just updated"
+
+        val notifyCallInsideCalls = mutableListOf<String>()
+        val sendManualNotificationCalls = mutableListOf<String>()
+        var onSendNotificationHook: (() -> Unit)? = null
 
         override suspend fun getQueueForDoctor(
             doctorId: String,
@@ -607,7 +841,11 @@ class DoctorQueueViewModelTest {
             doctorName: String,
             trackingCode: String?,
             roomNumber: String?
-        ): Boolean = true
+        ): Boolean {
+            notifyCallInsideCalls.add(appointmentId)
+            onSendNotificationHook?.invoke()
+            return true
+        }
 
         override suspend fun sendManualNotification(
             appointmentId: String,
@@ -619,7 +857,11 @@ class DoctorQueueViewModelTest {
             leftLabel: String,
             rightLabel: String,
             type: String
-        ): Boolean = true
+        ): Boolean {
+            sendManualNotificationCalls.add(appointmentId)
+            onSendNotificationHook?.invoke()
+            return true
+        }
 
         override suspend fun reorderQueue(orderedEntries: List<QueueEntry>): Boolean = true
 

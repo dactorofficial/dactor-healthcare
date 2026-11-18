@@ -456,17 +456,53 @@ class DoctorQueueViewModel @Inject constructor(
         }
     }
 
+    fun sendWalkInAlert(item: QueueItemUi) {
+        sendPatientNotification(item, alertType = "arrive_soon")
+    }
+
+    fun sendCallInAlert(item: QueueItemUi, roomNumber: String? = null) {
+        sendPatientNotification(item, alertType = "call_inside", roomNumber = roomNumber)
+    }
+
     fun sendPatientNotification(
         item: QueueItemUi,
         alertType: String,
         roomNumber: String? = null
     ) {
         val s = _uiState.value
+
+        // Guard 1: Must be an active live queue status
+        if (item.status !in listOf("waiting", "inside")) {
+            return
+        }
+
+        // Guard 2: Walk-in without account check
         if (item.isWalkin && item.userId.isNullOrBlank()) {
             viewModelScope.launch {
                 _eventFlow.emit(DoctorQueueEvent.ShowError("Walk-in patient has no app account"))
             }
             return
+        }
+
+        // Guard 3: Prevent duplicate concurrent in-flight dispatches
+        if (s.inFlightAlerts.contains(item.id)) {
+            return
+        }
+
+        // Guard 4: 60-second cooldown verification
+        val now = System.currentTimeMillis()
+        val cooldownUntil = s.alertCooldownUntilEpoch[item.id] ?: 0L
+        if (now < cooldownUntil) {
+            val remainingSec = ((cooldownUntil - now) / 1000L).coerceAtLeast(1)
+            viewModelScope.launch {
+                _eventFlow.emit(DoctorQueueEvent.ShowError("Alert recently sent. Please wait $remainingSec seconds before sending again."))
+            }
+            return
+        }
+
+        // Track in-flight sending state
+        _uiState.update { current ->
+            current.copy(inFlightAlerts = current.inFlightAlerts + item.id)
         }
 
         viewModelScope.launch {
@@ -478,9 +514,23 @@ class DoctorQueueViewModel @Inject constructor(
                 roomNumber = roomNumber,
                 cooldownSeconds = 60L
             )
+
             if (result.isSuccess) {
-                _eventFlow.emit(DoctorQueueEvent.ShowToast("Notification sent to ${item.patientName}"))
+                val newCooldownExpiry = System.currentTimeMillis() + 60_000L
+                val badgeText = if (alertType.lowercase().contains("call")) "Call In Sent" else "Alert Sent"
+                _uiState.update { current ->
+                    current.copy(
+                        inFlightAlerts = current.inFlightAlerts - item.id,
+                        alertCooldownUntilEpoch = current.alertCooldownUntilEpoch + (item.id to newCooldownExpiry),
+                        alertSentBadges = current.alertSentBadges + (item.id to badgeText)
+                    )
+                }
+                val actionName = if (alertType.lowercase().contains("call")) "Call In alert" else "Walk In alert"
+                _eventFlow.emit(DoctorQueueEvent.ShowToast("$actionName sent to ${item.patientName}"))
             } else {
+                _uiState.update { current ->
+                    current.copy(inFlightAlerts = current.inFlightAlerts - item.id)
+                }
                 val err = result.exceptionOrNull()?.message ?: "Failed to send notification"
                 _eventFlow.emit(DoctorQueueEvent.ShowError(err))
             }

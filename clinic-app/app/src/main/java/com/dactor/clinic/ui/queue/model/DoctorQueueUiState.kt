@@ -21,7 +21,10 @@ data class DoctorQueueUiState(
     val overloadedSlots: Map<String, Pair<Int, Int>> = emptyMap(), // slotTime -> Pair(bookedCount, maxCapacity)
     val isOnline: Boolean = true,
     val errorMessage: String? = null,
-    val rolloverMessage: String? = null
+    val rolloverMessage: String? = null,
+    val alertCooldownUntilEpoch: Map<String, Long> = emptyMap(), // itemId -> epochMillis
+    val inFlightAlerts: Set<String> = emptySet(), // itemIds currently dispatching notification
+    val alertSentBadges: Map<String, String> = emptyMap() // itemId -> badge label e.g. "Alert Sent"
 )
 
 sealed interface DoctorQueueEvent {

@@ -25,6 +25,7 @@ import com.dactor.patient.ui.onboarding.OnboardingScreen
 
 @Composable
 fun DactorNavHost(
+    navController: androidx.navigation.NavHostController = rememberNavController(),
     authRepository: AuthRepository? = null,
     clinicRepository: ClinicRepository? = null,
     doctorRepository: DoctorRepository? = null,
@@ -38,7 +39,6 @@ fun DactorNavHost(
     confirmedPaymentTrackingFlow: kotlinx.coroutines.flow.StateFlow<String?>? = null,
     onConsumeConfirmedPayment: (() -> Unit)? = null
 ) {
-    val navController = rememberNavController()
     val observedConfirmedCode = confirmedPaymentTrackingFlow?.collectAsState()?.value
 
     androidx.compose.runtime.LaunchedEffect(observedConfirmedCode) {
