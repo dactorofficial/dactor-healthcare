@@ -6659,7 +6659,7 @@ fun AppointmentsTab(
                                                     isLate -> "Another patient was called inside \u2022 Please arrive now"
                                                     isWithDoctor -> "With doctor in consultation room \u2022 Token #$myPos"
                                                     liveAhead == 0 -> "Next in line (0 ahead) \u2022 Token #$myPos \u2022 $totalWaiting in queue"
-                                                    liveAhead == 1 && clinicEntries.any { it.status == "inside" || it.status == "in_consultation" } -> "Doctor consulting \u2022 You're up next (1 ahead) \u2022 Token #$myPos"
+                                                    liveAhead == 1 && doctorEntries.any { it.status == "inside" || it.status == "in_consultation" } -> "Doctor consulting \u2022 You're up next (1 ahead) \u2022 Token #$myPos"
                                                     else -> "$liveAhead ahead of you in line \u2022 Token #$myPos \u2022 $totalWaiting in queue"
                                                 },
                                                 fontSize = 12.sp,

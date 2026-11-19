@@ -82,12 +82,14 @@ fun FutureAppointmentsScreen(
     // Selected date \u2014 default to today
     var selectedDate by remember { mutableStateOf(todayStr) }
 
+    var currentClinic by remember(effectiveClinicId) { mutableStateOf<com.dactor.clinic.data.model.Clinic?>(null) }
+    val isLabClinic = remember(currentClinic) { currentClinic?.isDiagnosticLab() == true }
     var appointments by remember(effectiveClinicId) { mutableStateOf<List<Appointment>>(emptyList()) }
     var doctors by remember(effectiveClinicId) { mutableStateOf<List<Doctor>>(emptyList()) }
     var selectedDoctor by remember(effectiveClinicId) { mutableStateOf<Doctor?>(null) }
     var remarksMap by remember(effectiveClinicId) { mutableStateOf<Map<String, String>>(emptyMap()) }
 
-    // OPD Slots state for selected date and full clinic overview
+    // OPD / Lab Slots state for selected date and full clinic overview
     var slots by remember(effectiveClinicId, selectedDate) { mutableStateOf<List<Slot>>(emptyList()) }
     var allClinicSlots by remember(effectiveClinicId) { mutableStateOf<List<Slot>>(emptyList()) }
     var isSlotsLoading by remember { mutableStateOf(false) }
@@ -119,7 +121,7 @@ fun FutureAppointmentsScreen(
             } catch (e: Exception) { "09:15" }
         )
     }
-    var slotCapacity by remember { mutableStateOf("5") }
+    var slotCapacity by remember(isLabClinic) { mutableStateOf(if (isLabClinic) "25" else "5") }
     var showSlotStartTimePicker by remember { mutableStateOf(false) }
     var showSlotEndTimePicker by remember { mutableStateOf(false) }
 
