@@ -180,6 +180,7 @@ fun FutureAppointmentsScreen(
             if (clinicRepository != null && effectiveClinicId.isNotBlank()) {
                 val clinicObj = clinicRepository.getClinicById(effectiveClinicId)
                 if (clinicObj != null) {
+                    currentClinic = clinicObj
                     val nowMs = System.currentTimeMillis()
                     val remoteSet = clinicObj.declaredHolidays.map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
                     pendingHolidayToggles.forEach { (dateKey, pair) ->
@@ -661,7 +662,7 @@ fun FutureAppointmentsScreen(
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Text(
-                                        "Published OPD Slots for $selectedDate",
+                                        if (isLabClinic) "Published Lab Collection Slots for $selectedDate" else "Published OPD Slots for $selectedDate",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 13.sp,
                                         color = if (slots.isNotEmpty()) Color(0xFF166534) else Color(0xFF0F172A)
@@ -683,14 +684,14 @@ fun FutureAppointmentsScreen(
 
                             if (slots.isEmpty()) {
                                 Text(
-                                    text = "No OPD slots configured for this date. Tap '+ Add slot' below to add patient booking slots.",
+                                    text = if (isLabClinic) "No lab collection slots configured for this date. Tap '+ Add slot' below to add collection windows." else "No OPD slots configured for this date. Tap '+ Add slot' below to add patient booking slots.",
                                     fontSize = 11.5.sp,
                                     color = Color(0xFF64748B)
                                 )
                             } else {
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     slots.forEach { slot ->
-                                        val slotDoc = doctors.find { it.id == slot.doctorId }
+                                        val slotDoc = if (isLabClinic) null else doctors.find { it.id == slot.doctorId }
                                         Surface(
                                             shape = RoundedCornerShape(10.dp),
                                             color = Color.White,

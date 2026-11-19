@@ -4884,17 +4884,18 @@ export function computeMultiSlotDailyPosition(params: {
     }
   }
 
-  // Filter relevant published slots and non-cancelled appointments
+  // Filter relevant published slots and non-cancelled appointments strictly for specific doctor and specific date
   const relevantSlots = (allSlotsForDate || []).filter((slot) => {
     const isPub = slot.isPublished !== false
-    const matchesDoc = !doctorId || !slot.doctorId || slot.doctorId === doctorId
+    const matchesDoc = doctorId ? slot.doctorId === doctorId : !slot.doctorId
     return isPub && matchesDoc
   })
 
   const relevantAppointments = (allAppointmentsForDate || []).filter((appt) => {
     const notCancelled = appt.checkinStatus !== 'cancelled'
-    const matchesDoc = !doctorId || !appt.doctorId || appt.doctorId === doctorId
-    return notCancelled && matchesDoc
+    const matchesDoc = doctorId ? appt.doctorId === doctorId : !appt.doctorId
+    const matchesDate = !targetDateStr || (appt.appointmentDate || '').trim().slice(0, 10) === targetDateStr
+    return notCancelled && matchesDoc && matchesDate
   })
 
   // Sort slots chronologically
