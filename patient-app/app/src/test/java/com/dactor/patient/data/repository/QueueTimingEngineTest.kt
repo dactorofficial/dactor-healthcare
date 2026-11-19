@@ -491,4 +491,47 @@ class QueueTimingEngineTest {
         assertEquals(3, result3.cumulativePosition)
         assertEquals(2, result3.patientsAheadInDay)
     }
+
+    @Test
+    fun testDifferentDayAdvanceLabAppointmentCalculatesAdvancePosition() {
+        val today = LocalDate.parse("2026-11-20")
+        val futureDate = "2026-11-24"
+
+        val labSlot = Slot(
+            id = "slot-lab-1",
+            clinicId = "clinic-lab-1",
+            doctorId = null,
+            slotDate = futureDate,
+            startTime = "09:00 AM",
+            endTime = "10:00 AM",
+            isPublished = true
+        )
+
+        val appt1 = Appointment(
+            id = "lab-appt-1",
+            slotId = "slot-lab-1",
+            clinicId = "clinic-lab-1",
+            doctorId = null,
+            appointmentDate = futureDate,
+            appointmentTime = "09:00 AM"
+        )
+
+        val result = QueueRepository.computeMultiSlotDailyPosition(
+            targetAppointmentId = appt1.id,
+            targetSlotId = appt1.slotId,
+            targetAppointmentTime = appt1.appointmentTime,
+            appointmentDate = futureDate,
+            allSlotsForDate = listOf(labSlot),
+            allAppointmentsForDate = listOf(appt1),
+            doctorId = null,
+            avgConsultationMinutes = 5,
+            nowDate = today
+        )
+
+        // Advance date must correctly identify as future date and position #1 in day
+        assertTrue(result.isFutureDate)
+        assertEquals("24 Nov", result.dateLabel)
+        assertEquals(1, result.cumulativePosition)
+        assertEquals(0, result.patientsAheadInDay)
+    }
 }

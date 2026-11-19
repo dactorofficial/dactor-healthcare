@@ -6264,6 +6264,8 @@ export function buildClinicPatientDirectory(appointments: Appointment[]): Clinic
       isFollowup,
     }
 
+    const isCompleted = ['completed', 'done', 'visited'].includes((a.checkinStatus || '').toLowerCase()) || Boolean((a as any).consultationCompletedAt)
+
     if (!patientMap.has(key)) {
       patientMap.set(key, {
         id: a.userId || a.id,
@@ -6272,14 +6274,19 @@ export function buildClinicPatientDirectory(appointments: Appointment[]): Clinic
         gender: a.patientGender || 'Other',
         age: Number(a.patientAge) || 0,
         email: a.patientEmail || undefined,
-        lastVisitDate: a.appointmentDate,
-        visitCount: 1,
+        lastVisitDate: isCompleted ? a.appointmentDate : undefined,
+        visitCount: isCompleted ? 1 : 0,
         trackingCodes: a.trackingCode10Digit ? [a.trackingCode10Digit] : [],
         consultations: [consultItem],
       })
     } else {
       const item = patientMap.get(key)!
-      item.visitCount += 1
+      if (isCompleted) {
+        item.visitCount += 1
+        if (a.appointmentDate && (!item.lastVisitDate || a.appointmentDate > item.lastVisitDate)) {
+          item.lastVisitDate = a.appointmentDate
+        }
+      }
       if (a.trackingCode10Digit && !item.trackingCodes.includes(a.trackingCode10Digit)) {
         item.trackingCodes.push(a.trackingCode10Digit)
       }

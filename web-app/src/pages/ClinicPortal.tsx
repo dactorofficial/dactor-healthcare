@@ -5691,7 +5691,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }`}
         >
           <Activity className="w-4 h-4" />
-          <span>Live OPD Queue ({queueWaitingCount})</span>
+          <span>{isLabClinic ? 'Live Lab Collection Queue' : 'Live OPD Queue'} ({queueWaitingCount})</span>
         </button>
 
         <button
@@ -6123,7 +6123,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           >
             <div className="flex items-center space-x-3 text-xs font-bold text-slate-800 dark:text-slate-200">
               <Activity className="w-4 h-4 text-brand-600" />
-              <span>Live OPD Queue: {queueWaitingCount} Waiting • {queueInsideCount} Inside • {queueCompletedCount} Completed</span>
+              <span>{isLabClinic ? 'Live Lab Queue' : 'Live OPD Queue'}: {queueWaitingCount} Waiting • {queueInsideCount} Inside • {queueCompletedCount} Completed</span>
             </div>
             <span className="text-xs font-bold text-brand-600 hover:text-brand-800 flex items-center gap-1">
               Show Roster &amp; Controls ▲
@@ -6141,7 +6141,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                 <div>
                   <div className="flex items-center space-x-2">
                     <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-900 dark:text-amber-200 px-2 py-0.5 rounded-full border border-amber-400/30">
-                      Currently Inside Doctor Cabin
+                      {isLabClinic ? 'Currently at Sample Collection Counter' : 'Currently Inside Doctor Cabin'}
                     </span>
                     <span className="text-xs font-mono font-bold text-amber-900 dark:text-amber-200">
                       Token #{activeConsultationPatient.trackingCode10Digit}
@@ -6150,9 +6150,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                   <h3 className="text-base font-black text-slate-900 dark:text-white mt-0.5">
                     {activeConsultationPatient.patientName} ({activeConsultationPatient.patientAge || '–'} Yrs, {activeConsultationPatient.patientGender || '–'})
                   </h3>
-                  <p className="text-xs text-slate-600 dark:text-slate-300">
-                    Attending: {activeConsultationPatient.doctor?.fullName || selectedDoctor?.fullName || 'OPD Doctor'}
-                  </p>
+                  {!isLabClinic && (
+                    <p className="text-xs text-slate-600 dark:text-slate-300">
+                      Attending: {activeConsultationPatient.doctor?.fullName || selectedDoctor?.fullName || 'OPD Doctor'}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -6302,7 +6304,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                     <tr>
                       <th className="py-3 px-4 w-12 text-center">Turn</th>
                       <th className="py-3 px-4">Patient</th>
-                      <th className="py-3 px-4">Doctor</th>
+                      <th className="py-3 px-4">{isLabClinic ? 'Diagnostic Service' : 'Doctor'}</th>
                       <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4">Payment</th>
                       <th className="py-3 px-4 text-right">Action</th>
@@ -6378,16 +6380,18 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                 )}
                               </td>
 
-                              {/* Doctor */}
+                              {/* Doctor / Diagnostic Service */}
                               <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300">
-                                {appt.doctor?.fullName || selectedDoctor?.fullName || 'General OPD'}
+                                {isLabClinic
+                                  ? (appt.selectedTests?.join(', ') || (typeof appt.selectedLabTests === 'string' ? appt.selectedLabTests : '') || 'Diagnostic Tests')
+                                  : (appt.doctor?.fullName || selectedDoctor?.fullName || 'General OPD')}
                               </td>
 
                               {/* Status Badge */}
                               <td className="py-3.5 px-4">
                                 {inCabin ? (
                                   <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-900 dark:text-amber-200 border border-amber-400/40 animate-pulse">
-                                    Inside Cabin
+                                    {isLabClinic ? 'Collecting Sample' : 'Inside Cabin'}
                                   </span>
                                 ) : isProcessing ? (
                                   <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-900 dark:text-blue-200 border border-blue-400/40">

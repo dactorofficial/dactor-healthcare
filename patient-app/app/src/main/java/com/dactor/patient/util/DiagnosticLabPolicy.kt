@@ -66,6 +66,7 @@ object DiagnosticLabPolicy {
         val cType = clinic?.type?.trim()?.lowercase() ?: ""
         if (cType == "diagnostic_lab" || cType.contains("lab")) return true
         if (clinic?.name?.contains("lab", ignoreCase = true) == true) return true
+        if (isDiagnosticOrPathologyLab(clinic)) return true
         if (!appointment?.selectedLabTests.isNullOrBlank()) return true
         if (labReports.isNotEmpty()) return true
         val qLower = queueStatus?.trim()?.lowercase() ?: ""

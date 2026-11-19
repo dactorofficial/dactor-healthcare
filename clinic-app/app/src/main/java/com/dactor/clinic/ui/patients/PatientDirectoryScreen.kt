@@ -1,5 +1,6 @@
 package com.dactor.clinic.ui.patients
 
+import com.dactor.clinic.domain.util.PatientIdentitySync
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.BorderStroke
@@ -395,12 +396,42 @@ fun PatientDirectoryScreen(
     // Persisted locally in Room database (localPatients) with desk additions & today's sync
     val allDirectoryProfiles = remember(localPatients, locallyAddedProfiles, appointments) {
         val list = mutableListOf<Profile>()
-        val seenIds = mutableSetOf<String>()
+        val seenKeys = mutableSetOf<String>()
+
+        fun extractKeys(id: String?, phone: String?, email: String?, tracking: String?, userId: String?): List<String> {
+            val keys = mutableListOf<String>()
+            val cleanId = id?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+            if (cleanId != null) keys.add("id:$cleanId")
+
+            val cleanPhone = phone?.replace(Regex("\\D"), "")?.takeIf { it.length >= 7 }
+            if (cleanPhone != null) {
+                keys.add("phone:$cleanPhone")
+                keys.add("detphone:${PatientIdentitySync.getDeterministicPatientIdForPhone(cleanPhone).lowercase()}")
+            }
+
+            val cleanEmail = email?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+            if (cleanEmail != null) {
+                keys.add("email:$cleanEmail")
+                keys.add("detemail:${PatientIdentitySync.getDeterministicPatientIdForEmail(cleanEmail).lowercase()}")
+            }
+
+            val cleanTracking = tracking?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+            if (cleanTracking != null) {
+                keys.add("track:$cleanTracking")
+            }
+
+            val cleanUid = userId?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+            if (cleanUid != null) {
+                keys.add("uid:$cleanUid")
+            }
+            return keys
+        }
 
         // 1. Locally saved patient directory (persistent Room database)
         localPatients.forEach { pat ->
-            if (pat.id !in seenIds) {
-                seenIds.add(pat.id)
+            val keys = extractKeys(pat.id, pat.phone, pat.email, pat.trackingCode10Digit, null)
+            if (keys.none { it in seenKeys }) {
+                seenKeys.addAll(keys)
                 list.add(pat.toProfile())
             }
         }
@@ -414,13 +445,20 @@ fun PatientDirectoryScreen(
             it.status != "EXPIRED" &&
             it.checkinStatus != "cancelled"
         }.forEach { appt ->
-            val pId = appt.trackingCode10Digit.ifBlank { appt.id }
-            if (pId !in seenIds && appt.id !in seenIds) {
-                seenIds.add(pId)
+            val keys = extractKeys(appt.id, appt.patientMobile, appt.patientEmail, appt.trackingCode10Digit, appt.userId)
+            if (keys.none { it in seenKeys }) {
+                seenKeys.addAll(keys)
+                val canonicalPatientId = when {
+                    !appt.userId.isNullOrBlank() && PatientIdentitySync.isValidUuid(appt.userId) -> appt.userId
+                    !appt.patientEmail.isNullOrBlank() -> PatientIdentitySync.getDeterministicPatientIdForEmail(appt.patientEmail)
+                    appt.patientMobile.isNotBlank() -> PatientIdentitySync.getDeterministicPatientIdForPhone(appt.patientMobile)
+                    appt.trackingCode10Digit.isNotBlank() -> appt.trackingCode10Digit
+                    else -> appt.id
+                }
                 list.add(
                     Profile(
-                        id = appt.id,
-                        authUid = null,
+                        id = canonicalPatientId,
+                        authUid = appt.userId,
                         email = appt.patientEmail ?: "",
                         fullName = appt.patientName,
                         role = "patient",
@@ -434,8 +472,9 @@ fun PatientDirectoryScreen(
 
         // 3. Standalone locally added profiles from desk registration
         locallyAddedProfiles.forEach { p ->
-            if (p.id !in seenIds) {
-                seenIds.add(p.id)
+            val keys = extractKeys(p.id, p.phone, p.email, null, p.authUid)
+            if (keys.none { it in seenKeys }) {
+                seenKeys.addAll(keys)
                 list.add(p)
             }
         }
@@ -446,12 +485,27 @@ fun PatientDirectoryScreen(
         if (searchQuery.isBlank()) allDirectoryProfiles
         else {
             val q = searchQuery.trim().lowercase()
+            val digits = q.replace(Regex("\\D"), "")
             allDirectoryProfiles.filter { p ->
-                val pat = localPatients.find { it.id == p.id || it.phone == p.phone }
-                val appt = appointments.find { it.id == p.id || it.trackingCode10Digit == p.id }
+                val patPhoneClean = p.phone?.replace(Regex("\\D"), "")?.takeIf { it.length >= 7 }
+                val pat = localPatients.find {
+                    it.id == p.id ||
+                    (patPhoneClean != null && it.phone?.replace(Regex("\\D"), "") == patPhoneClean) ||
+                    (!it.email.isNullOrBlank() && it.email.equals(p.email, ignoreCase = true))
+                }
+                val entityPhoneClean = pat?.phone?.replace(Regex("\\D"), "")?.takeIf { it.length >= 7 }
+                val appt = appointments.find { a ->
+                    val aPhoneClean = a.patientMobile.replace(Regex("\\D"), "").takeIf { it.length >= 7 }
+                    (a.id == p.id) ||
+                    (!a.userId.isNullOrBlank() && (a.userId == p.id || a.userId == pat?.id)) ||
+                    (aPhoneClean != null && (aPhoneClean == patPhoneClean || aPhoneClean == entityPhoneClean)) ||
+                    (a.trackingCode10Digit.isNotBlank() && (a.trackingCode10Digit == pat?.trackingCode10Digit || a.trackingCode10Digit == p.id)) ||
+                    (!a.patientEmail.isNullOrBlank() && (a.patientEmail.equals(p.email, ignoreCase = true) || a.patientEmail.equals(pat?.email, ignoreCase = true)))
+                }
                 val apptCode = pat?.trackingCode10Digit ?: appt?.trackingCode10Digit ?: getDeterministicAppointmentId(p.id)
                 val apptDoctor = pat?.lastDoctorName ?: appt?.doctorId?.let { dId -> affiliatedDoctors.find { it.id == dId }?.fullName }
                 (p.fullName?.lowercase()?.contains(q) == true) ||
+                (digits.isNotBlank() && patPhoneClean?.contains(digits) == true) ||
                 (p.phone?.contains(q) == true) ||
                 p.id.lowercase().contains(q) ||
                 p.email.lowercase().contains(q) ||
@@ -1068,10 +1122,29 @@ fun PatientDirectoryScreen(
                                 .weight(1f)
                         ) {
                             items(filteredProfiles, key = { it.id }) { patient ->
-                                val patEntity = localPatients.find { it.id == patient.id || (!it.phone.isNullOrBlank() && it.phone == patient.phone) }
-                                val thisAppt = appointments.find { it.id == patient.id }
+                                val cleanPatPhone = patient.phone?.replace(Regex("\\D"), "")?.takeIf { it.length >= 7 }
+                                val patEntity = localPatients.find {
+                                    it.id == patient.id ||
+                                    (cleanPatPhone != null && it.phone?.replace(Regex("\\D"), "") == cleanPatPhone) ||
+                                    (!it.email.isNullOrBlank() && it.email.equals(patient.email, ignoreCase = true))
+                                }
+                                val cleanEntityPhone = patEntity?.phone?.replace(Regex("\\D"), "")?.takeIf { it.length >= 7 }
+                                val cleanPatEmail = patient.email.trim().lowercase().takeIf { it.isNotBlank() }
+
+                                val thisAppt = appointments.find { appt ->
+                                    val cleanApptPhone = appt.patientMobile.replace(Regex("\\D"), "").takeIf { it.length >= 7 }
+                                    val cleanApptEmail = appt.patientEmail?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+
+                                    (appt.id == patient.id) ||
+                                    (!appt.userId.isNullOrBlank() && (appt.userId == patient.id || appt.userId == patEntity?.id)) ||
+                                    (cleanApptPhone != null && (cleanApptPhone == cleanPatPhone || cleanApptPhone == cleanEntityPhone)) ||
+                                    (appt.trackingCode10Digit.isNotBlank() && (appt.trackingCode10Digit == patEntity?.trackingCode10Digit || appt.trackingCode10Digit == patient.id)) ||
+                                    (cleanApptEmail != null && (cleanApptEmail == cleanPatEmail || cleanApptEmail == patEntity?.email?.trim()?.lowercase()))
+                                }
                                 val deterministicApptId = remember(patient.id) { getDeterministicAppointmentId(patient.id) }
-                                val assignedApptId = patEntity?.trackingCode10Digit ?: thisAppt?.trackingCode10Digit ?: deterministicApptId
+                                val assignedApptId = thisAppt?.trackingCode10Digit?.takeIf { it.isNotBlank() }
+                                    ?: patEntity?.trackingCode10Digit?.takeIf { it.isNotBlank() }
+                                    ?: deterministicApptId
                                 val assignedDoctor = affiliatedDoctors.find { it.id == (thisAppt?.doctorId ?: patEntity?.lastDoctorId) }
                                 val existingRemark = patEntity?.latestClinicalRemarks ?: thisAppt?.let { com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarksMap[it.id]) }
 

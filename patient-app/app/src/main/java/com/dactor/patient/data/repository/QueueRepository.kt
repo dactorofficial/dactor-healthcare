@@ -963,6 +963,7 @@ class QueueRepository @Inject constructor(
 
             val sortedSlots = relevantSlots.sortedBy { SlotRepository.parseTimeToMinutes(it.startTime) ?: 0 }
 
+            val targetDateStr = appointmentDate.trim().take(10)
             val relevantAppointments = allAppointmentsForDate.filter { appt ->
                 val matchDoc = if (!doctorId.isNullOrBlank()) {
                     appt.doctorId == doctorId
