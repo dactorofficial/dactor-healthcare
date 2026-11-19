@@ -593,31 +593,6 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     setTimeout(() => setCopyFeedback(false), 2000)
   }
 
-  // Calculations for live queue status: scoped strictly to this appointment's doctor
-  const waitingPatients = useMemo(
-    () => clinicQueue.filter((a) => {
-      const matchDoc = appointment?.doctorId ? a.doctorId === appointment.doctorId : !a.doctorId
-      const st = (a.status || '').toUpperCase()
-      return (
-        matchDoc &&
-        a.checkinStatus === 'waiting' &&
-        st === 'APPROVED' &&
-        a.status !== 'WAITING_FOR_APPROVAL' &&
-        a.status !== 'pending_payment' &&
-        a.status !== 'UNAPPROVED' &&
-        a.status !== 'EXPIRED'
-      )
-    }),
-    [clinicQueue, appointment?.doctorId]
-  )
-  const inConsultationPatient = useMemo(
-    () => clinicQueue.find((a) => {
-      const matchDoc = appointment?.doctorId ? a.doctorId === appointment.doctorId : !a.doctorId
-      return matchDoc && a.checkinStatus === 'in_consultation'
-    }),
-    [clinicQueue, appointment?.doctorId]
-  )
-
   const apptDateRaw = appointment?.appointmentDate?.trim().slice(0, 10) || ''
   const todayStr = useMemo(() => {
     const now = new Date()
@@ -626,6 +601,34 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
   const isAppointmentToday = Boolean(apptDateRaw && apptDateRaw === todayStr)
   const isPastAppointment = Boolean(apptDateRaw && apptDateRaw < todayStr && !isAppointmentToday)
+
+  // Calculations for live queue status: scoped strictly to this appointment's doctor and specific date
+  const waitingPatients = useMemo(
+    () => clinicQueue.filter((a) => {
+      const matchDoc = appointment?.doctorId ? a.doctorId === appointment.doctorId : !a.doctorId
+      const matchDate = !apptDateRaw || (a.appointmentDate || '').trim().slice(0, 10) === apptDateRaw
+      const st = (a.status || '').toUpperCase()
+      return (
+        matchDoc &&
+        matchDate &&
+        a.checkinStatus === 'waiting' &&
+        st === 'APPROVED' &&
+        a.status !== 'WAITING_FOR_APPROVAL' &&
+        a.status !== 'pending_payment' &&
+        a.status !== 'UNAPPROVED' &&
+        a.status !== 'EXPIRED'
+      )
+    }),
+    [clinicQueue, appointment?.doctorId, apptDateRaw]
+  )
+  const inConsultationPatient = useMemo(
+    () => clinicQueue.find((a) => {
+      const matchDoc = appointment?.doctorId ? a.doctorId === appointment.doctorId : !a.doctorId
+      const matchDate = !apptDateRaw || (a.appointmentDate || '').trim().slice(0, 10) === apptDateRaw
+      return matchDoc && matchDate && a.checkinStatus === 'in_consultation'
+    }),
+    [clinicQueue, appointment?.doctorId, apptDateRaw]
+  )
 
   // Check if the appointment is tomorrow or a future date
   const isFutureOrTomorrow = useMemo(() => {
