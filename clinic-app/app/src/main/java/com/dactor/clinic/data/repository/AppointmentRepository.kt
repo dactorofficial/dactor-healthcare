@@ -1814,7 +1814,7 @@ open class AppointmentRepository @Inject constructor(
                         android.util.Log.w("AppointmentRepository", "Non-fatal Room cache sync ignored: ${roomErr.message}")
                     }
 
-                    val cid = effectiveCid.takeIf { it.isNotBlank() } ?: approvedAppt.clinicId
+                    val cid = effectiveCid?.takeIf { it.isNotBlank() } ?: approvedAppt.clinicId
                     if (cid.isNotBlank()) {
                         val curList = clinicAppointmentsCache[cid] ?: emptyList()
                         clinicAppointmentsCache[cid] = curList.filter { it.id != approvedAppt.id } + approvedAppt

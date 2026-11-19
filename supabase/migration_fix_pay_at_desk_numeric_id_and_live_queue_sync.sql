@@ -237,7 +237,7 @@ BEGIN
     END IF;
 
     -- 7. Generate 10-digit Tracking Code (strictly 10 numeric digits)
-    IF p_tracking_code IS NOT NULL AND p_tracking_code ~ '^\d{10}$' THEN
+    IF p_tracking_code IS NOT NULL AND p_tracking_code ~ '^[1-9][0-9]{9}$' THEN
         -- Check if client-provided code is available
         IF NOT EXISTS (SELECT 1 FROM public.appointments WHERE tracking_code_10_digit = p_tracking_code) THEN
             v_tracking_code := p_tracking_code;

@@ -5952,9 +5952,16 @@ fun AppointmentsTab(
                     }
 
                     val clinicEntries = appt.clinicId?.let { clinicQueueCache[it] } ?: emptyList()
+                    val doctorEntries = clinicEntries.filter {
+                        if (!appt.doctorId.isNullOrBlank()) {
+                            it.doctorId == appt.doctorId
+                        } else {
+                            it.doctorId.isNullOrBlank()
+                        }
+                    }
                     val myPos = qEntry?.queuePosition ?: 1
-                    val liveAhead = if (isToday && clinicEntries.isNotEmpty()) {
-                        val sortedActive = clinicEntries
+                    val liveAhead = if (isToday && doctorEntries.isNotEmpty()) {
+                        val sortedActive = doctorEntries
                             .filter { it.status == "waiting" || it.status == "inside" || it.status == "in_consultation" }
                             .sortedWith(
                                 compareBy<com.dactor.patient.data.model.QueueEntry> { if (it.status == "inside" || it.status == "in_consultation") 0 else 1 }
@@ -5964,15 +5971,15 @@ fun AppointmentsTab(
                         when {
                             qEntry?.status in listOf("inside", "in_consultation") -> 0
                             myIdx >= 0 -> myIdx
-                            else -> clinicEntries.count { (it.status == "waiting" || it.status == "inside") && it.queuePosition < myPos }
+                            else -> doctorEntries.count { (it.status == "waiting" || it.status == "inside") && it.queuePosition < myPos }
                         }
                     } else if (isToday) {
                         (myPos - 1).coerceAtLeast(0)
                     } else {
                         0
                     }
-                    val totalWaiting = if (clinicEntries.isNotEmpty()) {
-                        clinicEntries.count { it.status == "waiting" || it.status == "inside" }
+                    val totalWaiting = if (doctorEntries.isNotEmpty()) {
+                        doctorEntries.count { it.status == "waiting" || it.status == "inside" }
                     } else {
                         liveAhead + 1
                     }
@@ -6010,12 +6017,12 @@ fun AppointmentsTab(
                     val isMissed = !isConsultationDone && (isNoShowStatus || isPastDate)
 
                     // Calculate live queue timing estimate ONLY for today's appointment
-                    val timingEstimate = remember(clinic, doctor, qEntry, liveAhead, isInClinic, isClinicOnBreak, clinicEntries, isToday) {
+                    val timingEstimate = remember(clinic, doctor, qEntry, liveAhead, isInClinic, isClinicOnBreak, doctorEntries, isToday) {
                         if (isToday) {
                             QueueRepository.calculateLiveQueueTimingEstimate(
                                 clinic = clinic,
                                 isDoctorInClinic = isInClinic,
-                                allClinicQueueEntries = clinicEntries,
+                                allClinicQueueEntries = doctorEntries,
                                 targetEntry = qEntry,
                                 fallbackPatientsAhead = liveAhead,
                                 appointmentTime = appt.appointmentTime,

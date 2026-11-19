@@ -244,6 +244,43 @@ class QueueRepository @Inject constructor(
         }
     }
 
+    suspend fun getQueueEntriesForDoctorAndDate(
+        clinicId: String,
+        doctorId: String?,
+        appointmentDate: String,
+        forceRefresh: Boolean = false
+    ): List<QueueEntry> {
+        if (clinicId.isBlank()) return emptyList()
+        val allEntries = getQueueEntriesForDoctor(clinicId, doctorId)
+        val targetDateStr = appointmentDate.trim().take(10)
+        if (targetDateStr.isBlank()) return allEntries
+        return try {
+            val validApptIds = supabaseClient.postgrest["appointments"].select {
+                filter {
+                    eq("clinic_id", clinicId)
+                    eq("appointment_date", targetDateStr)
+                    if (!doctorId.isNullOrBlank()) {
+                        eq("doctor_id", doctorId)
+                    }
+                }
+            }.decodeList<Appointment>()
+                .filter {
+                    it.status.equals("APPROVED", ignoreCase = true) &&
+                    it.status != "WAITING_FOR_APPROVAL" &&
+                    it.status != "pending_payment" &&
+                    it.status != "UNAPPROVED" &&
+                    it.status != "EXPIRED" &&
+                    it.checkinStatus != "cancelled"
+                }
+                .map { it.id }.toSet()
+
+            allEntries.filter { it.appointmentId in validApptIds }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            allEntries
+        }
+    }
+
     fun subscribeToQueueUpdates(clinicId: String, onUpdate: (List<QueueEntry>) -> Unit) {
         // Implementation simplified for compilation
     }
@@ -919,19 +956,22 @@ class QueueRepository @Inject constructor(
             }
 
             val relevantSlots = if (!doctorId.isNullOrBlank()) {
-                val matching = allSlotsForDate.filter { it.doctorId == doctorId }
-                if (matching.isNotEmpty()) matching else allSlotsForDate
+                allSlotsForDate.filter { it.doctorId == doctorId }
             } else {
-                allSlotsForDate
+                allSlotsForDate.filter { it.doctorId.isNullOrBlank() }
             }
 
             val sortedSlots = relevantSlots.sortedBy { SlotRepository.parseTimeToMinutes(it.startTime) ?: 0 }
 
-            val relevantAppointments = if (!doctorId.isNullOrBlank()) {
-                val matching = allAppointmentsForDate.filter { it.doctorId == doctorId }
-                if (matching.isNotEmpty()) matching else allAppointmentsForDate
-            } else {
-                allAppointmentsForDate
+            val relevantAppointments = allAppointmentsForDate.filter { appt ->
+                val matchDoc = if (!doctorId.isNullOrBlank()) {
+                    appt.doctorId == doctorId
+                } else {
+                    appt.doctorId.isNullOrBlank()
+                }
+                val matchDate = appt.appointmentDate.trim().take(10) == targetDateStr
+                val notCancelled = appt.checkinStatus != "cancelled"
+                matchDoc && matchDate && notCancelled
             }
 
             var targetSlot = sortedSlots.firstOrNull { it.id == targetSlotId }

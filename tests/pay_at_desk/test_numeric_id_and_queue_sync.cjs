@@ -40,17 +40,14 @@ test('SQL Migration uses generate_unique_tracking_code_10() instead of md5 hex s
 });
 
 test('SQL Migration defines 17-param create_patient_appointment with p_tracking_code', () => {
-  assert(migrationSql.includes('p_tracking_code text DEFAULT NULL'), 'create_patient_appointment signature missing p_tracking_code parameter');
+  assert(migrationSql.includes('p_tracking_code TEXT DEFAULT NULL'), 'create_patient_appointment signature missing p_tracking_code parameter');
   assert(migrationSql.includes("p_tracking_code ~ '^[1-9][0-9]{9}$'"), 'Missing 10-digit numeric regex validation for p_tracking_code');
 });
 
 test('SQL Migration maintains 16-param backward-compatible wrapper', () => {
   assert(migrationSql.includes('CREATE OR REPLACE FUNCTION public.create_patient_appointment('), 'Missing create_patient_appointment definition');
-  // Check that the 16-param wrapper delegates to 17-param with NULL
-  assert(
-    migrationSql.includes('p_payment_mode text\n) RETURNS uuid') || migrationSql.includes('p_payment_mode text) RETURNS uuid') || migrationSql.includes('p_payment_mode text\r\n) RETURNS uuid'),
-    'Missing 16-param overload definition'
-  );
+  assert(migrationSql.includes('p_fee_amount NUMERIC(10, 2) DEFAULT NULL'), 'Missing 16-param overload last argument');
+  assert(migrationSql.includes('p_tracking_code => NULL'), 'Missing forwarding of NULL p_tracking_code');
 });
 
 test('SQL Migration triggers schema reload for PostgREST', () => {
@@ -60,10 +57,14 @@ test('SQL Migration triggers schema reload for PostgREST', () => {
 // 2. Patient App Repository Verification
 const patientApptRepoPath = path.join(rootDir, 'patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt');
 const patientApptRepo = fs.readFileSync(patientApptRepoPath, 'utf8');
+const patientGeneratorPath = path.join(rootDir, 'patient-app/app/src/main/java/com/dactor/patient/domain/util/TrackingCodeGenerator.kt');
+const patientGenerator = fs.readFileSync(patientGeneratorPath, 'utf8');
 
-test('Patient App AppointmentRepository generates 10-digit numeric tracking code', () => {
-  assert(patientApptRepo.includes('1000000000L..9999999999L'), 'Patient app missing 10-digit numeric range generation');
+test('Patient App generates and passes 10-digit numeric tracking code', () => {
+  assert(patientGenerator.includes('(1..9).random()'), 'TrackingCodeGenerator must start with 1-9');
+  assert(patientGenerator.includes('(0..9).random()'), 'TrackingCodeGenerator must generate remaining 9 digits');
   assert(patientApptRepo.includes('"p_tracking_code"'), 'Patient app RPC parameters missing p_tracking_code');
+  assert(patientApptRepo.includes('appointment.trackingCode10Digit.all { it.isDigit() }'), 'Missing numeric validation in patient repo');
 });
 
 // 3. Clinic App Cache Invalidation & Live Queue Self-Healing Verification
@@ -76,8 +77,8 @@ test('Clinic App AppointmentRepository provides cache invalidation hooks', () =>
 });
 
 test('Clinic App approvePayAtDeskAppointment immediately synchronizes Room and in-memory caches', () => {
-  assert(clinicApptRepo.includes('clinicAppointmentsCache[clinicId]'), 'Missing in-memory clinicAppointmentsCache update on approval');
-  assert(clinicApptRepo.includes('appointmentDao.upsert(remoteAppt)'), 'Missing Room upsert of remote appointment on approval');
+  assert(clinicApptRepo.includes('clinicAppointmentsCache[cid]'), 'Missing in-memory clinicAppointmentsCache update on approval');
+  assert(clinicApptRepo.includes('appointmentDao?.upsert('), 'Missing Room upsert of approved appointment on approval');
 });
 
 const clinicQueueRepoPath = path.join(rootDir, 'clinic-app/app/src/main/java/com/dactor/clinic/data/repository/QueueRepository.kt');
@@ -108,7 +109,7 @@ const doctorQueueViewModelPath = path.join(rootDir, 'clinic-app/app/src/main/jav
 const doctorQueueViewModel = fs.readFileSync(doctorQueueViewModelPath, 'utf8');
 
 test('DoctorQueueViewModel refreshes missing appointments for doctor queue', () => {
-  assert(doctorQueueViewModel.includes('refreshAppointmentsByIds(missingIds)'), 'DoctorQueueViewModel missing refreshAppointmentsByIds');
+  assert(doctorQueueViewModel.includes('refreshAppointmentsByIds(missingEntryIds)'), 'DoctorQueueViewModel missing refreshAppointmentsByIds');
 });
 
 // 4. Web Application Parity Verification

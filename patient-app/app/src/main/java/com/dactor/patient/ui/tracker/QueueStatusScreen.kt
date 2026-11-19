@@ -449,9 +449,14 @@ fun QueueStatusScreen(
                     tokenNumber = slotResult?.cumulativePosition ?: (if (tokenNumber > 0) tokenNumber else 1)
                     liveTimingEstimate = null // Silence live countdown for advance dates
                 } else if (appt.clinicId.isNotBlank() && isAppointmentToday) {
-                    val clinicEntries = queueRepository?.getQueueEntriesForClinic(appt.clinicId) ?: emptyList()
+                    val doctorDateEntries = queueRepository?.getQueueEntriesForDoctorAndDate(
+                        clinicId = appt.clinicId,
+                        doctorId = appt.doctorId,
+                        appointmentDate = appt.appointmentDate,
+                        forceRefresh = isDeltaOnly
+                    ) ?: emptyList()
                     val myPos = qEntry?.queuePosition ?: tokenNumber
-                    val sortedActive = clinicEntries
+                    val sortedActive = doctorDateEntries
                         .filter { it.status == "waiting" || it.status == "inside" || it.status == "in_consultation" }
                         .sortedWith(
                             compareBy<com.dactor.patient.data.model.QueueEntry> { if (it.status == "inside" || it.status == "in_consultation") 0 else 1 }
@@ -461,17 +466,17 @@ fun QueueStatusScreen(
                     val liveAhead = when {
                         qEntry?.status in listOf("inside", "in_consultation") -> 0
                         myIdx >= 0 -> myIdx
-                        else -> clinicEntries.count { (it.status == "waiting" || it.status == "inside") && it.queuePosition < myPos }
+                        else -> doctorDateEntries.count { (it.status == "waiting" || it.status == "inside") && it.queuePosition < myPos }
                     }
                     patientsAhead = liveAhead.coerceAtLeast(0)
                     tokenNumber = if (myPos > 0) myPos else (slotResult?.cumulativePosition ?: 1)
-                    isAnyoneInsideDoctorCabin = clinicEntries.any { it.status == "inside" || it.status == "in_consultation" }
+                    isAnyoneInsideDoctorCabin = doctorDateEntries.any { it.status == "inside" || it.status == "in_consultation" }
 
-                    // Real estimated timing calculation using QueueRepository engine
+                    // Real estimated timing calculation using QueueRepository engine scoped strictly to specific doctor and date
                     val timing = QueueRepository.calculateLiveQueueTimingEstimate(
                         clinic = clinicObj,
                         isDoctorInClinic = isDoctorInClinic,
-                        allClinicQueueEntries = clinicEntries,
+                        allClinicQueueEntries = doctorDateEntries,
                         targetEntry = qEntry,
                         fallbackPatientsAhead = liveAhead,
                         appointmentTime = appt.appointmentTime,

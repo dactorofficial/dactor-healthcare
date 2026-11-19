@@ -187,8 +187,8 @@ fun QueueBoardScreen(
     }
 
     var isQueueLoading by remember { mutableStateOf(initialMappedQueueItems.isEmpty()) }
-    var selectedDoctorFilterId by remember(savedDocId, initialDoctorId) {
-        mutableStateOf<String?>(initialDoctorId?.takeIf { it.isNotBlank() } ?: savedDocId?.takeIf { it.isNotBlank() })
+    var selectedDoctorFilterId by remember(savedDocId, initialDoctorId, isLabClinic) {
+        mutableStateOf<String?>(if (isLabClinic) null else (initialDoctorId?.takeIf { it.isNotBlank() } ?: savedDocId?.takeIf { it.isNotBlank() }))
     }
 
     fun isDiagnosticClinic(c: com.dactor.clinic.data.model.Clinic?, item: QueueItemUi? = null): Boolean {
@@ -529,7 +529,7 @@ fun QueueBoardScreen(
                             val currentKnownIds = (cached.map { it.id } + queueItems.map { it.appointmentId }).toSet()
                             val newAppts = appointmentRepository?.checkNewAppointments(
                                 clinicId = effectiveClinicId,
-                                doctorId = selectedDoctorFilterId,
+                                doctorId = if (isLabClinic) null else selectedDoctorFilterId,
                                 date = selectedQueueDate,
                                 knownApptIds = currentKnownIds
                             ) ?: emptyList()
@@ -557,6 +557,11 @@ fun QueueBoardScreen(
                 if (c != null) {
                     currentClinic = c
                     lastClinicMetaFetchMs = nowTime
+                    val diag = isDiagnosticClinic(c)
+                    isLabClinic = diag
+                    if (diag) {
+                        selectedDoctorFilterId = null
+                    }
                     if (System.currentTimeMillis() - lastBreakToggleMs > 12_000L) {
                         isClinicOnBreak = c.isOnBreak == true
                     }
@@ -567,7 +572,7 @@ fun QueueBoardScreen(
                 if (docs.isNotEmpty()) {
                     clinicDoctors = docs
                     lastDoctorsFetchMs = nowTime
-                    if (selectedDoctorFilterId == null && docs.size == 1 && initialDoctorId.isNullOrBlank()) {
+                    if (!isLabClinic && selectedDoctorFilterId == null && docs.size == 1 && initialDoctorId.isNullOrBlank()) {
                         selectedDoctorFilterId = docs.first().id
                     }
                 }
@@ -759,7 +764,7 @@ fun QueueBoardScreen(
     val liveQueue = queueItems.filter {
         (it.status == "waiting" || it.status == "inside") &&
         (it.appointmentDate.isBlank() || it.appointmentDate == selectedQueueDate) &&
-        (selectedDoctorFilterId == null || it.doctorId == selectedDoctorFilterId || (it.doctorId.isNullOrBlank() && (isLabClinic || clinicDoctors.size <= 1)))
+        (if (isLabClinic) true else (selectedDoctorFilterId == null || it.doctorId == selectedDoctorFilterId || (it.doctorId.isNullOrBlank() && clinicDoctors.size <= 1)))
     }.sortedWith(
         compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }
             .thenBy { it.queuePosition }
@@ -767,12 +772,12 @@ fun QueueBoardScreen(
     val processingQueue = queueItems.filter {
         it.status in processingStatuses &&
         (it.appointmentDate.isBlank() || it.appointmentDate == selectedQueueDate) &&
-        (selectedDoctorFilterId == null || it.doctorId == selectedDoctorFilterId || (it.doctorId.isNullOrBlank() && (isLabClinic || clinicDoctors.size <= 1)))
+        (if (isLabClinic) true else (selectedDoctorFilterId == null || it.doctorId == selectedDoctorFilterId || (it.doctorId.isNullOrBlank() && clinicDoctors.size <= 1)))
     }
     val pastQueue = queueItems.filter {
         it.status in pastStatuses &&
         (it.appointmentDate.isBlank() || it.appointmentDate == selectedQueueDate) &&
-        (selectedDoctorFilterId == null || it.doctorId == selectedDoctorFilterId || (it.doctorId.isNullOrBlank() && (isLabClinic || clinicDoctors.size <= 1)))
+        (if (isLabClinic) true else (selectedDoctorFilterId == null || it.doctorId == selectedDoctorFilterId || (it.doctorId.isNullOrBlank() && clinicDoctors.size <= 1)))
     }
     val insideCount = liveQueue.count { it.status == "inside" }
     val waitingCount = liveQueue.count { it.status == "waiting" }
@@ -1170,8 +1175,8 @@ fun QueueBoardScreen(
         }
     }
 
-            // ── DEDICATED DOCTOR FILTER ROW (Matches media_1793087755798_d126b7f8.png) ──
-            if (clinicDoctors.isNotEmpty()) {
+            // ── DEDICATED DOCTOR FILTER ROW (Suppressed for Diagnostic Lab Clinics) ──
+            if (!isLabClinic && clinicDoctors.isNotEmpty()) {
                 item(key = "doctor_filter_row") {
                     Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
                         Row(
@@ -1257,7 +1262,7 @@ fun QueueBoardScreen(
                         }
                     }
                 }
-            } else if (isDoctorsLoading) {
+            } else if (!isLabClinic && isDoctorsLoading) {
                 item(key = "doctor_filter_row_skeleton") {
                     Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2165,7 +2170,7 @@ fun QueueBoardScreen(
                                                     color = Color(0xFF0284C7)
                                                 )
                                             }
-                                            if (!item.doctorName.isNullOrBlank()) {
+                                            if (!isLabClinic && !item.doctorName.isNullOrBlank()) {
                                                 Text(
                                                     text = "👨‍⚕️ ${item.doctorName}",
                                                     fontSize = 11.5.sp,
@@ -2716,7 +2721,7 @@ fun QueueBoardScreen(
                                                                 optimisticallyUpdateStatus(item.id, "inside")
                                                                 coroutineScope.launch {
                                                                     queueRepository?.updateQueueStatus(item.id, "inside", effectiveClinicId)
-                                                                    val docName = item.doctorName?.takeIf { it.isNotBlank() } ?: "Attending Physician"
+                                                                    val docName = if (isLabClinic) "Sample Collection Counter" else (item.doctorName?.takeIf { it.isNotBlank() } ?: "Attending Physician")
                                                                     queueRepository?.notifyCallInside(
                                                                         appointmentId = item.appointmentId,
                                                                         patientName = item.patientName,
