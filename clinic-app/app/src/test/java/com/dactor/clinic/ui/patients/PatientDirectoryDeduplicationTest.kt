@@ -29,6 +29,10 @@ class PatientDirectoryDeduplicationTest {
 
         override suspend fun getPatientById(id: String): PatientEntity? = storage[id]
 
+        override suspend fun getPatientByTrackingCode(code: String): PatientEntity? {
+            return storage.values.firstOrNull { it.trackingCode10Digit == code }
+        }
+
         override suspend fun searchPatients(clinicId: String, query: String): List<PatientEntity> {
             val q = query.lowercase()
             return storage.values.filter { it.clinicId == clinicId && (it.fullName.lowercase().contains(q) || it.phone?.contains(q) == true) }
@@ -258,7 +262,7 @@ class PatientDirectoryDeduplicationTest {
         )
 
         val pId = PatientIdentitySync.getDeterministicPatientIdForPhone("9849494946")
-        val isCompletedAppt = appt.checkinStatus?.lowercase() in listOf("completed", "done", "visited") || !appt.consultationCompletedAt.isNullOrBlank()
+        val isCompletedAppt = appt.checkinStatus?.lowercase() in listOf("completed", "done", "visited")
         val existing = fakeDao.getPatientById(pId)
 
         val latestCompletedDate = when {
@@ -328,7 +332,7 @@ class PatientDirectoryDeduplicationTest {
         // Simulate 10 polling ticks (e.g. 50 seconds of polling)
         for (i in 1..10) {
             val existing = fakeDao.getPatientById(pId)
-            val isCompletedAppt = todayAppt.checkinStatus?.lowercase() in listOf("completed", "done", "visited") || !todayAppt.consultationCompletedAt.isNullOrBlank()
+            val isCompletedAppt = todayAppt.checkinStatus?.lowercase() in listOf("completed", "done", "visited")
             val latestCompletedDate = when {
                 isCompletedAppt && existing?.lastVisitDate != null -> if (existing.lastVisitDate > todayAppt.appointmentDate) existing.lastVisitDate else todayAppt.appointmentDate
                 isCompletedAppt -> todayAppt.appointmentDate
