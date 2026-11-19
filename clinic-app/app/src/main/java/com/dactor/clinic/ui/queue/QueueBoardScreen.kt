@@ -187,8 +187,8 @@ fun QueueBoardScreen(
     }
 
     var isQueueLoading by remember { mutableStateOf(initialMappedQueueItems.isEmpty()) }
-    var selectedDoctorFilterId by remember(savedDocId, initialDoctorId, isLabClinic) {
-        mutableStateOf<String?>(if (isLabClinic) null else (initialDoctorId?.takeIf { it.isNotBlank() } ?: savedDocId?.takeIf { it.isNotBlank() }))
+    var selectedDoctorFilterId by remember(savedDocId, initialDoctorId) {
+        mutableStateOf<String?>(initialDoctorId?.takeIf { it.isNotBlank() } ?: savedDocId?.takeIf { it.isNotBlank() })
     }
 
     fun isDiagnosticClinic(c: com.dactor.clinic.data.model.Clinic?, item: QueueItemUi? = null): Boolean {

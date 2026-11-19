@@ -678,12 +678,14 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     patientsAhead = multiSlotResult ? Math.max(0, multiSlotResult.patientsAheadInDay) : 0
     displayTokenNumber = multiSlotResult?.cumulativePosition || appointment?.queueNumber || 1
   } else if (appointment && isAppointmentToday) {
-    // For today: count active queue patients ahead for this doctor
+    // For today: count active queue patients ahead strictly for this specific doctor and specific date
     const activeWaiting = clinicQueue.filter(
       (a) => {
         const matchDoc = appointment?.doctorId ? a.doctorId === appointment.doctorId : !a.doctorId
+        const matchDate = !apptDateRaw || (a.appointmentDate || '').trim().slice(0, 10) === apptDateRaw
         return (
           matchDoc &&
+          matchDate &&
           a.id !== inConsultationPatient?.id &&
           !['completed', 'done', 'cancelled', 'no_show'].includes(a.checkinStatus?.toLowerCase() || '') &&
           (a.status || '').toUpperCase() === 'APPROVED' &&

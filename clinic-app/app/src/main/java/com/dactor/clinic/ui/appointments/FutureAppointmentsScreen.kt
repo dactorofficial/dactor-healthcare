@@ -1056,16 +1056,59 @@ fun FutureAppointmentsScreen(
 
             AlertDialog(
                 onDismissRequest = { showAddSlotDialog = false },
-                title = { Text("Add Slot for $selectedDate", fontWeight = FontWeight.Bold) },
+                title = { Text(if (isLabClinic) "Add Sample Collection Slot for $selectedDate" else "Add Slot for $selectedDate", fontWeight = FontWeight.Bold) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Doctor Assignment", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        if (userRole == "doctor" && doctors.isNotEmpty()) {
-                            val myDoc = selectedDoctor ?: doctors.find { it.id == doctorId } ?: doctors.first()
+                        if (!isLabClinic) {
+                            Text("Doctor Assignment", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            if (userRole == "doctor" && doctors.isNotEmpty()) {
+                                val myDoc = selectedDoctor ?: doctors.find { it.id == doctorId } ?: doctors.first()
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFE0F2FE),
+                                    border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(18.dp))
+                                        Text(
+                                            "Assigning to: Dr. ${myDoc.fullName} (${myDoc.specialty ?: "OPD"})",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color(0xFF0369A1)
+                                        )
+                                    }
+                                }
+                            } else if (doctors.isNotEmpty()) {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    doctors.forEach { doc ->
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { selectedDoctor = doc }
+                                        ) {
+                                            RadioButton(selected = selectedDoctor?.id == doc.id, onClick = { selectedDoctor = doc })
+                                            Text("${doc.fullName} (${doc.specialty ?: "General"})", fontSize = 13.sp)
+                                        }
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    "No doctors found in clinic. Please register a doctor first.",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFFDC2626)
+                                )
+                            }
+                        } else {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFFE0F2FE),
-                                border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                                color = Color(0xFFF0FDF4),
+                                border = BorderStroke(1.dp, Color(0xFFBBF7D0)),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(
@@ -1073,35 +1116,15 @@ fun FutureAppointmentsScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.Science, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(18.dp))
                                     Text(
-                                        "Assigning to: Dr. ${myDoc.fullName} (${myDoc.specialty ?: "OPD"})",
+                                        "Diagnostic Lab Phlebotomy Counter (Facility-Wide)",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = Color(0xFF0369A1)
+                                        color = Color(0xFF166534)
                                     )
                                 }
                             }
-                        } else if (doctors.isNotEmpty()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                doctors.forEach { doc ->
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable { selectedDoctor = doc }
-                                    ) {
-                                        RadioButton(selected = selectedDoctor?.id == doc.id, onClick = { selectedDoctor = doc })
-                                        Text("${doc.fullName} (${doc.specialty ?: "General"})", fontSize = 13.sp)
-                                    }
-                                }
-                            }
-                        } else {
-                            Text(
-                                "No doctors found in clinic. Please register a doctor first.",
-                                fontSize = 12.sp,
-                                color = Color(0xFFDC2626)
-                            )
                         }
 
                         Text("Slot Schedule Time Window:", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -1186,9 +1209,9 @@ fun FutureAppointmentsScreen(
                     Button(
                         onClick = {
                             if (hasTimeError) return@Button
-                            val capVal = (slotCapacity.toIntOrNull() ?: 5).coerceAtLeast(1)
-                            val doc = selectedDoctor ?: doctors.firstOrNull()
-                            if (doc == null) {
+                            val capVal = (slotCapacity.toIntOrNull() ?: if (isLabClinic) 25 else 5).coerceAtLeast(1)
+                            val doc = if (isLabClinic) null else (selectedDoctor ?: doctors.firstOrNull())
+                            if (!isLabClinic && doc == null) {
                                 actionMessage = "Please select or register a doctor first."
                                 return@Button
                             }
@@ -1203,7 +1226,7 @@ fun FutureAppointmentsScreen(
                             val newSlot = Slot(
                                 id = UUID.randomUUID().toString(),
                                 clinicId = effectiveClinicId,
-                                doctorId = doc.id,
+                                doctorId = doc?.id,
                                 slotDate = selectedDate,
                                 startTime = slotStartTime.trim(),
                                 endTime = slotEndTime.trim(),
@@ -1213,19 +1236,20 @@ fun FutureAppointmentsScreen(
                             )
                             coroutineScope.launch {
                                 val created = slotRepository?.createSlot(newSlot)
+                                val labelText = if (isLabClinic) "Sample Collection Slot" else (doc?.fullName ?: "OPD")
                                 if (created != null) {
-                                    actionMessage = "✓ Slot published for $selectedDate (${doc.fullName}: ${format12h(newSlot.startTime)} - ${format12h(newSlot.endTime)})!"
+                                    actionMessage = "✓ Slot published for $selectedDate ($labelText: ${format12h(newSlot.startTime)} - ${format12h(newSlot.endTime)})!"
                                     slots = (slots + created).sortedBy { it.startTime }
                                     allClinicSlots = allClinicSlots + created
                                 } else {
-                                    actionMessage = "✓ Slot published for $selectedDate (${doc.fullName})!"
+                                    actionMessage = "✓ Slot published for $selectedDate ($labelText)!"
                                     loadSlots()
                                 }
                                 showAddSlotDialog = false
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0097A7)),
-                        enabled = !hasTimeError && (selectedDoctor != null || doctors.isNotEmpty())
+                        enabled = !hasTimeError && (isLabClinic || selectedDoctor != null || doctors.isNotEmpty())
                     ) {
                         Text("Add slot", color = Color.White, fontWeight = FontWeight.Bold)
                     }
