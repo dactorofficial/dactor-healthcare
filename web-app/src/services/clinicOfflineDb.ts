@@ -288,13 +288,22 @@ export function closeClinicOfflineDb(): void {
 export async function deleteClinicOfflineDb(): Promise<void> {
   closeClinicOfflineDb();
   const factory = getIDBFactory();
-  return new Promise<void>((resolve, reject) => {
-    const req = factory.deleteDatabase(DB_NAME);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error || new Error('Failed to delete clinic offline database'));
-    req.onblocked = () => {
-      console.warn('[clinicOfflineDb] Database deletion blocked by another connection');
-    };
+  return new Promise<void>((resolve) => {
+    try {
+      const req = factory.deleteDatabase(DB_NAME);
+      req.onsuccess = () => resolve();
+      req.onerror = () => {
+        console.warn('[clinicOfflineDb] Database deletion failed or skipped:', req.error);
+        resolve();
+      };
+      req.onblocked = () => {
+        console.warn('[clinicOfflineDb] Database deletion blocked by another connection');
+        resolve();
+      };
+    } catch (err) {
+      console.warn('[clinicOfflineDb] deleteClinicOfflineDb error:', err);
+      resolve();
+    }
   });
 }
 

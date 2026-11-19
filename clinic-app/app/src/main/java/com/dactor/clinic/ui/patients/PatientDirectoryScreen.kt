@@ -292,59 +292,67 @@ fun PatientDirectoryScreen(
         }
 
         if (appointmentRepository != null) {
-            val isDocMode = userRole == "doctor" && savedDoctorId.isNotBlank()
-            val docIdToUse = savedDoctorId
+            try {
+                val isDocMode = userRole == "doctor" && savedDoctorId.isNotBlank()
+                val docIdToUse = savedDoctorId
 
-            val fetched = if (isDocMode && docIdToUse.isNotBlank()) {
-                val docAll = appointmentRepository.getAppointmentsByDoctor(docIdToUse)
-                docAll.filter { it.appointmentDate == today }
-            } else {
-                val cId = if (effectiveClinicId.isNotBlank()) effectiveClinicId
-                else effectiveSessionManager.getSavedClinicId() ?: ""
-                if (cId.isNotBlank()) {
-                    if (doctorRepository != null && affiliatedDoctors.isEmpty()) {
-                        affiliatedDoctors = doctorRepository.getDoctorsByClinic(cId)
-                    }
-                    // Daily Active Sync: Sync ONLY patients who have appointments on the day
-                    appointmentRepository.getAppointmentsByDate(cId, today)
-                } else emptyList()
-            }
-            // Strict Clinic Directory Guard: Only APPROVED appointments belong in the Clinic Directory & Live OPD Queue
-            val approvedOnly = fetched.filter {
-                it.status.equals("APPROVED", ignoreCase = true) &&
-                it.status != "WAITING_FOR_APPROVAL" &&
-                it.status != "pending_payment" &&
-                it.status != "UNAPPROVED" &&
-                it.status != "EXPIRED" &&
-                it.checkinStatus != "cancelled"
-            }
-            if (approvedOnly.isNotEmpty() || appointments.isEmpty()) {
-                appointments = approvedOnly
-            }
+                val fetched = if (isDocMode && docIdToUse.isNotBlank()) {
+                    val docAll = appointmentRepository.getAppointmentsByDoctor(docIdToUse)
+                    docAll.filter { it.appointmentDate == today }
+                } else {
+                    val cId = if (effectiveClinicId.isNotBlank()) effectiveClinicId
+                    else effectiveSessionManager.getSavedClinicId() ?: ""
+                    if (cId.isNotBlank()) {
+                        if (doctorRepository != null && affiliatedDoctors.isEmpty()) {
+                            affiliatedDoctors = doctorRepository.getDoctorsByClinic(cId)
+                        }
+                        // Daily Active Sync: Sync ONLY patients who have appointments on the day
+                        appointmentRepository.getAppointmentsByDate(cId, today)
+                    } else emptyList()
+                }
+                // Strict Clinic Directory Guard: Only APPROVED appointments belong in the Clinic Directory & Live OPD Queue
+                val approvedOnly = fetched.filter {
+                    it.status.equals("APPROVED", ignoreCase = true) &&
+                    it.status != "WAITING_FOR_APPROVAL" &&
+                    it.status != "pending_payment" &&
+                    it.status != "UNAPPROVED" &&
+                    it.status != "EXPIRED" &&
+                    it.checkinStatus != "cancelled"
+                }
+                if (approvedOnly.isNotEmpty() || appointments.isEmpty()) {
+                    appointments = approvedOnly
+                }
 
-            // Sync patients who have appointments on the day into the persistent local patient directory
-            if (patientRepository != null && approvedOnly.isNotEmpty()) {
-                patientRepository.upsertFromAppointments(effectiveClinicId, approvedOnly)
-                localPatients = patientRepository.getLocalPatients(effectiveClinicId)
-            }
+                // Sync patients who have appointments on the day into the persistent local patient directory
+                if (patientRepository != null && approvedOnly.isNotEmpty()) {
+                    patientRepository.upsertFromAppointments(effectiveClinicId, approvedOnly)
+                    localPatients = patientRepository.getLocalPatients(effectiveClinicId)
+                }
 
-            // Load remarks in batch ONLY for today's active appointments
-            if (billingRepository != null && approvedOnly.isNotEmpty()) {
-                val apptIds = approvedOnly.map { it.id }
-                val hasMissingRemarks = apptIds.any { it !in remarksMap }
-                if (remarksMap.isEmpty() || hasMissingRemarks) {
-                    val map = billingRepository.getRemarksForAppointments(apptIds)
-                    if (map.isNotEmpty()) {
-                        remarksMap = remarksMap + map
+                // Load remarks in batch ONLY for today's active appointments
+                if (billingRepository != null && approvedOnly.isNotEmpty()) {
+                    val apptIds = approvedOnly.map { it.id }
+                    val hasMissingRemarks = apptIds.any { it !in remarksMap }
+                    if (remarksMap.isEmpty() || hasMissingRemarks) {
+                        val map = billingRepository.getRemarksForAppointments(apptIds)
+                        if (map.isNotEmpty()) {
+                            remarksMap = remarksMap + map
+                        }
                     }
                 }
+            } catch (e: Exception) {
+                android.util.Log.e("PatientDirectoryScreen", "Error loading appointments", e)
             }
         }
     }
 
     LaunchedEffect(effectiveClinicId, savedDoctorId, userRole, clinicId) {
         while (isActive) {
-            loadData()
+            try {
+                loadData()
+            } catch (e: Exception) {
+                android.util.Log.e("PatientDirectoryScreen", "Loop error", e)
+            }
             delay(5000L)
         }
     }

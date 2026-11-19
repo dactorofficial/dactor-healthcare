@@ -172,9 +172,16 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
     let isMounted = true
     async function initGoogleRedirectCheck() {
       try {
-        const redirected = await checkRedirectGoogleUser()
-        if (isMounted && redirected && redirected.email) {
-          await processPatientLoginForGoogleUser(redirected.email, redirected.uid, redirected.photoURL)
+        const targetPortal =
+          sessionStorage.getItem('dactor_oauth_target_portal') ||
+          localStorage.getItem('dactor_oauth_target_portal')
+        if (targetPortal === 'patient' || targetPortal === 'patient-portal' || targetPortal === 'account') {
+          const redirected = await checkRedirectGoogleUser({ requireRedirectOnly: true })
+          if (isMounted && redirected && redirected.email) {
+            sessionStorage.removeItem('dactor_oauth_target_portal')
+            localStorage.removeItem('dactor_oauth_target_portal')
+            await processPatientLoginForGoogleUser(redirected.email, redirected.uid, redirected.photoURL)
+          }
         }
       } catch (err) {
         console.warn('checkRedirect error in Login:', err)
@@ -183,7 +190,17 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
     initGoogleRedirectCheck()
 
     const unsub = onFirebaseAuthStateChanged((u) => {
-      if (isMounted && u && u.email && currentView === 'auth_choice' && !isLoading) {
+      const targetPortal =
+        sessionStorage.getItem('dactor_oauth_target_portal') ||
+        localStorage.getItem('dactor_oauth_target_portal')
+      if (
+        isMounted &&
+        u &&
+        u.email &&
+        currentView === 'auth_choice' &&
+        !isLoading &&
+        (targetPortal === 'patient' || targetPortal === 'patient-portal' || targetPortal === 'account')
+      ) {
         processPatientLoginForGoogleUser(u.email, u.uid, u.photoURL)
       }
     })

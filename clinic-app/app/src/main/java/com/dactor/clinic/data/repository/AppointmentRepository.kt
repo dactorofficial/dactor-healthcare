@@ -124,6 +124,22 @@ open class AppointmentRepository @Inject constructor(
         doctorAppointmentsCache.clear()
     }
 
+    fun invalidateClinicAppointments(clinicId: String) {
+        if (clinicId.isNotBlank()) {
+            clinicAppointmentsCache.remove(clinicId)
+        }
+    }
+
+    fun invalidateDoctorAppointments(doctorId: String? = null) {
+        if (doctorId.isNullOrBlank()) {
+            doctorAppointmentsCache.clear()
+        } else {
+            doctorAppointmentsCache.keys.filter { it == doctorId || it.startsWith("${doctorId}_") }.forEach {
+                doctorAppointmentsCache.remove(it)
+            }
+        }
+    }
+
     /**
      * Targeted live queue refresh: fetches authoritative appointment state ONLY for
      * the upcoming 3-4 patients currently waiting/inside in queue, minimizing database load.
@@ -1480,13 +1496,42 @@ open class AppointmentRepository @Inject constructor(
                     )
                 }
 
-                // Normal approval: Synchronize local Room database safely
+                // Normal approval: Synchronize local Room database safely and update in-memory caches
                 try {
-                    appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
-                        appointmentDao.upsert(local.copy(status = "APPROVED", checkinStatus = "checked_in", syncStatus = "synced"))
+                    val remoteAppt = try {
+                        supabaseClient.postgrest["appointments"].select {
+                            filter { eq("id", appointmentId) }
+                        }.decodeSingleOrNull<Appointment>()
+                    } catch (_: Exception) { null }
+
+                    val approvedAppt = remoteAppt ?: appointmentDao?.getAppointmentById(appointmentId)?.toDomainModel()?.copy(
+                        status = "APPROVED",
+                        checkinStatus = "checked_in"
+                    )
+                    if (approvedAppt != null) {
+                        try {
+                            appointmentDao?.upsert(AppointmentEntity.fromDomainModel(approvedAppt, syncStatus = "synced"))
+                        } catch (roomErr: Exception) {
+                            android.util.Log.w("AppointmentRepository", "Non-fatal Room cache sync ignored: ${roomErr.message}")
+                        }
+
+                        val cid = safeClinicId ?: approvedAppt.clinicId
+                        if (cid.isNotBlank()) {
+                            val curList = clinicAppointmentsCache[cid] ?: emptyList()
+                            clinicAppointmentsCache[cid] = curList.filter { it.id != approvedAppt.id } + approvedAppt
+                        }
+                        approvedAppt.doctorId?.let { docId ->
+                            val curDocList = doctorAppointmentsCache[docId] ?: emptyList()
+                            doctorAppointmentsCache[docId] = curDocList.filter { it.id != approvedAppt.id } + approvedAppt
+                            if (approvedAppt.appointmentDate.isNotBlank()) {
+                                val dateKey = "${docId}_${approvedAppt.appointmentDate}"
+                                val curDocDateList = doctorAppointmentsCache[dateKey] ?: emptyList()
+                                doctorAppointmentsCache[dateKey] = curDocDateList.filter { it.id != approvedAppt.id } + approvedAppt
+                            }
+                        }
                     }
                 } catch (roomErr: Exception) {
-                    android.util.Log.w("AppointmentRepository", "Non-fatal Room cache sync ignored: ${roomErr.message}")
+                    android.util.Log.w("AppointmentRepository", "Non-fatal cache sync ignored: ${roomErr.message}")
                 }
                 return@withContext Result.success(
                     ApproveAppointmentResult(
@@ -1750,13 +1795,42 @@ open class AppointmentRepository @Inject constructor(
                 }
             }
 
-            // Update local Room database safely
+            // Update local Room database and in-memory caches safely
             try {
-                appointmentDao?.getAppointmentById(appointmentId)?.let { local ->
-                    appointmentDao.upsert(local.copy(status = "APPROVED", checkinStatus = "checked_in", syncStatus = "synced"))
+                val remoteAppt = try {
+                    supabaseClient.postgrest["appointments"].select {
+                        filter { eq("id", appointmentId) }
+                    }.decodeSingleOrNull<Appointment>()
+                } catch (_: Exception) { null }
+
+                val approvedAppt = remoteAppt ?: appointmentDao?.getAppointmentById(appointmentId)?.toDomainModel()?.copy(
+                    status = "APPROVED",
+                    checkinStatus = "checked_in"
+                )
+                if (approvedAppt != null) {
+                    try {
+                        appointmentDao?.upsert(AppointmentEntity.fromDomainModel(approvedAppt, syncStatus = "synced"))
+                    } catch (roomErr: Exception) {
+                        android.util.Log.w("AppointmentRepository", "Non-fatal Room cache sync ignored: ${roomErr.message}")
+                    }
+
+                    val cid = effectiveCid.takeIf { it.isNotBlank() } ?: approvedAppt.clinicId
+                    if (cid.isNotBlank()) {
+                        val curList = clinicAppointmentsCache[cid] ?: emptyList()
+                        clinicAppointmentsCache[cid] = curList.filter { it.id != approvedAppt.id } + approvedAppt
+                    }
+                    approvedAppt.doctorId?.let { docId ->
+                        val curDocList = doctorAppointmentsCache[docId] ?: emptyList()
+                        doctorAppointmentsCache[docId] = curDocList.filter { it.id != approvedAppt.id } + approvedAppt
+                        if (approvedAppt.appointmentDate.isNotBlank()) {
+                            val dateKey = "${docId}_${approvedAppt.appointmentDate}"
+                            val curDocDateList = doctorAppointmentsCache[dateKey] ?: emptyList()
+                            doctorAppointmentsCache[dateKey] = curDocDateList.filter { it.id != approvedAppt.id } + approvedAppt
+                        }
+                    }
                 }
             } catch (roomErr: Exception) {
-                android.util.Log.w("AppointmentRepository", "Non-fatal Room cache sync ignored: ${roomErr.message}")
+                android.util.Log.w("AppointmentRepository", "Non-fatal cache sync ignored: ${roomErr.message}")
             }
 
             return@withContext Result.success(

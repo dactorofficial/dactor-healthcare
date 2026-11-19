@@ -136,12 +136,16 @@ fun DoctorLiveQueueContent(
     LaunchedEffect(Unit) {
         var tickCount = 0
         while (isActive) {
-            delay(1000L)
-            currentEpochSecond = System.currentTimeMillis() / 1000L
-            viewModel.onTickSecond()
-            tickCount++
-            if (tickCount % 2 == 0) {
-                viewModel.refreshUpcomingPatientsAndCheckNew()
+            try {
+                delay(1000L)
+                currentEpochSecond = System.currentTimeMillis() / 1000L
+                viewModel.onTickSecond()
+                tickCount++
+                if (tickCount % 2 == 0) {
+                    viewModel.refreshUpcomingPatientsAndCheckNew()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("DoctorQueueScreen", "Tick timer exception", e)
             }
         }
     }
@@ -159,6 +163,44 @@ fun DoctorLiveQueueContent(
                 DoctorQueueEvent.ScrollToTop -> {}
             }
         }
+    }
+
+    if (clinicId.isBlank()) {
+        Box(
+            modifier = modifier.fillMaxSize().padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        Icons.Default.LocalHospital,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(36.dp)
+                    )
+                    Text(
+                        "No Active Clinic Selected",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                    Text(
+                        "Please select or affiliate with a clinic to monitor live patient queues.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            }
+        }
+        return
     }
 
     Box(modifier = modifier.fillMaxSize()) {

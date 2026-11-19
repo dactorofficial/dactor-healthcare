@@ -57,6 +57,8 @@ import com.dactor.clinic.data.repository.DoctorRepository
 import com.dactor.clinic.data.repository.QueueRepository
 import com.dactor.clinic.ui.navigation.NavRoutes
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -513,11 +515,13 @@ fun QueueBoardScreen(
                                         appt.checkinStatus?.lowercase() == "cancelled"
                                 val isRescheduledDate = appt.appointmentDate.isNotBlank() && appt.appointmentDate != selectedQueueDate
                                 if (isCancelled || isRescheduledDate) {
-                                    coroutineScope.launch {
+                                    runCatching {
                                         queueRepository.removeRogueQueueEntry(appt.id)
                                     }
                                     val action = if (isCancelled) "cancelled" else "rescheduled to ${appt.appointmentDate}"
-                                    notificationSentMessage = "Notice: Appointment for ${appt.patientName} was $action."
+                                    coroutineScope.launch(Dispatchers.Main) {
+                                        notificationSentMessage = "Notice: Appointment for ${appt.patientName} was $action."
+                                    }
                                 }
                             }
 
@@ -534,7 +538,7 @@ fun QueueBoardScreen(
                                 var curMax = queueItems.map { it.queuePosition }.maxOrNull() ?: 0
                                 newAppts.forEach { newAppt ->
                                     curMax++
-                                    coroutineScope.launch {
+                                    runCatching {
                                         queueRepository.autoEnrollNewAppointment(effectiveClinicId, newAppt.doctorId, newAppt.id, curMax)
                                     }
                                 }
@@ -544,7 +548,7 @@ fun QueueBoardScreen(
                             val mergedCached = cached.map { refreshedMap[it.id] ?: it }
                             mergedCached + newAppts
                         } else {
-                            appointmentRepository?.getAppointmentsByClinic(effectiveClinicId) ?: emptyList()
+                            appointmentRepository?.getAppointmentsByClinic(effectiveClinicId, forceRefresh = true) ?: emptyList()
                         }
                     } catch (_: Exception) { emptyList() }
                 }
@@ -573,7 +577,22 @@ fun QueueBoardScreen(
                 val entries = entriesDeferred.await()
                 rawQueueEntries = entries
                 val appts = apptsDeferred.await()
-                val apptMap = appts.associateBy { it.id }
+                var currentApptMap = appts.associateBy { it.id }
+
+                // Authoritative sync: if any queue entry is missing or unapproved in cached apptMap, refresh directly
+                val missingOrUnapprovedIds = entries.map { it.appointmentId }.filter { entryApptId ->
+                    val a = currentApptMap[entryApptId]
+                    a == null || !a.status.equals("APPROVED", ignoreCase = true)
+                }
+                if (missingOrUnapprovedIds.isNotEmpty() && appointmentRepository != null) {
+                    try {
+                        val refreshedMissing = appointmentRepository.refreshAppointmentsByIds(missingOrUnapprovedIds)
+                        if (refreshedMissing.isNotEmpty()) {
+                            currentApptMap = currentApptMap + refreshedMissing.associateBy { it.id }
+                        }
+                    } catch (_: Exception) {}
+                }
+                val apptMap = currentApptMap
 
                 val nowMs = System.currentTimeMillis()
                 val activeOverrides = pendingStatusOverrides.filterValues { it.second > nowMs }
@@ -721,11 +740,19 @@ fun QueueBoardScreen(
 
     LaunchedEffect(effectiveClinicId) {
         // Initial full sync of clinic, doctors, and appointments
-        loadQueue(isDeltaOnly = false)
+        try {
+            loadQueue(isDeltaOnly = false)
+        } catch (e: Exception) {
+            android.util.Log.e("QueueBoardScreen", "Initial loadQueue failed", e)
+        }
         while (isActive) {
             delay(2000L)
-            // Lightweight operational delta sync: only queue entries without heavy table scans
-            loadQueue(isDeltaOnly = true)
+            try {
+                // Lightweight operational delta sync: only queue entries without heavy table scans
+                loadQueue(isDeltaOnly = true)
+            } catch (e: Exception) {
+                android.util.Log.e("QueueBoardScreen", "Delta loadQueue failed", e)
+            }
         }
     }
 

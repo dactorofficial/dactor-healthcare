@@ -951,6 +951,7 @@ export const App: React.FC = () => {
             onOpenLiveQueue={handleOpenLiveQueue}
             onOpenReportModal={handleOpenReportModal}
             onNavigate={handleNavigate}
+            onLogout={handleLogout}
           />
         )}
 
@@ -962,9 +963,9 @@ export const App: React.FC = () => {
           />
         )}
 
-        {activeTab === 'doctor-portal' && <DoctorPortal />}
+        {activeTab === 'doctor-portal' && <DoctorPortal onLogout={handleLogout} />}
 
-        {activeTab === 'portal' && <ClinicPortal />}
+        {activeTab === 'portal' && <ClinicPortal onLogout={handleLogout} />}
         {activeTab === 'support' && <Support />}
 
         {/* 404 Not Found & Broken Link Handler */}

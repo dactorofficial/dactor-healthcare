@@ -336,6 +336,7 @@ interface PatientPortalProps {
   onOpenLiveQueue?: (trackingCode: string) => void
   onOpenReportModal?: (trackingCode: string) => void
   onNavigate?: (tab: string, params?: any) => void
+  onLogout?: () => void
 }
 
 export const PatientPortal: React.FC<PatientPortalProps> = ({
@@ -344,6 +345,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   onOpenLiveQueue,
   onOpenReportModal,
   onNavigate,
+  onLogout,
 }) => {
   // ==========================================
   // AUTHENTICATION & PATIENT PROFILE STATE
@@ -852,7 +854,16 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     async function restoreSession() {
       setIsAuthLoading(true)
       try {
-        const redirectedUser = await checkRedirectGoogleUser()
+        const targetPortal =
+          sessionStorage.getItem('dactor_oauth_target_portal') ||
+          localStorage.getItem('dactor_oauth_target_portal')
+        const redirectedUser = (targetPortal === 'patient' || targetPortal === 'patient-portal')
+          ? await checkRedirectGoogleUser({ requireRedirectOnly: true })
+          : null
+        if (redirectedUser) {
+          sessionStorage.removeItem('dactor_oauth_target_portal')
+          localStorage.removeItem('dactor_oauth_target_portal')
+        }
         const storedEmail =
           redirectedUser?.email ||
           localStorage.getItem('dactor_patient_email')
@@ -971,6 +982,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     let isMounted = true
     const unsub = onFirebaseAuthStateChanged(async (u) => {
       if (!isMounted || !u || !u.email) return
+
+      const targetPortal =
+        sessionStorage.getItem('dactor_oauth_target_portal') ||
+        localStorage.getItem('dactor_oauth_target_portal')
+      if (targetPortal && targetPortal !== 'patient' && targetPortal !== 'patient-portal') return
 
       // If user is already loaded with the same email, don't re-fetch
       if (patientUser && patientUser.email.toLowerCase() === u.email.toLowerCase()) return
@@ -2984,11 +3000,21 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   }
 
   const handleLogout = () => {
-    clearAllAppCache().catch(() => {})
     setPatientUser(null)
     setMyAppointments([])
     setTransactions([])
     setGuestCodesVersion((v) => v + 1)
+    try {
+      localStorage.removeItem('dactor_patient_logged_in')
+      localStorage.removeItem('dactor_patient_session')
+      localStorage.removeItem('dactor_patient_email')
+      localStorage.removeItem('dactor_google_user')
+      localStorage.removeItem('dactor_oauth_target_portal')
+      sessionStorage.removeItem('dactor_oauth_target_portal')
+      firebaseSignOut()
+      clearAllAppCache().catch(() => {})
+      if (onLogout) onLogout()
+    } catch {}
   }
 
   // Filter Active vs Past appointments and arrange Active as:

@@ -73,21 +73,23 @@ class DoctorQueueViewModel @Inject constructor(
                 doctorName = docName,
                 selectedDate = initialDate.toString(),
                 currentDate = cachedToday,
-                isLoading = true
+                isLoading = clinicId.isNotBlank() && doctorId.isNotBlank()
             )
         }
 
         viewModelScope.launch {
-            if (docName.isBlank()) {
-                val fetchedDoc = doctorRepository.getDoctorById(doctorId)
+            if (docName.isBlank() && doctorId.isNotBlank()) {
+                val fetchedDoc = try { doctorRepository.getDoctorById(doctorId) } catch (_: Exception) { null }
                 if (fetchedDoc != null) {
                     _uiState.update { it.copy(doctorName = fetchedDoc.fullName) }
                 }
             }
         }
 
-        loadDoctorQueue(forceRefresh = true)
-        startRealtimeSubscription()
+        if (clinicId.isNotBlank() && doctorId.isNotBlank()) {
+            loadDoctorQueue(forceRefresh = true)
+            startRealtimeSubscription()
+        }
     }
 
     fun setSelectedDate(date: LocalDate) {
@@ -127,14 +129,34 @@ class DoctorQueueViewModel @Inject constructor(
                     queueRepository.getQueueForDoctor(s.doctorId, s.clinicId, forceRefresh = forceRefresh)
                 }
 
-                val appts = appointmentRepository.getAppointmentsByDoctor(s.doctorId, s.selectedDate)
+                val appts = appointmentRepository.getAppointmentsByDoctor(s.doctorId, s.selectedDate, forceRefresh = forceRefresh)
 
                 // 3. Strict filter: Only approved appointments for current doctor and clinic on selectedDate
-                // Pay at Desk: Filter out WAITING_FOR_APPROVAL
-                val approvedApptMap = appts.filter { appt ->
+                val initialApproved = appts.filter { appt ->
                     appt.doctorId == s.doctorId &&
                     appt.clinicId == s.clinicId &&
                     appt.appointmentDate == s.selectedDate &&
+                    appt.status.equals("APPROVED", ignoreCase = true) &&
+                    !appt.status.equals("WAITING_FOR_APPROVAL", ignoreCase = true) &&
+                    !appt.status.equals("pending_payment", ignoreCase = true) &&
+                    !appt.status.equals("UNAPPROVED", ignoreCase = true) &&
+                    !appt.status.equals("EXPIRED", ignoreCase = true) &&
+                    appt.checkinStatus != "cancelled"
+                }.associateBy { it.id }
+
+                // Check for newly approved appointments present in queue_entries but missing from cache
+                val missingEntryIds = entries.map { it.appointmentId }.filter { it !in initialApproved.keys }
+                val extraRefreshed = if (missingEntryIds.isNotEmpty()) {
+                    try {
+                        appointmentRepository.refreshAppointmentsByIds(missingEntryIds)
+                    } catch (_: Exception) { emptyList() }
+                } else emptyList()
+
+                val allAppts = (appts + extraRefreshed).distinctBy { it.id }
+                val approvedApptMap = allAppts.filter { appt ->
+                    (appt.doctorId == null || appt.doctorId == s.doctorId) &&
+                    appt.clinicId == s.clinicId &&
+                    (appt.appointmentDate.isBlank() || appt.appointmentDate == s.selectedDate) &&
                     appt.status.equals("APPROVED", ignoreCase = true) &&
                     !appt.status.equals("WAITING_FOR_APPROVAL", ignoreCase = true) &&
                     !appt.status.equals("pending_payment", ignoreCase = true) &&
@@ -546,10 +568,17 @@ class DoctorQueueViewModel @Inject constructor(
         if (s.doctorId.isBlank() || s.clinicId.isBlank()) return
 
         realtimeJob = viewModelScope.launch {
-            queueRepository.observeDoctorQueueRealtime(s.doctorId, s.clinicId)
-                .collect {
-                    loadDoctorQueue(isDeltaOnly = true)
-                }
+            try {
+                queueRepository.observeDoctorQueueRealtime(s.doctorId, s.clinicId)
+                    .catch { e ->
+                        android.util.Log.w("DoctorQueueVM", "Realtime stream error", e)
+                    }
+                    .collect {
+                        loadDoctorQueue(isDeltaOnly = true)
+                    }
+            } catch (e: Exception) {
+                android.util.Log.w("DoctorQueueVM", "Realtime subscription exception", e)
+            }
         }
     }
 
@@ -628,10 +657,15 @@ class DoctorQueueViewModel @Inject constructor(
             try {
                 // 1a. Authoritatively verify upcoming 3-4 patients
                 if (upcomingIds.isNotEmpty()) {
-                    val refreshedAppts = appointmentRepository.refreshAppointmentsByIds(upcomingIds)
+                    val refreshedAppts = try {
+                        appointmentRepository.refreshAppointmentsByIds(upcomingIds)
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
                     val refreshedMap = refreshedAppts.associateBy { it.id }
 
                     var queueModified = false
+                    val rogueIdsToRemove = mutableListOf<String>()
                     val updatedLive = _uiState.value.liveQueue.mapNotNull { item ->
                         val fresh = refreshedMap[item.appointmentId] ?: return@mapNotNull item
 
@@ -641,9 +675,7 @@ class DoctorQueueViewModel @Inject constructor(
 
                         if (isCancelled || isRescheduledDate) {
                             queueModified = true
-                            launch {
-                                queueRepository.removeRogueQueueEntry(item.appointmentId)
-                            }
+                            rogueIdsToRemove.add(item.appointmentId)
                             val reason = if (isCancelled) "cancelled" else "rescheduled to ${fresh.appointmentDate}"
                             _eventFlow.tryEmit(DoctorQueueEvent.ShowToast("Appointment for ${item.patientName} was $reason"))
                             return@mapNotNull null
@@ -655,6 +687,12 @@ class DoctorQueueViewModel @Inject constructor(
                             item.copy(appointmentTime = fresh.appointmentTime)
                         } else {
                             item
+                        }
+                    }
+
+                    for (rogueId in rogueIdsToRemove) {
+                        runCatching {
+                            queueRepository.removeRogueQueueEntry(rogueId)
                         }
                     }
 
@@ -672,12 +710,16 @@ class DoctorQueueViewModel @Inject constructor(
 
                 // 2. Incrementally discover newly booked or approved appointments for today
                 val allKnownApptIds = (_uiState.value.liveQueue + _uiState.value.completedQueue).map { it.appointmentId }.toSet()
-                val newAppts = appointmentRepository.checkNewAppointments(
-                    clinicId = s.clinicId,
-                    doctorId = s.doctorId,
-                    date = s.selectedDate,
-                    knownApptIds = allKnownApptIds
-                )
+                val newAppts = try {
+                    appointmentRepository.checkNewAppointments(
+                        clinicId = s.clinicId,
+                        doctorId = s.doctorId,
+                        date = s.selectedDate,
+                        knownApptIds = allKnownApptIds
+                    )
+                } catch (e: Exception) {
+                    emptyList()
+                }
 
                 if (newAppts.isNotEmpty()) {
                     val currentLive = _uiState.value.liveQueue
@@ -685,7 +727,9 @@ class DoctorQueueViewModel @Inject constructor(
                     val newItems = mutableListOf<QueueItemUi>()
 
                     for (appt in newAppts) {
-                        queueRepository.autoEnrollNewAppointment(s.clinicId, s.doctorId, appt.id, nextPos)
+                        runCatching {
+                            queueRepository.autoEnrollNewAppointment(s.clinicId, s.doctorId, appt.id, nextPos)
+                        }
                         newItems.add(
                             QueueItemUi(
                                 id = java.util.UUID.randomUUID().toString(),
@@ -722,7 +766,8 @@ class DoctorQueueViewModel @Inject constructor(
                         )
                     }
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                android.util.Log.e("DoctorQueueVM", "Error in refreshUpcomingPatientsAndCheckNew", e)
             } finally {
                 isSelectiveRefreshing = false
             }

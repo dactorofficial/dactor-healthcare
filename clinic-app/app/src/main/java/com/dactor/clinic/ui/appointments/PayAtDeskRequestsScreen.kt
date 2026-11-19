@@ -27,6 +27,7 @@ import com.dactor.clinic.data.model.Appointment
 import com.dactor.clinic.data.model.Doctor
 import com.dactor.clinic.data.repository.AppointmentRepository
 import com.dactor.clinic.data.repository.DoctorRepository
+import com.dactor.clinic.data.repository.QueueRepository
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -35,7 +36,8 @@ fun PayAtDeskRequestsScreen(
     navController: NavController,
     clinicId: String,
     appointmentRepository: AppointmentRepository? = null,
-    doctorRepository: DoctorRepository? = null
+    doctorRepository: DoctorRepository? = null,
+    queueRepository: QueueRepository? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -88,6 +90,10 @@ fun PayAtDeskRequestsScreen(
                 val effectiveCid = target.clinicId.trim().ifEmpty { clinicId.trim() }
                 val result = appointmentRepository?.approvePayAtDeskAppointment(target.id, effectiveCid)
                 if (result?.isSuccess == true) {
+                    appointmentRepository?.invalidateClinicAppointments(effectiveCid)
+                    appointmentRepository?.invalidateDoctorAppointments()
+                    queueRepository?.invalidateClinicQueueCache(effectiveCid)
+                    queueRepository?.invalidateDoctorQueueCache()
                     val approveRes = result.getOrNull()
                     when {
                         approveRes?.expired == true -> {

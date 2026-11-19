@@ -164,80 +164,92 @@ fun FutureAppointmentsScreen(
     }
 
     suspend fun loadAppointments() {
-        if (userRole == "doctor" && doctorId.isNotBlank() && effectiveClinicId.isBlank()) {
-            val doc = doctorRepository?.getDoctorById(doctorId)
-            val resolvedClinicId = doc?.activeClinicId ?: doc?.clinicId
-                ?: doctorRepository?.getAffiliatedClinicsForDoctor(doctorId, doc?.email ?: "")?.firstOrNull()?.id
-            if (!resolvedClinicId.isNullOrBlank()) {
-                effectiveClinicId = resolvedClinicId
-                sessionManager.saveActiveClinicIdForDoctor(resolvedClinicId)
+        try {
+            if (userRole == "doctor" && doctorId.isNotBlank() && effectiveClinicId.isBlank()) {
+                val doc = doctorRepository?.getDoctorById(doctorId)
+                val resolvedClinicId = doc?.activeClinicId ?: doc?.clinicId
+                    ?: doctorRepository?.getAffiliatedClinicsForDoctor(doctorId, doc?.email ?: "")?.firstOrNull()?.id
+                if (!resolvedClinicId.isNullOrBlank()) {
+                    effectiveClinicId = resolvedClinicId
+                    sessionManager.saveActiveClinicIdForDoctor(resolvedClinicId)
+                }
             }
-        }
 
-        if (clinicRepository != null && effectiveClinicId.isNotBlank()) {
-            val clinicObj = clinicRepository.getClinicById(effectiveClinicId)
-            if (clinicObj != null) {
-                val nowMs = System.currentTimeMillis()
-                val remoteSet = clinicObj.declaredHolidays.map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
-                pendingHolidayToggles.forEach { (dateKey, pair) ->
-                    val (lockedHolidayState, ts) = pair
-                    if (nowMs - ts < 12_000L) {
-                        if (lockedHolidayState) remoteSet.add(dateKey) else remoteSet.remove(dateKey)
+            if (clinicRepository != null && effectiveClinicId.isNotBlank()) {
+                val clinicObj = clinicRepository.getClinicById(effectiveClinicId)
+                if (clinicObj != null) {
+                    val nowMs = System.currentTimeMillis()
+                    val remoteSet = clinicObj.declaredHolidays.map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
+                    pendingHolidayToggles.forEach { (dateKey, pair) ->
+                        val (lockedHolidayState, ts) = pair
+                        if (nowMs - ts < 12_000L) {
+                            if (lockedHolidayState) remoteSet.add(dateKey) else remoteSet.remove(dateKey)
+                        }
                     }
+                    declaredHolidays = remoteSet
                 }
-                declaredHolidays = remoteSet
             }
-        }
-        if (appointmentRepository != null) {
-            val appts = if (userRole == "doctor" && doctorId.isNotBlank()) {
-                appointmentRepository.getAppointmentsByDoctor(doctorId)
-            } else if (effectiveClinicId.isNotBlank()) {
-                appointmentRepository.getAppointmentsByClinic(effectiveClinicId)
-            } else emptyList()
-            appointments = appts.filter {
-                it.status.equals("APPROVED", ignoreCase = true) &&
-                it.status != "WAITING_FOR_APPROVAL" &&
-                it.status != "pending_payment" &&
-                it.status != "UNAPPROVED" &&
-                it.status != "EXPIRED" &&
-                it.checkinStatus != "cancelled"
-            }
-
-            if (billingRepository != null && appts.isNotEmpty()) {
-                val apptIds = appts.map { it.id }
-                remarksMap = billingRepository.getRemarksForAppointments(apptIds)
-            }
-        }
-        if (doctorRepository != null) {
-            val remoteDocs = if (effectiveClinicId.isNotBlank()) {
-                doctorRepository.getDoctorsByClinic(effectiveClinicId)
-            } else emptyList()
-
-            val allDocs = if (userRole == "doctor" && doctorId.isNotBlank()) {
-                val selfDoc = doctorRepository.getDoctorById(doctorId)
-                if (selfDoc != null && remoteDocs.none { it.id == selfDoc.id }) {
-                    listOf(selfDoc) + remoteDocs
-                } else if (remoteDocs.isNotEmpty()) {
-                    remoteDocs
-                } else if (selfDoc != null) {
-                    listOf(selfDoc)
-                } else {
-                    emptyList()
+            if (appointmentRepository != null) {
+                val appts = if (userRole == "doctor" && doctorId.isNotBlank()) {
+                    appointmentRepository.getAppointmentsByDoctor(doctorId)
+                } else if (effectiveClinicId.isNotBlank()) {
+                    appointmentRepository.getAppointmentsByClinic(effectiveClinicId)
+                } else emptyList()
+                appointments = appts.filter {
+                    it.status.equals("APPROVED", ignoreCase = true) &&
+                    it.status != "WAITING_FOR_APPROVAL" &&
+                    it.status != "pending_payment" &&
+                    it.status != "UNAPPROVED" &&
+                    it.status != "EXPIRED" &&
+                    it.checkinStatus != "cancelled"
                 }
-            } else remoteDocs
 
-            doctors = allDocs
-            if (userRole == "doctor" && doctorId.isNotBlank()) {
-                selectedDoctor = allDocs.find { it.id == doctorId } ?: allDocs.firstOrNull()
-            } else if (selectedDoctor == null || !allDocs.contains(selectedDoctor)) {
-                selectedDoctor = allDocs.firstOrNull()
+                if (billingRepository != null && appts.isNotEmpty()) {
+                    val apptIds = appts.map { it.id }
+                    remarksMap = billingRepository.getRemarksForAppointments(apptIds)
+                }
             }
+            if (doctorRepository != null) {
+                val remoteDocs = if (effectiveClinicId.isNotBlank()) {
+                    doctorRepository.getDoctorsByClinic(effectiveClinicId)
+                } else emptyList()
+
+                val allDocs = if (userRole == "doctor" && doctorId.isNotBlank()) {
+                    val selfDoc = doctorRepository.getDoctorById(doctorId)
+                    if (selfDoc != null && remoteDocs.none { it.id == selfDoc.id }) {
+                        listOf(selfDoc) + remoteDocs
+                    } else if (remoteDocs.isNotEmpty()) {
+                        remoteDocs
+                    } else if (selfDoc != null) {
+                        listOf(selfDoc)
+                    } else {
+                        emptyList()
+                    }
+                } else remoteDocs
+
+                doctors = allDocs
+                if (userRole == "doctor" && doctorId.isNotBlank()) {
+                    selectedDoctor = allDocs.find { it.id == doctorId } ?: allDocs.firstOrNull()
+                } else if (selectedDoctor == null || !allDocs.contains(selectedDoctor)) {
+                    selectedDoctor = allDocs.firstOrNull()
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FutureAppointmentsScreen", "Error in loadAppointments", e)
         }
     }
 
     LaunchedEffect(effectiveClinicId, doctorId, userRole) {
-        loadAppointments()
-        loadSlots()
+        try {
+            loadAppointments()
+        } catch (e: Exception) {
+            android.util.Log.e("FutureAppointmentsScreen", "Effect loadAppointments error", e)
+        }
+        try {
+            loadSlots()
+        } catch (e: Exception) {
+            android.util.Log.e("FutureAppointmentsScreen", "Effect loadSlots error", e)
+        }
     }
 
     LaunchedEffect(selectedDate, effectiveClinicId) {

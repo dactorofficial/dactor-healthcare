@@ -99,6 +99,7 @@ import { supabase } from '../lib/supabase'
 import {
   signInWithFirebaseGoogle,
   signOutFirebase,
+  firebaseSignOut,
   checkRedirectGoogleUser,
   onFirebaseAuthStateChanged,
 } from '../lib/firebase'
@@ -435,11 +436,18 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
         setSpecialtiesList(specs)
         setQualificationsList(quals)
 
-        // Check if returning from Google OAuth redirect
-        const redirected = await checkRedirectGoogleUser()
-        if (redirected && redirected.email) {
-          await processDoctorLoginForEmail(redirected.email)
-          return
+        // Check if returning from genuine Google OAuth redirect intended for doctor
+        const targetPortal =
+          sessionStorage.getItem('dactor_oauth_target_portal') ||
+          localStorage.getItem('dactor_oauth_target_portal')
+        if (targetPortal === 'doctor') {
+          const redirected = await checkRedirectGoogleUser({ requireRedirectOnly: true })
+          if (redirected && redirected.email) {
+            sessionStorage.removeItem('dactor_oauth_target_portal')
+            localStorage.removeItem('dactor_oauth_target_portal')
+            await processDoctorLoginForEmail(redirected.email)
+            return
+          }
         }
 
         // If saved doctor session exists, reload fresh doctor record
@@ -606,11 +614,14 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     }
   }
 
-  // Reactive listener for Firebase auth state changes
+  // Reactive listener for Firebase auth state changes ONLY when doctor Google sign-in was initiated
   useEffect(() => {
     let isMounted = true
     const unsub = onFirebaseAuthStateChanged((u) => {
-      if (isMounted && u && u.email && !currentDoctor && currentView === 'auth_screen') {
+      const targetPortal =
+        sessionStorage.getItem('dactor_oauth_target_portal') ||
+        localStorage.getItem('dactor_oauth_target_portal')
+      if (isMounted && u && u.email && !currentDoctor && currentView === 'auth_screen' && targetPortal === 'doctor') {
         processDoctorLoginForEmail(u.email)
       }
     })
@@ -626,6 +637,8 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     setAuthError(null)
 
     try {
+      // Clear any stale local auth state non-blocking to keep browser user-activation gesture fresh
+      firebaseSignOut()
       const googleUser = await signInWithFirebaseGoogle('doctor')
       if (googleUser && googleUser.email) {
         await processDoctorLoginForEmail(googleUser.email)
@@ -1287,10 +1300,19 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
 
   // Logout
   const handleLogout = () => {
-    clearAllAppCache().catch(() => {})
     setCurrentDoctor(null)
     setCurrentView('auth_screen')
-    if (onLogout) onLogout()
+    try {
+      localStorage.removeItem('dactor_doctor_session')
+      localStorage.removeItem('dactor_doctor_email')
+      localStorage.removeItem('dactor_doctor_logged_in')
+      localStorage.removeItem('dactor_doctor_pending_kyc')
+      localStorage.removeItem('dactor_oauth_target_portal')
+      sessionStorage.removeItem('dactor_oauth_target_portal')
+      firebaseSignOut()
+      clearAllAppCache().catch(() => {})
+      if (onLogout) onLogout()
+    } catch {}
   }
 
   // Queue Analytics

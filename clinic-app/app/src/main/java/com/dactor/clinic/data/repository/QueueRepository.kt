@@ -92,6 +92,22 @@ open class QueueRepository @Inject constructor(
         doctorQueueCache.clear()
     }
 
+    fun invalidateClinicQueueCache(clinicId: String) {
+        if (clinicId.isNotBlank()) {
+            clinicQueueCache.remove(clinicId)
+        }
+    }
+
+    fun invalidateDoctorQueueCache(doctorId: String? = null) {
+        if (doctorId.isNullOrBlank()) {
+            doctorQueueCache.clear()
+        } else {
+            doctorQueueCache.keys.filter { it.startsWith(doctorId) }.forEach {
+                doctorQueueCache.remove(it)
+            }
+        }
+    }
+
     suspend fun getLocalOrCachedQueueForClinic(clinicId: String): List<QueueEntry> = withContext(Dispatchers.IO) {
         if (clinicId.isBlank()) return@withContext emptyList()
         clinicQueueCache[clinicId]?.second?.let { if (it.isNotEmpty()) return@withContext it }

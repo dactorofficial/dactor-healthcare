@@ -834,6 +834,7 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
           p_payment_mode: appt.paymentMode || (isPayAtDesk ? 'PAY_AT_DESK' : 'ONLINE'),
           p_fee_amount: fee,
           p_selected_lab_tests: (appt as any).selectedLabTests || (appt.notes?.startsWith('Lab Tests:') ? appt.notes : null),
+          p_tracking_code: /^\d{10}$/.test(appt.trackingCode10Digit || '') ? appt.trackingCode10Digit : null,
         })
 
         if (!rpcErr && rpcRes && rpcRes.appointment_id) {

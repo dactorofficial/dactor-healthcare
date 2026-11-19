@@ -1529,8 +1529,16 @@ fun ClinicLoginScreen(
                         Tab(
                             selected = selectedTab == 0,
                             onClick = {
-                                selectedTab = 0
-                                errorMessage = null
+                                if (selectedTab != 0) {
+                                    selectedTab = 0
+                                    errorMessage = null
+                                    statusMessage = null
+                                    verifiedEmail = ""
+                                    verifiedDisplayName = ""
+                                    googleAccount = null
+                                    runCatching { googleSignInClient.signOut() }
+                                    runCatching { FirebaseAuth.getInstance().signOut() }
+                                }
                             },
                             text = {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1542,8 +1550,16 @@ fun ClinicLoginScreen(
                         Tab(
                             selected = selectedTab == 1,
                             onClick = {
-                                selectedTab = 1
-                                errorMessage = null
+                                if (selectedTab != 1) {
+                                    selectedTab = 1
+                                    errorMessage = null
+                                    statusMessage = null
+                                    verifiedEmail = ""
+                                    verifiedDisplayName = ""
+                                    googleAccount = null
+                                    runCatching { googleSignInClient.signOut() }
+                                    runCatching { FirebaseAuth.getInstance().signOut() }
+                                }
                             },
                             text = {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {

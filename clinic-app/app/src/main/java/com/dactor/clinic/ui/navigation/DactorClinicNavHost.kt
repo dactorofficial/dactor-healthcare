@@ -455,7 +455,8 @@ fun DactorClinicNavHost(
                 navController = navController,
                 clinicId = currentClinicId(),
                 appointmentRepository = appointmentRepository,
-                doctorRepository = doctorRepository
+                doctorRepository = doctorRepository,
+                queueRepository = queueRepository
             )
         }
         composable("${NavRoutes.PayAtDeskRequests}/{clinicId}") { backStackEntry ->
@@ -464,7 +465,8 @@ fun DactorClinicNavHost(
                 navController = navController,
                 clinicId = cid,
                 appointmentRepository = appointmentRepository,
-                doctorRepository = doctorRepository
+                doctorRepository = doctorRepository,
+                queueRepository = queueRepository
             )
         }
         composable(NavRoutes.WalkinBooking) {
