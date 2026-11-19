@@ -2,20 +2,21 @@
 
 **Reporting Date**: Friday, November 20, 2026  
 **Repository**: `gitversiondactor` (`origin/main`)  
-**Status**: All deliverables completed, tested, and synchronized across mobile apps (`clinic-app`, `patient-app`), backend (`supabase`), and web portal (`web-app`).
+**Status**: All deliverables completed, tested, and synchronized across mobile apps (`clinic-app`, `patient-app`), backend (`supabase`), documentation (`docs`), and web portal (`web-app`).
 
 ---
 
 ## 1. Executive Summary
 
-Today's engineering work encompassed six critical architectural enhancements, bug fixes, and reliability improvements across the Dactor healthcare ecosystem:
+Today's engineering work encompassed seven critical architectural enhancements, infrastructure research deliverables, bug fixes, and reliability improvements across the Dactor healthcare ecosystem:
 
-1. **Diagnostic Lab Walk-In Registration Restoration**: Fixed a regression in the Clinic App's walk-in booking workflow where patient manual details input fields (full name, phone, age, gender, address) were inadvertently bypassed for diagnostic lab facilities. Restored full patient registration while cleanly bypassing the attending doctor selector.
-2. **Synchronous Authentication Cache Purge & Doctor Portal OAuth Guard**: Overhauled the authentication cache cleaning mechanism to immediately and synchronously purge all application tokens (`dactor_*`, `sb-*`, `dismiss_*`), issue instantaneous Firebase and Supabase signouts, and guard Doctor Portal OAuth session restores against inadvertent cross-portal credential leakage.
-3. **10-Digit Numeric Tracking Code Standard & Live Queue Synchronization**: Enforced deterministic 10-digit numeric tracking codes across Pay-at-Desk booking workflows and updated database procedures, ensuring immediate real-time queue synchronization upon desk approval.
-4. **Strict Doctor & Date Scoping for Live Queue Metrics**: Resolved live queue metric leakage across doctors and dates in both mobile and web portals, ensuring waiting counts, active consultations, and queue metrics are strictly scoped to the specific doctor and appointment date.
-5. **Multi-Key Patient Directory Deduplication & Visit History Preservation**: Implemented a composite-identity deduplication engine (`extractKeys`) across Room local storage, desk registrations, and appointment sync. Fixed background polling to prevent repeated visit count inflation and premature last visit date overwrites for upcoming/waiting appointments.
-6. **Diagnostic Lab UI Policy & Advance Appointment Banner Cleanliness**: Suppressed misleading "Your Turn is Coming Up" banners and sample collection callouts for appointments booked on different dates, and hidden clinical doctor remarks sections for lab appointments.
+1. **Server Architecture Sizing, Infrastructure Research & Migration Blueprint**: Conducted an in-depth infrastructure capacity analysis answering scaling requirements for 1,000 to 10,000 users. Clarified Supabase Cloud Free Tier limitations (200 WebSocket limit, 15 direct connections, 500 MB disk cap), established exact hardware sizing (4 vCPU / 8 GB RAM / NVMe SSD), evaluated four cloud/VPS hosting options (Hetzner, DigitalOcean, Contabo, AWS), and produced a step-by-step zero-downtime database and storage migration guide ([`SERVER_SIZING_AND_MIGRATION_RESEARCH.md`](file:///C:/Users/notan/Documents/gitversiondactor/docs/SERVER_SIZING_AND_MIGRATION_RESEARCH.md)).
+2. **Diagnostic Lab Walk-In Registration Restoration**: Fixed a regression in the Clinic App's walk-in booking workflow where patient manual details input fields (full name, phone, age, gender, address) were inadvertently bypassed for diagnostic lab facilities. Restored full patient registration while cleanly bypassing the attending doctor selector.
+3. **Synchronous Authentication Cache Purge & Doctor Portal OAuth Guard**: Overhauled the authentication cache cleaning mechanism to immediately and synchronously purge all application tokens (`dactor_*`, `sb-*`, `dismiss_*`), issue instantaneous Firebase and Supabase signouts, and guard Doctor Portal OAuth session restores against inadvertent cross-portal credential leakage.
+4. **10-Digit Numeric Tracking Code Standard & Live Queue Synchronization**: Enforced deterministic 10-digit numeric tracking codes across Pay-at-Desk booking workflows and updated database procedures, ensuring immediate real-time queue synchronization upon desk approval.
+5. **Strict Doctor & Date Scoping for Live Queue Metrics**: Resolved live queue metric leakage across doctors and dates in both mobile and web portals, ensuring waiting counts, active consultations, and queue metrics are strictly scoped to the specific doctor and appointment date.
+6. **Multi-Key Patient Directory Deduplication & Visit History Preservation**: Implemented a composite-identity deduplication engine (`extractKeys`) across Room local storage, desk registrations, and appointment sync. Fixed background polling to prevent repeated visit count inflation and premature last visit date overwrites for upcoming/waiting appointments.
+7. **Diagnostic Lab UI Policy & Advance Appointment Banner Cleanliness**: Suppressed misleading "Your Turn is Coming Up" banners and sample collection callouts for appointments booked on different dates, and hidden clinical doctor remarks sections for lab appointments.
 
 All changes strictly comply with the **Global Rule: One-Way Logic Synchronization (App -> Website)**, achieving complete functional and visual parity.
 
@@ -23,7 +24,31 @@ All changes strictly comply with the **Global Rule: One-Way Logic Synchronizatio
 
 ## 2. Detailed Work Breakdown
 
-### 2.1 Diagnostic Lab Walk-In Patient Registration Form Restoration
+### 2.1 Backend Server Architecture Sizing, Cloud Infrastructure Research & Migration Blueprint
+
+#### Context & Objectives
+To prepare Dactor for commercial scaling beyond Supabase Cloud's free tier limits without unnecessary architectural over-engineering or high hosting costs, a comprehensive technical sizing and migration research blueprint was authored.
+
+#### Key Findings & Deliverables
+- **Workload & Bottleneck Deconstruction**:
+  - Differentiated total registered accounts (1,000–10,000) from peak concurrent active users (80–250 simultaneous during 8:00 AM–11:00 AM rush hour).
+  - Identified the primary bottlenecks on the Free Tier: the **200 concurrent Realtime WebSocket connection cap**, **15 direct PostgreSQL connections**, and the **500 MB database disk limit**.
+- **Hardware Sizing Specifications**:
+  - Validated that a **4 vCPU / 8 GB RAM / 160 GB NVMe SSD** virtual private server (e.g., Hetzner CPX31 at ~€13.50/mo or DigitalOcean Droplet at $48/mo) comfortably handles up to 5,000 active patients and staff with full Realtime subscriptions, PostgREST query throughput, and connection pooling.
+- **Comparison Matrix of 4 Architectural Alternatives**:
+  - *Option A (Supabase Pro Managed - $25/mo)*: Zero code changes, 500+ Realtime, 8 GB DB, automated daily backups. Easiest immediate path.
+  - *Option B (Self-Hosted Supabase on VPS - $14-$25/mo)*: 100% code parity, unlimited Realtime connections (RAM-bounded), self-hosted Docker Compose stack.
+  - *Option C (Custom Go/Node API + Managed PostgreSQL)*: Full stack control, but requires weeks of rewriting clients.
+  - *Option D (Full Firebase/Firestore)*: Not recommended due to loss of SQL relational queries, RPCs, and ACID transactions.
+- **Step-by-Step Technical Migration Blueprint**:
+  - Database schema, table data, and custom RPC export (`pg_dump` with `--clean --if-exists --no-owner`).
+  - Storage bucket sync (MinIO / S3 object migration).
+  - Kong API gateway configuration, SSL via Let's Encrypt / Certbot, automated nightly backup cron jobs, and seamless client endpoint reconfiguration (`VITE_SUPABASE_URL` and `BuildConfig.SUPABASE_URL`).
+- **File Created**: [`docs/SERVER_SIZING_AND_MIGRATION_RESEARCH.md`](file:///C:/Users/notan/Documents/gitversiondactor/docs/SERVER_SIZING_AND_MIGRATION_RESEARCH.md) (386 lines, zero application code modified).
+
+---
+
+### 2.2 Diagnostic Lab Walk-In Patient Registration Form Restoration
 
 #### Problem Statement
 When booking walk-in appointments for diagnostic lab facilities, the manual patient entry form (Name, Mobile, Age, Gender, Address) was erroneously skipped due to an over-restrictive conditional check (`!isLabClinic`), preventing clinic receptionists from registering new walk-in patients directly from the desk.
@@ -34,7 +59,7 @@ When booking walk-in appointments for diagnostic lab facilities, the manual pati
 
 ---
 
-### 2.2 Clinic Logout Auth Cache Purge & Doctor Portal OAuth Guarding
+### 2.3 Clinic Logout Auth Cache Purge & Doctor Portal OAuth Guarding
 
 #### Problem Statement
 - Logging out from the clinic or doctor portals previously relied on asynchronous cache and IndexedDB clearing, which could experience race conditions or fail to clear active Supabase/Firebase sessions before navigation completed.
@@ -50,7 +75,7 @@ When booking walk-in appointments for diagnostic lab facilities, the manual pati
 
 ---
 
-### 2.3 10-Digit Numeric Tracking Code Standard & Live Queue Synchronization
+### 2.4 10-Digit Numeric Tracking Code Standard & Live Queue Synchronization
 
 #### Problem Statement
 Pay-at-Desk booking requests required uniform 10-digit numeric tracking codes to align with physical clinic tokens and search inputs, along with instant queue enrollment when approved at the clinic desk.
@@ -62,7 +87,7 @@ Pay-at-Desk booking requests required uniform 10-digit numeric tracking codes to
 
 ---
 
-### 2.4 Strict Doctor & Date Scoping for Live Queue Metrics & Public Status
+### 2.5 Strict Doctor & Date Scoping for Live Queue Metrics & Public Status
 
 #### Problem Statement
 Patients checking live queue status or multi-slot position estimates were seeing queue counts aggregated across all clinic doctors and dates, resulting in inaccurate waiting position estimates.
@@ -74,7 +99,7 @@ Patients checking live queue status or multi-slot position estimates were seeing
 
 ---
 
-### 2.5 Multi-Key Patient Directory Deduplication & Visit History Preservation
+### 2.6 Multi-Key Patient Directory Deduplication & Visit History Preservation
 
 #### Problem Statement
 In the clinic's Patient Directory, patients with multiple appointments or walk-in records appeared duplicated due to varying key representations (raw appointment IDs vs. phone-derived deterministic IDs vs. tracking codes). Furthermore, background polling was incrementing `totalVisits` on every poll and setting `lastVisitDate` to future appointment dates even when the visit was only scheduled or waiting.
@@ -94,7 +119,7 @@ In the clinic's Patient Directory, patients with multiple appointments or walk-i
 
 ---
 
-### 2.6 Diagnostic Lab UI Policy & Advance Appointment Banner Cleanliness
+### 2.7 Diagnostic Lab UI Policy & Advance Appointment Banner Cleanliness
 
 #### Problem Statement
 - For appointments scheduled on future dates, live queue trackers in both mobile and web portals were displaying active "Your Turn is Coming Up" callout banners, confusing patients.
@@ -111,6 +136,7 @@ In the clinic's Patient Directory, patients with multiple appointments or walk-i
 
 | Target / Component | Test / Command | Result | Details |
 | :--- | :--- | :--- | :--- |
+| **Server Sizing & Migration Research** | Technical Peer Review | **VERIFIED** | 386-line blueprint covering hardware sizing, 4 architectural options, and end-to-end migration steps |
 | **Patient Directory Deduplication Tests** | `PatientDirectoryDeduplicationTest.kt` | **PASSED** | 5 test cases passing (composite deduplication, single profile merge, waiting appointment non-overwrites, polling stability) |
 | **Queue Timing Engine Tests** | `QueueTimingEngineTest.kt` | **PASSED** | Advance date lab calculation, multi-slot position computation, and doctor isolation verified |
 | **Pay-at-Desk Numeric ID & Sync** | `node tests/pay_at_desk/test_numeric_id_and_queue_sync.cjs` | **PASSED** | 10-digit code generation, status transitions, and real-time live queue insertion verified |
@@ -120,16 +146,18 @@ In the clinic's Patient Directory, patients with multiple appointments or walk-i
 
 ## 4. Git Commit History for November 20, 2026
 
-1. `4ea39b3`: `test(clinic): add unit tests for patient directory deduplication and visit history preservation`
-2. `4cec85e`: `fix(queue): suppress sample collection callout and hide today banners for different-day appointments`
-3. `b7219f2`: `fix(queue): isolate public queue status and live queue metrics strictly per doctor and appointment date`
-4. `b6f46ad`: `fix(web-app): scope LiveQueue waiting and consultation patient calculations by date and doctor`
-5. `8a087b2`: `fix(queue): synchronize multi-slot position filtering by doctor and date across mobile and web`
-6. `8237c7f`: `fix(patient-app): scope live queue consultation check strictly to doctor entries in AppointmentsTab`
-7. `ff406d0`: `fix(pay-at-desk): enforce 10-digit numeric tracking codes and real-time live queue synchronization`
-8. `e391b47`: `fix: purge auth cache on clinic logout and guard doctor portal session restore`
-9. `fa0a380`: `chore(seo): automated daily sitemap and schema synchronization [skip ci]`
-10. `f5c94ff`: `fix(walkin): restore patient details input form for diagnostic lab walk-ins`
+1. `49aa10b`: `docs: add server sizing, infrastructure research and migration report`
+2. `bb46c4e`: `docs: add comprehensive daily work report for November 20, 2026`
+3. `4ea39b3`: `test(clinic): add unit tests for patient directory deduplication and visit history preservation`
+4. `4cec85e`: `fix(queue): suppress sample collection callout and hide today banners for different-day appointments`
+5. `b7219f2`: `fix(queue): isolate public queue status and live queue metrics strictly per doctor and appointment date`
+6. `b6f46ad`: `fix(web-app): scope LiveQueue waiting and consultation patient calculations by date and doctor`
+7. `8a087b2`: `fix(queue): synchronize multi-slot position filtering by doctor and date across mobile and web`
+8. `8237c7f`: `fix(patient-app): scope live queue consultation check strictly to doctor entries in AppointmentsTab`
+9. `ff406d0`: `fix(pay-at-desk): enforce 10-digit numeric tracking codes and real-time live queue synchronization`
+10. `e391b47`: `fix: purge auth cache on clinic logout and guard doctor portal session restore`
+11. `fa0a380`: `chore(seo): automated daily sitemap and schema synchronization [skip ci]`
+12. `f5c94ff`: `fix(walkin): restore patient details input form for diagnostic lab walk-ins`
 
 ---
 
