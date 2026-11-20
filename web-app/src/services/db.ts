@@ -4990,6 +4990,9 @@ export function computeMultiSlotDailyPosition(params: {
       const aMins = parseTimeToMinutes(a.appointmentTime)
       const bMins = parseTimeToMinutes(b.appointmentTime)
       if (aMins !== bMins) return aMins - bMins
+      const aCreated = a.createdAt || ''
+      const bCreated = b.createdAt || ''
+      if (aCreated !== bCreated) return aCreated.localeCompare(bCreated)
       return a.id.localeCompare(b.id)
     })
 
@@ -5001,6 +5004,9 @@ export function computeMultiSlotDailyPosition(params: {
       const aMins = parseTimeToMinutes(a.appointmentTime)
       const bMins = parseTimeToMinutes(b.appointmentTime)
       if (aMins !== bMins) return aMins - bMins
+      const aCreated = a.createdAt || ''
+      const bCreated = b.createdAt || ''
+      if (aCreated !== bCreated) return aCreated.localeCompare(bCreated)
       return a.id.localeCompare(b.id)
     })
     const myIdx = sortedAppts.findIndex((a) => a.id === targetAppointmentId)
