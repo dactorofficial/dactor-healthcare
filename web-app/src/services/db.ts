@@ -1075,6 +1075,7 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
 
         const apptMap = new Map<string, any>((activeAppts || []).map((a) => [a.id, a]))
         const now = new Date()
+        const todayIso = now.toISOString().split('T')[0]
         const currentMinutes = now.getHours() * 60 + now.getMinutes()
         const isTargetPadPassed =
           isPayAtDesk && apptDate === todayIso && targetSlotMinutes <= currentMinutes
