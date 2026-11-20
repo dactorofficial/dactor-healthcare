@@ -1533,7 +1533,7 @@ export async function autoTransferUncompletedQueueToNoShow(
     let apptQuery = supabase
       .from('appointments')
       .select('id, appointment_date, appointment_time, checkin_status, slot_id')
-      .not('checkin_status', 'in', '("completed","cancelled","done","no_show","processing","report_prepared")')
+      .not('checkin_status', 'in', '("completed","cancelled","done","no_show","processing","sample_collected","report_prepared")')
 
     if (includeToday) {
       apptQuery = apptQuery.lte('appointment_date', todayStr)
@@ -1589,7 +1589,7 @@ export async function autoTransferUncompletedQueueToNoShow(
         const isPastOrToday = includeToday
           ? (appt ? appt.appointment_date <= todayStr : true)
           : (appt ? appt.appointment_date < todayStr : (entry.created_at && entry.created_at.slice(0, 10) < todayStr))
-        const isUncompleted = appt ? !['completed', 'cancelled', 'done', 'processing', 'report_prepared'].includes(appt.checkin_status || '') : true
+        const isUncompleted = appt ? !['completed', 'cancelled', 'done', 'processing', 'sample_collected', 'report_prepared'].includes(appt.checkin_status || '') : true
 
         if (isPastOrToday && isUncompleted) {
           await supabase
@@ -4453,8 +4453,8 @@ function mapAppointment(a: any): Appointment {
     'done',
   ].includes(rawCheckinLower)
 
-  if (isProgressedCheckin && (!qe?.status || qe.status === 'waiting' || qe.status === 'inside')) {
-    // Do not let a lagging/stale 'waiting' or 'inside' queue_entries row revert a progressed diagnostic/completed status
+  if (isProgressedCheckin) {
+    // Progressed diagnostic/completed checkin_status takes precedence over queue_entries (waiting, inside, no_show)
     derivedStatus = rawCheckinLower === 'done' ? 'completed' : rawCheckinLower
   } else if (isFutureOrToday && a.checkin_status === 'waiting') {
     // If appointment is booked/rescheduled for today or future and checkin_status is waiting,

@@ -334,7 +334,9 @@ open class QueueRepository @Inject constructor(
                     .filter {
                         it.checkinStatus != "completed" &&
                             it.checkinStatus != "cancelled" &&
+                            it.checkinStatus != "no_show" &&
                             it.checkinStatus != "processing" &&
+                            it.checkinStatus != "sample_collected" &&
                             it.checkinStatus != "report_prepared" &&
                             it.status.equals("APPROVED", ignoreCase = true) &&
                             it.status != "WAITING_FOR_APPROVAL" &&
@@ -506,6 +508,7 @@ open class QueueRepository @Inject constructor(
                             it.checkinStatus != "cancelled" &&
                             it.checkinStatus != "no_show" &&
                             it.checkinStatus != "processing" &&
+                            it.checkinStatus != "sample_collected" &&
                             it.checkinStatus != "report_prepared" &&
                             it.status.equals("APPROVED", ignoreCase = true) &&
                             it.status != "WAITING_FOR_APPROVAL" &&
@@ -1025,6 +1028,7 @@ open class QueueRepository @Inject constructor(
                 val isUnfinished = appt.checkinStatus != "completed" &&
                         appt.checkinStatus != "done" &&
                         appt.checkinStatus != "processing" &&
+                        appt.checkinStatus != "sample_collected" &&
                         appt.checkinStatus != "report_prepared" &&
                         appt.checkinStatus != "no_show" &&
                         appt.checkinStatus != "cancelled"
@@ -1074,6 +1078,7 @@ open class QueueRepository @Inject constructor(
                     val isUnfinished = appt.checkinStatus != "completed" &&
                         appt.checkinStatus != "done" &&
                         appt.checkinStatus != "processing" &&
+                        appt.checkinStatus != "sample_collected" &&
                         appt.checkinStatus != "report_prepared" &&
                         appt.checkinStatus != "no_show" &&
                         appt.checkinStatus != "cancelled"

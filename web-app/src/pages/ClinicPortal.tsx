@@ -3795,8 +3795,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     }
   }, [scheduleNextModalOpen, selectedClinic?.id, scheduleNextDate, scheduleNextDoctorId])
 
-  // Schedule Next Follow-Up Visit
+  // Schedule Next Follow-Up Visit (Hidden for Diagnostic Lab clinics)
   const handleOpenScheduleNextVisit = (pat: any) => {
+    if (isLabClinic) return
     setScheduleNextPatient(pat)
     setScheduleNextDoctorId(clinicDoctors[0]?.id || selectedDoctor?.id || '')
     const d = new Date()
@@ -9887,15 +9888,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                     <span>Shift Date</span>
                                   </button>
                                 )}
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenScheduleNextVisit(pat)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-[11px] shadow-xs transition-colors cursor-pointer"
-                                  title="Book New Appointment / Schedule Visit"
-                                >
-                                  <CalendarPlus className="w-3 h-3" />
-                                  <span>Book Appt</span>
-                                </button>
+                                {!isLabClinic && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenScheduleNextVisit(pat)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-[11px] shadow-xs transition-colors cursor-pointer"
+                                    title="Book New Appointment / Schedule Visit"
+                                  >
+                                    <CalendarPlus className="w-3 h-3" />
+                                    <span>Book Appt</span>
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   onClick={() => handleOpenPrintSlip(matchingAppt)}
@@ -10179,6 +10182,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                     .filter((appt) => {
                       const st = (appt.status || 'APPROVED').toUpperCase()
                       if (st !== 'APPROVED') return false
+                      const hasLabReport = labReports.some(
+                        (r) =>
+                          r.appointmentId === appt.id ||
+                          (Boolean(appt.trackingCode10Digit) && r.trackingCode10Digit === appt.trackingCode10Digit)
+                      )
+                      if (hasLabReport) return true
                       return appt.checkinStatus !== 'cancelled' && appt.checkinStatus !== 'no_show'
                     })
                     .map((appt) => {
@@ -12793,9 +12802,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
       )}
 
       {/* ========================================================= */}
-      {/* MODAL: SCHEDULE NEXT FOLLOW-UP VISIT */}
+      {/* MODAL: SCHEDULE NEXT FOLLOW-UP VISIT (Hidden for Diagnostic Lab clinics) */}
       {/* ========================================================= */}
-      {scheduleNextModalOpen && scheduleNextPatient && (
+      {scheduleNextModalOpen && scheduleNextPatient && !isLabClinic && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
           <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 space-y-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-white/60">

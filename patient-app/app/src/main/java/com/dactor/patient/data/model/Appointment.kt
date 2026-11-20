@@ -23,7 +23,7 @@ data class Appointment(
     @SerialName("fee_amount") val feeAmount: Double = 0.0,
     @SerialName("is_walkin") val isWalkin: Boolean = false,
     @SerialName("opt_in_early_call") val optInEarlyCall: Boolean = false,
-    @kotlinx.serialization.Transient val selectedLabTests: String? = null,
+    @SerialName("selected_lab_tests") val selectedLabTests: String? = null,
     @SerialName("notes") val notes: String? = null,
     @SerialName("payment_mode") val paymentMode: String = "ONLINE",
     @SerialName("status") val status: String = "APPROVED",

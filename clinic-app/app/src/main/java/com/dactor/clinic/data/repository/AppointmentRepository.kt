@@ -287,7 +287,7 @@ open class AppointmentRepository @Inject constructor(
                         checkinStatus = if (apptStatusLower in listOf("completed", "report_prepared")) appt.checkinStatus else "processing"
                     )
                     q?.status == "inside" && !isApptAlreadyProgressed -> appt.copy(checkinStatus = "inside_opd")
-                    q?.status == "no_show" -> appt.copy(checkinStatus = "cancelled")
+                    q?.status == "no_show" && !isApptAlreadyProgressed -> appt.copy(checkinStatus = "cancelled")
                     else -> appt
                 }
             }.sortedWith(

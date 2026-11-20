@@ -407,10 +407,16 @@ fun QueueStatusScreen(
                         it.stage.equals("sample_collected", ignoreCase = true)
                 }
 
+                val isSampleCollectedAnywhere = rawQueueStatus in listOf("processing", "sample_collected", "in_lab") ||
+                    rawApptStatus in listOf("processing", "sample_collected", "in_lab") ||
+                    hasProcessingReport ||
+                    labReports.isNotEmpty() ||
+                    DiagnosticLabPolicy.isSampleCollectedOrFurther(appt, rawQueueStatus, labReports)
+
                 queueStatus = when {
                     isPendingClinicApproval -> appt.status
                     rawQueueStatus == "report_prepared" || rawApptStatus == "report_prepared" || rawQueueStatus == "prepared" || rawApptStatus == "prepared" || rawQueueStatus == "delivered" || rawApptStatus == "delivered" || hasPreparedReport -> "report_prepared"
-                    rawQueueStatus == "processing" || rawQueueStatus == "sample_collected" || rawQueueStatus == "in_lab" || rawApptStatus == "processing" || rawApptStatus == "sample_collected" || rawApptStatus == "in_lab" || hasProcessingReport -> "processing"
+                    isSampleCollectedAnywhere -> "processing"
                     qEntry != null -> qEntry.status
                     rawApptStatus.isNotBlank() && rawApptStatus != "pending" -> rawApptStatus
                     else -> "waiting"
@@ -711,10 +717,6 @@ fun QueueStatusScreen(
 
     val isSingleVisitClinic = !isMultiVisitClinic && !isLabClinic
 
-    val isNoShow = queueStatus == "no_show" ||
-        appointment?.checkinStatus?.lowercase() == "no_show" ||
-        appointment?.status?.lowercase() == "no_show"
-
     val isSampleProcessing = queueStatus.lowercase() in listOf("processing", "sample_collected", "in_lab") ||
         appointment?.checkinStatus?.lowercase() in listOf("processing", "sample_collected", "in_lab") ||
         labReports.any { it.stage.lowercase() in listOf("processing", "in_lab", "sample_collected") }
@@ -725,14 +727,21 @@ fun QueueStatusScreen(
         labReports = labReports
     )
 
-    val isLabSampleDone = isLabClinic && (
-        isSampleProcessing ||
+    val isSampleCollectedOrFurther = isSampleProcessing ||
         isReportReady ||
+        labReports.isNotEmpty() ||
         DiagnosticLabPolicy.isSampleCollectedOrFurther(
             appointment = appointment,
             queueStatus = queueStatus,
             labReports = labReports
         )
+
+    val isLabSampleDone = isLabClinic && isSampleCollectedOrFurther
+
+    val isNoShow = !isConsultancyCompleted && !isSampleCollectedOrFurther && (
+        queueStatus in listOf("no_show", "missed", "noshow") ||
+        appointment?.checkinStatus?.lowercase() in listOf("no_show", "missed", "noshow") ||
+        appointment?.status?.lowercase() in listOf("no_show", "missed", "noshow")
     )
 
     // Reschedule option available for diagnostic labs ONLY when no-show AND before sample collection; for doctor clinics when active
@@ -1059,7 +1068,8 @@ fun QueueStatusScreen(
 
                 val isPayAtDeskPendingNotice = appointment?.paymentMode == "PAY_AT_DESK" && appointment?.status != "APPROVED"
                 val isClinicClosed = clinicObj?.isOpen == false
-                if (!isConsultancyCompleted && !isPayAtDeskPendingNotice && isClinicClosed && isApptDateToday) {
+                val showClinicClosedUI = isClinicClosed && isApptDateToday && !isConsultancyCompleted && !isSampleCollectedOrFurther
+                if (showClinicClosedUI && !isPayAtDeskPendingNotice) {
                     Surface(
                         shape = RoundedCornerShape(16.dp),
                         color = Color(0xFFFEE2E2),
@@ -1666,8 +1676,10 @@ fun QueueStatusScreen(
                                 Surface(
                                     shape = CircleShape,
                                     color = when {
-                                        (isClinicClosed && isApptDateToday) || isNoShow -> Color(0xFFFFE4E6)
+                                        showClinicClosedUI || isNoShow -> Color(0xFFFFE4E6)
                                         isLate -> Color(0xFFFFE4E6)
+                                        isLabClinic && isReportReady -> Color(0xFFDCFCE7)
+                                        isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> Color(0xFFFEF3C7)
                                         queueStatus == "inside" -> Color(0xFFDBEAFE)
                                         queueStatus == "done" || isConsultancyCompleted -> Color(0xFFDCFCE7)
                                         isPastDate -> Color(0xFFF1F5F9)
@@ -1681,8 +1693,10 @@ fun QueueStatusScreen(
                                 Surface(
                                     shape = CircleShape,
                                     color = when {
-                                        (isClinicClosed && isApptDateToday) || isNoShow -> Color(0xFFE11D48)
+                                        showClinicClosedUI || isNoShow -> Color(0xFFE11D48)
                                         isLate -> Color(0xFFE11D48)
+                                        isLabClinic && isReportReady -> Color(0xFF059669)
+                                        isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> Color(0xFFD97706)
                                         queueStatus == "inside" -> Color(0xFF2563EB)
                                         queueStatus == "done" || isConsultancyCompleted -> Color(0xFF059669)
                                         isPastDate -> Color(0xFF64748B)
@@ -1698,9 +1712,11 @@ fun QueueStatusScreen(
                                         verticalArrangement = Arrangement.Center
                                     ) {
                                         val topBadgeLabel = when {
-                                            isClinicClosed && isApptDateToday -> "CLOSED"
+                                            showClinicClosedUI -> "CLOSED"
                                             isNoShow -> "NO SHOW"
                                             isLate -> "LATE"
+                                            isLabClinic && isReportReady -> "REPORT"
+                                            isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> "IN LAB"
                                             queueStatus == "inside" -> "CURRENT"
                                             queueStatus == "done" || isConsultancyCompleted -> "VISIT"
                                             isTomorrow -> "TOMORROW"
@@ -1710,8 +1726,10 @@ fun QueueStatusScreen(
                                             else -> "POSITION"
                                         }
                                         val mainBadgeText = when {
-                                            (isClinicClosed && isApptDateToday) || isNoShow -> "\u2715"
+                                            showClinicClosedUI || isNoShow -> "\u2715"
                                             isLate -> "!"
+                                            isLabClinic && isReportReady -> "READY"
+                                            isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> "LAB"
                                             queueStatus == "inside" -> "NOW"
                                             queueStatus == "done" || isConsultancyCompleted -> "✓"
                                             isFutureOrTomorrow -> "$resolvedRankNumber"
@@ -1748,12 +1766,12 @@ fun QueueStatusScreen(
                                 ) {
                                     Text(
                                         text = when {
-                                            isClinicClosed && isApptDateToday -> "Clinic is Closed for Today"
+                                            showClinicClosedUI -> "Clinic is Closed for Today"
                                             isNoShow -> "Visit Concluded as No-Show"
                                             isLate -> "Arrive soon, you are late"
                                             !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow && !isPastDate) -> "Loading queue status..."
                                             isLabClinic && isReportReady -> "Status: Prepared"
-                                            isLabClinic && isSampleProcessing -> "Status: Processing"
+                                            isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> "Status: Processing"
                                             isLabClinic && isPastDate -> "Past Lab Order \u2022 $resolvedDateLabel"
                                             isPastDate -> "Past Visit \u2022 $resolvedDateLabel"
                                             isTomorrow -> "Tomorrow \u2022 Position #$resolvedRankNumber in line"
@@ -1770,10 +1788,10 @@ fun QueueStatusScreen(
                                         fontSize = 17.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = when {
-                                            (isClinicClosed && isApptDateToday) || isNoShow -> Color(0xFFDC2626)
+                                            showClinicClosedUI || isNoShow -> Color(0xFFDC2626)
                                             isLate -> Color(0xFFDC2626)
                                             isLabClinic && isReportReady -> Color(0xFF059669)
-                                            isLabClinic && isSampleProcessing -> Color(0xFFD97706)
+                                            isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> Color(0xFFD97706)
                                             queueStatus == "inside" -> Color(0xFF2563EB)
                                             queueStatus == "done" || isConsultancyCompleted -> Color(0xFF059669)
                                             isFutureOrTomorrow && !isTomorrow -> Color(0xFF5B21B6)
@@ -1805,12 +1823,12 @@ fun QueueStatusScreen(
                                 }
                                 Text(
                                     text = when {
-                                        isClinicClosed && isApptDateToday -> "The clinic has closed for today. Live queue consultations have concluded."
+                                        showClinicClosedUI -> "The clinic has closed for today. Live queue consultations have concluded."
                                         isNoShow -> "Token was not attended before clinic closed and has been moved to No-Show."
                                         isLate -> "Another patient was called inside \u2022 Please arrive now"
                                         !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow && !isPastDate) -> "Syncing queue details with clinic..."
                                         isLabClinic && isReportReady -> "Report Prepared \u2022 Verify Name/Phone to View"
-                                        isLabClinic && isSampleProcessing -> "Sample Collected \u2022 Processing in Lab"
+                                        isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> "Sample Collected \u2022 Processing in Lab"
                                         isLabClinic && isPastDate -> "Diagnostic lab order from $resolvedDateLabel. Records saved below."
                                         isTomorrow -> "Scheduled for Tomorrow \u2022 Clinic starts at 08:00 AM"
                                         isFutureOrTomorrow -> "Scheduled for $resolvedDateLabel \u2022 Approx. ${multiSlotResult?.approxAppointmentTimeText ?: (appointment?.appointmentTime ?: "")}"
@@ -2138,8 +2156,10 @@ fun QueueStatusScreen(
                                 ) {
                                     val timing = liveTimingEstimate
                                     val displayWait = when {
-                                        isClinicClosed || isNoShow -> "Clinic Closed"
+                                        showClinicClosedUI || isNoShow -> "Clinic Closed"
                                         isLate -> "Arrive soon, you are late"
+                                        isLabClinic && isReportReady -> "Report Ready"
+                                        isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> "Sample in Lab"
                                         isFutureOrTomorrow && !multiSlotResult?.approxAppointmentTimeText.isNullOrBlank() -> {
                                             multiSlotResult!!.approxAppointmentTimeText
                                         }
@@ -2152,8 +2172,10 @@ fun QueueStatusScreen(
                                         timing?.expectedExactTimeText?.contains("arrive soon", ignoreCase = true) == true ||
                                         (patientsAhead == 0 && (timing?.estimatedTimeLeftText?.contains("Arrive Fast", ignoreCase = true) == true || timing?.estimatedTimeLeftText?.contains("Arrive Soon", ignoreCase = true) == true)))
                                     val displayWindow = when {
-                                        isClinicClosed || isNoShow -> "Consultations ended for today"
+                                        showClinicClosedUI || isNoShow -> "Consultations ended for today"
                                         isLate -> "Report to clinic desk immediately"
+                                        isLabClinic && isReportReady -> "Verify below to view report"
+                                        isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> "Processing laboratory tests"
                                         isFutureOrTomorrow && !multiSlotResult?.timeWindowText.isNullOrBlank() -> multiSlotResult!!.timeWindowText
                                         isArriveFast -> "Your turn, arrive soon"
                                         timing?.isClinicOnBreak == true && !timing.timeWindowText.isNullOrBlank() -> timing.timeWindowText
