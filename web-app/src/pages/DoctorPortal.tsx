@@ -1447,16 +1447,51 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
         a.checkinStatus === 'in_consultation' ||
         a.checkinStatus === 'inside'
     )
+    const now = new Date()
+    const currentMinutes = now.getHours() * 60 + now.getMinutes()
+    const todayIso = now.toISOString().split('T')[0]
     return [...live].sort((a, b) => {
+      // 1. Inside consultation cabin first
       const aInside =
         a.checkinStatus === 'in_consultation' || a.checkinStatus === 'inside' ? 0 : 1
       const bInside =
         b.checkinStatus === 'in_consultation' || b.checkinStatus === 'inside' ? 0 : 1
       if (aInside !== bInside) return aInside - bInside
+
+      // 2. Approved Pay at Desk appointments whose slot time has passed are placed at top of waiting queue
+      const aPadPassed =
+        a.paymentMode === 'PAY_AT_DESK' &&
+        (a.status || '').toUpperCase() === 'APPROVED' &&
+        a.appointmentDate === todayIso &&
+        parseTimeToMinutes(a.appointmentTime) <= currentMinutes
+          ? 0
+          : 1
+      const bPadPassed =
+        b.paymentMode === 'PAY_AT_DESK' &&
+        (b.status || '').toUpperCase() === 'APPROVED' &&
+        b.appointmentDate === todayIso &&
+        parseTimeToMinutes(b.appointmentTime) <= currentMinutes
+          ? 0
+          : 1
+      if (aPadPassed !== bPadPassed) return aPadPassed - bPadPassed
+
+      // 3. Chronological time slot order
+      const aMins = parseTimeToMinutes(a.appointmentTime)
+      const bMins = parseTimeToMinutes(b.appointmentTime)
+      if (aMins !== bMins) return aMins - bMins
+
+      // 4. Booking turn (created_at timestamp)
+      const aCreated = a.createdAt || ''
+      const bCreated = b.createdAt || ''
+      if (aCreated !== bCreated) return aCreated.localeCompare(bCreated)
+
+      // 5. Preserved queue position
       const aPos = a.queuePosition ?? a.queueNumber ?? 999
       const bPos = b.queuePosition ?? b.queueNumber ?? 999
       if (aPos !== bPos) return aPos - bPos
-      return (a.appointmentTime || '').localeCompare(b.appointmentTime || '')
+
+      // 6. Deterministic tie-breaker
+      return a.id.localeCompare(b.id)
     })
   }, [queueDateAppointments])
 

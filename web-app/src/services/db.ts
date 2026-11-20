@@ -1070,17 +1070,40 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
         const apptIds = activeEntries.map((e) => e.appointment_id).filter(Boolean)
         const { data: activeAppts } = await supabase
           .from('appointments')
-          .select('id, appointment_time, appointment_date')
+          .select('id, appointment_time, appointment_date, created_at, payment_mode, status')
           .in('id', apptIds)
 
         const apptMap = new Map<string, any>((activeAppts || []).map((a) => [a.id, a]))
+        const now = new Date()
+        const currentMinutes = now.getHours() * 60 + now.getMinutes()
+        const isTargetPadPassed =
+          isPayAtDesk && apptDate === todayIso && targetSlotMinutes <= currentMinutes
+        const targetCreated = appt.createdAt || new Date().toISOString()
 
-        // Preceding entries: patient inside cabin OR patients in earlier or same time slot
+        // Preceding entries: patient inside cabin OR passed Pay-at-Desk OR earlier slot OR (same slot with earlier booking turn)
         const preceding = activeEntries.filter((entry) => {
           if (entry.status === 'inside') return true
           const a = apptMap.get(entry.appointment_id)
+          const isAPadPassed =
+            a?.payment_mode === 'PAY_AT_DESK' &&
+            (a?.status || '').toUpperCase() === 'APPROVED' &&
+            a?.appointment_date === todayIso &&
+            parseTimeToMinutes(a?.appointment_time) <= currentMinutes
+
+          if (isTargetPadPassed && !isAPadPassed) {
+            return false
+          }
+          if (isAPadPassed && !isTargetPadPassed) {
+            return true
+          }
+
           const slotMins = parseTimeToMinutes(a?.appointment_time)
-          return slotMins <= targetSlotMinutes
+          if (slotMins < targetSlotMinutes) return true
+          if (slotMins === targetSlotMinutes) {
+            const aCreated = a?.created_at || ''
+            return aCreated <= targetCreated
+          }
+          return false
         })
 
         // Target insertion position is right after the last preceding patient in this slot
