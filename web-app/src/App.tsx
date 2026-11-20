@@ -20,7 +20,9 @@ import { NotificationModal } from './components/NotificationModal'
 import { getPatientNotifications, getDoctorById, getLoggedInUserSession, refreshOnlinePayment, checkAppClosureStatus, AppClosureStatus } from './services/db'
 import { supabase } from './lib/supabase'
 import { LiquidAuroraBackground } from './components/glass'
-import { signOutKeepingData } from './utils/cacheCleaner'
+import { signOutKeepingData, clearAllAppCache } from './utils/cacheCleaner'
+import { hasChosenInitialLanguage } from './utils/i18n'
+import { LanguageSelectionModal } from './components/LanguageSelectionModal'
 
 // Helper to normalize tab aliases to canonical router views
 export const normalizeTab = (tab: string): string => {
@@ -524,6 +526,7 @@ export const App: React.FC = () => {
   const [reportModalOpen, setReportModalOpen] = useState(false)
   const [notificationModalOpen, setNotificationModalOpen] = useState(false)
   const [reportModalInitialCode, setReportModalInitialCode] = useState('')
+  const [firstVisitLangModalOpen, setFirstVisitLangModalOpen] = useState(() => !hasChosenInitialLanguage())
 
   const refreshUnreadNotifications = async () => {
     try {
@@ -537,6 +540,11 @@ export const App: React.FC = () => {
           if (parsed?.id) userId = parsed.id
         }
       } catch {}
+
+      if (!userId && trackingCodes.length === 0) {
+        setUnreadCount(0)
+        return
+      }
 
       const list = await getPatientNotifications({ userId, trackingCodes })
       setUnreadCount(list.filter((n) => !n.isRead).length)
@@ -943,6 +951,7 @@ export const App: React.FC = () => {
             onOpenLiveQueue={handleOpenLiveQueue}
             onOpenReportModal={handleOpenReportModal}
             onNavigate={handleNavigate}
+            onLogout={handleLogout}
           />
         )}
 
@@ -954,9 +963,9 @@ export const App: React.FC = () => {
           />
         )}
 
-        {activeTab === 'doctor-portal' && <DoctorPortal />}
+        {activeTab === 'doctor-portal' && <DoctorPortal onLogout={handleLogout} />}
 
-        {activeTab === 'portal' && <ClinicPortal />}
+        {activeTab === 'portal' && <ClinicPortal onLogout={handleLogout} />}
         {activeTab === 'support' && <Support />}
 
         {/* 404 Not Found & Broken Link Handler */}
@@ -1027,6 +1036,12 @@ export const App: React.FC = () => {
         onClose={() => setNotificationModalOpen(false)}
         clinicId={selectedClinicId || 'global'}
         onNotificationsChanged={(count) => setUnreadCount(count)}
+      />
+
+      <LanguageSelectionModal
+        isOpen={firstVisitLangModalOpen}
+        isFirstVisit={true}
+        onClose={() => setFirstVisitLangModalOpen(false)}
       />
     </LiquidAuroraBackground>
   )

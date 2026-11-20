@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Calendar,
+  ChevronLeft,
   ChevronRight,
   RefreshCw,
   LogOut,
@@ -27,6 +28,7 @@ import {
   Award,
   Check,
   User,
+  UserX,
   Coffee,
   AlertTriangle,
   Camera,
@@ -40,12 +42,17 @@ import {
   Plus,
   FlaskConical,
   Lock,
+  Play,
+  Footprints,
+  Megaphone,
+  Loader2,
 } from 'lucide-react'
 import { setDefaultTabSEO } from '../utils/seo'
 import {
   Doctor,
   Appointment,
   Clinic,
+  Slot,
   ClinicInvitation,
   MedicalSpecialty,
   MedicalQualification,
@@ -69,12 +76,21 @@ import {
   getMedicalQualifications,
   checkEmailPortalAssociation,
   sendManualNotification,
+  notifyCallInside,
+  notifyArriveSoon,
+  transitionDoctorQueueStatus,
+  getSlots,
+  updateClinicBreak,
   getClinics,
   uploadDoctorPhoto,
   getSupportUrl,
   saveLabReport,
   transitionDiagnosticToProcessing,
   isDiagnosticLabClinic,
+  refreshAppointmentsByIds,
+  checkNewAppointments,
+  removeRogueQueueEntry,
+  autoEnrollNewAppointment,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
 import { extractCleanClinicalRemarks } from '../utils/paymentLedger'
@@ -83,10 +99,11 @@ import { supabase } from '../lib/supabase'
 import {
   signInWithFirebaseGoogle,
   signOutFirebase,
+  firebaseSignOut,
   checkRedirectGoogleUser,
   onFirebaseAuthStateChanged,
 } from '../lib/firebase'
-import { signOutKeepingData } from '../utils/cacheCleaner'
+import { clearAllAppCache } from '../utils/cacheCleaner'
 import dactorLogo from '../assets/logo.svg'
 
 interface DoctorPortalProps {
@@ -172,6 +189,54 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     d.setDate(d.getDate() + 1)
     return d.toISOString().split('T')[0]
   })
+
+  // Doctor Portal Live Queue Parity States
+  const [selectedQueueDate, setSelectedQueueDate] = useState<string>(() => {
+    return new Date().toISOString().split('T')[0]
+  })
+  const [viewedYearMonth, setViewedYearMonth] = useState<{ year: number; month: number }>(() => {
+    const now = new Date()
+    return { year: now.getFullYear(), month: now.getMonth() }
+  })
+  const [queueSubTab, setQueueSubTab] = useState<'live' | 'completed'>('live')
+  const [togglingBreak, setTogglingBreak] = useState(false)
+  const [nowEpochMs, setNowEpochMs] = useState<number>(Date.now())
+  const [alertCooldowns, setAlertCooldowns] = useState<Record<string, number>>({})
+  const [inFlightAlerts, setInFlightAlerts] = useState<Set<string>>(new Set())
+  const [pendingNotification, setPendingNotification] = useState<{
+    appt: Appointment
+    alertType: 'arrive_soon' | 'call_inside'
+  } | null>(null)
+  const [toastNotice, setToastNotice] = useState<{
+    message: string
+    type: 'info' | 'error' | 'success'
+  } | null>(null)
+  const [clinicSlots, setClinicSlots] = useState<Slot[]>([])
+
+  // 1-second ticking timer for cooldown countdowns & timers
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowEpochMs(Date.now())
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  // Auto-dismiss toast notice after 4 seconds
+  useEffect(() => {
+    if (!toastNotice) return
+    const t = setTimeout(() => {
+      setToastNotice(null)
+    }, 4000)
+    return () => clearTimeout(t)
+  }, [toastNotice])
+
+  // Fetch slots for overloaded indicator
+  useEffect(() => {
+    if (!selectedClinic?.id || !selectedQueueDate) return
+    getSlots(selectedClinic.id, selectedQueueDate)
+      .then((slots) => setClinicSlots(slots || []))
+      .catch(() => setClinicSlots([]))
+  }, [selectedClinic?.id, selectedQueueDate])
 
   // Presence State
   const [isInCabin, setIsInCabin] = useState<boolean>(true)
@@ -371,11 +436,18 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
         setSpecialtiesList(specs)
         setQualificationsList(quals)
 
-        // Check if returning from Google OAuth redirect
-        const redirected = await checkRedirectGoogleUser()
-        if (redirected && redirected.email) {
-          await processDoctorLoginForEmail(redirected.email)
-          return
+        // Check if returning from genuine Google OAuth redirect intended for doctor
+        const targetPortal =
+          sessionStorage.getItem('dactor_oauth_target_portal') ||
+          localStorage.getItem('dactor_oauth_target_portal')
+        if (targetPortal === 'doctor') {
+          const redirected = await checkRedirectGoogleUser({ requireRedirectOnly: true })
+          if (redirected && redirected.email) {
+            sessionStorage.removeItem('dactor_oauth_target_portal')
+            localStorage.removeItem('dactor_oauth_target_portal')
+            await processDoctorLoginForEmail(redirected.email)
+            return
+          }
         }
 
         // If saved doctor session exists, reload fresh doctor record
@@ -542,11 +614,14 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     }
   }
 
-  // Reactive listener for Firebase auth state changes
+  // Reactive listener for Firebase auth state changes ONLY when doctor Google sign-in was initiated
   useEffect(() => {
     let isMounted = true
     const unsub = onFirebaseAuthStateChanged((u) => {
-      if (isMounted && u && u.email && !currentDoctor && currentView === 'auth_screen') {
+      const targetPortal =
+        sessionStorage.getItem('dactor_oauth_target_portal') ||
+        localStorage.getItem('dactor_oauth_target_portal')
+      if (isMounted && u && u.email && !currentDoctor && currentView === 'auth_screen' && targetPortal === 'doctor') {
         processDoctorLoginForEmail(u.email)
       }
     })
@@ -562,6 +637,8 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     setAuthError(null)
 
     try {
+      // Clear any stale local auth state non-blocking to keep browser user-activation gesture fresh
+      firebaseSignOut()
       const googleUser = await signInWithFirebaseGoogle('doctor')
       if (googleUser && googleUser.email) {
         await processDoctorLoginForEmail(googleUser.email)
@@ -761,23 +838,55 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   const handleMarkInsideCabin = async (appt: Appointment) => {
     if (!currentDoctor) return
     playChimeSound()
+    const previousAppointments = appointments
+    setAppointments((prev) =>
+      prev.map((a) => (a.id === appt.id ? { ...a, checkinStatus: 'in_consultation' } : a))
+    )
+
     try {
-      await updateAppointmentStatus(appt.id, 'in_consultation')
-      // Send real notification to patient that doctor is ready
-      sendManualNotification(
+      const res = await transitionDoctorQueueStatus(
         appt.id,
-        `Dr. ${currentDoctor.fullName} is Ready`,
-        `Token #${appt.queueNumber || 'N/A'}: Dr. ${currentDoctor.fullName} is ready for your consultation. Please enter the cabin.`,
-        undefined,
-        undefined,
+        'waiting',
+        'inside',
+        currentDoctor.id,
+        appt.queueEntryId
+      )
+
+      if (!res.success) {
+        if (res.conflict) {
+          setToastNotice({
+            message: 'This entry was just updated',
+            type: 'error',
+          })
+        } else {
+          setToastNotice({
+            message: res.message || 'Failed to call patient inside',
+            type: 'error',
+          })
+        }
+        setAppointments(previousAppointments)
+        const refreshed = await getDoctorAppointments(currentDoctor.id)
+        setAppointments(refreshed)
+        return
+      }
+
+      notifyCallInside(
+        appt.id,
+        appt.patientName,
+        currentDoctor.fullName,
         appt.trackingCode10Digit,
+        undefined,
         appt.userId || undefined,
         appt.clinicId
       ).catch(() => {})
+
       const refreshed = await getDoctorAppointments(currentDoctor.id)
       setAppointments(refreshed)
     } catch (err) {
       console.error('Error updating to inside cabin:', err)
+      setAppointments(previousAppointments)
+      const refreshed = await getDoctorAppointments(currentDoctor.id)
+      setAppointments(refreshed)
     }
   }
 
@@ -867,12 +976,62 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
 
   const handleMarkCompleted = async (appt: Appointment) => {
     if (!currentDoctor) return
+    const isDiag = isDiagnosticLabClinic(
+      affiliatedClinics.find((c) => c.id === appt.clinicId) || selectedClinic,
+      currentDoctor,
+      appt
+    )
+
+    const previousAppointments = appointments
+    setAppointments((prev) =>
+      prev.map((a) => (a.id === appt.id ? { ...a, checkinStatus: isDiag ? 'processing' : 'completed' } : a))
+    )
+
     try {
-      await finalizeConsultationOrSendToProcessing(appt)
+      if (isDiag) {
+        await finalizeConsultationOrSendToProcessing(appt)
+        const refreshed = await getDoctorAppointments(currentDoctor.id)
+        setAppointments(refreshed)
+        return
+      }
+
+      const res = await transitionDoctorQueueStatus(
+        appt.id,
+        'inside',
+        'done',
+        currentDoctor.id,
+        appt.queueEntryId
+      )
+
+      if (!res.success) {
+        if (res.conflict) {
+          setToastNotice({
+            message: 'This entry was just updated',
+            type: 'error',
+          })
+        } else {
+          setToastNotice({
+            message: res.message || 'Failed to complete consultation',
+            type: 'error',
+          })
+        }
+        setAppointments(previousAppointments)
+        const refreshed = await getDoctorAppointments(currentDoctor.id)
+        setAppointments(refreshed)
+        return
+      }
+
       const refreshed = await getDoctorAppointments(currentDoctor.id)
       setAppointments(refreshed)
+      setToastNotice({
+        message: `Consultation completed for ${appt.patientName}`,
+        type: 'success',
+      })
     } catch (err) {
       console.error('Error completing consultation:', err)
+      setAppointments(previousAppointments)
+      const refreshed = await getDoctorAppointments(currentDoctor.id)
+      setAppointments(refreshed)
     }
   }
 
@@ -914,12 +1073,139 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       `Mark ${appt.patientName} (Token #${appt.queueNumber || 'N/A'}) as No-Show? They can be readmitted from the reception desk if they arrive.`
     )
     if (!confirmed) return
+
+    const expectedStatus =
+      appt.checkinStatus === 'in_consultation' || appt.checkinStatus === 'inside'
+        ? 'inside'
+        : 'waiting'
+
+    const previousAppointments = appointments
+    setAppointments((prev) =>
+      prev.map((a) => (a.id === appt.id ? { ...a, checkinStatus: 'no_show' } : a))
+    )
+
     try {
-      await updateAppointmentStatus(appt.id, 'no_show')
+      const res = await transitionDoctorQueueStatus(
+        appt.id,
+        expectedStatus,
+        'no_show',
+        currentDoctor.id,
+        appt.queueEntryId
+      )
+
+      if (!res.success) {
+        if (res.conflict) {
+          setToastNotice({
+            message: 'This entry was just updated',
+            type: 'error',
+          })
+        } else {
+          setToastNotice({
+            message: res.message || 'Failed to mark no-show',
+            type: 'error',
+          })
+        }
+        setAppointments(previousAppointments)
+        const refreshed = await getDoctorAppointments(currentDoctor.id)
+        setAppointments(refreshed)
+        return
+      }
+
       const refreshed = await getDoctorAppointments(currentDoctor.id)
       setAppointments(refreshed)
     } catch (err) {
       console.error('Error marking no-show:', err)
+      setAppointments(previousAppointments)
+      const refreshed = await getDoctorAppointments(currentDoctor.id)
+      setAppointments(refreshed)
+    }
+  }
+
+  const handleOpenAlertConfirmation = (
+    appt: Appointment,
+    alertType: 'arrive_soon' | 'call_inside'
+  ) => {
+    if (appt.isWalkin && !appt.userId) {
+      setToastNotice({
+        message: 'Walk-in patient has no app account',
+        type: 'error',
+      })
+      return
+    }
+
+    const now = Date.now()
+    const cooldownUntil = alertCooldowns[appt.id] || 0
+    if (now < cooldownUntil) {
+      const remainingSec = Math.max(1, Math.ceil((cooldownUntil - now) / 1000))
+      setToastNotice({
+        message: `Alert recently sent. Please wait ${remainingSec} seconds before sending again.`,
+        type: 'error',
+      })
+      return
+    }
+
+    setPendingNotification({ appt, alertType })
+  }
+
+  const handleConfirmAndSendNotification = async () => {
+    if (!pendingNotification || !currentDoctor) return
+    const { appt, alertType } = pendingNotification
+    setPendingNotification(null)
+
+    setInFlightAlerts((prev) => new Set(prev).add(appt.id))
+
+    try {
+      let ok = false
+      if (alertType === 'call_inside') {
+        ok = await notifyCallInside(
+          appt.id,
+          appt.patientName,
+          currentDoctor.fullName,
+          appt.trackingCode10Digit,
+          undefined,
+          appt.userId || undefined,
+          appt.clinicId
+        )
+      } else {
+        ok = await notifyArriveSoon(
+          appt.id,
+          appt.patientName,
+          currentDoctor.fullName,
+          appt.trackingCode10Digit,
+          appt.queuePosition || appt.queueNumber || 1,
+          '~ 10-15 mins',
+          appt.userId || undefined,
+          appt.clinicId
+        )
+      }
+
+      if (ok) {
+        const cooldownExpiry = Date.now() + 60_000
+        setAlertCooldowns((prev) => ({ ...prev, [appt.id]: cooldownExpiry }))
+        setAlertedApptIds((prev) => new Set(prev).add(appt.id))
+        const actionLabel = alertType === 'call_inside' ? 'Call In alert' : 'Walk In alert'
+        setToastNotice({
+          message: `${actionLabel} sent to ${appt.patientName}`,
+          type: 'success',
+        })
+      } else {
+        setToastNotice({
+          message: 'Failed to send notification',
+          type: 'error',
+        })
+      }
+    } catch (err) {
+      console.error('Error sending alert:', err)
+      setToastNotice({
+        message: 'Failed to send notification',
+        type: 'error',
+      })
+    } finally {
+      setInFlightAlerts((prev) => {
+        const next = new Set(prev)
+        next.delete(appt.id)
+        return next
+      })
     }
   }
 
@@ -1014,10 +1300,19 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
 
   // Logout
   const handleLogout = () => {
-    signOutKeepingData().catch(() => {})
     setCurrentDoctor(null)
     setCurrentView('auth_screen')
-    if (onLogout) onLogout()
+    try {
+      localStorage.removeItem('dactor_doctor_session')
+      localStorage.removeItem('dactor_doctor_email')
+      localStorage.removeItem('dactor_doctor_logged_in')
+      localStorage.removeItem('dactor_doctor_pending_kyc')
+      localStorage.removeItem('dactor_oauth_target_portal')
+      sessionStorage.removeItem('dactor_oauth_target_portal')
+      firebaseSignOut()
+      clearAllAppCache().catch(() => {})
+      if (onLogout) onLogout()
+    } catch {}
   }
 
   // Queue Analytics
@@ -1067,6 +1362,264 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     () => isDiagnosticLabClinic(selectedClinic, currentDoctor),
     [selectedClinic, currentDoctor]
   )
+
+  // Overloaded slots map
+  const overloadedSlotsMap = useMemo(() => {
+    const map: Record<string, { booked: number; capacity: number }> = {}
+    for (const slot of clinicSlots) {
+      const capacity = slot.maxCapacity || 0
+      const booked = slot.bookedCount || 0
+      if (capacity > 0 && booked > capacity) {
+        const pair = { booked, capacity }
+        if (slot.startTime && slot.endTime) {
+          map[`${slot.startTime} - ${slot.endTime}`] = pair
+        }
+        if (slot.startTime) {
+          map[slot.startTime] = pair
+        }
+      }
+    }
+    return map
+  }, [clinicSlots])
+
+  // Doctor Live Queue Filtered for selectedQueueDate
+  const queueDateAppointments = useMemo(() => {
+    return appointments.filter((a) => {
+      if (a.appointmentDate !== selectedQueueDate) return false
+      if (selectedClinic && a.clinicId && a.clinicId !== selectedClinic.id) return false
+      const st = (a.status || '').toUpperCase()
+      // Pay at Desk: Strictly exclude unapproved Pay at Desk appointments (WAITING_FOR_APPROVAL)
+      if (
+        st === 'WAITING_FOR_APPROVAL' ||
+        a.status === 'pending_payment' ||
+        a.status === 'UNAPPROVED' ||
+        a.status === 'EXPIRED' ||
+        a.checkinStatus === 'cancelled'
+      ) {
+        return false
+      }
+      return true
+    })
+  }, [appointments, selectedQueueDate, selectedClinic])
+
+  const liveQueue = useMemo(() => {
+    const live = queueDateAppointments.filter(
+      (a) =>
+        a.checkinStatus === 'waiting' ||
+        a.checkinStatus === 'in_consultation' ||
+        a.checkinStatus === 'inside'
+    )
+    return [...live].sort((a, b) => {
+      const aInside =
+        a.checkinStatus === 'in_consultation' || a.checkinStatus === 'inside' ? 0 : 1
+      const bInside =
+        b.checkinStatus === 'in_consultation' || b.checkinStatus === 'inside' ? 0 : 1
+      if (aInside !== bInside) return aInside - bInside
+      const aPos = a.queuePosition ?? a.queueNumber ?? 999
+      const bPos = b.queuePosition ?? b.queueNumber ?? 999
+      if (aPos !== bPos) return aPos - bPos
+      return (a.appointmentTime || '').localeCompare(b.appointmentTime || '')
+    })
+  }, [queueDateAppointments])
+
+  const completedQueue = useMemo(() => {
+    const comp = queueDateAppointments.filter(
+      (a) =>
+        a.checkinStatus === 'completed' ||
+        a.checkinStatus === 'done' ||
+        a.checkinStatus === 'report_prepared' ||
+        a.checkinStatus === 'no_show' ||
+        a.checkinStatus === 'processing' ||
+        a.checkinStatus === 'sample_collected'
+    )
+    return [...comp].sort((a, b) => {
+      return (b.updatedAt || '').localeCompare(a.updatedAt || '')
+    })
+  }, [queueDateAppointments])
+
+  const insideCount = useMemo(
+    () =>
+      liveQueue.filter(
+        (a) => a.checkinStatus === 'in_consultation' || a.checkinStatus === 'inside'
+      ).length,
+    [liveQueue]
+  )
+
+  const waitingCount = useMemo(
+    () => liveQueue.filter((a) => a.checkinStatus === 'waiting').length,
+    [liveQueue]
+  )
+
+  // Targeted 2.5s sliding window live queue refresh (upcoming 3-4 patients & new appointments)
+  useEffect(() => {
+    if (!currentDoctor || !selectedClinic?.id || deskTab !== 'today_queue') return
+
+    let isPolling = false
+    const interval = setInterval(async () => {
+      if (isPolling) return
+      isPolling = true
+      try {
+        // 1. Sliding window lookahead: Upcoming 3-4 patients in line
+        const upcomingItems = liveQueue.slice(0, 4)
+        const upcomingIds = upcomingItems.map((a) => a.id)
+
+        if (upcomingIds.length > 0) {
+          const refreshed = await refreshAppointmentsByIds(upcomingIds)
+          if (refreshed.length > 0) {
+            const freshMap = new Map(refreshed.map((a) => [a.id, a]))
+            let modified = false
+
+            setAppointments((prev) => {
+              const updated = prev.map((item) => {
+                const fresh = freshMap.get(item.id)
+                if (!fresh) return item
+
+                const isCancelled =
+                  (fresh.status || '').toUpperCase() === 'CANCELLED' ||
+                  (fresh.checkinStatus || '').toLowerCase() === 'cancelled'
+                const isRescheduledDate =
+                  fresh.appointmentDate && fresh.appointmentDate !== selectedQueueDate
+
+                if (isCancelled || isRescheduledDate) {
+                  modified = true
+                  removeRogueQueueEntry(item.id).catch(() => {})
+                  return { ...item, status: 'CANCELLED', checkinStatus: 'cancelled' }
+                }
+
+                if (fresh.appointmentTime && fresh.appointmentTime !== item.appointmentTime) {
+                  modified = true
+                  return { ...item, appointmentTime: fresh.appointmentTime }
+                }
+
+                return { ...item, ...fresh }
+              })
+              return modified ? updated : prev
+            })
+          }
+        }
+
+        // 2. Incrementally check newly booked or approved appointments for today
+        const knownIds = appointments.map((a) => a.id)
+        const newAppts = await checkNewAppointments(
+          selectedClinic.id,
+          currentDoctor.id,
+          selectedQueueDate,
+          knownIds
+        )
+
+        if (newAppts.length > 0) {
+          let maxPos = Math.max(0, ...liveQueue.map((a) => a.queuePosition || 0))
+          for (const newAppt of newAppts) {
+            maxPos++
+            autoEnrollNewAppointment(selectedClinic.id, currentDoctor.id, newAppt.id, maxPos).catch(() => {})
+          }
+          setAppointments((prev) => {
+            const currentIds = new Set(prev.map((a) => a.id))
+            const toAdd = newAppts.filter((a) => !currentIds.has(a.id))
+            return toAdd.length > 0 ? [...prev, ...toAdd] : prev
+          })
+        }
+      } catch (err) {
+        console.warn('Targeted doctor queue refresh error:', err)
+      } finally {
+        isPolling = false
+      }
+    }, 2500)
+
+    return () => clearInterval(interval)
+  }, [currentDoctor?.id, selectedClinic?.id, selectedQueueDate, deskTab, liveQueue, appointments])
+
+  const completedTodayCount = useMemo(
+    () =>
+      completedQueue.filter(
+        (a) =>
+          a.checkinStatus === 'completed' ||
+          a.checkinStatus === 'done' ||
+          a.checkinStatus === 'report_prepared'
+      ).length,
+    [completedQueue]
+  )
+
+  const isClinicOnBreak = Boolean(selectedClinic?.isOnBreak)
+
+  const handleToggleClinicBreak = async () => {
+    if (!selectedClinic) return
+    setTogglingBreak(true)
+    const nextBreak = !isClinicOnBreak
+    try {
+      const ok = await updateClinicBreak(selectedClinic.id, nextBreak)
+      if (ok) {
+        setSelectedClinic((prev) => (prev ? { ...prev, isOnBreak: nextBreak } : prev))
+        setToastNotice({
+          message: nextBreak ? 'Break started: live queue paused' : 'Break ended: live queue resumed',
+          type: 'info',
+        })
+      }
+    } catch (err) {
+      console.error('Error toggling clinic break:', err)
+    } finally {
+      setTogglingBreak(false)
+    }
+  }
+
+  // Date Scroller Helpers
+  const handlePrevMonth = () => {
+    setViewedYearMonth((prev) => {
+      let newMonth = prev.month - 1
+      let newYear = prev.year
+      if (newMonth < 0) {
+        newMonth = 11
+        newYear -= 1
+      }
+      return { year: newYear, month: newMonth }
+    })
+  }
+
+  const handleNextMonth = () => {
+    setViewedYearMonth((prev) => {
+      let newMonth = prev.month + 1
+      let newYear = prev.year
+      if (newMonth > 11) {
+        newMonth = 0
+        newYear += 1
+      }
+      return { year: newYear, month: newMonth }
+    })
+  }
+
+  const handleJumpToToday = () => {
+    const now = new Date()
+    const todayStr = now.toISOString().split('T')[0]
+    setViewedYearMonth({ year: now.getFullYear(), month: now.getMonth() })
+    setSelectedQueueDate(todayStr)
+  }
+
+  const monthName = useMemo(() => {
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ]
+    return months[viewedYearMonth.month]
+  }, [viewedYearMonth])
+
+  const daysInViewedMonth = useMemo(() => {
+    const { year, month } = viewedYearMonth
+    const daysCount = new Date(year, month + 1, 0).getDate()
+    const list: Array<{ dateStr: string; dayNum: number; weekdayShort: string }> = []
+    const weekdays = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+    for (let d = 1; d <= daysCount; d++) {
+      const dateObj = new Date(year, month, d)
+      const monthStr = String(month + 1).padStart(2, '0')
+      const dayStr = String(d).padStart(2, '0')
+      const dateStr = `${year}-${monthStr}-${dayStr}`
+      list.push({
+        dateStr,
+        dayNum: d,
+        weekdayShort: weekdays[dateObj.getDay()],
+      })
+    }
+    return list
+  }, [viewedYearMonth])
   const futureAppointments = useMemo(
     () =>
       appointments.filter((a) => {
@@ -2157,299 +2710,759 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           ========================================== */}
       {deskTab === 'today_queue' && (
         <div className="space-y-6">
-          {/* Quick Metrics Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="liquid-glass-card p-5 rounded-2xl border border-white/40 dark:border-white/10 shadow-xs flex items-center space-x-4">
-              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold border border-amber-500/20">
-                <Users className="w-6 h-6" />
-              </div>
-              <div>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">{waitingPatients.length}</div>
-                <div className="text-xs text-slate-500 dark:text-slate-400 font-bold">Waiting in OPD Lobby</div>
-              </div>
-            </div>
-
-            <div className="liquid-glass-card p-5 rounded-2xl border border-white/40 dark:border-white/10 shadow-xs flex items-center space-x-4">
-              <div className="w-12 h-12 rounded-2xl bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center font-bold border border-teal-500/20">
-                <Stethoscope className="w-6 h-6" />
-              </div>
-              <div>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">
-                  {currentInsidePatient ? '1 Inside' : 'None Inside'}
+          {/* Toast Notification for Concurrency Conflicts & Actions */}
+          {toastNotice && (
+            <div className="fixed top-5 right-5 z-50 max-w-md w-full animate-in fade-in slide-in-from-top-3">
+              <div
+                className={`p-4 rounded-2xl shadow-xl border flex items-center justify-between space-x-3 ${
+                  toastNotice.type === 'error'
+                    ? 'bg-rose-50 border-rose-200 text-rose-800 dark:bg-rose-950/90 dark:border-rose-800 dark:text-rose-200'
+                    : toastNotice.type === 'success'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-950/90 dark:border-emerald-800 dark:text-emerald-200'
+                    : 'bg-sky-50 border-sky-200 text-sky-800 dark:bg-sky-950/90 dark:border-sky-800 dark:text-sky-200'
+                }`}
+              >
+                <div className="flex items-center space-x-2.5">
+                  {toastNotice.type === 'error' ? (
+                    <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+                  ) : toastNotice.type === 'success' ? (
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-5 h-5 text-sky-600 shrink-0" />
+                  )}
+                  <span className="text-xs sm:text-sm font-bold">{toastNotice.message}</span>
                 </div>
-                <div className="text-xs text-slate-500 dark:text-slate-400 font-bold">Currently in Cabin</div>
-              </div>
-            </div>
-
-            <div className="liquid-glass-card p-5 rounded-2xl border border-white/40 dark:border-white/10 shadow-xs flex items-center space-x-4">
-              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold border ${
-                isDiagnosticPortalClinic
-                  ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20'
-                  : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
-              }`}>
-                {isDiagnosticPortalClinic ? <FlaskConical className="w-6 h-6" /> : <CheckCircle2 className="w-6 h-6" />}
-              </div>
-              <div>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">
-                  {isDiagnosticPortalClinic ? processingPatients.length : completedPatients.length}
-                </div>
-                <div className="text-xs text-slate-500 dark:text-slate-400 font-bold">
-                  {isDiagnosticPortalClinic ? 'In Processing (Lab)' : 'Completed Consultations'}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* ACTIVE IN-CABIN PATIENT HERO CARD */}
-          {currentInsidePatient && (() => {
-            const isActiveDiag = isDiagnosticLabClinic(selectedClinic, currentDoctor, currentInsidePatient)
-            return (
-            <div className="liquid-glass-elevated bg-gradient-to-r from-teal-950/85 via-slate-950/85 to-cyan-950/85 text-white rounded-3xl p-6 sm:p-8 shadow-xl space-y-4 border border-teal-500/30 relative overflow-hidden backdrop-blur-2xl">
-              {/* Top cyan specular line */}
-              <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-cyan-400/60 to-transparent" />
-
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-teal-700/40 pb-4">
-                <div className="flex items-center space-x-3">
-                  <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-cyan-200">
-                    Currently Inside Cabin
-                  </span>
-                </div>
-                <span className="font-mono text-xs px-3 py-1 rounded-full bg-white/10 text-cyan-100 border border-white/20">
-                  Universal Token: {currentInsidePatient.trackingCode10Digit}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div>
-                  <div className="text-3xl font-black text-white">
-                    {currentInsidePatient.patientName}
-                  </div>
-                  <p className="text-xs text-cyan-200 mt-1">
-                    {currentInsidePatient.patientAge ? `${currentInsidePatient.patientAge} Yrs` : ''}{' '}
-                    {currentInsidePatient.patientGender ? `• ${currentInsidePatient.patientGender}` : ''}{' '}
-                    • Mobile: {currentInsidePatient.patientMobile || 'N/A'}
-                  </p>
-                </div>
-
-                <div>
-                  <div className="text-xs font-bold text-cyan-200">Token Number</div>
-                  <div className="text-2xl font-black text-white font-mono">
-                    Token #{String(currentInsidePatient.queueNumber).padStart(2, '0')}
-                  </div>
-                  <p className="text-xs text-cyan-200 mt-1">
-                    {currentInsidePatient.appointmentTime || 'Immediate Walk-In'}
-                  </p>
-                </div>
-
-                <div className="flex flex-col sm:flex-row items-center gap-2.5 justify-end">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAlertTargetAppt(currentInsidePatient)
-                      setAlertTitle(`Arrive Soon • Turn Approaching • Dr. ${currentDoctor?.fullName}`)
-                      setAlertMessage(`Dear ${currentInsidePatient.patientName}, your consultation is ongoing. Please remain inside cabin.`)
-                      setAlertModalOpen(true)
-                    }}
-                    className={`w-full sm:w-auto px-3.5 py-2.5 rounded-xl font-bold text-xs border transition-all cursor-pointer flex items-center justify-center space-x-1.5 active:scale-[0.98] ${alertedApptIds.has(currentInsidePatient.id) ? 'bg-teal-500/30 text-teal-200 border-teal-400/50' : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'}`}
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>{alertedApptIds.has(currentInsidePatient.id) ? 'Arrive Soon' : 'Send Alert'}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleOpenPrescriptionModal(currentInsidePatient)}
-                    className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-blue-700 to-sky-600 hover:brightness-110 text-white font-black text-xs shadow-md shadow-blue-500/30 border border-white/30 transition-all cursor-pointer flex items-center justify-center space-x-2 active:scale-[0.98]"
-                  >
-                    <FileText className="w-4 h-4" />
-                    <span>{isActiveDiag ? 'Write Notes & Processing' : 'Write Rx & Complete'}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleMarkCompleted(currentInsidePatient)}
-                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all cursor-pointer flex items-center justify-center space-x-1.5 active:scale-[0.98]"
-                    title={
-                      isActiveDiag
-                        ? 'Transfer patient to Processing section without adding extra notes'
-                        : 'Complete consultation without adding new prescription notes'
-                    }
-                  >
-                    {isActiveDiag ? <FlaskConical className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                    <span>{isActiveDiag ? 'Mark Done (Processing)' : 'Quick Complete'}</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-            )
-          })()}
-
-          {/* WAITING QUEUE PATIENTS LIST */}
-          <div className="liquid-glass-card rounded-3xl border border-white/40 dark:border-white/10 shadow-sm overflow-hidden">
-            <div className="p-5 border-b border-white/20 dark:border-white/5 flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-black text-slate-900 dark:text-white">Waiting Patients Queue</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Patients currently waiting outside your cabin for today's OPD consultation.
-                </p>
-              </div>
-              <span className="text-xs font-bold px-3 py-1 rounded-full liquid-glass-subtle text-slate-700 dark:text-slate-300 border border-white/30 dark:border-white/10">
-                {waitingPatients.length} In Queue
-              </span>
-            </div>
-
-            {affiliatedClinics.length === 0 ? (
-              <div className="p-12 text-center space-y-3">
-                <Building2 className="w-12 h-12 text-teal-500/70 mx-auto" />
-                <h4 className="text-base font-bold text-slate-800 dark:text-slate-200">Independent Practitioner Desk</h4>
-                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                  You are registered as an independent doctor and not currently affiliated with any clinic OPD rosters. Partner clinics can invite you to their facility using your email, and invitations will appear above for you to accept.
-                </p>
-              </div>
-            ) : waitingPatients.length === 0 ? (
-              <div className="p-12 text-center space-y-3">
-                <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
-                <h4 className="text-base font-bold text-slate-800 dark:text-slate-200">No Waiting Patients in Lobby</h4>
-                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-                  All booked and walk-in OPD patients for today have completed consultations or no patients are currently checked in.
-                </p>
-              </div>
-            ) : (
-              <div className="divide-y divide-white/20 dark:divide-white/5">
-                {waitingPatients.map((appt, idx) => (
-                  <div
-                    key={appt.id}
-                    className="p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:bg-white/40 dark:hover:bg-slate-800/40 transition-colors"
-                  >
-                    <div className="flex items-center space-x-4">
-                      <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 flex flex-col items-center justify-center font-mono font-black shrink-0">
-                        <span className="text-[10px] text-blue-600 dark:text-blue-400 uppercase leading-none">Token</span>
-                        <span className="text-base leading-none">
-                          #{String(appt.queueNumber || idx + 1).padStart(2, '0')}
-                        </span>
-                      </div>
-
-                      <div className="space-y-0.5">
-                        <div className="flex items-center space-x-2">
-                          <h4 className="text-sm font-black text-slate-900 dark:text-white">{appt.patientName}</h4>
-                          <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded-md liquid-glass-subtle text-slate-700 dark:text-slate-300 border border-white/20">
-                            {appt.trackingCode10Digit}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">
-                          {appt.patientAge ? `${appt.patientAge} Yrs` : ''}{' '}
-                          {appt.patientGender ? `• ${appt.patientGender}` : ''}{' '}
-                          • Mobile: {appt.patientMobile || 'N/A'}{' '}
-                          {appt.appointmentTime ? `• Slot: ${appt.appointmentTime}` : ''}
-                        </p>
-                        {appt.notes && (
-                          <p className="text-[11px] text-blue-700 dark:text-blue-300 font-medium">Notes: {appt.notes}</p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-2 w-full sm:w-auto justify-end flex-wrap gap-y-2">
-                      <button
-                        type="button"
-                        onClick={() => handleOpenPatientHistory(appt.patientName)}
-                        className="px-3 py-2 rounded-xl liquid-glass-card border border-white/40 dark:border-white/10 text-slate-700 dark:text-slate-200 hover:text-blue-600 hover:bg-blue-500/10 text-xs font-bold transition-colors cursor-pointer flex items-center space-x-1 active:scale-[0.98]"
-                        title="View Patient's Past Visits and Prescriptions"
-                      >
-                        <FileText className="w-3.5 h-3.5" />
-                        <span>History</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAlertTargetAppt(appt)
-                          setAlertTitle(`Arrive Soon • Turn Approaching (#${appt.queueNumber || '1'})`)
-                          setAlertMessage(
-                            `Hi ${appt.patientName}, your turn is approaching! Please arrive towards Dr. ${currentDoctor?.fullName}'s cabin soon.`
-                          )
-                          setAlertModalOpen(true)
-                        }}
-                        className={`p-2 rounded-xl liquid-glass-card border border-white/40 dark:border-white/10 transition-colors cursor-pointer active:scale-[0.98] ${alertedApptIds.has(appt.id) ? 'text-teal-600 dark:text-teal-400 bg-teal-500/20' : 'text-slate-600 dark:text-slate-300 hover:text-blue-600 hover:bg-blue-500/10'}`}
-                        title={alertedApptIds.has(appt.id) ? 'Arrive Soon Alert Sent' : 'Send Push Alert to Patient'}
-                      >
-                        <Send className="w-4 h-4" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleMarkNoShow(appt)}
-                        className="px-3 py-2 rounded-xl liquid-glass-subtle border border-rose-300/60 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 hover:bg-rose-500/15 text-xs font-bold transition-all cursor-pointer active:scale-[0.98]"
-                        title="Mark patient as absent / no-show"
-                      >
-                        No-Show
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleMarkInsideCabin(appt)}
-                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 via-blue-700 to-sky-600 hover:brightness-110 text-white font-bold text-xs shadow-sm transition-all cursor-pointer flex items-center space-x-1.5 active:scale-[0.98]"
-                      >
-                        <UserCheck className="w-4 h-4" />
-                        <span>Call to Cabin</span>
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* IN PROCESSING PATIENTS ACCORDION / LIST */}
-          {processingPatients.length > 0 && (
-            <div className="liquid-glass-subtle rounded-3xl border border-blue-400/30 shadow-sm p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-black text-slate-900 dark:text-white">
-                  Processing in Lab Today ({processingPatients.length})
-                </h3>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {processingPatients.map((p) => (
-                  <div
-                    key={p.id}
-                    className="p-3 liquid-glass-card rounded-2xl border border-blue-500/20 flex items-center justify-between text-xs"
-                  >
-                    <div>
-                      <div className="font-bold text-slate-900 dark:text-white">{p.patientName}</div>
-                      <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-                        Token #{p.queueNumber} • {p.trackingCode10Digit}
-                      </div>
-                    </div>
-                    <FlaskConical className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                  </div>
-                ))}
+                <button
+                  type="button"
+                  onClick={() => setToastNotice(null)}
+                  className="p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             </div>
           )}
 
-          {/* COMPLETED PATIENTS ACCORDION / LIST */}
-          {completedPatients.length > 0 && (
-            <div className="liquid-glass-subtle rounded-3xl border border-white/40 dark:border-white/10 shadow-sm p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-black text-slate-900 dark:text-white">
-                  Completed Today ({completedPatients.length})
-                </h3>
+          {/* =========================================================
+              A. COMPACT STAT BOXES
+              - "In Consultation" (blue #E8F1FD background / blue accent)
+              - "Waiting in Lobby" (amber #FDF2E4 background / amber accent)
+              - "Completed Today" (green #E5F8EE background / green accent)
+              ========================================================= */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+            {/* 1. In Consultation Card */}
+            <div
+              style={{ backgroundColor: '#E8F1FD' }}
+              className="rounded-2xl p-4 sm:p-5 border border-blue-200/60 shadow-xs flex flex-col justify-between"
+            >
+              <div className="flex items-center space-x-2.5">
+                <div
+                  style={{ backgroundColor: '#D3E4FB' }}
+                  className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                >
+                  <User className="w-4 h-4 text-[#1E64D4]" />
+                </div>
+                <span style={{ color: '#3362A8' }} className="text-xs sm:text-sm font-bold truncate">
+                  In Consultation
+                </span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {completedPatients.map((c) => (
-                  <div
-                    key={c.id}
-                    className="p-3 liquid-glass-card rounded-2xl border border-emerald-500/20 flex items-center justify-between text-xs"
+              <div style={{ color: '#1351B4' }} className="text-2xl sm:text-3xl font-black mt-3">
+                {insideCount}
+              </div>
+            </div>
+
+            {/* 2. Waiting in Lobby Card */}
+            <div
+              style={{ backgroundColor: '#FDF2E4' }}
+              className="rounded-2xl p-4 sm:p-5 border border-amber-200/60 shadow-xs flex flex-col justify-between"
+            >
+              <div className="flex items-center space-x-2.5">
+                <div
+                  style={{ backgroundColor: '#FAE0C3' }}
+                  className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                >
+                  <Clock className="w-4 h-4 text-[#B45B10]" />
+                </div>
+                <span style={{ color: '#9E5417' }} className="text-xs sm:text-sm font-bold truncate">
+                  Waiting in Lobby
+                </span>
+              </div>
+              <div style={{ color: '#B45B10' }} className="text-2xl sm:text-3xl font-black mt-3">
+                {waitingCount}
+              </div>
+            </div>
+
+            {/* 3. Completed Today Card */}
+            <div
+              style={{ backgroundColor: '#E5F8EE' }}
+              className="rounded-2xl p-4 sm:p-5 border border-emerald-200/60 shadow-xs flex flex-col justify-between"
+            >
+              <div className="flex items-center space-x-2.5">
+                <div
+                  style={{ backgroundColor: '#C7F0DB' }}
+                  className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-[#0F8A50]" />
+                </div>
+                <span style={{ color: '#137747' }} className="text-xs sm:text-sm font-bold truncate">
+                  Completed Today
+                </span>
+              </div>
+              <div style={{ color: '#0F8A50' }} className="text-2xl sm:text-3xl font-black mt-3">
+                {completedTodayCount}
+              </div>
+            </div>
+          </div>
+
+          {/* =========================================================
+              B. DATE SELECTOR / SCROLLER
+              - Defaults to today
+              - Month navigation
+              - Quick-jump to Today
+              - Compact horizontal date list
+              ========================================================= */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+            {/* Header: Month / Year Navigation & "Today" Quick Jump */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-1 sm:space-x-2">
+                <button
+                  type="button"
+                  onClick={handlePrevMonth}
+                  className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 transition-colors cursor-pointer"
+                  title="Previous Month"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <span className="font-bold text-sm sm:text-base text-slate-800 dark:text-slate-100">
+                  {monthName} {viewedYearMonth.year}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleNextMonth}
+                  className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 transition-colors cursor-pointer"
+                  title="Next Month"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Quick Jump "Today" Button */}
+              <button
+                type="button"
+                onClick={handleJumpToToday}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                  selectedQueueDate === todayDateStr
+                    ? 'bg-[#E0F2FE] text-[#0284C7] border-[#0284C7]'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                Today
+              </button>
+            </div>
+
+            {/* Horizontal Date Scroller */}
+            <div className="flex items-center space-x-2 overflow-x-auto pb-1 pt-1 scrollbar-none">
+              {daysInViewedMonth.map((day) => {
+                const isSelected = day.dateStr === selectedQueueDate
+                return (
+                  <button
+                    key={day.dateStr}
+                    type="button"
+                    onClick={() => setSelectedQueueDate(day.dateStr)}
+                    className={`min-w-[46px] w-[46px] py-2 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer shrink-0 ${
+                      isSelected
+                        ? 'bg-[#0284C7] text-white border border-[#0284C7] shadow-xs'
+                        : 'bg-[#F8FAFC] dark:bg-slate-800/80 text-[#1E293B] dark:text-slate-200 border border-[#E2E8F0] dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
                   >
-                    <div>
-                      <div className="font-bold text-slate-900 dark:text-white">{c.patientName}</div>
-                      <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-                        Token #{c.queueNumber} • {c.trackingCode10Digit}
+                    <span
+                      className={`text-[9.5px] font-semibold tracking-wider ${
+                        isSelected ? 'text-white/90' : 'text-[#64748B] dark:text-slate-400'
+                      }`}
+                    >
+                      {day.weekdayShort}
+                    </span>
+                    <span className="text-sm sm:text-base font-bold mt-0.5 leading-none">
+                      {day.dayNum}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* =========================================================
+              OVERLOADED SLOTS WARNING BANNER (If any slot exceeded capacity)
+              ========================================================= */}
+          {(() => {
+            const overloadedDesc = Object.entries(overloadedSlotsMap)
+              .filter(([k]) => k.includes('-'))
+              .map(([k, v]) => `${k} (${v.booked}/${v.capacity})`)
+              .join(', ')
+
+            if (!overloadedDesc) return null
+
+            return (
+              <div
+                style={{ backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }}
+                className="rounded-2xl p-4 border flex items-center space-x-3 shadow-xs"
+              >
+                <AlertTriangle className="w-5 h-5 text-[#B45309] shrink-0" />
+                <div>
+                  <div style={{ color: '#92400E' }} className="text-xs sm:text-sm font-bold">
+                    Overloaded Slot Capacity Detected
+                  </div>
+                  <div style={{ color: '#B45309' }} className="text-xs font-medium mt-0.5">
+                    {overloadedDesc}
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* =========================================================
+              C & D. DUAL TABS (Live vs Completed) & BREAK TOGGLE
+              - Positioned directly beside the Completed tab on the right
+                within the same horizontal row.
+              - No separate info box banner.
+              ========================================================= */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+            {/* Dual Tabs */}
+            <div className="flex items-center bg-[#F1F5F9] dark:bg-slate-800 p-1 rounded-xl space-x-1">
+              <button
+                type="button"
+                onClick={() => setQueueSubTab('live')}
+                className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center space-x-2 cursor-pointer ${
+                  queueSubTab === 'live'
+                    ? 'bg-[#0284C7] text-white shadow-xs'
+                    : 'text-[#64748B] hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <span>Live</span>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
+                    queueSubTab === 'live'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-200 dark:bg-slate-700 text-[#475569] dark:text-slate-300'
+                  }`}
+                >
+                  {liveQueue.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setQueueSubTab('completed')}
+                className={`px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all flex items-center space-x-2 cursor-pointer ${
+                  queueSubTab === 'completed'
+                    ? 'bg-[#0284C7] text-white shadow-xs'
+                    : 'text-[#64748B] hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <span>Completed</span>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
+                    queueSubTab === 'completed'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-200 dark:bg-slate-700 text-[#475569] dark:text-slate-300'
+                  }`}
+                >
+                  {completedQueue.length}
+                </span>
+              </button>
+            </div>
+
+            {/* Break Toggle: Directly beside Completed tab on the right within same row */}
+            <button
+              type="button"
+              onClick={handleToggleClinicBreak}
+              disabled={togglingBreak || !selectedClinic}
+              style={{
+                backgroundColor: isClinicOnBreak ? '#FEF3C7' : '#F1F5F9',
+                borderColor: isClinicOnBreak ? '#F59E0B' : '#CBD5E1',
+                color: isClinicOnBreak ? '#B45309' : '#475569',
+              }}
+              className="px-4 py-2 rounded-xl text-xs sm:text-sm font-bold border transition-all cursor-pointer flex items-center justify-center space-x-2 shrink-0 active:scale-[0.98]"
+              title={
+                isClinicOnBreak
+                  ? 'Clinic is on break. Click to resume queue.'
+                  : 'Click to pause queue for clinic break.'
+              }
+            >
+              <Coffee className={`w-4 h-4 ${isClinicOnBreak ? 'text-[#B45309]' : 'text-[#475569]'}`} />
+              <span>{isClinicOnBreak ? 'Break: ON' : 'Break: OFF'}</span>
+            </button>
+          </div>
+
+          {/* =========================================================
+              E & F. PATIENT QUEUE ROWS (Live vs Completed)
+              ========================================================= */}
+          {queueSubTab === 'live' ? (
+            /* LIVE QUEUE VIEW */
+            <div className="space-y-3">
+              {liveQueue.length === 0 ? (
+                <div className="bg-white dark:bg-slate-900 rounded-3xl p-12 text-center border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+                  <Clock className="w-10 h-10 text-slate-400 mx-auto" />
+                  <h4 className="text-base font-bold text-slate-800 dark:text-slate-200">
+                    No waiting patients in queue for this date.
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+                    All booked and walk-in OPD patients for this date have completed consultations or no patients have checked in yet.
+                  </p>
+                </div>
+              ) : (
+                liveQueue.map((appt, idx) => {
+                  const isInside =
+                    appt.checkinStatus === 'in_consultation' || appt.checkinStatus === 'inside'
+                  const slotRatio = overloadedSlotsMap[appt.appointmentTime]
+                    ? `${overloadedSlotsMap[appt.appointmentTime].booked}/${overloadedSlotsMap[appt.appointmentTime].capacity}`
+                    : null
+                  const isOverloaded = Boolean(slotRatio)
+                  const isAccountlessWalkin = Boolean(appt.isWalkin && !appt.userId)
+                  const cooldownExpiry = alertCooldowns[appt.id] || 0
+                  const remainingSec = Math.max(0, Math.ceil((cooldownExpiry - nowEpochMs) / 1000))
+                  const isCoolingDown = remainingSec > 0
+                  const isSending = inFlightAlerts.has(appt.id)
+                  const dueAmount =
+                    appt.totalAmount && appt.totalAmount > 0
+                      ? appt.totalAmount % 1 === 0
+                        ? appt.totalAmount
+                        : appt.totalAmount.toFixed(2)
+                      : appt.feeAmount
+
+                  return (
+                    <div
+                      key={appt.id}
+                      className={`bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border transition-all shadow-xs space-y-3 ${
+                        isInside
+                          ? 'border-emerald-400/80 bg-emerald-50/20 dark:bg-emerald-950/20'
+                          : 'border-slate-200 dark:border-slate-800 hover:border-slate-300'
+                      }`}
+                    >
+                      {/* Top Row: Avatar + Info + Position / Status Pill */}
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div className="flex items-center space-x-3 sm:space-x-4">
+                          {/* Avatar Circle */}
+                          <div
+                            className={`w-11 h-11 rounded-full flex items-center justify-center font-bold text-white shrink-0 ${
+                              isInside ? 'bg-[#16A34A]' : 'bg-[#0284C7]'
+                            }`}
+                          >
+                            <User className="w-5 h-5" />
+                          </div>
+
+                          <div className="space-y-1">
+                            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                              <h4 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                                {appt.patientName}
+                              </h4>
+                              {appt.isWalkin && (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#F3E8FF] text-[#7E22CE]">
+                                  Walk-in
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Demographics + Token / Tracking Code */}
+                            <p className="text-xs font-semibold text-[#0284C7]">
+                              {appt.patientAge ? `${appt.patientAge} yrs • ` : ''}
+                              {appt.patientGender ? `${appt.patientGender} • ` : ''}
+                              #{appt.trackingCode10Digit}
+                            </p>
+
+                            {/* Slot Time */}
+                            {appt.appointmentTime && (
+                              <div className="flex items-center space-x-1.5 text-xs text-[#64748B]">
+                                <Clock className="w-3.5 h-3.5" />
+                                <span>Slot: {appt.appointmentTime}</span>
+                              </div>
+                            )}
+
+                            {/* Badges: Pay at Desk, Overloaded Capacity, Elapsed Consultation */}
+                            <div className="flex items-center space-x-2 flex-wrap gap-y-1 pt-1">
+                              {/* Pay at Desk Status Display */}
+                              {appt.paymentMode === 'PAY_AT_DESK' && (
+                                <>
+                                  {appt.paymentStatus === 'paid' ? (
+                                    <span
+                                      style={{
+                                        backgroundColor: '#DCFCE7',
+                                        borderColor: '#86EFAC',
+                                        color: '#166534',
+                                      }}
+                                      className="px-2 py-0.5 rounded text-[11px] font-bold border"
+                                    >
+                                      ✓ Paid at Desk
+                                    </span>
+                                  ) : (
+                                    <span
+                                      style={{
+                                        backgroundColor: '#FEF3C7',
+                                        borderColor: '#FDE68A',
+                                        color: '#92400E',
+                                      }}
+                                      className="px-2 py-0.5 rounded text-[11px] font-bold border"
+                                    >
+                                      💵 Pay at Desk (Due Rs. {dueAmount})
+                                    </span>
+                                  )}
+                                </>
+                              )}
+
+                              {/* Overloaded Slot Capacity Indicator (e.g. 13/12 Capacity) */}
+                              {isOverloaded && slotRatio && (
+                                <span
+                                  style={{
+                                    backgroundColor: '#FEF3C7',
+                                    borderColor: '#F59E0B',
+                                    color: '#B45309',
+                                  }}
+                                  className="px-2 py-0.5 rounded text-[11px] font-bold border flex items-center space-x-1"
+                                >
+                                  <AlertTriangle className="w-3 h-3 text-[#B45309]" />
+                                  <span>{slotRatio} Capacity</span>
+                                </span>
+                              )}
+
+                              {/* Active Consultation Badge */}
+                              {isInside && (
+                                <span
+                                  style={{ backgroundColor: '#DCFCE7', color: '#15803D' }}
+                                  className="px-2 py-0.5 rounded text-[11px] font-bold flex items-center space-x-1"
+                                >
+                                  <Clock className="w-3 h-3 text-[#15803D]" />
+                                  <span>In Consultation</span>
+                                </span>
+                              )}
+
+                              {/* Notification Cooldown / Sent Badge */}
+                              {(isCoolingDown || alertedApptIds.has(appt.id)) && (
+                                <span
+                                  style={{
+                                    backgroundColor: '#E0F2FE',
+                                    borderColor: '#38BDF8',
+                                    color: '#0369A1',
+                                  }}
+                                  className="px-2 py-0.5 rounded text-[11px] font-bold border flex items-center space-x-1"
+                                >
+                                  <Clock className="w-3 h-3" />
+                                  <span>
+                                    {isCoolingDown ? `Alert Sent (${remainingSec}s)` : 'Alert Sent'}
+                                  </span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Right: Position / Status Pill */}
+                        <div className="shrink-0 self-start sm:self-center">
+                          {isInside ? (
+                            <span
+                              style={{ backgroundColor: '#DCFCE7', color: '#15803D' }}
+                              className="px-3.5 py-1.5 rounded-xl text-xs font-extrabold uppercase tracking-wider"
+                            >
+                              Inside
+                            </span>
+                          ) : (
+                            <span
+                              style={{ backgroundColor: '#E0F2FE', color: '#0369A1' }}
+                              className="px-3.5 py-1.5 rounded-xl text-xs font-extrabold"
+                            >
+                              #{appt.queuePosition || appt.queueNumber || idx + 1}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Primary Actions Row */}
+                      <div className="flex items-center space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800 flex-wrap gap-y-2">
+                        {isInside ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleMarkCompleted(appt)}
+                              className="flex-1 min-w-[120px] py-2 px-3.5 rounded-xl bg-[#16A34A] hover:bg-[#15803D] text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center space-x-1.5 active:scale-[0.98]"
+                            >
+                              <Check className="w-4 h-4" />
+                              <span>Mark Done</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleOpenPrescriptionModal(appt)}
+                              className="py-2 px-3.5 rounded-xl bg-gradient-to-r from-blue-600 via-blue-700 to-sky-600 hover:brightness-110 text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center space-x-1.5 active:scale-[0.98]"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>Write Rx & Complete</span>
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleMarkInsideCabin(appt)}
+                            className="flex-1 min-w-[120px] py-2 px-3.5 rounded-xl bg-[#0284C7] hover:bg-[#0369A1] text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center space-x-1.5 active:scale-[0.98]"
+                          >
+                            <Play className="w-3.5 h-3.5 fill-current" />
+                            <span>Call Inside</span>
+                          </button>
+                        )}
+
+                        {/* Patient Past History */}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenPatientHistory(appt.patientName)}
+                          className="py-2 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold transition-colors cursor-pointer flex items-center space-x-1 active:scale-[0.98]"
+                          title="View Patient's Past Visits"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>History</span>
+                        </button>
+
+                        {/* Skip / No-Show Action */}
+                        <button
+                          type="button"
+                          onClick={() => handleMarkNoShow(appt)}
+                          className="py-2 px-3 rounded-xl border border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/40 text-xs font-semibold transition-colors cursor-pointer active:scale-[0.98]"
+                          title="Mark patient as absent / no-show"
+                        >
+                          Skip / No-Show
+                        </button>
+                      </div>
+
+                      {/* Patient Notifications Row: Walk In & Call In Actions */}
+                      {!isInside && (
+                        <div className="pt-1">
+                          {isAccountlessWalkin ? (
+                            <button
+                              disabled
+                              className="w-full py-2 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-[#F1F5F9] dark:bg-slate-800 text-[#94A3B8] text-xs font-semibold flex items-center justify-center space-x-2 cursor-not-allowed"
+                            >
+                              <UserX className="w-3.5 h-3.5 text-[#94A3B8]" />
+                              <span>Walk-in (No App Account)</span>
+                            </button>
+                          ) : (
+                            <div className="grid grid-cols-2 gap-2">
+                              {/* "Walk In" (Arrive Soon Alert) */}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenAlertConfirmation(appt, 'arrive_soon')}
+                                disabled={isSending || isCoolingDown}
+                                style={{
+                                  borderColor: isCoolingDown ? '#BAE6FD' : '#7DD3FC',
+                                  color: isCoolingDown ? '#0284C7' : '#0369A1',
+                                }}
+                                className={`py-1.5 px-2.5 rounded-xl text-xs font-bold border transition-colors flex items-center justify-center space-x-1.5 ${
+                                  isCoolingDown
+                                    ? 'bg-[#E0F2FE]/40 cursor-not-allowed'
+                                    : isSending
+                                    ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                                    : 'hover:bg-sky-50 dark:hover:bg-sky-950/30 cursor-pointer active:scale-[0.98]'
+                                }`}
+                              >
+                                {isSending ? (
+                                  <>
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Sending...</span>
+                                  </>
+                                ) : isCoolingDown ? (
+                                  <>
+                                    <Clock className="w-3.5 h-3.5" />
+                                    <span>Walk In ({remainingSec}s)</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Footprints className="w-3.5 h-3.5 text-[#0284C7]" />
+                                    <span>Walk In</span>
+                                  </>
+                                )}
+                              </button>
+
+                              {/* "Call In" (Call Inside Alert) */}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenAlertConfirmation(appt, 'call_inside')}
+                                disabled={isSending || isCoolingDown}
+                                style={{
+                                  borderColor: isCoolingDown ? '#99F6E4' : '#5EEAD4',
+                                  color: isCoolingDown ? '#0D9488' : '#0F766E',
+                                }}
+                                className={`py-1.5 px-2.5 rounded-xl text-xs font-bold border transition-colors flex items-center justify-center space-x-1.5 ${
+                                  isCoolingDown
+                                    ? 'bg-[#E6FFFA]/40 cursor-not-allowed'
+                                    : isSending
+                                    ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                                    : 'hover:bg-teal-50 dark:hover:bg-teal-950/30 cursor-pointer active:scale-[0.98]'
+                                }`}
+                              >
+                                {isSending ? (
+                                  <>
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Sending...</span>
+                                  </>
+                                ) : isCoolingDown ? (
+                                  <>
+                                    <Clock className="w-3.5 h-3.5" />
+                                    <span>Call In ({remainingSec}s)</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Megaphone className="w-3.5 h-3.5 text-[#0D9488]" />
+                                    <span>Call In</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          ) : (
+            /* COMPLETED QUEUE VIEW */
+            <div className="space-y-3">
+              {completedQueue.length === 0 ? (
+                <div className="bg-white dark:bg-slate-900 rounded-3xl p-12 text-center border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+                  <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
+                  <h4 className="text-base font-bold text-slate-800 dark:text-slate-200">
+                    No completed consultations for this date.
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+                    Consultations marked as done or completed on this date will appear here.
+                  </p>
+                </div>
+              ) : (
+                completedQueue.map((c) => {
+                  const dueAmount =
+                    c.totalAmount && c.totalAmount > 0
+                      ? c.totalAmount % 1 === 0
+                        ? c.totalAmount
+                        : c.totalAmount.toFixed(2)
+                      : c.feeAmount
+
+                  return (
+                    <div
+                      key={c.id}
+                      className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 hover:border-slate-300 transition-all"
+                    >
+                      <div className="flex items-center space-x-3 sm:space-x-4">
+                        <div className="w-10 h-10 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold shrink-0">
+                          <CheckCircle2 className="w-5 h-5" />
+                        </div>
+                        <div className="space-y-0.5">
+                          <h4 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                            {c.patientName}
+                          </h4>
+                          <p className="text-xs text-[#0284C7] font-semibold">
+                            {c.patientAge ? `${c.patientAge} yrs • ` : ''}
+                            {c.patientGender ? `${c.patientGender} • ` : ''}
+                            #{c.trackingCode10Digit}
+                            {c.appointmentTime ? ` • Slot: ${c.appointmentTime}` : ''}
+                          </p>
+                          {/* Pay at Desk badge in completed queue */}
+                          {c.paymentMode === 'PAY_AT_DESK' && (
+                            <div className="pt-0.5">
+                              {c.paymentStatus === 'paid' ? (
+                                <span
+                                  style={{
+                                    backgroundColor: '#DCFCE7',
+                                    borderColor: '#86EFAC',
+                                    color: '#166534',
+                                  }}
+                                  className="px-2 py-0.5 rounded text-[10.5px] font-bold border"
+                                >
+                                  ✓ Paid at Desk
+                                </span>
+                              ) : (
+                                <span
+                                  style={{
+                                    backgroundColor: '#FEF3C7',
+                                    borderColor: '#FDE68A',
+                                    color: '#92400E',
+                                  }}
+                                  className="px-2 py-0.5 rounded text-[10.5px] font-bold border"
+                                >
+                                  💵 Pay at Desk (Due Rs. {dueAmount})
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenPatientHistory(c.patientName)}
+                          className="py-1.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold transition-colors cursor-pointer flex items-center space-x-1"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>History</span>
+                        </button>
+
+                        <span
+                          className={`px-3 py-1 rounded-xl text-xs font-extrabold ${
+                            c.checkinStatus === 'no_show'
+                              ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300'
+                              : c.checkinStatus === 'processing'
+                              ? 'bg-purple-100 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300'
+                              : 'bg-[#E5F8EE] text-[#0F8A50] dark:bg-emerald-950/50 dark:text-emerald-300'
+                          }`}
+                        >
+                          {c.checkinStatus === 'no_show'
+                            ? 'No-Show'
+                            : c.checkinStatus === 'processing'
+                            ? 'Processing'
+                            : 'Done'}
+                        </span>
                       </div>
                     </div>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                  </div>
-                ))}
+                  )
+                })
+              )}
+            </div>
+          )}
+
+          {/* =========================================================
+              CONFIRMATION MODAL BEFORE SENDING ALERT
+              ========================================================= */}
+          {pendingNotification && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+              <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 animate-in fade-in zoom-in-95">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                  Confirm Notification
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  Send{' '}
+                  <strong className="text-slate-900 dark:text-white">
+                    {pendingNotification.alertType === 'call_inside'
+                      ? 'Call In (Call Inside)'
+                      : 'Walk In (Arrive Soon)'}
+                  </strong>{' '}
+                  alert to{' '}
+                  <strong className="text-slate-900 dark:text-white">
+                    {pendingNotification.appt.patientName}
+                  </strong>?
+                </p>
+                <div className="flex items-center justify-end space-x-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setPendingNotification(null)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmAndSendNotification}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-[#0284C7] hover:bg-[#0369A1] text-white transition-colors cursor-pointer shadow-xs"
+                  >
+                    Confirm
+                  </button>
+                </div>
               </div>
             </div>
           )}

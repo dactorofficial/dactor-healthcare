@@ -4,6 +4,96 @@ This file tracks user prompts and the exact changes applied across the codebase,
 
 ---
 
+## 2026-11-19
+
+### Prompt:
+> "change the following thing in backend notification system remove the query request from doctor and clinic portal let it only be in pateint app , when a patient id is there present in the mobile , it will request queery from the server in two ways , that are when a patient is having any appointment on going , at the day of appointment , the patient would request queery from , the server on every 10 second interval , the query can be realted for estimated time , doctor consultation update and other etc , other wise when no any appointment is scheldueld on that day , just , request a queery at every 2 hours from the server , all these to optimize queery request , /plan"
+
+#### Changes Applied:
+1. **Backend Database Migration ([`supabase/migration_optimize_patient_consultation_query.sql`](file:///C:/Users/notan/Documents/gitversiondactor/supabase/migration_optimize_patient_consultation_query.sql))**:
+   - Implemented `public.get_patient_consultation_query(p_patient_id UUID, p_tracking_code TEXT, p_phone TEXT)` atomic RPC.
+   - Evaluates ongoing appointment presence on the current date (`appointment_date = CURRENT_DATE` and not completed/cancelled).
+   - Dynamically calculates doctor presence, cabin status, patients ahead in line, current token called, estimated wait time, and unread notification alerts.
+   - Automatically determines and returns query interval: `10` seconds when an appointment is active today, and `7200` seconds (2 hours) on idle days.
+2. **Doctor & Clinic Portal Query Elimination**:
+   - **`clinic-app` ([`MainActivity.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/MainActivity.kt), [`DactorClinicApp.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/DactorClinicApp.kt), [`NotificationAlarmReceiver.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/service/NotificationAlarmReceiver.kt), [`QueueRepository.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/QueueRepository.kt), [`NotificationRepository.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/NotificationRepository.kt))**: Removed the 4-second activity polling loop, disabled periodic background wake-up alarms, and converted notification fetchers to return empty lists without issuing server queries.
+   - **`web-app` ([`ClinicPortal.tsx`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/pages/ClinicPortal.tsx), [`db.ts`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/services/db.ts))**: Removed `getClinicNotifications` from initial load and set `db.ts` to return empty lists with zero server queries.
+3. **Patient Mobile Dual-Interval Scheduling & Guard ([`MainActivity.kt`](file:///C:/Users/notan/Documents/gitversiondactor/patient-app/app/src/main/java/com/dactor/patient/MainActivity.kt), [`QueueStatusScreen.kt`](file:///C:/Users/notan/Documents/gitversiondactor/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt), [`NotificationAlarmReceiver.kt`](file:///C:/Users/notan/Documents/gitversiondactor/patient-app/app/src/main/java/com/dactor/patient/service/NotificationAlarmReceiver.kt), [`DactorPatientApp.kt`](file:///C:/Users/notan/Documents/gitversiondactor/patient-app/app/src/main/java/com/dactor/patient/DactorPatientApp.kt), [`NotificationSyncWorker.kt`](file:///C:/Users/notan/Documents/gitversiondactor/patient-app/app/src/main/java/com/dactor/patient/service/NotificationSyncWorker.kt))**:
+   - Enforced patient ID presence guard: halts background periodic queries if patient ID is absent.
+   - Dynamic query intervals: queries every **10 seconds** when an ongoing appointment is scheduled for today (fetching estimated time, doctor consultation status, and alerts), and throttles to **2 hours** when no appointment is scheduled today.
+   - Adjusted `QueueStatusScreen.kt` live polling interval to 10 seconds with automatic termination on completion.
+   - Configured WorkManager periodic background work to 2 hours.
+4. **App-to-Website Logic Synchronization ([`LiveQueue.tsx`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/pages/LiveQueue.tsx), [`db.ts`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/services/db.ts), [`App.tsx`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/App.tsx))**:
+   - Synchronized `LiveQueue.tsx` to 10-second auto-refresh for active appointments on the day of appointment, halting when finished.
+   - Added client-side `getPatientConsultationQuery` helper in `db.ts`.
+5. **Automated Verification Test ([`tests/test_notification_query_optimization.cjs`](file:///C:/Users/notan/Documents/gitversiondactor/tests/test_notification_query_optimization.cjs))**:
+   - 15/15 test assertions passing across all 4 suites.
+
+---
+
+### Prompt:
+> "add language preference setting dialog to ClinicSettingsScreen"
+
+#### Changes Applied:
+1. **Clinic App Language Settings Dialog ([`ClinicSettingsScreen.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/ui/settings/ClinicSettingsScreen.kt))**:
+   - Added Language preference row with globe icon displaying current selected language.
+   - Built interactive `LanguageSelectionDialog` supporting English, Nepali, Hindi, Maithili, and Bhojpuri.
+   - Fixed missing `clickable` import to ensure modal selection rows trigger language updates cleanly.
+
+---
+
+### Prompt:
+> "/plan in live queue of doctor and clinic , side , only refresh the data for upcomind 3-4 patients , only to check and ensure that the apponitment is cancel or rescheduled and to check new appointments as well"
+
+#### Changes Applied:
+1. **Sliding Window Lookahead & Refresh Repository Layer**:
+   - **`clinic-app` ([`AppointmentRepository.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt), [`QueueRepository.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/QueueRepository.kt))**:
+     - Added `refreshAppointmentsByIds(ids: List<String>)` to batch-fetch up to 10 upcoming appointments by ID, update Room cache, and return fresh state.
+     - Added `checkNewAppointments(clinicId, doctorId, date, knownApptIds, sinceIso)` to query newly approved/booked appointments today without full scans.
+     - Added `removeRogueQueueEntry(appointmentId)` to purge cancelled or rescheduled appointments from remote and local queue storage.
+     - Added `autoEnrollNewAppointment(...)` to enroll new appointments at the end of the queue.
+2. **Doctor Cabin & Clinic Queue Board Integration**:
+   - **`clinic-app` ([`DoctorQueueViewModel.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/DoctorQueueViewModel.kt), [`DoctorQueueScreen.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/DoctorQueueScreen.kt))**:
+     - Implemented `refreshUpcomingPatientsAndCheckNew()` guarded by `isSelectiveRefreshing`.
+     - Targeted window: active patient (`inside`) + first 3 `waiting` patients.
+     - Automatically purges cancelled appointments and non-today rescheduled appointments, reorders if consultation time changed today, and discovers new appointments.
+     - Triggered on a 2-second periodic tick inside active queue loop.
+   - **`clinic-app` ([`QueueBoardScreen.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/QueueBoardScreen.kt))**:
+     - Upgraded `loadQueue(isDeltaOnly = true)` to target upcoming 3–4 patients in reception board, cleanly removing cancelled/rescheduled entries.
+3. **App-to-Website Logic Synchronization (1:1 Parity)**:
+   - **`web-app` ([`db.ts`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/services/db.ts), [`DoctorPortal.tsx`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/pages/DoctorPortal.tsx), [`ClinicPortal.tsx`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/pages/ClinicPortal.tsx))**:
+     - Added matching `refreshAppointmentsByIds`, `checkNewAppointments`, `removeRogueQueueEntry`, and `autoEnrollNewAppointment` in `db.ts`.
+     - Integrated 2.5s targeted polling intervals in Doctor Portal (`deskTab === 'today_queue'`) and Clinic Portal (`deskTab === 'queue'`).
+4. **Automated Unit Verification**:
+   - **`clinic-app` ([`SelectiveSyncAndQueuePollingTest.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/test/java/com/dactor/clinic/data/sync/SelectiveSyncAndQueuePollingTest.kt))**:
+     - Added 5 unit tests validating 3–4 patient window limits, immediate cancellation eviction, rescheduling date eviction, rescheduling time reordering, and new appointment auto-enrollment.
+     - All 12 unit tests passed (`BUILD SUCCESSFUL in 14m 12s`).
+   - **`web-app`**: `npm run build` completed cleanly in 22.58s with zero errors.
+
+---
+
+## 2026-11-18
+
+### Prompt:
+> "/plan add expense in clinic payment log section is still not working , fix it ,"
+
+#### Changes Applied:
+1. **Supabase Migration for Complete Clinic Expenses Repair ([`supabase/migration_fix_clinic_expenses_complete.sql`](file:///C:/Users/notan/Documents/gitversiondactor/supabase/migration_fix_clinic_expenses_complete.sql))**:
+   - Added missing columns `expense_time VARCHAR(20)`, `voucher_number VARCHAR(100)`, `remarks TEXT`, `payee_name VARCHAR(255)`, `receipt_no VARCHAR(100)`, `receipt_url TEXT`, and `notes TEXT` idempotently.
+   - Added bidirectional synchronization trigger `trg_sync_clinic_expenses_columns` ensuring `voucher_number <-> receipt_no` and `remarks <-> notes` are synchronized.
+   - Replaced restrictive RLS policies with scoped policies granted to `public` (allowing `anon`, `authenticated`, and `service_role` with validation checks: `clinic_id IS NOT NULL`, `title IS NOT NULL`, `amount >= 0`).
+   - Implemented `SECURITY DEFINER` RPC endpoints: `add_clinic_expense`, `get_clinic_expenses`, and `delete_clinic_expense` with execute permissions granted to `anon, authenticated, service_role`.
+2. **Mobile App Resilient REST & RPC Integration ([`BillingRepository.kt`](file:///C:/Users/notan/Documents/gitversiondactor/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/BillingRepository.kt))**:
+   - Enhanced `addExpense`: Sends full dual-column payload, with automatic fallback to minimal payload and `add_clinic_expense` RPC if direct insert fails.
+   - Enhanced `getExpensesForClinic`: Queries PostgREST table directly, falling back to `get_clinic_expenses` RPC if table query errors or returns empty.
+   - Enhanced `deleteExpense`: Directly deletes from PostgREST table, falling back to `delete_clinic_expense` RPC.
+3. **Web Portal One-Way Synchronization ([`db.ts`](file:///C:/Users/notan/Documents/gitversiondactor/web-app/src/services/db.ts))**:
+   - Synchronized `addClinicExpense`, `getClinicExpenses`, and `deleteClinicExpense` with dual-column payloads and identical `SECURITY DEFINER` RPC fallbacks (`add_clinic_expense`, `get_clinic_expenses`, `delete_clinic_expense`).
+4. **Automated Live Integration Verification ([`verify_clinic_expenses_live.cjs`](file:///C:/Users/notan/Documents/gitversiondactor/tests/verify_clinic_expenses_live.cjs))**:
+   - Updated suite to test dual-layer insertion, querying, normalization, date filtering, and cleanup.
+
+---
+
 ## 2026-11-14
 
 ### Prompt:

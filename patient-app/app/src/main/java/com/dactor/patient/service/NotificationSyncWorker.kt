@@ -43,6 +43,11 @@ class NotificationSyncWorker(
             val queueStatusById = mutableMapOf<String, String?>()
             var appointmentsLoaded = false
 
+            // If no patient ID is present in the mobile and no saved tracking codes, skip server queries
+            if (userId.isNullOrBlank() && savedCodes.isEmpty()) {
+                return@withContext Result.success()
+            }
+
             try {
                 if (!userId.isNullOrBlank()) {
                     val byUid = client.postgrest["appointments"]

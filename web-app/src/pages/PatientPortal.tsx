@@ -55,7 +55,10 @@ import {
   MessageSquare,
   QrCode,
   Store,
+  Globe,
 } from 'lucide-react'
+import { useLanguage } from '../utils/i18n'
+import { LanguageSelectionModal } from '../components/LanguageSelectionModal'
 function triggerConfettiBurst() {
   try {
     const canvas = document.createElement('canvas')
@@ -204,7 +207,7 @@ import {
   onFirebaseAuthStateChanged,
   deleteFirebaseUserAccount,
 } from '../lib/firebase'
-import { signOutKeepingData } from '../utils/cacheCleaner'
+import { clearAllAppCache } from '../utils/cacheCleaner'
 import { supabase } from '../lib/supabase'
 import {
   matchClinic,
@@ -333,6 +336,7 @@ interface PatientPortalProps {
   onOpenLiveQueue?: (trackingCode: string) => void
   onOpenReportModal?: (trackingCode: string) => void
   onNavigate?: (tab: string, params?: any) => void
+  onLogout?: () => void
 }
 
 export const PatientPortal: React.FC<PatientPortalProps> = ({
@@ -341,12 +345,17 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   onOpenLiveQueue,
   onOpenReportModal,
   onNavigate,
+  onLogout,
 }) => {
   // ==========================================
   // AUTHENTICATION & PATIENT PROFILE STATE
   // ==========================================
   const [patientUser, setPatientUser] = useState<PatientProfile | null>(null)
   const [isAuthLoading, setIsAuthLoading] = useState(true)
+
+  // Language state & modal
+  const { language, strings } = useLanguage()
+  const [showLanguageModal, setShowLanguageModal] = useState(false)
 
   // Auth Modals & Inputs (Strictly Google Sign-In Only)
   const [showAuthModal, setShowAuthModal] = useState(false)
@@ -845,7 +854,16 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     async function restoreSession() {
       setIsAuthLoading(true)
       try {
-        const redirectedUser = await checkRedirectGoogleUser()
+        const targetPortal =
+          sessionStorage.getItem('dactor_oauth_target_portal') ||
+          localStorage.getItem('dactor_oauth_target_portal')
+        const redirectedUser = (targetPortal === 'patient' || targetPortal === 'patient-portal')
+          ? await checkRedirectGoogleUser({ requireRedirectOnly: true })
+          : null
+        if (redirectedUser) {
+          sessionStorage.removeItem('dactor_oauth_target_portal')
+          localStorage.removeItem('dactor_oauth_target_portal')
+        }
         const storedEmail =
           redirectedUser?.email ||
           localStorage.getItem('dactor_patient_email')
@@ -964,6 +982,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     let isMounted = true
     const unsub = onFirebaseAuthStateChanged(async (u) => {
       if (!isMounted || !u || !u.email) return
+
+      const targetPortal =
+        sessionStorage.getItem('dactor_oauth_target_portal') ||
+        localStorage.getItem('dactor_oauth_target_portal')
+      if (targetPortal && targetPortal !== 'patient' && targetPortal !== 'patient-portal') return
 
       // If user is already loaded with the same email, don't re-fetch
       if (patientUser && patientUser.email.toLowerCase() === u.email.toLowerCase()) return
@@ -2977,11 +3000,21 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   }
 
   const handleLogout = () => {
-    signOutKeepingData().catch(() => {})
     setPatientUser(null)
     setMyAppointments([])
     setTransactions([])
     setGuestCodesVersion((v) => v + 1)
+    try {
+      localStorage.removeItem('dactor_patient_logged_in')
+      localStorage.removeItem('dactor_patient_session')
+      localStorage.removeItem('dactor_patient_email')
+      localStorage.removeItem('dactor_google_user')
+      localStorage.removeItem('dactor_oauth_target_portal')
+      sessionStorage.removeItem('dactor_oauth_target_portal')
+      firebaseSignOut()
+      clearAllAppCache().catch(() => {})
+      if (onLogout) onLogout()
+    } catch {}
   }
 
   // Filter Active vs Past appointments and arrange Active as:
@@ -5793,16 +5826,33 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
                               {/* Doctor & Clinic Info */}
                               <div className="space-y-1">
-                                <h5 className="font-extrabold text-base text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition">
-                                  {appt.doctor?.fullName || 'Attending OPD Specialist'}
-                                </h5>
-                                <p className="text-xs font-semibold text-blue-600 dark:text-blue-400">
-                                  {appt.doctor?.specialty || 'General Medicine'}
-                                </p>
-                                <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-1">
-                                  <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                  <span>{appt.clinic?.name || 'Clinic Facility'}</span>
-                                </p>
+                                {isDiagnosticLabClinic(appt.clinic, appt.doctor, appt) ? (
+                                  <>
+                                    <h5 className="font-extrabold text-base text-purple-900 dark:text-purple-200 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition">
+                                      {appt.selectedTests?.join(', ') || (typeof appt.selectedLabTests === 'string' ? appt.selectedLabTests : '') || 'Diagnostic Lab Service'}
+                                    </h5>
+                                    <p className="text-xs font-semibold text-purple-600 dark:text-purple-400">
+                                      Pathology & Diagnostic Testing
+                                    </p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-1">
+                                      <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                      <span>{appt.clinic?.name || 'Diagnostic Lab Facility'}</span>
+                                    </p>
+                                  </>
+                                ) : (
+                                  <>
+                                    <h5 className="font-extrabold text-base text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition">
+                                      {appt.doctor?.fullName || 'Attending OPD Specialist'}
+                                    </h5>
+                                    <p className="text-xs font-semibold text-blue-600 dark:text-blue-400">
+                                      {appt.doctor?.specialty || 'General Medicine'}
+                                    </p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center space-x-1">
+                                      <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                      <span>{appt.clinic?.name || 'Clinic Facility'}</span>
+                                    </p>
+                                  </>
+                                )}
                               </div>
 
                               {/* Date & Slot Pill */}
@@ -6880,6 +6930,31 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       <p className="text-xs text-slate-500 dark:text-slate-400">
                         In accordance with Nepal Medical Council (NMC) patient confidentiality and digital health standards.
                       </p>
+                    </div>
+
+                    {/* App Language Preference Card (1:1 Parity with Mobile ProfileScreen.kt) */}
+                    <div className="p-4 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/50 flex items-center justify-center text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 shrink-0">
+                          <Globe className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="font-bold text-slate-900 dark:text-white">
+                            {strings.appLanguageLabel}
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {language === 'ne' ? 'नेपाली (Nepali)' : 'English (US)'}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowLanguageModal(true)}
+                        className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300 font-bold text-xs shadow-xs hover:bg-blue-50 dark:hover:bg-slate-700 transition cursor-pointer self-start sm:self-center"
+                      >
+                        <span>{strings.changeLanguageBtn}</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
                     </div>
 
                     {/* NMC Compliance Box */}
@@ -8373,6 +8448,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
         const clinicName = dClinic?.name || 'Partner Medical Clinic'
         const clinicAddress = dClinic?.addressText || dClinic?.city || 'Nepal'
+        const isLab = isDiagnosticLabClinic(dClinic, dDoctor, target)
         const doctorName = dDoctor?.fullName
           ? (dDoctor.fullName.startsWith('Dr.') ? dDoctor.fullName : `Dr. ${dDoctor.fullName}`)
           : 'Attending Physician'
@@ -8415,7 +8491,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   <X className="w-5 h-5" />
                 </button>
                 <div className="flex items-center space-x-2 text-[11px] font-bold text-blue-100 uppercase tracking-wider">
-                  <span>Consultation Details</span>
+                  <span>{isLab ? 'Diagnostic Lab Details' : 'Consultation Details'}</span>
                   <span>•</span>
                   <span>Visit History</span>
                 </div>
@@ -8429,43 +8505,72 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
               {/* Scrollable Content */}
               <div className="p-4 sm:p-6 space-y-4 overflow-y-auto max-h-[calc(92vh-140px)]">
-                {/* 1. DOCTOR & CLINIC CREDENTIALS */}
-                <div className="p-4 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 space-y-3 shadow-xs">
-                  <div className="flex items-center space-x-3.5">
-                    <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-blue-50 dark:bg-slate-700 border-2 border-blue-500/40 flex items-center justify-center overflow-hidden shrink-0">
-                      {doctorAvatar ? (
-                        <img
-                          src={doctorAvatar}
-                          alt={doctorName}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <span className="font-black text-blue-600 dark:text-blue-400 text-lg">
-                          {initials}
-                        </span>
-                      )}
+                {/* 1. DOCTOR / LAB CREDENTIALS */}
+                {isLab ? (
+                  <div className="p-4 rounded-2xl bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/60 dark:border-purple-800/40 space-y-3 shadow-xs">
+                    <div className="flex items-center space-x-3.5">
+                      <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-purple-100 dark:bg-purple-900/40 border-2 border-purple-500/40 flex items-center justify-center shrink-0 text-purple-600 dark:text-purple-300">
+                        <FlaskConical className="w-7 h-7" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="font-black text-slate-900 dark:text-white text-base truncate">
+                          {target.selectedTests?.join(', ') || (typeof target.selectedLabTests === 'string' ? target.selectedLabTests : '') || 'Diagnostic Lab Service'}
+                        </h4>
+                        <p className="text-xs font-bold text-purple-600 dark:text-purple-400 truncate">
+                          Pathology & Diagnostic Testing
+                        </p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                          Verified Diagnostic Testing Center
+                        </p>
+                      </div>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <h4 className="font-black text-slate-900 dark:text-white text-base truncate">
-                        {doctorName}
-                      </h4>
-                      <p className="text-xs font-bold text-blue-600 dark:text-blue-400 truncate">
-                        {doctorSpec}
-                      </p>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                        {doctorQualifications}
-                      </p>
-                    </div>
-                  </div>
 
-                  <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center space-x-2 text-xs text-slate-600 dark:text-slate-300">
-                    <Building2 className="w-4 h-4 text-teal-600 shrink-0" />
-                    <div className="truncate">
-                      <span className="font-bold text-slate-800 dark:text-slate-200">{clinicName}</span>
-                      <span className="text-slate-400 dark:text-slate-500"> • {clinicAddress}</span>
+                    <div className="pt-2 border-t border-purple-100 dark:border-purple-900/40 flex items-center space-x-2 text-xs text-slate-600 dark:text-slate-300">
+                      <Building2 className="w-4 h-4 text-purple-600 shrink-0" />
+                      <div className="truncate">
+                        <span className="font-bold text-slate-800 dark:text-slate-200">{clinicName}</span>
+                        <span className="text-slate-400 dark:text-slate-500"> • {clinicAddress}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="p-4 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 space-y-3 shadow-xs">
+                    <div className="flex items-center space-x-3.5">
+                      <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-blue-50 dark:bg-slate-700 border-2 border-blue-500/40 flex items-center justify-center overflow-hidden shrink-0">
+                        {doctorAvatar ? (
+                          <img
+                            src={doctorAvatar}
+                            alt={doctorName}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <span className="font-black text-blue-600 dark:text-blue-400 text-lg">
+                            {initials}
+                          </span>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="font-black text-slate-900 dark:text-white text-base truncate">
+                          {doctorName}
+                        </h4>
+                        <p className="text-xs font-bold text-blue-600 dark:text-blue-400 truncate">
+                          {doctorSpec}
+                        </p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                          {doctorQualifications}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center space-x-2 text-xs text-slate-600 dark:text-slate-300">
+                      <Building2 className="w-4 h-4 text-teal-600 shrink-0" />
+                      <div className="truncate">
+                        <span className="font-bold text-slate-800 dark:text-slate-200">{clinicName}</span>
+                        <span className="text-slate-400 dark:text-slate-500"> • {clinicAddress}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* PAY AT DESK STATUS BANNER (IF PAY_AT_DESK) */}
                 {target.paymentMode === 'PAY_AT_DESK' && (
@@ -8627,16 +8732,18 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   </div>
                 </div>
 
-                {/* 3. CLINICAL REMARKS */}
-                <div className="p-4 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 space-y-2 shadow-xs">
-                  <div className="flex items-center space-x-2 text-xs font-bold text-blue-700 dark:text-blue-300">
-                    <FileText className="w-4 h-4 text-blue-600 shrink-0" />
-                    <span>Doctor's Clinical Remarks & Recommendations</span>
+                {/* 3. CLINICAL REMARKS (Hidden for Diagnostic Lab Appointments) */}
+                {!isLab && (
+                  <div className="p-4 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 space-y-2 shadow-xs">
+                    <div className="flex items-center space-x-2 text-xs font-bold text-blue-700 dark:text-blue-300">
+                      <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                      <span>Doctor's Clinical Remarks & Recommendations</span>
+                    </div>
+                    <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-200/50 dark:border-slate-700/40">
+                      {cleanRemarks || 'No clinical remarks recorded for this consultation.'}
+                    </p>
                   </div>
-                  <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-200/50 dark:border-slate-700/40">
-                    {cleanRemarks || 'No clinical remarks recorded for this consultation.'}
-                  </p>
-                </div>
+                )}
 
                 {/* 4. DIAGNOSTIC LAB REPORTS */}
                 <div className="p-4 rounded-2xl bg-white/80 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 space-y-3 shadow-xs">
@@ -8909,6 +9016,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           </div>
         )
       })()}
+
+      <LanguageSelectionModal
+        isOpen={showLanguageModal}
+        onClose={() => setShowLanguageModal(false)}
+      />
     </div>
   )
 }

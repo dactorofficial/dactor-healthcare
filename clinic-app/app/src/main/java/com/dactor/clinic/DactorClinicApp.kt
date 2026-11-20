@@ -26,7 +26,10 @@ class DactorClinicApp : Application() {
             Log.e("DactorClinicApp", "Failed to create notification channel", e)
         }
 
-        // Closed-app notifications arrive via FCM; no background polling loop.
+        // 3. Closed-app notifications arrive via FCM; ensure any legacy background notification alarm is stopped
+        try {
+            NotificationAlarmReceiver.stopPeriodicAlarm(this)
+        } catch (_: Throwable) {}
 
         // 4. Local Crash Diagnostics Vault
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()

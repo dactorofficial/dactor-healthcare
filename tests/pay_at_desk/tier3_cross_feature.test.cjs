@@ -32,19 +32,23 @@ function registerTier3Tests(harness) {
     sim.seedDoctor({ id: doctor1Id, clinic_id: clinic1Id, full_name: 'Dr. Apex', consultation_fee: 1000.00 });
     sim.seedDoctor({ id: doctor2Id, clinic_id: clinic2Id, full_name: 'Dr. Zenith', consultation_fee: 800.00 });
 
+    const activeSlotDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kathmandu' }).format(new Date(Date.now() + 86400000));
+    const activeStartTime = '10:00:00';
+    const activeEndTime = '23:59:59';
+
     // Full slot: capacity 12, currently 12 booked
     sim.seedSlot({
       id: fullSlotId,
       clinic_id: clinic1Id,
       doctor_id: doctor1Id,
-      slot_date: '2026-11-15',
-      start_time: '10:00:00',
-      end_time: '11:00:00',
+      slot_date: activeSlotDate,
+      start_time: activeStartTime,
+      end_time: activeEndTime,
       max_capacity: 12,
       booked_count: 12
     });
 
-    return { sim, clinic1Id, clinic2Id, doctor1Id, doctor2Id, fullSlotId };
+    return { sim, clinic1Id, clinic2Id, doctor1Id, doctor2Id, fullSlotId, activeSlotDate };
   }
 
   // =========================================================================
@@ -52,7 +56,7 @@ function registerTier3Tests(harness) {
   // =========================================================================
 
   harness.test('C1.1: Multi-stage flow: Patient bookings creates WAITING_FOR_APPROVAL and excludes from queue', () => {
-    const { sim, clinic1Id, doctor1Id, fullSlotId } = createPopulatedHarness();
+    const { sim, clinic1Id, doctor1Id, fullSlotId, activeSlotDate } = createPopulatedHarness();
     const apptId = 'c1010101-0001-4000-8000-000000000001';
     sim.seedAppointment({
       id: apptId,
@@ -62,8 +66,8 @@ function registerTier3Tests(harness) {
       patient_name: 'Overload Patient 1',
       patient_mobile: '9841000001',
       tracking_code_10_digit: '9841000001',
-      appointment_date: '2026-11-15',
-      appointment_time: '10:00:00',
+      appointment_date: activeSlotDate,
+      appointment_time: '23:50:00',
       payment_mode: 'PAY_AT_DESK',
       status: 'pending',
       created_at: new Date().toISOString()
@@ -75,7 +79,7 @@ function registerTier3Tests(harness) {
   });
 
   harness.test('C1.2: Overload Rule 7: Clinic approval on full slot (12/12) increments booked_count to 13/12 safely', () => {
-    const { sim, clinic1Id, doctor1Id, fullSlotId } = createPopulatedHarness();
+    const { sim, clinic1Id, doctor1Id, fullSlotId, activeSlotDate } = createPopulatedHarness();
     const apptId = 'c1010101-0001-4000-8000-000000000002';
     sim.seedAppointment({
       id: apptId,
@@ -85,8 +89,8 @@ function registerTier3Tests(harness) {
       patient_name: 'Overload Patient 2',
       patient_mobile: '9841000002',
       tracking_code_10_digit: '9841000002',
-      appointment_date: '2026-11-15',
-      appointment_time: '10:00:00',
+      appointment_date: activeSlotDate,
+      appointment_time: '23:50:00',
       payment_mode: 'PAY_AT_DESK',
       status: 'WAITING_FOR_APPROVAL',
       created_at: new Date().toISOString()
@@ -111,7 +115,7 @@ function registerTier3Tests(harness) {
   });
 
   harness.test('C1.4: Approved appointment is enrolled in live queue with next sequential token number', () => {
-    const { sim, clinic1Id, doctor1Id, fullSlotId } = createPopulatedHarness();
+    const { sim, clinic1Id, doctor1Id, fullSlotId, activeSlotDate } = createPopulatedHarness();
     // Pre-populate 2 waiting patients
     sim.queueEntries.set('q-existing-1', { clinic_id: clinic1Id, queue_position: 1, status: 'waiting' });
     sim.queueEntries.set('q-existing-2', { clinic_id: clinic1Id, queue_position: 2, status: 'waiting' });
@@ -125,8 +129,8 @@ function registerTier3Tests(harness) {
       patient_name: 'Token Patient',
       patient_mobile: '9841000004',
       tracking_code_10_digit: '9841000004',
-      appointment_date: '2026-11-15',
-      appointment_time: '10:00:00',
+      appointment_date: activeSlotDate,
+      appointment_time: '23:50:00',
       payment_mode: 'PAY_AT_DESK',
       status: 'WAITING_FOR_APPROVAL',
       created_at: new Date().toISOString()

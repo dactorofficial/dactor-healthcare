@@ -27,7 +27,7 @@ private data class LabNotificationInsertDto(
 )
 
 @Singleton
-class LabReportRepository @Inject constructor(
+open class LabReportRepository @Inject constructor(
     private val supabaseClient: SupabaseClient
 ) {
     private fun detectFileType(fileName: String?): String? {
@@ -94,7 +94,7 @@ class LabReportRepository @Inject constructor(
         }
     }
 
-    suspend fun upsertLabReportForAppointment(
+    open suspend fun upsertLabReportForAppointment(
         appointmentId: String,
         clinicId: String,
         patientName: String,

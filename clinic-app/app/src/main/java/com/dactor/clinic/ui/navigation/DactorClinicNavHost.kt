@@ -116,7 +116,9 @@ fun DactorClinicNavHost(
                 appointmentRepository = appointmentRepository,
                 invitationRepository = invitationRepository,
                 clinicRepository = clinicRepository,
-                labReportRepository = labReportRepository
+                labReportRepository = labReportRepository,
+                slotRepository = slotRepository,
+                billingRepository = billingRepository
             )
         }
         composable("${NavRoutes.DoctorDashboard}/{doctorId}") { backStackEntry ->
@@ -129,7 +131,9 @@ fun DactorClinicNavHost(
                 appointmentRepository = appointmentRepository,
                 invitationRepository = invitationRepository,
                 clinicRepository = clinicRepository,
-                labReportRepository = labReportRepository
+                labReportRepository = labReportRepository,
+                slotRepository = slotRepository,
+                billingRepository = billingRepository
             )
         }
         fun currentClinicId(argCid: String? = null): String {
@@ -211,6 +215,31 @@ fun DactorClinicNavHost(
                 billingRepository = billingRepository,
                 clinicRepository = clinicRepository,
                 labReportRepository = labReportRepository
+            )
+        }
+        composable(
+            route = "${NavRoutes.DoctorLiveQueue}/{clinicId}?doctorId={doctorId}&date={date}",
+            arguments = listOf(
+                androidx.navigation.navArgument("clinicId") { type = androidx.navigation.NavType.StringType },
+                androidx.navigation.navArgument("doctorId") { type = androidx.navigation.NavType.StringType; nullable = true; defaultValue = null },
+                androidx.navigation.navArgument("date") { type = androidx.navigation.NavType.StringType; nullable = true; defaultValue = null }
+            )
+        ) { backStackEntry ->
+            val cid = currentClinicId(backStackEntry.arguments?.getString("clinicId"))
+            val docId = backStackEntry.arguments?.getString("doctorId") ?: sessionManager?.getSavedDoctorId().orEmpty()
+            com.dactor.clinic.ui.queue.DoctorQueueScreen(
+                navController = navController,
+                doctorId = docId,
+                clinicId = cid
+            )
+        }
+        composable("${NavRoutes.DoctorLiveQueue}/{clinicId}") { backStackEntry ->
+            val cid = currentClinicId(backStackEntry.arguments?.getString("clinicId"))
+            val docId = sessionManager?.getSavedDoctorId().orEmpty()
+            com.dactor.clinic.ui.queue.DoctorQueueScreen(
+                navController = navController,
+                doctorId = docId,
+                clinicId = cid
             )
         }
         composable(NavRoutes.PatientDirectory) {
@@ -426,7 +455,8 @@ fun DactorClinicNavHost(
                 navController = navController,
                 clinicId = currentClinicId(),
                 appointmentRepository = appointmentRepository,
-                doctorRepository = doctorRepository
+                doctorRepository = doctorRepository,
+                queueRepository = queueRepository
             )
         }
         composable("${NavRoutes.PayAtDeskRequests}/{clinicId}") { backStackEntry ->
@@ -435,7 +465,8 @@ fun DactorClinicNavHost(
                 navController = navController,
                 clinicId = cid,
                 appointmentRepository = appointmentRepository,
-                doctorRepository = doctorRepository
+                doctorRepository = doctorRepository,
+                queueRepository = queueRepository
             )
         }
         composable(NavRoutes.WalkinBooking) {

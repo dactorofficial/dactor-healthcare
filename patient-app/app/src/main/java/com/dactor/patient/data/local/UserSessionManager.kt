@@ -79,6 +79,15 @@ class UserSessionManager @Inject constructor(
         prefs.edit().putBoolean("has_seen_onboarding", seen).apply()
     }
 
+    fun getAppLanguage(): String = prefs.getString("app_language", "en") ?: "en"
+    fun setAppLanguage(lang: String) {
+        prefs.edit()
+            .putString("app_language", lang)
+            .putBoolean("has_chosen_initial_language", true)
+            .apply()
+    }
+    fun hasChosenInitialLanguage(): Boolean = prefs.getBoolean("has_chosen_initial_language", false)
+
     fun isGuestMode(): Boolean {
         if (isLoggedIn()) return false
         return prefs.getBoolean("is_guest_mode", false)

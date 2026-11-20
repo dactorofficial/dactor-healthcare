@@ -9,10 +9,13 @@ import com.dactor.clinic.data.model.ClinicSubscriptionPayment
 import com.dactor.clinic.data.model.PlatformCommissionSettlement
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.rpc
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -497,13 +500,45 @@ class BillingRepository @Inject constructor(
     suspend fun getExpensesForClinic(clinicId: String): List<ClinicExpense> = withContext(Dispatchers.IO) {
         if (clinicId.isBlank()) return@withContext emptyList()
         try {
-            val list = supabaseClient.postgrest["clinic_expenses"]
-                .select {
-                    filter {
-                        eq("clinic_id", clinicId)
+            val list = try {
+                supabaseClient.postgrest["clinic_expenses"]
+                    .select {
+                        filter {
+                            eq("clinic_id", clinicId)
+                        }
+                    }.decodeList<ClinicExpense>()
+            } catch (selectErr: Exception) {
+                // Fallback to get_clinic_expenses RPC
+                try {
+                    val rpcParams = buildJsonObject {
+                        put("p_clinic_id", clinicId)
                     }
-                }.decodeList<ClinicExpense>()
-            list.map { it.normalized() }
+                    supabaseClient.postgrest.rpc("get_clinic_expenses", rpcParams)
+                        .decodeList<ClinicExpense>()
+                } catch (rpcErr: Exception) {
+                    emptyList()
+                }
+            }
+
+            if (list.isNotEmpty()) {
+                list.map { it.normalized() }
+            } else {
+                // Double-check RPC if table returned empty list (e.g. restrictive RLS)
+                try {
+                    val rpcParams = buildJsonObject {
+                        put("p_clinic_id", clinicId)
+                    }
+                    val rpcList = supabaseClient.postgrest.rpc("get_clinic_expenses", rpcParams)
+                        .decodeList<ClinicExpense>()
+                    if (rpcList.isNotEmpty()) {
+                        rpcList.map { it.normalized() }
+                    } else {
+                        emptyList()
+                    }
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            }
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
@@ -521,6 +556,8 @@ class BillingRepository @Inject constructor(
                 rem
             }
 
+            val targetId = expense.id.ifBlank { java.util.UUID.randomUUID().toString() }
+
             @Serializable
             data class ExpenseDbDto(
                 @SerialName("id") val id: String,
@@ -532,11 +569,14 @@ class BillingRepository @Inject constructor(
                 @SerialName("expense_date") val expenseDate: String,
                 @SerialName("receipt_no") val receiptNo: String? = null,
                 @SerialName("notes") val notes: String? = null,
-                @SerialName("payee_name") val payeeName: String? = null
+                @SerialName("payee_name") val payeeName: String? = null,
+                @SerialName("voucher_number") val voucherNumber: String? = null,
+                @SerialName("remarks") val remarks: String? = null,
+                @SerialName("expense_time") val expenseTime: String? = null
             )
 
-            val insertDto = ExpenseDbDto(
-                id = expense.id.ifBlank { java.util.UUID.randomUUID().toString() },
+            val fullDto = ExpenseDbDto(
+                id = targetId,
                 clinicId = expense.clinicId,
                 title = expense.title,
                 category = expense.category,
@@ -545,19 +585,83 @@ class BillingRepository @Inject constructor(
                 expenseDate = expense.expenseDate,
                 receiptNo = vNum,
                 notes = combinedNotes,
-                payeeName = expense.payeeName
+                payeeName = expense.payeeName,
+                voucherNumber = vNum,
+                remarks = rem,
+                expenseTime = eTime
             )
 
-            val inserted = supabaseClient.postgrest["clinic_expenses"]
-                .insert(insertDto) {
-                    select()
-                }.decodeSingleOrNull<ClinicExpense>()
+            var inserted: ClinicExpense? = null
+            try {
+                inserted = supabaseClient.postgrest["clinic_expenses"]
+                    .insert(fullDto) {
+                        select()
+                    }.decodeSingleOrNull<ClinicExpense>()
+            } catch (directErr: Exception) {
+                // 1. Try legacy minimal payload in case extra columns are not yet in PostgREST schema cache
+                try {
+                    @Serializable
+                    data class MinimalExpenseDbDto(
+                        @SerialName("id") val id: String,
+                        @SerialName("clinic_id") val clinicId: String,
+                        @SerialName("title") val title: String,
+                        @SerialName("category") val category: String,
+                        @SerialName("amount") val amount: Double,
+                        @SerialName("payment_method") val paymentMethod: String,
+                        @SerialName("expense_date") val expenseDate: String,
+                        @SerialName("receipt_no") val receiptNo: String? = null,
+                        @SerialName("notes") val notes: String? = null,
+                        @SerialName("payee_name") val payeeName: String? = null
+                    )
+                    val minDto = MinimalExpenseDbDto(
+                        id = targetId,
+                        clinicId = expense.clinicId,
+                        title = expense.title,
+                        category = expense.category,
+                        amount = expense.amount,
+                        paymentMethod = expense.paymentMethod,
+                        expenseDate = expense.expenseDate,
+                        receiptNo = vNum,
+                        notes = combinedNotes,
+                        payeeName = expense.payeeName
+                    )
+                    inserted = supabaseClient.postgrest["clinic_expenses"]
+                        .insert(minDto) {
+                            select()
+                        }.decodeSingleOrNull<ClinicExpense>()
+                } catch (_: Exception) {
+                    inserted = null
+                }
+
+                // 2. If direct table insert failed (e.g. RLS blocks anon), fall back to SECURITY DEFINER RPC
+                if (inserted == null) {
+                    try {
+                        val rpcParams = buildJsonObject {
+                            put("p_clinic_id", expense.clinicId)
+                            put("p_title", expense.title)
+                            put("p_amount", expense.amount)
+                            put("p_category", expense.category)
+                            put("p_payment_method", expense.paymentMethod)
+                            put("p_expense_date", expense.expenseDate)
+                            if (eTime != null) put("p_expense_time", eTime)
+                            if (vNum != null) put("p_voucher_number", vNum)
+                            if (rem != null) put("p_remarks", rem)
+                            if (expense.payeeName != null) put("p_payee_name", expense.payeeName)
+                            put("p_id", targetId)
+                        }
+                        inserted = supabaseClient.postgrest.rpc("add_clinic_expense", rpcParams)
+                            .decodeSingleOrNull<ClinicExpense>()
+                    } catch (rpcErr: Exception) {
+                        rpcErr.printStackTrace()
+                    }
+                }
+            }
 
             if (inserted != null) {
                 inserted.normalized()
             } else {
                 expense.copy(
-                    id = insertDto.id,
+                    id = targetId,
                     receiptNo = vNum,
                     voucherNumber = vNum,
                     notes = combinedNotes,
@@ -574,13 +678,30 @@ class BillingRepository @Inject constructor(
     suspend fun deleteExpense(expenseId: String): Boolean = withContext(Dispatchers.IO) {
         if (expenseId.isBlank()) return@withContext false
         try {
-            supabaseClient.postgrest["clinic_expenses"]
-                .delete {
-                    filter {
-                        eq("id", expenseId)
+            var success = false
+            try {
+                supabaseClient.postgrest["clinic_expenses"]
+                    .delete {
+                        filter {
+                            eq("id", expenseId)
+                        }
                     }
+                success = true
+            } catch (delErr: Exception) {
+                // Fallback to delete_clinic_expense RPC
+                try {
+                    val rpcParams = buildJsonObject {
+                        put("p_expense_id", expenseId)
+                    }
+                    val res = supabaseClient.postgrest.rpc("delete_clinic_expense", rpcParams)
+                        .decodeSingleOrNull<Boolean>() ?: false
+                    success = res
+                } catch (rpcErr: Exception) {
+                    rpcErr.printStackTrace()
+                    success = false
                 }
-            true
+            }
+            success
         } catch (e: Exception) {
             e.printStackTrace()
             false

@@ -57,6 +57,8 @@ import com.dactor.clinic.data.repository.DoctorRepository
 import com.dactor.clinic.data.repository.QueueRepository
 import com.dactor.clinic.ui.navigation.NavRoutes
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -85,7 +87,9 @@ data class QueueItemUi(
     val doctorName: String? = null,
     val paymentMode: String? = null,
     val paymentStatus: String? = null,
-    val totalAmount: Double = 0.0
+    val totalAmount: Double = 0.0,
+    val userId: String? = null,
+    val isWalkin: Boolean = false
 )
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -174,7 +178,9 @@ fun QueueBoardScreen(
                     doctorName = docMap[entry.doctorId ?: appt?.doctorId]?.fullName,
                     paymentMode = appt?.paymentMode,
                     paymentStatus = appt?.paymentStatus,
-                    totalAmount = rawTotal
+                    totalAmount = rawTotal,
+                    userId = appt?.userId,
+                    isWalkin = appt?.isWalkin ?: false
                 )
             }.sortedWith(compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }.thenBy { it.queuePosition })
         }
@@ -497,11 +503,57 @@ fun QueueBoardScreen(
                 val apptsDeferred = async<List<Appointment>> {
                     try {
                         if (isDeltaOnly) {
-                            appointmentRepository?.getCachedClinicAppointments(effectiveClinicId)?.takeIf { it.isNotEmpty() }
+                            val cached = appointmentRepository?.getCachedClinicAppointments(effectiveClinicId)?.takeIf { it.isNotEmpty() }
                                 ?: appointmentRepository?.getAppointmentsByClinic(effectiveClinicId)
                                 ?: emptyList()
+
+                            // Targeted sliding window refresh: verify only upcoming 3-4 patients
+                            val upcomingActive = queueItems.filter { it.status == "inside" || it.status == "waiting" }.take(4)
+                            val upcomingIds = upcomingActive.map { it.appointmentId }
+                            val refreshed = if (upcomingIds.isNotEmpty()) {
+                                appointmentRepository?.refreshAppointmentsByIds(upcomingIds) ?: emptyList()
+                            } else emptyList()
+
+                            // Check and cleanup if cancelled or rescheduled
+                            refreshed.forEach { appt ->
+                                val isCancelled = appt.status.equals("CANCELLED", ignoreCase = true) ||
+                                        appt.checkinStatus?.lowercase() == "cancelled"
+                                val isRescheduledDate = appt.appointmentDate.isNotBlank() && appt.appointmentDate != selectedQueueDate
+                                if (isCancelled || isRescheduledDate) {
+                                    runCatching {
+                                        queueRepository.removeRogueQueueEntry(appt.id)
+                                    }
+                                    val action = if (isCancelled) "cancelled" else "rescheduled to ${appt.appointmentDate}"
+                                    coroutineScope.launch(Dispatchers.Main) {
+                                        notificationSentMessage = "Notice: Appointment for ${appt.patientName} was $action."
+                                    }
+                                }
+                            }
+
+                            // Incrementally check new appointments for today
+                            val currentKnownIds = (cached.map { it.id } + queueItems.map { it.appointmentId }).toSet()
+                            val newAppts = appointmentRepository?.checkNewAppointments(
+                                clinicId = effectiveClinicId,
+                                doctorId = if (isLabClinic) null else selectedDoctorFilterId,
+                                date = selectedQueueDate,
+                                knownApptIds = currentKnownIds
+                            ) ?: emptyList()
+
+                            if (newAppts.isNotEmpty()) {
+                                var curMax = queueItems.map { it.queuePosition }.maxOrNull() ?: 0
+                                newAppts.forEach { newAppt ->
+                                    curMax++
+                                    runCatching {
+                                        queueRepository.autoEnrollNewAppointment(effectiveClinicId, newAppt.doctorId, newAppt.id, curMax)
+                                    }
+                                }
+                            }
+
+                            val refreshedMap = refreshed.associateBy { it.id }
+                            val mergedCached = cached.map { refreshedMap[it.id] ?: it }
+                            mergedCached + newAppts
                         } else {
-                            appointmentRepository?.getAppointmentsByClinic(effectiveClinicId) ?: emptyList()
+                            appointmentRepository?.getAppointmentsByClinic(effectiveClinicId, forceRefresh = true) ?: emptyList()
                         }
                     } catch (_: Exception) { emptyList() }
                 }
@@ -510,6 +562,11 @@ fun QueueBoardScreen(
                 if (c != null) {
                     currentClinic = c
                     lastClinicMetaFetchMs = nowTime
+                    val diag = isDiagnosticClinic(c)
+                    isLabClinic = diag
+                    if (diag) {
+                        selectedDoctorFilterId = null
+                    }
                     if (System.currentTimeMillis() - lastBreakToggleMs > 12_000L) {
                         isClinicOnBreak = c.isOnBreak == true
                     }
@@ -520,7 +577,7 @@ fun QueueBoardScreen(
                 if (docs.isNotEmpty()) {
                     clinicDoctors = docs
                     lastDoctorsFetchMs = nowTime
-                    if (selectedDoctorFilterId == null && docs.size == 1 && initialDoctorId.isNullOrBlank()) {
+                    if (!isLabClinic && selectedDoctorFilterId == null && docs.size == 1 && initialDoctorId.isNullOrBlank()) {
                         selectedDoctorFilterId = docs.first().id
                     }
                 }
@@ -530,7 +587,22 @@ fun QueueBoardScreen(
                 val entries = entriesDeferred.await()
                 rawQueueEntries = entries
                 val appts = apptsDeferred.await()
-                val apptMap = appts.associateBy { it.id }
+                var currentApptMap = appts.associateBy { it.id }
+
+                // Authoritative sync: if any queue entry is missing or unapproved in cached apptMap, refresh directly
+                val missingOrUnapprovedIds = entries.map { it.appointmentId }.filter { entryApptId ->
+                    val a = currentApptMap[entryApptId]
+                    a == null || !a.status.equals("APPROVED", ignoreCase = true)
+                }
+                if (missingOrUnapprovedIds.isNotEmpty() && appointmentRepository != null) {
+                    try {
+                        val refreshedMissing = appointmentRepository.refreshAppointmentsByIds(missingOrUnapprovedIds)
+                        if (refreshedMissing.isNotEmpty()) {
+                            currentApptMap = currentApptMap + refreshedMissing.associateBy { it.id }
+                        }
+                    } catch (_: Exception) {}
+                }
+                val apptMap = currentApptMap
 
                 val nowMs = System.currentTimeMillis()
                 val activeOverrides = pendingStatusOverrides.filterValues { it.second > nowMs }
@@ -542,7 +614,9 @@ fun QueueBoardScreen(
                         val appt = apptMap[entry.appointmentId]
                         appt != null &&
                             appt.status.equals("APPROVED", ignoreCase = true) &&
-                            appt.checkinStatus != "cancelled"
+                            !appt.status.equals("CANCELLED", ignoreCase = true) &&
+                            appt.checkinStatus != "cancelled" &&
+                            (appt.appointmentDate.isBlank() || appt.appointmentDate == selectedQueueDate)
                     }
                     .map { entry ->
                         val appt = apptMap[entry.appointmentId]
@@ -594,7 +668,9 @@ fun QueueBoardScreen(
                             doctorName = docMap[entry.doctorId ?: appt?.doctorId]?.fullName,
                             paymentMode = appt?.paymentMode,
                             paymentStatus = appt?.paymentStatus,
-                            totalAmount = appt?.let { if (it.totalAmount > 0.0) it.totalAmount else it.feeAmount } ?: 0.0
+                            totalAmount = appt?.let { if (it.totalAmount > 0.0) it.totalAmount else it.feeAmount } ?: 0.0,
+                            userId = appt?.userId,
+                            isWalkin = appt?.isWalkin ?: false
                         )
                     }
                     .sortedWith(
@@ -674,19 +750,27 @@ fun QueueBoardScreen(
 
     LaunchedEffect(effectiveClinicId) {
         // Initial full sync of clinic, doctors, and appointments
-        loadQueue(isDeltaOnly = false)
+        try {
+            loadQueue(isDeltaOnly = false)
+        } catch (e: Exception) {
+            android.util.Log.e("QueueBoardScreen", "Initial loadQueue failed", e)
+        }
         while (isActive) {
             // Only changed rows are downloaded; own actions already show instantly via pendingStatusOverrides
             delay(10_000L)
-            // Lightweight operational delta sync: only queue entries without heavy table scans
-            loadQueue(isDeltaOnly = true)
+            try {
+                // Lightweight operational delta sync: only queue entries without heavy table scans
+                loadQueue(isDeltaOnly = true)
+            } catch (e: Exception) {
+                android.util.Log.e("QueueBoardScreen", "Delta loadQueue failed", e)
+            }
         }
     }
 
     val liveQueue = queueItems.filter {
         (it.status == "waiting" || it.status == "inside") &&
         (it.appointmentDate.isBlank() || it.appointmentDate == selectedQueueDate) &&
-        (selectedDoctorFilterId == null || it.doctorId == selectedDoctorFilterId || (it.doctorId.isNullOrBlank() && (isLabClinic || clinicDoctors.size <= 1)))
+        (if (isLabClinic) true else (selectedDoctorFilterId == null || it.doctorId == selectedDoctorFilterId || (it.doctorId.isNullOrBlank() && clinicDoctors.size <= 1)))
     }.sortedWith(
         compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }
             .thenBy { it.queuePosition }
@@ -694,12 +778,12 @@ fun QueueBoardScreen(
     val processingQueue = queueItems.filter {
         it.status in processingStatuses &&
         (it.appointmentDate.isBlank() || it.appointmentDate == selectedQueueDate) &&
-        (selectedDoctorFilterId == null || it.doctorId == selectedDoctorFilterId || (it.doctorId.isNullOrBlank() && (isLabClinic || clinicDoctors.size <= 1)))
+        (if (isLabClinic) true else (selectedDoctorFilterId == null || it.doctorId == selectedDoctorFilterId || (it.doctorId.isNullOrBlank() && clinicDoctors.size <= 1)))
     }
     val pastQueue = queueItems.filter {
         it.status in pastStatuses &&
         (it.appointmentDate.isBlank() || it.appointmentDate == selectedQueueDate) &&
-        (selectedDoctorFilterId == null || it.doctorId == selectedDoctorFilterId || (it.doctorId.isNullOrBlank() && (isLabClinic || clinicDoctors.size <= 1)))
+        (if (isLabClinic) true else (selectedDoctorFilterId == null || it.doctorId == selectedDoctorFilterId || (it.doctorId.isNullOrBlank() && clinicDoctors.size <= 1)))
     }
     val insideCount = liveQueue.count { it.status == "inside" }
     val waitingCount = liveQueue.count { it.status == "waiting" }
@@ -1097,8 +1181,8 @@ fun QueueBoardScreen(
         }
     }
 
-            // ── DEDICATED DOCTOR FILTER ROW (Matches media_1793087755798_d126b7f8.png) ──
-            if (clinicDoctors.isNotEmpty()) {
+            // ── DEDICATED DOCTOR FILTER ROW (Suppressed for Diagnostic Lab Clinics) ──
+            if (!isLabClinic && clinicDoctors.isNotEmpty()) {
                 item(key = "doctor_filter_row") {
                     Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
                         Row(
@@ -1184,7 +1268,7 @@ fun QueueBoardScreen(
                         }
                     }
                 }
-            } else if (isDoctorsLoading) {
+            } else if (!isLabClinic && isDoctorsLoading) {
                 item(key = "doctor_filter_row_skeleton") {
                     Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2092,7 +2176,7 @@ fun QueueBoardScreen(
                                                     color = Color(0xFF0284C7)
                                                 )
                                             }
-                                            if (!item.doctorName.isNullOrBlank()) {
+                                            if (!isLabClinic && !item.doctorName.isNullOrBlank()) {
                                                 Text(
                                                     text = "👨‍⚕️ ${item.doctorName}",
                                                     fontSize = 11.5.sp,
@@ -2643,7 +2727,7 @@ fun QueueBoardScreen(
                                                                 optimisticallyUpdateStatus(item.id, "inside")
                                                                 coroutineScope.launch {
                                                                     queueRepository?.updateQueueStatus(item.id, "inside", effectiveClinicId)
-                                                                    val docName = item.doctorName?.takeIf { it.isNotBlank() } ?: "Attending Physician"
+                                                                    val docName = if (isLabClinic) "Sample Collection Counter" else (item.doctorName?.takeIf { it.isNotBlank() } ?: "Attending Physician")
                                                                     queueRepository?.notifyCallInside(
                                                                         appointmentId = item.appointmentId,
                                                                         patientName = item.patientName,

@@ -129,7 +129,7 @@ data class ClinicBaseUpdateDto(
 )
 
 @Singleton
-class ClinicRepository @Inject constructor(
+open class ClinicRepository @Inject constructor(
     private val supabaseClient: SupabaseClient,
     @ApplicationContext private val context: Context? = null
 ) {
@@ -313,7 +313,7 @@ class ClinicRepository @Inject constructor(
         return json.encodeToString(ClinicExtendedMeta.serializer(), meta)
     }
 
-    suspend fun getClinicById(id: String): Clinic? = withContext(Dispatchers.IO) {
+    open suspend fun getClinicById(id: String): Clinic? = withContext(Dispatchers.IO) {
         try {
             val clinic = supabaseClient.postgrest["clinics"]
                 .select {
@@ -532,7 +532,7 @@ class ClinicRepository @Inject constructor(
         }
     }
 
-    suspend fun toggleClinicBreak(clinicId: String, isOnBreak: Boolean): Clinic? = withContext(Dispatchers.IO) {
+    open suspend fun toggleClinicBreak(clinicId: String, isOnBreak: Boolean): Clinic? = withContext(Dispatchers.IO) {
         val current = getCachedClinicById(clinicId) ?: getClinicById(clinicId) ?: return@withContext null
         val updated = current.copy(
             isOnBreak = isOnBreak,

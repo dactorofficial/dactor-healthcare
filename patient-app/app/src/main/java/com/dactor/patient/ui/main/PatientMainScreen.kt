@@ -543,6 +543,8 @@ fun PatientMainScreen(
         }
     }
 
+    val strings = com.dactor.patient.ui.i18n.LocalAppStrings.current
+
     Scaffold(
         bottomBar = {
             NavigationBar(
@@ -552,8 +554,8 @@ fun PatientMainScreen(
                 NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
-                    label = { Text("Home", fontSize = 12.sp, fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal) },
+                    icon = { Icon(Icons.Default.Home, contentDescription = strings.navHome) },
+                    label = { Text(strings.navHome, fontSize = 12.sp, fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.primary,
                         selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -564,8 +566,8 @@ fun PatientMainScreen(
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    icon = { Icon(Icons.AutoMirrored.Filled.Article, contentDescription = "Records") },
-                    label = { Text("Records", fontSize = 12.sp, fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal) },
+                    icon = { Icon(Icons.AutoMirrored.Filled.Article, contentDescription = strings.navRecords) },
+                    label = { Text(strings.navRecords, fontSize = 12.sp, fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.primary,
                         selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -576,8 +578,8 @@ fun PatientMainScreen(
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    icon = { Icon(Icons.Default.EventNote, contentDescription = "Appointments") },
-                    label = { Text("Appointments", fontSize = 12.sp, fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Normal) },
+                    icon = { Icon(Icons.Default.EventNote, contentDescription = strings.navAppointments) },
+                    label = { Text(strings.navAppointments, fontSize = 12.sp, fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Normal) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.primary,
                         selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -588,8 +590,8 @@ fun PatientMainScreen(
                 NavigationBarItem(
                     selected = selectedTab == 3,
                     onClick = { selectedTab = 3 },
-                    icon = { Icon(Icons.Default.Person, contentDescription = "Profile") },
-                    label = { Text("Profile", fontSize = 12.sp, fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Normal) },
+                    icon = { Icon(Icons.Default.Person, contentDescription = strings.navProfile) },
+                    label = { Text(strings.navProfile, fontSize = 12.sp, fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Normal) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.primary,
                         selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -4060,9 +4062,21 @@ fun RecordsTab(
 
                     val clinicName = clinic?.name ?: "Partner Medical Clinic"
                     val clinicAddress = clinic?.addressText ?: "Nepal"
-                    val doctorName = doctor?.fullName?.let { if (it.startsWith("Dr.", true)) it else "Dr. $it" } ?: "Attending Physician"
-                    val doctorSpec = doctor?.allSpecialties?.firstOrNull() ?: doctor?.specialty ?: "General Physician"
-                    val doctorAvatar = doctor?.resolvedProfilePictureUrl
+                    val isLabAppt = DiagnosticLabPolicy.isDiagnosticLabAppointment(
+                        appointment = appt,
+                        clinic = clinic,
+                        clinicType = clinic?.type,
+                        queueStatus = appt.checkinStatus,
+                        labReports = labReports
+                    )
+                    val hasDoctor = !isLabAppt && !appt.doctorId.isNullOrBlank() && doctor != null
+                    val doctorName = if (hasDoctor) {
+                        doctor?.fullName?.let { if (it.startsWith("Dr.", true)) it else "Dr. $it" } ?: "Attending Physician"
+                    } else ""
+                    val doctorSpec = if (hasDoctor) {
+                        doctor?.allSpecialties?.firstOrNull() ?: doctor?.specialty ?: "General Physician"
+                    } else ""
+                    val doctorAvatar = if (hasDoctor) doctor?.resolvedProfilePictureUrl else null
 
                     val totalBill = when {
                         invoice != null && invoice.totalAmount > 0.0 -> appt.effectiveTotalForInvoice(invoice)
@@ -4200,64 +4214,134 @@ fun RecordsTab(
                                 modifier = Modifier.padding(16.dp),
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                // ── 2. DOCTOR PROFILE ROW WITH IMAGE & TIME DONE ─
+                                // ── 2. DOCTOR / LAB SERVICE ROW WITH IMAGE & TIME DONE ─
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = Color(0xFFE0F2FE),
-                                        border = BorderStroke(2.dp, Color(0xFF0284C7)),
-                                        modifier = Modifier.size(56.dp)
-                                    ) {
-                                        if (!doctorAvatar.isNullOrBlank()) {
-                                            coil.compose.AsyncImage(
-                                                model = doctorAvatar,
-                                                contentDescription = doctorName,
-                                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                                modifier = Modifier.fillMaxSize()
+                                    if (hasDoctor) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = Color(0xFFE0F2FE),
+                                            border = BorderStroke(2.dp, Color(0xFF0284C7)),
+                                            modifier = Modifier.size(56.dp)
+                                        ) {
+                                            if (!doctorAvatar.isNullOrBlank()) {
+                                                coil.compose.AsyncImage(
+                                                    model = doctorAvatar,
+                                                    contentDescription = doctorName,
+                                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            } else {
+                                                val initials = (doctor?.fullName ?: "DR")
+                                                    .split(" ")
+                                                    .filter { it.isNotBlank() }
+                                                    .take(2)
+                                                    .mapNotNull { it.firstOrNull()?.uppercaseChar() }
+                                                    .joinToString("")
+                                                    .ifBlank { "DR" }
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Text(
+                                                        text = initials,
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        fontSize = 18.sp,
+                                                        color = Color(0xFF0284C7)
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = doctorName,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontSize = 16.sp,
+                                                color = Color(0xFF0F172A)
                                             )
-                                        } else {
-                                            val initials = (doctor?.fullName ?: "DR")
-                                                .split(" ")
-                                                .filter { it.isNotBlank() }
-                                                .take(2)
-                                                .mapNotNull { it.firstOrNull()?.uppercaseChar() }
-                                                .joinToString("")
-                                                .ifBlank { "DR" }
-                                            Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = doctorSpec,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF0284C7)
+                                            )
+                                            if (!doctor?.education.isNullOrBlank()) {
                                                 Text(
-                                                    text = initials,
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    fontSize = 18.sp,
-                                                    color = Color(0xFF0284C7)
+                                                    text = doctor?.education ?: "",
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFF64748B),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
                                                 )
                                             }
                                         }
-                                    }
+                                    } else if (isLabAppt) {
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = Color(0xFFFAF5FF),
+                                            border = BorderStroke(1.5.dp, Color(0xFFE9D5FF)),
+                                            modifier = Modifier.size(52.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    Icons.Default.Biotech,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF9333EA),
+                                                    modifier = Modifier.size(28.dp)
+                                                )
+                                            }
+                                        }
 
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = doctorName,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 16.sp,
-                                            color = Color(0xFF0F172A)
-                                        )
-                                        Text(
-                                            text = doctorSpec,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 12.sp,
-                                            color = Color(0xFF0284C7)
-                                        )
-                                        if (!doctor?.education.isNullOrBlank()) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            val labTitle = appt.selectedLabTests?.takeIf { it.isNotBlank() }
+                                                ?: labReports.firstOrNull()?.testName?.takeIf { it.isNotBlank() }
+                                                ?: "Diagnostic Lab Service"
                                             Text(
-                                                text = doctor?.education ?: "",
-                                                fontSize = 11.sp,
-                                                color = Color(0xFF64748B),
+                                                text = labTitle,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontSize = 15.sp,
+                                                color = Color(0xFF581C87),
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = "Pathology & Diagnostic Testing",
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF9333EA)
+                                            )
+                                        }
+                                    } else {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = Color(0xFFE0F2FE),
+                                            border = BorderStroke(2.dp, Color(0xFF0284C7)),
+                                            modifier = Modifier.size(56.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    Icons.Default.LocalHospital,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF0284C7),
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                        }
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = clinicName,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontSize = 15.sp,
+                                                color = Color(0xFF0F172A),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = "General Consultation",
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF0284C7)
                                             )
                                         }
                                     }
@@ -4381,39 +4465,41 @@ fun RecordsTab(
                                     }
                                 }
 
-                                // ── 4. DOCTOR'S CLINICAL REMARKS ─────────────────
-                                Surface(
-                                    color = Color(0xFFFAFAFA),
-                                    shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(10.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                // ── 4. DOCTOR'S CLINICAL REMARKS (Hidden for Diagnostic Lab Appointments) ──
+                                if (!isLabAppt) {
+                                    Surface(
+                                        color = Color(0xFFFAFAFA),
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        Column(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
                                         ) {
-                                            Icon(
-                                                Icons.Default.RateReview,
-                                                contentDescription = null,
-                                                tint = Color(0xFF0284C7),
-                                                modifier = Modifier.size(14.dp)
-                                            )
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.RateReview,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF0284C7),
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Text(
+                                                    "Doctor's Clinical Remarks & Notes",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFF0284C7)
+                                                )
+                                            }
                                             Text(
-                                                "Doctor's Clinical Remarks & Notes",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 11.sp,
-                                                color = Color(0xFF0284C7)
+                                                text = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarks).takeIf { it.isNotBlank() } ?: "No clinical remarks recorded for this visit.",
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF334155)
                                             )
                                         }
-                                        Text(
-                                            text = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarks).takeIf { it.isNotBlank() } ?: "No clinical remarks recorded for this visit.",
-                                            fontSize = 12.sp,
-                                            color = Color(0xFF334155)
-                                        )
                                     }
                                 }
 
@@ -4589,7 +4675,7 @@ fun RecordsTab(
                                                     modifier = Modifier.size(16.dp)
                                                 )
                                                 Text(
-                                                    text = if (invoice != null) "Clinic Pushed Bill & Payment" else "Consultation Fee & Payment",
+                                                    text = if (invoice != null) "Clinic Pushed Bill & Payment" else if (isLabAppt) "Diagnostic Lab Fee & Payment" else "Consultation Fee & Payment",
                                                     fontWeight = FontWeight.ExtraBold,
                                                     fontSize = 12.sp,
                                                     color = Color(0xFF0F172A)
@@ -5965,9 +6051,16 @@ fun AppointmentsTab(
                     }
 
                     val clinicEntries = appt.clinicId?.let { clinicQueueCache[it] } ?: emptyList()
+                    val doctorEntries = clinicEntries.filter {
+                        if (!appt.doctorId.isNullOrBlank()) {
+                            it.doctorId == appt.doctorId
+                        } else {
+                            it.doctorId.isNullOrBlank()
+                        }
+                    }
                     val myPos = qEntry?.queuePosition ?: 1
-                    val liveAhead = if (isToday && clinicEntries.isNotEmpty()) {
-                        val sortedActive = clinicEntries
+                    val liveAhead = if (isToday && doctorEntries.isNotEmpty()) {
+                        val sortedActive = doctorEntries
                             .filter { it.status == "waiting" || it.status == "inside" || it.status == "in_consultation" }
                             .sortedWith(
                                 compareBy<com.dactor.patient.data.model.QueueEntry> { if (it.status == "inside" || it.status == "in_consultation") 0 else 1 }
@@ -5977,15 +6070,15 @@ fun AppointmentsTab(
                         when {
                             qEntry?.status in listOf("inside", "in_consultation") -> 0
                             myIdx >= 0 -> myIdx
-                            else -> clinicEntries.count { (it.status == "waiting" || it.status == "inside") && it.queuePosition < myPos }
+                            else -> doctorEntries.count { (it.status == "waiting" || it.status == "inside") && it.queuePosition < myPos }
                         }
                     } else if (isToday) {
                         (myPos - 1).coerceAtLeast(0)
                     } else {
                         0
                     }
-                    val totalWaiting = if (clinicEntries.isNotEmpty()) {
-                        clinicEntries.count { it.status == "waiting" || it.status == "inside" }
+                    val totalWaiting = if (doctorEntries.isNotEmpty()) {
+                        doctorEntries.count { it.status == "waiting" || it.status == "inside" }
                     } else {
                         liveAhead + 1
                     }
@@ -6023,12 +6116,12 @@ fun AppointmentsTab(
                     val isMissed = !isConsultationDone && (isNoShowStatus || isPastDate)
 
                     // Calculate live queue timing estimate ONLY for today's appointment
-                    val timingEstimate = remember(clinic, doctor, qEntry, liveAhead, isInClinic, isClinicOnBreak, clinicEntries, isToday) {
+                    val timingEstimate = remember(clinic, doctor, qEntry, liveAhead, isInClinic, isClinicOnBreak, doctorEntries, isToday) {
                         if (isToday) {
                             QueueRepository.calculateLiveQueueTimingEstimate(
                                 clinic = clinic,
                                 isDoctorInClinic = isInClinic,
-                                allClinicQueueEntries = clinicEntries,
+                                allClinicQueueEntries = doctorEntries,
                                 targetEntry = qEntry,
                                 fallbackPatientsAhead = liveAhead,
                                 appointmentTime = appt.appointmentTime,
@@ -6665,7 +6758,7 @@ fun AppointmentsTab(
                                                     isLate -> "Another patient was called inside \u2022 Please arrive now"
                                                     isWithDoctor -> "With doctor in consultation room \u2022 Token #$myPos"
                                                     liveAhead == 0 -> "Next in line (0 ahead) \u2022 Token #$myPos \u2022 $totalWaiting in queue"
-                                                    liveAhead == 1 && clinicEntries.any { it.status == "inside" || it.status == "in_consultation" } -> "Doctor consulting \u2022 You're up next (1 ahead) \u2022 Token #$myPos"
+                                                    liveAhead == 1 && doctorEntries.any { it.status == "inside" || it.status == "in_consultation" } -> "Doctor consulting \u2022 You're up next (1 ahead) \u2022 Token #$myPos"
                                                     else -> "$liveAhead ahead of you in line \u2022 Token #$myPos \u2022 $totalWaiting in queue"
                                                 },
                                                 fontSize = 12.sp,
@@ -7428,10 +7521,17 @@ fun PatientRecordDetailDialog(
 
     val clinicName = dClinic?.name ?: "Partner Medical Clinic"
     val clinicAddress = dClinic?.addressText ?: "Nepal"
-    val hasTargetDoctor = !targetAppt.doctorId.isNullOrBlank() && dDoctor != null
-    val doctorName = dDoctor?.fullName?.let { if (it.startsWith("Dr.", true)) it else "Dr. $it" } ?: ""
-    val doctorSpec = dDoctor?.allSpecialties?.firstOrNull() ?: dDoctor?.specialty ?: ""
-    val doctorAvatar = dDoctor?.resolvedProfilePictureUrl
+    val isLabRecord = DiagnosticLabPolicy.isDiagnosticLabAppointment(
+        appointment = targetAppt,
+        clinic = dClinic,
+        clinicType = dClinic?.type,
+        queueStatus = targetAppt.checkinStatus,
+        labReports = dLabReports
+    )
+    val hasTargetDoctor = !isLabRecord && !targetAppt.doctorId.isNullOrBlank() && dDoctor != null
+    val doctorName = if (hasTargetDoctor) dDoctor?.fullName?.let { if (it.startsWith("Dr.", true)) it else "Dr. $it" } ?: "" else ""
+    val doctorSpec = if (hasTargetDoctor) dDoctor?.allSpecialties?.firstOrNull() ?: dDoctor?.specialty ?: "" else ""
+    val doctorAvatar = if (hasTargetDoctor) dDoctor?.resolvedProfilePictureUrl else null
 
     val totalBill = when {
         dInvoice != null && dInvoice.totalAmount > 0.0 -> targetAppt.effectiveTotalForInvoice(dInvoice)
@@ -7493,7 +7593,7 @@ fun PatientRecordDetailDialog(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Comprehensive Consultation Details",
+                                    text = if (isLabRecord) "Diagnostic Lab Visit Details" else "Comprehensive Consultation Details",
                                     fontWeight = FontWeight.ExtraBold,
                                     fontSize = 16.sp,
                                     color = Color.White
@@ -7732,32 +7832,34 @@ fun PatientRecordDetailDialog(
                             }
                         }
 
-                        // ── 3. CLINICAL REMARKS & NOTES ──
-                        item {
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = Color.White,
-                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(14.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                        // ── 3. CLINICAL REMARKS & NOTES (Hidden for Diagnostic Lab Appointments) ──
+                        if (!isLabRecord) {
+                            item {
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = Color.White,
+                                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    Column(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Icon(Icons.Default.RateReview, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(16.dp))
-                                        Text("Doctor's Clinical Remarks & Recommendations", fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Color(0xFF0284C7))
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(Icons.Default.RateReview, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(16.dp))
+                                            Text("Doctor's Clinical Remarks & Recommendations", fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Color(0xFF0284C7))
+                                        }
+                                        val cleanRem = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(dRemarks)
+                                        Text(
+                                            text = cleanRem.ifBlank { "No clinical remarks recorded for this consultation." },
+                                            fontSize = 13.sp,
+                                            color = Color(0xFF334155),
+                                            lineHeight = 18.sp
+                                        )
                                     }
-                                    val cleanRem = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(dRemarks)
-                                    Text(
-                                        text = cleanRem.ifBlank { "No clinical remarks recorded for this consultation." },
-                                        fontSize = 13.sp,
-                                        color = Color(0xFF334155),
-                                        lineHeight = 18.sp
-                                    )
                                 }
                             }
                         }
@@ -8090,10 +8192,21 @@ fun PatientRecordDetailDialog(
                                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                             associatedVisits.forEach { pastAppt ->
                                                 val isSelected = pastAppt.id == targetAppt.id
-                                                val pastDoc = pastAppt.doctorId?.let { doctorMap[it] }
-                                                val pastDocName = pastDoc?.fullName?.let { if (it.startsWith("Dr.", true)) it else "Dr. $it" } ?: "Attending Physician"
                                                 val pastClinic = clinicMap[pastAppt.clinicId]
                                                 val pastClinicName = pastClinic?.name ?: "Partner Medical Clinic"
+                                                val isPastLab = DiagnosticLabPolicy.isDiagnosticLabAppointment(
+                                                    appointment = pastAppt,
+                                                    clinic = pastClinic,
+                                                    clinicType = pastClinic?.type,
+                                                    queueStatus = pastAppt.checkinStatus,
+                                                    labReports = labReportMap[pastAppt.id].orEmpty()
+                                                )
+                                                val pastDoc = pastAppt.doctorId?.let { doctorMap[it] }
+                                                val pastDocName = when {
+                                                    isPastLab -> pastAppt.selectedLabTests?.takeIf { it.isNotBlank() } ?: "Diagnostic Lab Test"
+                                                    pastDoc != null -> pastDoc.fullName.let { if (it.startsWith("Dr.", true)) it else "Dr. $it" }
+                                                    else -> "Attending Physician"
+                                                }
 
                                                 Surface(
                                                     shape = RoundedCornerShape(12.dp),

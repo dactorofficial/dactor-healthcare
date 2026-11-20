@@ -130,7 +130,6 @@ import {
   saveLabReport,
   uploadReportFile,
   getLabReportsByClinic,
-  getClinicNotifications,
   markAllNotificationsAsRead,
   sendBroadcastNotification,
   createClinic,
@@ -157,6 +156,10 @@ import {
   getClinicPatientDirectory,
   buildClinicPatientDirectory,
   refreshPatientChangeableData,
+  refreshAppointmentsByIds,
+  checkNewAppointments,
+  removeRogueQueueEntry,
+  autoEnrollNewAppointment,
   ClinicPatientDirectoryEntry,
   PatientDirectoryConsultation,
   getSupportUrl,
@@ -215,7 +218,7 @@ import {
   checkRedirectGoogleUser,
   onFirebaseAuthStateChanged,
 } from '../lib/firebase'
-import { signOutKeepingData } from '../utils/cacheCleaner'
+import { clearAllAppCache } from '../utils/cacheCleaner'
 
 interface ClinicPortalProps {
   onLogout?: () => void
@@ -1437,13 +1440,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         try {
           await autoTransferUncompletedQueueToNoShow(selectedClinic.id, false)
         } catch {}
-        const [docs, appts, srvs, reps, invs, notifs, invites, sysDocs] = await Promise.all([
+        const [docs, appts, srvs, reps, invs, invites, sysDocs] = await Promise.all([
           getDoctorsByClinic(selectedClinic.id),
           getAppointmentsByClinic(selectedClinic.id),
           getClinicServices(selectedClinic.id),
           getLabReportsByClinic(selectedClinic.id),
           getBillingInvoicesByClinic(selectedClinic.id),
-          getClinicNotifications(selectedClinic.id),
           getClinicInvitations(selectedClinic.id),
           getDoctors(),
         ])
@@ -1473,7 +1475,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         setServices(srvs)
         setLabReports(reps)
         setInvoices(invs)
-        setClinicNotifications(notifs)
+        setClinicNotifications([])
         setClinicInvitations(invites)
         setAllSystemDoctors(sysDocs)
         syncClinicToSettings(selectedClinic)
@@ -1783,9 +1785,20 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     setIsAuthenticated(false)
     setAuthEmail(null)
     setPendingEntity(null)
+    setSelectedClinic(null)
     setCurrentView('auth_choice')
     try {
-      signOutKeepingData().catch(() => {})
+      localStorage.removeItem('dactor_clinic_logged_in')
+      localStorage.removeItem('dactor_clinic_email')
+      localStorage.removeItem('dactor_clinic_role')
+      localStorage.removeItem('dactor_google_user')
+      localStorage.removeItem('dactor_pending_verification')
+      localStorage.removeItem('dactor_last_active_role')
+      localStorage.removeItem('dactor_last_active_portal')
+      localStorage.removeItem('dactor_oauth_target_portal')
+      sessionStorage.removeItem('dactor_oauth_target_portal')
+      firebaseSignOut()
+      clearAllAppCache().catch(() => {})
       if (onLogout) onLogout()
     } catch {}
   }
@@ -4379,7 +4392,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         a.status === 'WAITING_FOR_APPROVAL' ||
         a.status === 'pending_payment' ||
         a.status === 'UNAPPROVED' ||
-        a.status === 'EXPIRED'
+        a.status === 'EXPIRED' ||
+        a.checkinStatus === 'cancelled'
       ) {
         return false
       }
@@ -4392,6 +4406,91 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
       return (a.appointmentTime || '').localeCompare(b.appointmentTime || '')
     })
   }, [appointments, selectedQueueDate])
+
+  // Targeted 2.5s sliding window live queue refresh (upcoming 3-4 patients & new appointments)
+  useEffect(() => {
+    if (!selectedClinic?.id || deskTab !== 'queue') return
+
+    let isPolling = false
+    const interval = setInterval(async () => {
+      if (isPolling) return
+      isPolling = true
+      try {
+        // 1. Sliding window lookahead: Active inside + upcoming waiting patients (up to 4)
+        const activeQueue = todayAppointments.filter(
+          (a) =>
+            a.checkinStatus === 'waiting' ||
+            a.checkinStatus === 'in_consultation' ||
+            a.checkinStatus === 'inside'
+        )
+        const upcomingItems = activeQueue.slice(0, 4)
+        const upcomingIds = upcomingItems.map((a) => a.id)
+
+        if (upcomingIds.length > 0) {
+          const refreshed = await refreshAppointmentsByIds(upcomingIds)
+          if (refreshed.length > 0) {
+            const freshMap = new Map(refreshed.map((a) => [a.id, a]))
+            let modified = false
+
+            setAppointments((prev) => {
+              const updated = prev.map((item) => {
+                const fresh = freshMap.get(item.id)
+                if (!fresh) return item
+
+                const isCancelled =
+                  (fresh.status || '').toUpperCase() === 'CANCELLED' ||
+                  (fresh.checkinStatus || '').toLowerCase() === 'cancelled'
+                const isRescheduledDate =
+                  fresh.appointmentDate && fresh.appointmentDate !== selectedQueueDate
+
+                if (isCancelled || isRescheduledDate) {
+                  modified = true
+                  removeRogueQueueEntry(item.id).catch(() => {})
+                  return { ...item, status: 'CANCELLED', checkinStatus: 'cancelled' }
+                }
+
+                if (fresh.appointmentTime && fresh.appointmentTime !== item.appointmentTime) {
+                  modified = true
+                  return { ...item, appointmentTime: fresh.appointmentTime }
+                }
+
+                return { ...item, ...fresh }
+              })
+              return modified ? updated : prev
+            })
+          }
+        }
+
+        // 2. Incrementally check newly booked or approved appointments for today
+        const knownIds = appointments.map((a) => a.id)
+        const newAppts = await checkNewAppointments(
+          selectedClinic.id,
+          selectedDoctor?.id || null,
+          selectedQueueDate,
+          knownIds
+        )
+
+        if (newAppts.length > 0) {
+          let maxPos = Math.max(0, ...todayAppointments.map((a) => a.queuePosition || 0))
+          for (const newAppt of newAppts) {
+            maxPos++
+            autoEnrollNewAppointment(selectedClinic.id, newAppt.doctorId || null, newAppt.id, maxPos).catch(() => {})
+          }
+          setAppointments((prev) => {
+            const currentIds = new Set(prev.map((a) => a.id))
+            const toAdd = newAppts.filter((a) => !currentIds.has(a.id))
+            return toAdd.length > 0 ? [...prev, ...toAdd] : prev
+          })
+        }
+      } catch (err) {
+        console.warn('Targeted clinic queue refresh error:', err)
+      } finally {
+        isPolling = false
+      }
+    }, 2500)
+
+    return () => clearInterval(interval)
+  }, [selectedClinic?.id, deskTab, selectedQueueDate, selectedDoctor?.id, todayAppointments, appointments])
 
   const noShowAppointments = useMemo(
     () =>
@@ -5596,7 +5695,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }`}
         >
           <Activity className="w-4 h-4" />
-          <span>Live OPD Queue ({queueWaitingCount})</span>
+          <span>{isLabClinic ? 'Live Lab Collection Queue' : 'Live OPD Queue'} ({queueWaitingCount})</span>
         </button>
 
         <button
@@ -6028,7 +6127,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           >
             <div className="flex items-center space-x-3 text-xs font-bold text-slate-800 dark:text-slate-200">
               <Activity className="w-4 h-4 text-brand-600" />
-              <span>Live OPD Queue: {queueWaitingCount} Waiting • {queueInsideCount} Inside • {queueCompletedCount} Completed</span>
+              <span>{isLabClinic ? 'Live Lab Queue' : 'Live OPD Queue'}: {queueWaitingCount} Waiting • {queueInsideCount} Inside • {queueCompletedCount} Completed</span>
             </div>
             <span className="text-xs font-bold text-brand-600 hover:text-brand-800 flex items-center gap-1">
               Show Roster &amp; Controls ▲
@@ -6046,7 +6145,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                 <div>
                   <div className="flex items-center space-x-2">
                     <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-900 dark:text-amber-200 px-2 py-0.5 rounded-full border border-amber-400/30">
-                      Currently Inside Doctor Cabin
+                      {isLabClinic ? 'Currently at Sample Collection Counter' : 'Currently Inside Doctor Cabin'}
                     </span>
                     <span className="text-xs font-mono font-bold text-amber-900 dark:text-amber-200">
                       Token #{activeConsultationPatient.trackingCode10Digit}
@@ -6055,9 +6154,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                   <h3 className="text-base font-black text-slate-900 dark:text-white mt-0.5">
                     {activeConsultationPatient.patientName} ({activeConsultationPatient.patientAge || '–'} Yrs, {activeConsultationPatient.patientGender || '–'})
                   </h3>
-                  <p className="text-xs text-slate-600 dark:text-slate-300">
-                    Attending: {activeConsultationPatient.doctor?.fullName || selectedDoctor?.fullName || 'OPD Doctor'}
-                  </p>
+                  {!isLabClinic && (
+                    <p className="text-xs text-slate-600 dark:text-slate-300">
+                      Attending: {activeConsultationPatient.doctor?.fullName || selectedDoctor?.fullName || 'OPD Doctor'}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -6207,7 +6308,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                     <tr>
                       <th className="py-3 px-4 w-12 text-center">Turn</th>
                       <th className="py-3 px-4">Patient</th>
-                      <th className="py-3 px-4">Doctor</th>
+                      <th className="py-3 px-4">{isLabClinic ? 'Diagnostic Service' : 'Doctor'}</th>
                       <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4">Payment</th>
                       <th className="py-3 px-4 text-right">Action</th>
@@ -6283,16 +6384,18 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                 )}
                               </td>
 
-                              {/* Doctor */}
+                              {/* Doctor / Diagnostic Service */}
                               <td className="py-3.5 px-4 text-slate-600 dark:text-slate-300">
-                                {appt.doctor?.fullName || selectedDoctor?.fullName || 'General OPD'}
+                                {isLabClinic
+                                  ? (appt.selectedTests?.join(', ') || (typeof appt.selectedLabTests === 'string' ? appt.selectedLabTests : '') || 'Diagnostic Tests')
+                                  : (appt.doctor?.fullName || selectedDoctor?.fullName || 'General OPD')}
                               </td>
 
                               {/* Status Badge */}
                               <td className="py-3.5 px-4">
                                 {inCabin ? (
                                   <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-900 dark:text-amber-200 border border-amber-400/40 animate-pulse">
-                                    Inside Cabin
+                                    {isLabClinic ? 'Collecting Sample' : 'Inside Cabin'}
                                   </span>
                                 ) : isProcessing ? (
                                   <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-900 dark:text-blue-200 border border-blue-400/40">

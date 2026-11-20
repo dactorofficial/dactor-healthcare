@@ -7,11 +7,24 @@ import com.dactor.clinic.data.model.Appointment
 import com.dactor.clinic.data.model.DactorNotification
 import com.dactor.clinic.data.model.NotificationTemplate
 import com.dactor.clinic.data.model.NotificationType
+import com.dactor.clinic.data.model.TransitionQueueEntryStatusResult
+import com.dactor.clinic.domain.model.QueueConflictException
+import com.dactor.clinic.domain.util.PatientIdentitySync
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.RealtimeChannel
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
@@ -60,7 +73,7 @@ data class LiveQueueTimingEstimate(
 )
 
 @Singleton
-class QueueRepository @Inject constructor(
+open class QueueRepository @Inject constructor(
     private val supabaseClient: SupabaseClient,
     private val clinicRepository: ClinicRepository,
     private val queueDao: com.dactor.clinic.data.local.dao.QueueDao? = null,
@@ -81,11 +94,27 @@ class QueueRepository @Inject constructor(
         return clinicQueueCache[clinicId]?.second ?: emptyList()
     }
 
-    fun clearCache() {
+    open fun clearCache() {
         clinicQueueCache.clear()
         doctorQueueCache.clear()
         clinicQueueSince.clear()
         clinicQueueActiveCheckAt.clear()
+    }
+
+    fun invalidateClinicQueueCache(clinicId: String) {
+        if (clinicId.isNotBlank()) {
+            clinicQueueCache.remove(clinicId)
+        }
+    }
+
+    fun invalidateDoctorQueueCache(doctorId: String? = null) {
+        if (doctorId.isNullOrBlank()) {
+            doctorQueueCache.clear()
+        } else {
+            doctorQueueCache.keys.filter { it.startsWith(doctorId) }.forEach {
+                doctorQueueCache.remove(it)
+            }
+        }
     }
 
     suspend fun getLocalOrCachedQueueForClinic(clinicId: String): List<QueueEntry> = withContext(Dispatchers.IO) {
@@ -159,18 +188,22 @@ class QueueRepository @Inject constructor(
         }
     }
 
-    suspend fun syncQueueDeltaForDoctor(doctorId: String): List<QueueEntry> = withContext(Dispatchers.IO) {
+    open suspend fun syncQueueDeltaForDoctor(doctorId: String, clinicId: String? = null): List<QueueEntry> = withContext(Dispatchers.IO) {
         if (doctorId.isBlank()) return@withContext emptyList()
+        val cacheKey = "${doctorId}_${clinicId ?: "all"}"
         try {
             val entries = supabaseClient.postgrest["queue_entries"]
                 .select {
                     filter {
                         eq("doctor_id", doctorId)
+                        if (!clinicId.isNullOrBlank()) {
+                            eq("clinic_id", clinicId)
+                        }
                     }
                 }.decodeList<QueueEntry>()
 
             val sorted = entries.sortedBy { it.queuePosition }
-            doctorQueueCache[doctorId] = Pair(System.currentTimeMillis(), sorted)
+            doctorQueueCache[cacheKey] = Pair(System.currentTimeMillis(), sorted)
             try {
                 queueDao?.upsertAll(
                     sorted.map { com.dactor.clinic.data.local.entity.QueueEntryEntity.fromDomainModel(it, syncStatus = "synced") }
@@ -179,10 +212,91 @@ class QueueRepository @Inject constructor(
             sorted
         } catch (e: Exception) {
             try {
-                doctorQueueCache[doctorId]?.second
-                    ?: queueDao?.getQueueForDoctorOnlyList(doctorId)?.map { it.toDomainModel() }
+                doctorQueueCache[cacheKey]?.second
+                    ?: if (!clinicId.isNullOrBlank()) {
+                        queueDao?.getQueueForDoctorList(clinicId, doctorId)?.map { it.toDomainModel() }
+                    } else {
+                        queueDao?.getQueueForDoctorOnlyList(doctorId)?.map { it.toDomainModel() }
+                    }
                     ?: emptyList()
             } catch (_: Exception) { emptyList() }
+        }
+    }
+
+    /**
+     * Authoritatively removes rogue / cancelled / rescheduled queue entries
+     * from both remote Supabase, local Room DAO, and in-memory caches.
+     */
+    open suspend fun removeRogueQueueEntry(appointmentId: String): Boolean = withContext(Dispatchers.IO) {
+        if (appointmentId.isBlank()) return@withContext false
+        try {
+            supabaseClient.postgrest["queue_entries"].delete {
+                filter {
+                    eq("appointment_id", appointmentId)
+                }
+            }
+            try {
+                val cached = queueDao?.getQueueEntryByAppointmentId(appointmentId)
+                if (cached != null) {
+                    queueDao.softDelete(cached.id)
+                }
+            } catch (_: Exception) {}
+
+            clinicQueueCache.forEach { (cid, pair) ->
+                val filtered = pair.second.filter { it.appointmentId != appointmentId }
+                clinicQueueCache[cid] = Pair(pair.first, filtered)
+            }
+            doctorQueueCache.forEach { (did, pair) ->
+                val filtered = pair.second.filter { it.appointmentId != appointmentId }
+                doctorQueueCache[did] = Pair(pair.first, filtered)
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Enrolls newly booked or approved appointments into the active queue with the next queue position.
+     */
+    open suspend fun autoEnrollNewAppointment(
+        clinicId: String,
+        doctorId: String?,
+        appointmentId: String,
+        currentMaxPos: Int = 0
+    ): QueueEntry? = withContext(Dispatchers.IO) {
+        if (clinicId.isBlank() || appointmentId.isBlank()) return@withContext null
+        try {
+            val cleanDocId = doctorId?.takeIf { com.dactor.clinic.domain.util.PatientIdentitySync.isValidUuid(it) }
+            val newEntryDto = QueueEntryInsertDto(
+                id = java.util.UUID.randomUUID().toString(),
+                appointmentId = appointmentId,
+                clinicId = clinicId,
+                doctorId = cleanDocId,
+                queuePosition = currentMaxPos + 1,
+                status = "waiting"
+            )
+            try {
+                supabaseClient.postgrest["queue_entries"].insert(newEntryDto)
+            } catch (_: Exception) {
+                if (cleanDocId != null) {
+                    supabaseClient.postgrest["queue_entries"].insert(newEntryDto.copy(doctorId = null))
+                }
+            }
+            val entry = QueueEntry(
+                id = newEntryDto.id,
+                appointmentId = appointmentId,
+                clinicId = clinicId,
+                doctorId = newEntryDto.doctorId,
+                queuePosition = newEntryDto.queuePosition,
+                status = "waiting"
+            )
+            try {
+                queueDao?.upsert(com.dactor.clinic.data.local.entity.QueueEntryEntity.fromDomainModel(entry, syncStatus = "synced"))
+            } catch (_: Exception) {}
+            entry
+        } catch (e: Exception) {
+            null
         }
     }
 
@@ -334,10 +448,15 @@ class QueueRepository @Inject constructor(
         }
     }
 
-    suspend fun getQueueForDoctor(doctorId: String, forceRefresh: Boolean = false): List<QueueEntry> = withContext(Dispatchers.IO) {
+    open suspend fun getQueueForDoctor(
+        doctorId: String,
+        clinicId: String? = null,
+        forceRefresh: Boolean = false
+    ): List<QueueEntry> = withContext(Dispatchers.IO) {
         if (doctorId.isBlank()) return@withContext emptyList()
+        val cacheKey = "${doctorId}_${clinicId ?: "all"}"
         if (!forceRefresh) {
-            val cached = doctorQueueCache[doctorId]
+            val cached = doctorQueueCache[cacheKey]
             if (cached != null && (System.currentTimeMillis() - cached.first) < 1500L) {
                 return@withContext cached.second
             }
@@ -346,12 +465,14 @@ class QueueRepository @Inject constructor(
             // Automatically audit and transfer uncompleted past live queue patients to 'no_show'
             kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    val doc = try {
-                        supabaseClient.postgrest["doctors"]
-                            .select { filter { eq("id", doctorId) } }
-                            .decodeSingleOrNull<com.dactor.clinic.data.model.Doctor>()
-                    } catch (e: Exception) { null }
-                    val docClinicId = doc?.clinicId
+                    val docClinicId = clinicId?.takeIf { it.isNotBlank() } ?: run {
+                        val doc = try {
+                            supabaseClient.postgrest["doctors"]
+                                .select { filter { eq("id", doctorId) } }
+                                .decodeSingleOrNull<com.dactor.clinic.data.model.Doctor>()
+                        } catch (e: Exception) { null }
+                        doc?.clinicId
+                    }
                     if (!docClinicId.isNullOrBlank()) {
                         autoTransferUncompletedQueueToNoShow(clinicId = docClinicId, includeTodayExpired = false)
                     }
@@ -362,6 +483,9 @@ class QueueRepository @Inject constructor(
                 .select {
                     filter {
                         eq("doctor_id", doctorId)
+                        if (!clinicId.isNullOrBlank()) {
+                            eq("clinic_id", clinicId)
+                        }
                     }
                 }.decodeList<QueueEntry>()
 
@@ -409,6 +533,9 @@ class QueueRepository @Inject constructor(
                     .select {
                         filter {
                             eq("doctor_id", doctorId)
+                            if (!clinicId.isNullOrBlank()) {
+                                eq("clinic_id", clinicId)
+                            }
                             eq("appointment_date", todayStr)
                         }
                     }.decodeList<com.dactor.clinic.data.model.Appointment>()
@@ -456,7 +583,7 @@ class QueueRepository @Inject constructor(
                 }
 
                 if (addedAny) {
-                    val docClinic = todayAppts.firstOrNull()?.clinicId
+                    val docClinic = clinicId?.takeIf { it.isNotBlank() } ?: todayAppts.firstOrNull()?.clinicId
                     if (!docClinic.isNullOrBlank()) {
                         reindexActiveQueue(docClinic, doctorId, sortBySlotTime = true)
                     }
@@ -464,13 +591,16 @@ class QueueRepository @Inject constructor(
                         .select {
                             filter {
                                 eq("doctor_id", doctorId)
+                                if (!clinicId.isNullOrBlank()) {
+                                    eq("clinic_id", clinicId)
+                                }
                             }
                         }.decodeList<QueueEntry>()
                 }
             } catch (ignored: Exception) {}
 
             val sorted = currentEntries.sortedBy { it.queuePosition }
-            doctorQueueCache[doctorId] = Pair(System.currentTimeMillis(), sorted)
+            doctorQueueCache[cacheKey] = Pair(System.currentTimeMillis(), sorted)
             try {
                 queueDao?.upsertAll(
                     sorted.map { com.dactor.clinic.data.local.entity.QueueEntryEntity.fromDomainModel(it, syncStatus = "synced") }
@@ -480,11 +610,87 @@ class QueueRepository @Inject constructor(
         } catch (e: Exception) {
             e.printStackTrace()
             val cached = try {
-                doctorQueueCache[doctorId]?.second
-                    ?: queueDao?.getQueueForDoctorOnlyList(doctorId)?.map { it.toDomainModel() }
+                doctorQueueCache[cacheKey]?.second
+                    ?: if (!clinicId.isNullOrBlank()) {
+                        queueDao?.getQueueForDoctorList(clinicId, doctorId)?.map { it.toDomainModel() }
+                    } else {
+                        queueDao?.getQueueForDoctorOnlyList(doctorId)?.map { it.toDomainModel() }
+                    }
             } catch (_: Exception) { null }
             cached ?: emptyList()
         }
+    }
+
+    open suspend fun transitionQueueEntryStatus(
+        entryId: String,
+        expectedStatus: String,
+        newStatus: String,
+        actorType: String,
+        actorId: String
+    ): TransitionQueueEntryStatusResult = withContext(Dispatchers.IO) {
+        val cleanActorId = actorId.takeIf { com.dactor.clinic.domain.util.PatientIdentitySync.isValidUuid(it) }
+
+        val rpcParams = buildJsonObject {
+            put("p_entry_id", entryId)
+            put("p_expected_status", expectedStatus)
+            put("p_new_status", newStatus)
+            put("p_actor_type", actorType)
+            if (cleanActorId != null) {
+                put("p_actor_id", cleanActorId)
+            }
+        }
+
+        val response = supabaseClient.postgrest.rpc("transition_queue_entry_status", rpcParams)
+        val rawJson = response.data?.trim()
+        val jsonParser = kotlinx.serialization.json.Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+            coerceInputValues = true
+        }
+
+        val result = if (!rawJson.isNullOrBlank()) {
+            try {
+                jsonParser.decodeFromString<TransitionQueueEntryStatusResult>(rawJson)
+            } catch (_: Exception) {
+                response.decodeAs<TransitionQueueEntryStatusResult>()
+            }
+        } else {
+            response.decodeAs<TransitionQueueEntryStatusResult>()
+        }
+
+        if (!result.success) {
+            if (result.error == "CONFLICT") {
+                throw com.dactor.clinic.domain.model.QueueConflictException(
+                    message = result.message ?: "This entry was just updated",
+                    currentStatus = result.currentStatus ?: ""
+                )
+            } else if (result.error == "UNAUTHORIZED") {
+                throw SecurityException(result.message ?: "Not authorized to transition queue entry")
+            } else {
+                throw IllegalStateException(result.message ?: "Queue status transition failed (${result.error})")
+            }
+        }
+
+        // Success: update local Room cache
+        try {
+            val targetId = result.entryId ?: entryId
+            val cached = queueDao?.getQueueEntryById(targetId)
+                ?: (result.appointmentId?.let { queueDao?.getQueueEntryByAppointmentId(it) })
+            if (cached != null) {
+                queueDao?.upsert(
+                    cached.copy(
+                        status = result.status ?: newStatus,
+                        calledAt = result.calledAt ?: cached.calledAt,
+                        insideAt = result.insideAt ?: cached.insideAt,
+                        completedAt = result.completedAt ?: cached.completedAt,
+                        consultationDurationSeconds = result.consultationDurationSeconds ?: cached.consultationDurationSeconds,
+                        syncStatus = "synced"
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+
+        result
     }
 
     /**
@@ -794,7 +1000,7 @@ class QueueRepository @Inject constructor(
      * Automatically transfers patients in live queue whose appointment is not completed to 'no_show'.
      * Handles past-day appointments (where appointment_date < today) and optionally today's expired slots/appointments.
      */
-    suspend fun autoTransferUncompletedQueueToNoShow(
+    open suspend fun autoTransferUncompletedQueueToNoShow(
         clinicId: String,
         includeTodayExpired: Boolean = false,
         todayCutoffMinutes: Int = 60
@@ -1196,7 +1402,7 @@ class QueueRepository @Inject constructor(
         }
     }
 
-    suspend fun reorderQueue(orderedEntries: List<QueueEntry>): Boolean = withContext(Dispatchers.IO) {
+    open suspend fun reorderQueue(orderedEntries: List<QueueEntry>): Boolean = withContext(Dispatchers.IO) {
         try {
             orderedEntries.forEachIndexed { index, entry ->
                 supabaseClient.postgrest["queue_entries"]
@@ -1262,7 +1468,7 @@ class QueueRepository @Inject constructor(
         }
     }
 
-    suspend fun sendManualNotification(
+    open suspend fun sendManualNotification(
         appointmentId: String,
         title: String,
         message: String,
@@ -1371,34 +1577,8 @@ class QueueRepository @Inject constructor(
     }
 
     suspend fun getClinicNotifications(clinicId: String): List<DactorNotification> = withContext(Dispatchers.IO) {
-        try {
-            val apptIds = try {
-                supabaseClient.postgrest["appointments"]
-                    .select { filter { eq("clinic_id", clinicId) } }
-                    .decodeList<Appointment>()
-                    .map { it.id }
-            } catch (e: Exception) {
-                emptyList()
-            }
-            val allNotes = try {
-                supabaseClient.postgrest["notifications"]
-                    .select {
-                        order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
-                        limit(50)
-                    }.decodeList<DactorNotification>()
-            } catch (e: Exception) {
-                emptyList()
-            }
-            if (apptIds.isEmpty()) {
-                allNotes.take(30)
-            } else {
-                val apptIdSet = apptIds.toSet()
-                allNotes.filter { it.appointmentId == null || apptIdSet.contains(it.appointmentId) }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            emptyList()
-        }
+        // Query request removed from doctor and clinic portal (restricted to patient app)
+        emptyList()
     }
 
     suspend fun markAsRead(id: String): Boolean = withContext(Dispatchers.IO) {
@@ -1493,7 +1673,7 @@ class QueueRepository @Inject constructor(
         }
     }
 
-    suspend fun sendClinicBreakNotificationsToActiveAppointments(
+    open suspend fun sendClinicBreakNotificationsToActiveAppointments(
         clinicId: String,
         clinicName: String,
         breakWindowText: String? = null
@@ -1652,7 +1832,7 @@ class QueueRepository @Inject constructor(
      * Sends an urgent "Doctor is Calling You Inside" notification and high-priority FCM alert
      * to the patient whose turn is called now.
      */
-    suspend fun notifyCallInside(
+    open suspend fun notifyCallInside(
         appointmentId: String,
         patientName: String,
         doctorName: String,
@@ -1748,6 +1928,54 @@ class QueueRepository @Inject constructor(
         } catch (e: Exception) {
             e.printStackTrace()
             false
+        }
+    }
+
+    /**
+     * Creates a reactive Flow emitting on any doctor queue entry or appointment change.
+     * Encapsulates Supabase Realtime channel lifecycle.
+     */
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    open fun observeDoctorQueueRealtime(doctorId: String, clinicId: String): Flow<Unit> = callbackFlow {
+        if (doctorId.isBlank() || clinicId.isBlank()) {
+            close()
+            return@callbackFlow
+        }
+
+        val channelTopic = "doctor_live_queue_${doctorId}_${clinicId}"
+        val channel: RealtimeChannel = supabaseClient.channel(channelTopic)
+
+        val queueChanges = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+            table = "queue_entries"
+            filter = "doctor_id=eq.$doctorId"
+        }
+
+        val apptChanges = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+            table = "appointments"
+            filter = "doctor_id=eq.$doctorId"
+        }
+
+        val job = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            try {
+                channel.subscribe()
+                merge(queueChanges, apptChanges)
+                    .debounce(300L)
+                    .collect {
+                        trySend(Unit)
+                    }
+            } catch (e: Exception) {
+                Log.e("QueueRepo", "Realtime subscription failed: ${e.message}")
+            }
+        }
+
+        awaitClose {
+            job.cancel()
+            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    channel.unsubscribe()
+                    supabaseClient.realtime.removeChannel(channel)
+                } catch (_: Exception) {}
+            }
         }
     }
 

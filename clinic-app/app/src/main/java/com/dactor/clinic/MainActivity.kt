@@ -122,41 +122,39 @@ class MainActivity : ComponentActivity() {
 
         // 4. One check for recent broadcast and staff alerts when the app opens (no polling loop)
         lifecycleScope.launch(Dispatchers.IO) {
-            run {
-                try {
-                    val userId = authRepository.getCurrentUser()
-                    val notifs = notificationRepository.getNotifications(userId = userId)
-                    val fifteenMinutesAgoMs = System.currentTimeMillis() - (15 * 60 * 1000L)
+            try {
+                val userId = authRepository.getCurrentUser()
+                val notifs = notificationRepository.getNotifications(userId = userId)
+                val fifteenMinutesAgoMs = System.currentTimeMillis() - (15 * 60 * 1000L)
 
-                    for (notif in notifs) {
-                        if (seenNotifIds.contains(notif.id)) continue
+                for (notif in notifs) {
+                    if (seenNotifIds.contains(notif.id)) continue
 
-                        val createdEpochMs = try {
-                            if (!notif.createdAt.isNullOrBlank()) {
-                                java.time.Instant.parse(notif.createdAt).toEpochMilli()
-                            } else 0L
-                        } catch (_: Exception) {
-                            0L
-                        }
-                        val isCreatedRecently = createdEpochMs >= fifteenMinutesAgoMs
-
-                        if (!isCreatedRecently) {
-                            seenNotifIds.add(notif.id)
-                            continue
-                        }
-
-                        val notifId = (notif.id.hashCode() and 0x7FFFFFFF) % 100000
-                        NotificationHelper.showSystemNotification(
-                            context = this@MainActivity,
-                            id = notifId,
-                            title = notif.title.ifBlank { "Dactor Clinic Alert" },
-                            message = notif.message
-                        )
-                        seenNotifIds.add(notif.id)
+                    val createdEpochMs = try {
+                        if (!notif.createdAt.isNullOrBlank()) {
+                            java.time.Instant.parse(notif.createdAt).toEpochMilli()
+                        } else 0L
+                    } catch (_: Exception) {
+                        0L
                     }
-                } catch (e: Exception) {
-                    e.printStackTrace()
+                    val isCreatedRecently = createdEpochMs >= fifteenMinutesAgoMs
+
+                    if (!isCreatedRecently) {
+                        seenNotifIds.add(notif.id)
+                        continue
+                    }
+
+                    val notifId = (notif.id.hashCode() and 0x7FFFFFFF) % 100000
+                    NotificationHelper.showSystemNotification(
+                        context = this@MainActivity,
+                        id = notifId,
+                        title = notif.title.ifBlank { "Dactor Clinic Alert" },
+                        message = notif.message
+                    )
+                    seenNotifIds.add(notif.id)
                 }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
         setContent {

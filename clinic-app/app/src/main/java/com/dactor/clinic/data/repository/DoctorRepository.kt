@@ -87,7 +87,7 @@ data class DoctorUpdateDto(
 )
 
 @Singleton
-class DoctorRepository @Inject constructor(
+open class DoctorRepository @Inject constructor(
     private val supabaseClient: SupabaseClient,
     @ApplicationContext private val context: Context? = null
 ) {
@@ -133,7 +133,7 @@ class DoctorRepository @Inject constructor(
         }
     }
 
-    fun getCachedDoctorById(id: String): Doctor? {
+    open fun getCachedDoctorById(id: String): Doctor? {
         if (id.isBlank()) return null
         val inMem = getCachedDoctorById(id) ?: cachedAllDoctors.find { it.id == id } ?: cachedDoctorsByClinic.values.flatten().find { it.id == id }
         if (inMem != null) return inMem
@@ -355,7 +355,7 @@ class DoctorRepository @Inject constructor(
         }
     }
 
-    suspend fun getDoctorById(id: String): Doctor? = withContext(Dispatchers.IO) {
+    open suspend fun getDoctorById(id: String): Doctor? = withContext(Dispatchers.IO) {
         try {
             val doc = supabaseClient.postgrest["doctors"]
                 .select {

@@ -76,11 +76,17 @@ class PatientRepository @Inject constructor(
                 }
 
                 val existing = patientDao.getPatientById(pId)
-                val visitCount = if (existing != null) existing.totalVisits + 1 else 1
-                val latestDate = if (existing?.lastVisitDate != null && existing.lastVisitDate > appt.appointmentDate) {
-                    existing.lastVisitDate
-                } else {
-                    appt.appointmentDate
+                val isCompletedAppt = appt.checkinStatus?.lowercase() in listOf("completed", "done", "visited")
+                val latestCompletedDate = when {
+                    isCompletedAppt && existing?.lastVisitDate != null -> if (existing.lastVisitDate > appt.appointmentDate) existing.lastVisitDate else appt.appointmentDate
+                    isCompletedAppt -> appt.appointmentDate
+                    else -> existing?.lastVisitDate
+                }
+                val totalVisitsCount = when {
+                    isCompletedAppt && existing != null && existing.lastVisitDate != appt.appointmentDate -> existing.totalVisits + 1
+                    existing != null -> existing.totalVisits
+                    isCompletedAppt -> 1
+                    else -> 0
                 }
 
                 PatientEntity(
@@ -92,10 +98,10 @@ class PatientRepository @Inject constructor(
                     age = appt.patientAge ?: existing?.age,
                     email = appt.patientEmail ?: existing?.email,
                     trackingCode10Digit = appt.trackingCode10Digit.ifBlank { existing?.trackingCode10Digit },
-                    lastVisitDate = latestDate,
+                    lastVisitDate = latestCompletedDate,
                     lastDoctorId = appt.doctorId ?: existing?.lastDoctorId,
                     lastDoctorName = existing?.lastDoctorName,
-                    totalVisits = maxOf(visitCount, existing?.totalVisits ?: 1),
+                    totalVisits = totalVisitsCount,
                     latestBillStatus = appt.paymentStatus ?: existing?.latestBillStatus,
                     latestClinicalRemarks = existing?.latestClinicalRemarks,
                     syncStatus = "synced",
@@ -211,6 +217,8 @@ class PatientRepository @Inject constructor(
                 }
 
                 val existing = targetId?.let { patientDao.getPatientById(it) }
+                val completedAppts = validAppts.filter { it.checkinStatus?.lowercase() in listOf("completed", "done", "visited") }
+                val latestCompletedDate = completedAppts.sortedByDescending { it.appointmentDate }.firstOrNull()?.appointmentDate ?: existing?.lastVisitDate
                 val latestRemark = remarks[latestAppt.id] ?: existing?.latestClinicalRemarks
 
                 val updatedPatient = PatientEntity(
@@ -222,10 +230,10 @@ class PatientRepository @Inject constructor(
                     age = latestAppt.patientAge ?: existing?.age,
                     email = latestAppt.patientEmail ?: existing?.email,
                     trackingCode10Digit = cleanTracking.ifBlank { latestAppt.trackingCode10Digit },
-                    lastVisitDate = latestAppt.appointmentDate,
+                    lastVisitDate = latestCompletedDate,
                     lastDoctorId = latestAppt.doctorId ?: existing?.lastDoctorId,
                     lastDoctorName = existing?.lastDoctorName,
-                    totalVisits = maxOf(validAppts.size, existing?.totalVisits ?: 1),
+                    totalVisits = maxOf(completedAppts.size, existing?.totalVisits ?: 1),
                     latestBillStatus = latestAppt.paymentStatus ?: existing?.latestBillStatus,
                     latestClinicalRemarks = latestRemark,
                     syncStatus = "synced",

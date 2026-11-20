@@ -27,5 +27,6 @@ object NavRoutes {
     const val WorkingHoursBreak = "working_hours_break"
     const val Notifications = "notifications"
     const val PayAtDeskRequests = "pay_at_desk_requests"
+    const val DoctorLiveQueue = "doctor_live_queue"
 }
 

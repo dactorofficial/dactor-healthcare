@@ -26,6 +26,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -36,12 +37,18 @@ import com.dactor.clinic.data.model.Clinic
 import com.dactor.clinic.data.model.ClinicInvitation
 import com.dactor.clinic.data.model.Doctor
 import com.dactor.clinic.data.repository.AppointmentRepository
+import com.dactor.clinic.data.repository.BillingRepository
 import com.dactor.clinic.data.repository.ClinicRepository
 import com.dactor.clinic.data.repository.DoctorRepository
 import com.dactor.clinic.data.repository.InvitationRepository
 import com.dactor.clinic.data.repository.LabReportRepository
 import com.dactor.clinic.data.repository.QueueRepository
+import com.dactor.clinic.data.repository.SlotRepository
 import com.dactor.clinic.ui.navigation.NavRoutes
+import com.dactor.clinic.ui.queue.DoctorLiveQueueContent
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.material3.TabRowDefaults.SecondaryIndicator
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -57,7 +64,9 @@ fun DoctorDashboardScreen(
     appointmentRepository: AppointmentRepository? = null,
     invitationRepository: InvitationRepository? = null,
     clinicRepository: ClinicRepository? = null,
-    labReportRepository: LabReportRepository? = null
+    labReportRepository: LabReportRepository? = null,
+    slotRepository: SlotRepository? = null,
+    billingRepository: BillingRepository? = null
 ) {
     val context = LocalContext.current
     val sessionManager = remember { com.dactor.clinic.data.local.UserSessionManager(context) }
@@ -191,110 +200,125 @@ fun DoctorDashboardScreen(
 
     suspend fun loadDoctorData() {
         if (doctorRepository != null) {
-            val sessionManager = com.dactor.clinic.data.local.UserSessionManager(context)
-            sessionManager.awaitIdentityResolved(timeoutMs = 2500)
-            val sessionDocId = sessionManager.getSavedDoctorId()
-            val sessionDocEmail = sessionManager.getSavedEmail()
+            try {
+                val sessionManager = com.dactor.clinic.data.local.UserSessionManager(context)
+                sessionManager.awaitIdentityResolved(timeoutMs = 2500)
+                val sessionDocId = sessionManager.getSavedDoctorId()
+                val sessionDocEmail = sessionManager.getSavedEmail()
 
-            val targetDoc = if (!doctorId.isNullOrBlank() && doctorId != "d1") {
-                doctorRepository.getDoctorById(doctorId)
-            } else if (!sessionDocId.isNullOrBlank()) {
-                doctorRepository.getDoctorById(sessionDocId)
-            } else if (!sessionDocEmail.isNullOrBlank()) {
-                doctorRepository.getDoctorByEmail(sessionDocEmail)
-            } else {
-                null
-            }
-
-            if (targetDoc != null) {
-                doctor = targetDoc
-                com.dactor.clinic.data.local.UserSessionManager(context).saveDoctorSession(
-                    targetDoc.id,
-                    targetDoc.email,
-                    targetDoc.fullName
-                )
-                // Load all affiliated clinics for this doctor
-                val affClinics = doctorRepository.getAffiliatedClinicsForDoctor(targetDoc.id, targetDoc.email)
-                affiliatedClinics = affClinics
-
-                val sessionActiveClinicId = com.dactor.clinic.data.local.UserSessionManager(context).getSavedActiveClinicIdForDoctor()
-                val activeCId = sessionActiveClinicId?.takeIf { id -> affClinics.any { it.id == id } }
-                    ?: targetDoc.activeClinicId?.takeIf { id -> affClinics.any { it.id == id } }
-                    ?: targetDoc.clinicId?.takeIf { id -> affClinics.any { it.id == id } }
-                    ?: affClinics.firstOrNull()?.id
-
-                clinic = if (!activeCId.isNullOrBlank() && clinicRepository != null) {
-                    affClinics.find { it.id == activeCId } ?: clinicRepository.getClinicById(activeCId)
+                val targetDoc = if (!doctorId.isNullOrBlank() && doctorId != "d1") {
+                    doctorRepository.getDoctorById(doctorId)
+                } else if (!sessionDocId.isNullOrBlank()) {
+                    doctorRepository.getDoctorById(sessionDocId)
+                } else if (!sessionDocEmail.isNullOrBlank()) {
+                    doctorRepository.getDoctorByEmail(sessionDocEmail)
                 } else {
-                    affClinics.firstOrNull()
+                    null
                 }
 
-                if (clinic != null) {
-                    com.dactor.clinic.data.local.UserSessionManager(context).saveActiveClinicIdForDoctor(clinic!!.id)
-                }
+                if (targetDoc != null) {
+                    doctor = targetDoc
+                    com.dactor.clinic.data.local.UserSessionManager(context).saveDoctorSession(
+                        targetDoc.id,
+                        targetDoc.email,
+                        targetDoc.fullName
+                    )
+                    // Load all affiliated clinics for this doctor
+                    val affClinics = doctorRepository.getAffiliatedClinicsForDoctor(targetDoc.id, targetDoc.email)
+                    affiliatedClinics = affClinics
 
-                doctorIsInClinic = (targetDoc.isInClinic == true)
-                editPractitionerRole = if (targetDoc.isLabTechnician) "lab_technician" else "doctor"
-                editName = targetDoc.fullName
-                editGender = targetDoc.gender ?: ""
-                editAge = targetDoc.age?.toString() ?: ""
-                editStartingYear = targetDoc.startingPracticingYear?.toString() ?: ""
-                editPictureName = targetDoc.profilePictureUrl?.substringAfterLast('/')
-                editSpecialty = targetDoc.specialty?.ifBlank { null } ?: if (targetDoc.isLabTechnician) "Medical Lab Technician (MLT)" else "General Medicine & Physician"
-                editEducation = targetDoc.education ?: ""
-                editNmc = targetDoc.nmcLicenseNumber ?: ""
-                editPersonalPhone = targetDoc.personalMobileNumber ?: ""
-                editPublicPhone = targetDoc.publicMobileNumber ?: ""
-                editDescription = targetDoc.description ?: ""
+                    val sessionActiveClinicId = com.dactor.clinic.data.local.UserSessionManager(context).getSavedActiveClinicIdForDoctor()
+                    val activeCId = sessionActiveClinicId?.takeIf { id -> affClinics.any { it.id == id } }
+                        ?: targetDoc.activeClinicId?.takeIf { id -> affClinics.any { it.id == id } }
+                        ?: targetDoc.clinicId?.takeIf { id -> affClinics.any { it.id == id } }
+                        ?: affClinics.firstOrNull()?.id
 
-                try {
-                    val specs = doctorRepository.getSpecialties()
-                    if (specs.isNotEmpty()) masterSpecialtiesList = specs
-                    val quals = doctorRepository.getQualifications()
-                    if (quals.isNotEmpty()) masterQualificationsList = quals
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+                    clinic = if (!activeCId.isNullOrBlank() && clinicRepository != null) {
+                        affClinics.find { it.id == activeCId } ?: clinicRepository.getClinicById(activeCId)
+                    } else {
+                        affClinics.firstOrNull()
+                    }
 
-                // Load clinic invitations & inviting clinic details
-                if (invitationRepository != null && targetDoc.email.isNotBlank()) {
-                    val invites = invitationRepository.getInvitationsForDoctor(targetDoc.email)
-                        .filter { it.status == "pending" }
-                    pendingInvitations = invites
+                    if (clinic != null) {
+                        com.dactor.clinic.data.local.UserSessionManager(context).saveActiveClinicIdForDoctor(clinic!!.id)
+                    }
 
-                    if (clinicRepository != null) {
-                        val clinicMap = mutableMapOf<String, Clinic>()
-                        for (inv in invites) {
-                            val c = clinicRepository.getClinicById(inv.clinicId)
-                            if (c != null) {
-                                clinicMap[inv.id] = c
+                    doctorIsInClinic = (targetDoc.isInClinic == true)
+                    editPractitionerRole = if (targetDoc.isLabTechnician) "lab_technician" else "doctor"
+                    editName = targetDoc.fullName
+                    editGender = targetDoc.gender ?: ""
+                    editAge = targetDoc.age?.toString() ?: ""
+                    editStartingYear = targetDoc.startingPracticingYear?.toString() ?: ""
+                    editPictureName = targetDoc.profilePictureUrl?.substringAfterLast('/')
+                    editSpecialty = targetDoc.specialty?.ifBlank { null } ?: if (targetDoc.isLabTechnician) "Medical Lab Technician (MLT)" else "General Medicine & Physician"
+                    editEducation = targetDoc.education ?: ""
+                    editNmc = targetDoc.nmcLicenseNumber ?: ""
+                    editPersonalPhone = targetDoc.personalMobileNumber ?: ""
+                    editPublicPhone = targetDoc.publicMobileNumber ?: ""
+                    editDescription = targetDoc.description ?: ""
+
+                    try {
+                        val specs = doctorRepository.getSpecialties()
+                        if (specs.isNotEmpty()) masterSpecialtiesList = specs
+                        val quals = doctorRepository.getQualifications()
+                        if (quals.isNotEmpty()) masterQualificationsList = quals
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+
+                    // Load clinic invitations & inviting clinic details
+                    if (invitationRepository != null && targetDoc.email.isNotBlank()) {
+                        val invites = invitationRepository.getInvitationsForDoctor(targetDoc.email)
+                            .filter { it.status == "pending" }
+                        pendingInvitations = invites
+
+                        if (clinicRepository != null) {
+                            val clinicMap = mutableMapOf<String, Clinic>()
+                            for (inv in invites) {
+                                val c = clinicRepository.getClinicById(inv.clinicId)
+                                if (c != null) {
+                                    clinicMap[inv.id] = c
+                                }
                             }
+                            invitingClinics = clinicMap
                         }
-                        invitingClinics = clinicMap
                     }
-                }
 
-                // Load today's active appointments
-                if (appointmentRepository != null) {
-                    val todayStr = java.time.LocalDate.now().toString()
-                    val appts = appointmentRepository.getAppointmentsByDoctor(targetDoc.id, todayStr)
-                    appointmentsQueue = activeQueueFor(appts, clinic?.id ?: activeCId)
-                    bookingsLoadedForDate = todayStr
-                    com.dactor.clinic.data.repository.AppointmentRepository.latestBookingTime(appts)?.let { latest ->
-                        if (newBookingsSince.let { it == null || latest > it }) newBookingsSince = latest
+                    // Load today's active appointments
+                    if (appointmentRepository != null) {
+                        val todayStr = java.time.LocalDate.now().toString()
+                        val appts = appointmentRepository.getAppointmentsByDoctor(targetDoc.id, todayStr)
+                        appointmentsQueue = activeQueueFor(appts, clinic?.id ?: activeCId)
+                        bookingsLoadedForDate = todayStr
+                        com.dactor.clinic.data.repository.AppointmentRepository.latestBookingTime(appts)?.let { latest ->
+                            if (newBookingsSince.let { it == null || latest > it }) newBookingsSince = latest
+                        }
                     }
                 }
+            } catch (e: Exception) {
+                android.util.Log.e("DoctorDashboardScreen", "Error loading doctor data", e)
+            } finally {
+                isLoading = false
             }
+        } else {
+            isLoading = false
         }
-        isLoading = false
     }
 
     LaunchedEffect(doctorId) {
         // Profile, clinics, specialty lists and invitations: once (and after the doctor's own actions)
-        loadDoctorData()
+        try {
+            loadDoctorData()
+        } catch (e: Exception) {
+            android.util.Log.e("DoctorDashboardScreen", "Error loading doctor data", e)
+        }
         while (isActive) {
-            delay(90_000L)
-            refreshNewBookings()
+            delay(15_000L)
+            try {
+                refreshNewBookings()
+            } catch (e: Exception) {
+                android.util.Log.e("DoctorDashboardScreen", "Periodic booking refresh error", e)
+            }
         }
     }
 
@@ -334,7 +358,11 @@ fun DoctorDashboardScreen(
         "Dentist"
     )
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    var selectedMainTab by remember { mutableIntStateOf(0) } // 0: Live Queue (default), 1: Dashboard & Workspace
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             Surface(
                 color = MaterialTheme.colorScheme.surface,
@@ -634,10 +662,134 @@ fun DoctorDashboardScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(scrollState)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            // Main Top Tabs: Live Queue (default) vs Dashboard & Workspace
+            TabRow(
+                selectedTabIndex = selectedMainTab,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = Color(0xFF0284C7),
+                indicator = { tabPositions ->
+                    SecondaryIndicator(
+                        Modifier.tabIndicatorOffset(tabPositions[selectedMainTab]),
+                        color = Color(0xFF0284C7)
+                    )
+                }
+            ) {
+                Tab(
+                    selected = selectedMainTab == 0,
+                    onClick = { selectedMainTab = 0 },
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.FormatListNumbered,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text("Live Queue", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                )
+                Tab(
+                    selected = selectedMainTab == 1,
+                    onClick = { selectedMainTab = 1 },
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Dashboard,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text("Dashboard & Workspace", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                    }
+                )
+            }
+
+            if (selectedMainTab == 0) {
+                val targetDocId = doctor?.id ?: effectiveDocId
+                val targetClinicId = clinic?.id ?: doctor?.activeClinicId ?: doctor?.clinicId.orEmpty()
+                if (targetClinicId.isBlank()) {
+                    if (isLoading) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(16.dp)
+                        ) {
+                            com.dactor.clinic.ui.common.ShimmerListPlaceholder(count = 3)
+                        }
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                                modifier = Modifier.size(72.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Default.LocalHospital,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(16.dp))
+                            Text(
+                                "No Active Clinic Affiliation",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "To manage your Live Patient Queue and receive OPD consultations, accept a clinic invitation or link your profile to an affiliated healthcare facility in your Dashboard.",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 18.sp
+                            )
+                            Spacer(Modifier.height(20.dp))
+                            Button(
+                                onClick = { selectedMainTab = 1 },
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Dashboard, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Go to Dashboard & Invitations")
+                            }
+                        }
+                    }
+                } else {
+                    DoctorLiveQueueContent(
+                        navController = navController,
+                        doctorId = targetDocId,
+                        clinicId = targetClinicId,
+                        viewModel = hiltViewModel(),
+                        snackbarHostState = snackbarHostState,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(scrollState)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
             if (doctor == null && isLoading) {
                 com.dactor.clinic.ui.common.ShimmerListPlaceholder(count = 4)
             } else if (doctor == null && !isLoading && sessionManager.getSavedDoctorId().isNullOrBlank()) {
@@ -1564,6 +1716,8 @@ fun DoctorDashboardScreen(
                 }
             }
             }
+        }
+        }
         }
     }
 

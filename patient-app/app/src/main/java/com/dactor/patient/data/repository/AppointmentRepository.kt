@@ -943,6 +943,9 @@ class AppointmentRepository @Inject constructor(
                         if (!appointment.selectedLabTests.isNullOrBlank()) {
                             put("p_selected_lab_tests", appointment.selectedLabTests)
                         }
+                        if (appointment.trackingCode10Digit.isNotBlank() && appointment.trackingCode10Digit.all { it.isDigit() } && appointment.trackingCode10Digit.length == 10) {
+                            put("p_tracking_code", appointment.trackingCode10Digit.trim())
+                        }
                     }
                 )
                 val rawData = rpcResult.data

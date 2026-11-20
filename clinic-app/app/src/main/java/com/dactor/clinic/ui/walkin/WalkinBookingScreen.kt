@@ -618,7 +618,7 @@ fun WalkinBookingScreen(
                         }
                     }
                 }
-            } else if (!isLabClinic) {
+            } else {
                 // STANDARD NEW PATIENT FORM (FULL MANUAL ENTRY)
                 OutlinedTextField(
                     value = patientName,
@@ -722,7 +722,7 @@ fun WalkinBookingScreen(
                     shape = RoundedCornerShape(12.dp)
                 )
 
-                if (affiliatedDoctors.isNotEmpty()) {
+                if (!isLabClinic && affiliatedDoctors.isNotEmpty()) {
                     Text("Select Attending Doctor", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     Row(
                         modifier = Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()),

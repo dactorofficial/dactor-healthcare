@@ -71,11 +71,16 @@ object BillPdfDownloader {
 
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
             textPaint.textSize = 11f
+            val isLab = DiagnosticLabPolicy.isDiagnosticLabAppointment(appointment)
             val docLine = buildString {
-                val cleanDoc = if (doctorName.startsWith("Dr.", ignoreCase = true)) doctorName else "Dr. $doctorName"
-                append("Attending Doctor: $cleanDoc")
-                if (!doctorSpecialty.isNullOrBlank()) {
-                    append(" ($doctorSpecialty)")
+                if (isLab || doctorName.isBlank() || doctorName.equals("Attending Physician", ignoreCase = true)) {
+                    append("Diagnostic & Pathology Services")
+                } else {
+                    val cleanDoc = if (doctorName.startsWith("Dr.", ignoreCase = true)) doctorName else "Dr. $doctorName"
+                    append("Attending Doctor: $cleanDoc")
+                    if (!doctorSpecialty.isNullOrBlank()) {
+                        append(" ($doctorSpecialty)")
+                    }
                 }
             }
             canvas.drawText(docLine, 36f, 64f, textPaint)
@@ -345,7 +350,8 @@ object BillPdfDownloader {
                 textPaint.color = tealDark
                 textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 textPaint.textSize = 10f
-                canvas.drawText("DOCTOR'S CLINICAL REMARKS & PRESCRIPTION:", 48f, currentY + 20f, textPaint)
+                val remarksTitle = if (isLab) "DIAGNOSTIC LAB & CLINICAL NOTES:" else "DOCTOR'S CLINICAL REMARKS & PRESCRIPTION:"
+                canvas.drawText(remarksTitle, 48f, currentY + 20f, textPaint)
 
                 textPaint.color = slateDark
                 textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)

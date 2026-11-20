@@ -3,13 +3,13 @@
 import { supabase } from './supabase'
 
 export const FIREBASE_CONFIG = {
-  apiKey: 'AIzaSyCc1ho812HhFLO3-XeNcDT_1Y68BdpzObU',
-  authDomain: 'dactor-ea1e1.firebaseapp.com',
-  projectId: 'dactor-ea1e1',
-  storageBucket: 'dactor-ea1e1.firebasestorage.app',
-  messagingSenderId: '429529188002',
-  appId: '1:429529188002:web:cd7cf4e561779910ab79fb',
-  measurementId: 'G-9SK7JVV6XM',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'dactor-ea1e1.firebaseapp.com',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'dactor-ea1e1',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'dactor-ea1e1.firebasestorage.app',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '429529188002',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:429529188002:web:cd7cf4e561779910ab79fb',
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || 'G-9SK7JVV6XM',
 }
 
 export interface FirebaseAuthUser {

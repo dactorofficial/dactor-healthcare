@@ -392,4 +392,146 @@ class QueueTimingEngineTest {
         val diffMins = java.time.Duration.between(timeFirst, timeSecond).toMinutes()
         assertEquals(10L, diffMins)
     }
+
+    @Test
+    fun testQueueIsolatedToSpecificDoctorAndSpecificDateOnly() {
+        val targetDate = "2026-11-20"
+        val anotherDate = "2026-11-21"
+
+        val slotDocA = Slot(
+            id = "slot-doc-a",
+            clinicId = "clinic-1",
+            doctorId = "doc-A",
+            slotDate = targetDate,
+            startTime = "09:00 AM",
+            endTime = "10:00 AM",
+            isPublished = true
+        )
+        val slotDocB = Slot(
+            id = "slot-doc-b",
+            clinicId = "clinic-1",
+            doctorId = "doc-B",
+            slotDate = targetDate,
+            startTime = "09:00 AM",
+            endTime = "10:00 AM",
+            isPublished = true
+        )
+
+        // 5 appointments for Doctor B on targetDate
+        val docBAppts = (1..5).map { i ->
+            Appointment(
+                id = "doc-b-appt-$i",
+                slotId = "slot-doc-b",
+                clinicId = "clinic-1",
+                doctorId = "doc-B",
+                appointmentDate = targetDate,
+                appointmentTime = "09:00 AM"
+            )
+        }
+
+        // 3 appointments for Doctor A on targetDate
+        val docAAppts = (1..3).map { i ->
+            Appointment(
+                id = "doc-a-appt-$i",
+                slotId = "slot-doc-a",
+                clinicId = "clinic-1",
+                doctorId = "doc-A",
+                appointmentDate = targetDate,
+                appointmentTime = "09:00 AM"
+            )
+        }
+
+        // Appointments for Doctor A on another date
+        val docAAnotherDateAppts = (1..4).map { i ->
+            Appointment(
+                id = "doc-a-other-date-$i",
+                slotId = "slot-doc-a",
+                clinicId = "clinic-1",
+                doctorId = "doc-A",
+                appointmentDate = anotherDate,
+                appointmentTime = "09:00 AM"
+            )
+        }
+
+        // Target patient is the 1st patient for Doctor A on targetDate
+        val targetAppt = docAAppts[0]
+
+        val allAppointments = docBAppts + docAAppts + docAAnotherDateAppts
+        val allSlots = listOf(slotDocA, slotDocB)
+
+        val result = QueueRepository.computeMultiSlotDailyPosition(
+            targetAppointmentId = targetAppt.id,
+            targetSlotId = targetAppt.slotId,
+            targetAppointmentTime = targetAppt.appointmentTime,
+            appointmentDate = targetDate,
+            allSlotsForDate = allSlots,
+            allAppointmentsForDate = allAppointments,
+            doctorId = "doc-A",
+            avgConsultationMinutes = 10,
+            nowDate = LocalDate.parse("2026-11-20")
+        )
+
+        // Must ONLY consider Doctor A on targetDate: target is first, so 0 ahead!
+        assertEquals(1, result.cumulativePosition)
+        assertEquals(0, result.patientsAheadInDay)
+
+        // 3rd patient for Doctor A should have exactly 2 ahead
+        val targetAppt3 = docAAppts[2]
+        val result3 = QueueRepository.computeMultiSlotDailyPosition(
+            targetAppointmentId = targetAppt3.id,
+            targetSlotId = targetAppt3.slotId,
+            targetAppointmentTime = targetAppt3.appointmentTime,
+            appointmentDate = targetDate,
+            allSlotsForDate = allSlots,
+            allAppointmentsForDate = allAppointments,
+            doctorId = "doc-A",
+            avgConsultationMinutes = 10,
+            nowDate = LocalDate.parse("2026-11-20")
+        )
+        assertEquals(3, result3.cumulativePosition)
+        assertEquals(2, result3.patientsAheadInDay)
+    }
+
+    @Test
+    fun testDifferentDayAdvanceLabAppointmentCalculatesAdvancePosition() {
+        val today = LocalDate.parse("2026-11-20")
+        val futureDate = "2026-11-24"
+
+        val labSlot = Slot(
+            id = "slot-lab-1",
+            clinicId = "clinic-lab-1",
+            doctorId = null,
+            slotDate = futureDate,
+            startTime = "09:00 AM",
+            endTime = "10:00 AM",
+            isPublished = true
+        )
+
+        val appt1 = Appointment(
+            id = "lab-appt-1",
+            slotId = "slot-lab-1",
+            clinicId = "clinic-lab-1",
+            doctorId = null,
+            appointmentDate = futureDate,
+            appointmentTime = "09:00 AM"
+        )
+
+        val result = QueueRepository.computeMultiSlotDailyPosition(
+            targetAppointmentId = appt1.id,
+            targetSlotId = appt1.slotId,
+            targetAppointmentTime = appt1.appointmentTime,
+            appointmentDate = futureDate,
+            allSlotsForDate = listOf(labSlot),
+            allAppointmentsForDate = listOf(appt1),
+            doctorId = null,
+            avgConsultationMinutes = 5,
+            nowDate = today
+        )
+
+        // Advance date must correctly identify as future date and position #1 in day
+        assertTrue(result.isFutureDate)
+        assertEquals("24 Nov", result.dateLabel)
+        assertEquals(1, result.cumulativePosition)
+        assertEquals(0, result.patientsAheadInDay)
+    }
 }

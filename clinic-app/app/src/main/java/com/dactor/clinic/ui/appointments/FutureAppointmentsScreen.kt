@@ -82,12 +82,14 @@ fun FutureAppointmentsScreen(
     // Selected date \u2014 default to today
     var selectedDate by remember { mutableStateOf(todayStr) }
 
+    var currentClinic by remember(effectiveClinicId) { mutableStateOf<com.dactor.clinic.data.model.Clinic?>(null) }
+    val isLabClinic = remember(currentClinic) { currentClinic?.isDiagnosticLab() == true }
     var appointments by remember(effectiveClinicId) { mutableStateOf<List<Appointment>>(emptyList()) }
     var doctors by remember(effectiveClinicId) { mutableStateOf<List<Doctor>>(emptyList()) }
     var selectedDoctor by remember(effectiveClinicId) { mutableStateOf<Doctor?>(null) }
     var remarksMap by remember(effectiveClinicId) { mutableStateOf<Map<String, String>>(emptyMap()) }
 
-    // OPD Slots state for selected date and full clinic overview
+    // OPD / Lab Slots state for selected date and full clinic overview
     var slots by remember(effectiveClinicId, selectedDate) { mutableStateOf<List<Slot>>(emptyList()) }
     var allClinicSlots by remember(effectiveClinicId) { mutableStateOf<List<Slot>>(emptyList()) }
     var isSlotsLoading by remember { mutableStateOf(false) }
@@ -119,7 +121,7 @@ fun FutureAppointmentsScreen(
             } catch (e: Exception) { "09:15" }
         )
     }
-    var slotCapacity by remember { mutableStateOf("5") }
+    var slotCapacity by remember(isLabClinic) { mutableStateOf(if (isLabClinic) "25" else "5") }
     var showSlotStartTimePicker by remember { mutableStateOf(false) }
     var showSlotEndTimePicker by remember { mutableStateOf(false) }
 
@@ -164,80 +166,93 @@ fun FutureAppointmentsScreen(
     }
 
     suspend fun loadAppointments() {
-        if (userRole == "doctor" && doctorId.isNotBlank() && effectiveClinicId.isBlank()) {
-            val doc = doctorRepository?.getDoctorById(doctorId)
-            val resolvedClinicId = doc?.activeClinicId ?: doc?.clinicId
-                ?: doctorRepository?.getAffiliatedClinicsForDoctor(doctorId, doc?.email ?: "")?.firstOrNull()?.id
-            if (!resolvedClinicId.isNullOrBlank()) {
-                effectiveClinicId = resolvedClinicId
-                sessionManager.saveActiveClinicIdForDoctor(resolvedClinicId)
+        try {
+            if (userRole == "doctor" && doctorId.isNotBlank() && effectiveClinicId.isBlank()) {
+                val doc = doctorRepository?.getDoctorById(doctorId)
+                val resolvedClinicId = doc?.activeClinicId ?: doc?.clinicId
+                    ?: doctorRepository?.getAffiliatedClinicsForDoctor(doctorId, doc?.email ?: "")?.firstOrNull()?.id
+                if (!resolvedClinicId.isNullOrBlank()) {
+                    effectiveClinicId = resolvedClinicId
+                    sessionManager.saveActiveClinicIdForDoctor(resolvedClinicId)
+                }
             }
-        }
 
-        if (clinicRepository != null && effectiveClinicId.isNotBlank()) {
-            val clinicObj = clinicRepository.getClinicById(effectiveClinicId)
-            if (clinicObj != null) {
-                val nowMs = System.currentTimeMillis()
-                val remoteSet = clinicObj.declaredHolidays.map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
-                pendingHolidayToggles.forEach { (dateKey, pair) ->
-                    val (lockedHolidayState, ts) = pair
-                    if (nowMs - ts < 12_000L) {
-                        if (lockedHolidayState) remoteSet.add(dateKey) else remoteSet.remove(dateKey)
+            if (clinicRepository != null && effectiveClinicId.isNotBlank()) {
+                val clinicObj = clinicRepository.getClinicById(effectiveClinicId)
+                if (clinicObj != null) {
+                    currentClinic = clinicObj
+                    val nowMs = System.currentTimeMillis()
+                    val remoteSet = clinicObj.declaredHolidays.map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
+                    pendingHolidayToggles.forEach { (dateKey, pair) ->
+                        val (lockedHolidayState, ts) = pair
+                        if (nowMs - ts < 12_000L) {
+                            if (lockedHolidayState) remoteSet.add(dateKey) else remoteSet.remove(dateKey)
+                        }
                     }
+                    declaredHolidays = remoteSet
                 }
-                declaredHolidays = remoteSet
             }
-        }
-        if (appointmentRepository != null) {
-            val appts = if (userRole == "doctor" && doctorId.isNotBlank()) {
-                appointmentRepository.getAppointmentsByDoctor(doctorId)
-            } else if (effectiveClinicId.isNotBlank()) {
-                appointmentRepository.getAppointmentsByClinic(effectiveClinicId)
-            } else emptyList()
-            appointments = appts.filter {
-                it.status.equals("APPROVED", ignoreCase = true) &&
-                it.status != "WAITING_FOR_APPROVAL" &&
-                it.status != "pending_payment" &&
-                it.status != "UNAPPROVED" &&
-                it.status != "EXPIRED" &&
-                it.checkinStatus != "cancelled"
-            }
-
-            if (billingRepository != null && appts.isNotEmpty()) {
-                val apptIds = appts.map { it.id }
-                remarksMap = billingRepository.getRemarksForAppointments(apptIds)
-            }
-        }
-        if (doctorRepository != null) {
-            val remoteDocs = if (effectiveClinicId.isNotBlank()) {
-                doctorRepository.getDoctorsByClinic(effectiveClinicId)
-            } else emptyList()
-
-            val allDocs = if (userRole == "doctor" && doctorId.isNotBlank()) {
-                val selfDoc = doctorRepository.getDoctorById(doctorId)
-                if (selfDoc != null && remoteDocs.none { it.id == selfDoc.id }) {
-                    listOf(selfDoc) + remoteDocs
-                } else if (remoteDocs.isNotEmpty()) {
-                    remoteDocs
-                } else if (selfDoc != null) {
-                    listOf(selfDoc)
-                } else {
-                    emptyList()
+            if (appointmentRepository != null) {
+                val appts = if (userRole == "doctor" && doctorId.isNotBlank()) {
+                    appointmentRepository.getAppointmentsByDoctor(doctorId)
+                } else if (effectiveClinicId.isNotBlank()) {
+                    appointmentRepository.getAppointmentsByClinic(effectiveClinicId)
+                } else emptyList()
+                appointments = appts.filter {
+                    it.status.equals("APPROVED", ignoreCase = true) &&
+                    it.status != "WAITING_FOR_APPROVAL" &&
+                    it.status != "pending_payment" &&
+                    it.status != "UNAPPROVED" &&
+                    it.status != "EXPIRED" &&
+                    it.checkinStatus != "cancelled"
                 }
-            } else remoteDocs
 
-            doctors = allDocs
-            if (userRole == "doctor" && doctorId.isNotBlank()) {
-                selectedDoctor = allDocs.find { it.id == doctorId } ?: allDocs.firstOrNull()
-            } else if (selectedDoctor == null || !allDocs.contains(selectedDoctor)) {
-                selectedDoctor = allDocs.firstOrNull()
+                if (billingRepository != null && appts.isNotEmpty()) {
+                    val apptIds = appts.map { it.id }
+                    remarksMap = billingRepository.getRemarksForAppointments(apptIds)
+                }
             }
+            if (doctorRepository != null) {
+                val remoteDocs = if (effectiveClinicId.isNotBlank()) {
+                    doctorRepository.getDoctorsByClinic(effectiveClinicId)
+                } else emptyList()
+
+                val allDocs = if (userRole == "doctor" && doctorId.isNotBlank()) {
+                    val selfDoc = doctorRepository.getDoctorById(doctorId)
+                    if (selfDoc != null && remoteDocs.none { it.id == selfDoc.id }) {
+                        listOf(selfDoc) + remoteDocs
+                    } else if (remoteDocs.isNotEmpty()) {
+                        remoteDocs
+                    } else if (selfDoc != null) {
+                        listOf(selfDoc)
+                    } else {
+                        emptyList()
+                    }
+                } else remoteDocs
+
+                doctors = allDocs
+                if (userRole == "doctor" && doctorId.isNotBlank()) {
+                    selectedDoctor = allDocs.find { it.id == doctorId } ?: allDocs.firstOrNull()
+                } else if (selectedDoctor == null || !allDocs.contains(selectedDoctor)) {
+                    selectedDoctor = allDocs.firstOrNull()
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FutureAppointmentsScreen", "Error in loadAppointments", e)
         }
     }
 
     LaunchedEffect(effectiveClinicId, doctorId, userRole) {
-        loadAppointments()
-        loadSlots()
+        try {
+            loadAppointments()
+        } catch (e: Exception) {
+            android.util.Log.e("FutureAppointmentsScreen", "Effect loadAppointments error", e)
+        }
+        try {
+            loadSlots()
+        } catch (e: Exception) {
+            android.util.Log.e("FutureAppointmentsScreen", "Effect loadSlots error", e)
+        }
     }
 
     LaunchedEffect(selectedDate, effectiveClinicId) {
@@ -647,7 +662,7 @@ fun FutureAppointmentsScreen(
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Text(
-                                        "Published OPD Slots for $selectedDate",
+                                        if (isLabClinic) "Published Lab Collection Slots for $selectedDate" else "Published OPD Slots for $selectedDate",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 13.sp,
                                         color = if (slots.isNotEmpty()) Color(0xFF166534) else Color(0xFF0F172A)
@@ -669,14 +684,14 @@ fun FutureAppointmentsScreen(
 
                             if (slots.isEmpty()) {
                                 Text(
-                                    text = "No OPD slots configured for this date. Tap '+ Add slot' below to add patient booking slots.",
+                                    text = if (isLabClinic) "No lab collection slots configured for this date. Tap '+ Add slot' below to add collection windows." else "No OPD slots configured for this date. Tap '+ Add slot' below to add patient booking slots.",
                                     fontSize = 11.5.sp,
                                     color = Color(0xFF64748B)
                                 )
                             } else {
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     slots.forEach { slot ->
-                                        val slotDoc = doctors.find { it.id == slot.doctorId }
+                                        val slotDoc = if (isLabClinic) null else doctors.find { it.id == slot.doctorId }
                                         Surface(
                                             shape = RoundedCornerShape(10.dp),
                                             color = Color.White,
@@ -1041,16 +1056,59 @@ fun FutureAppointmentsScreen(
 
             AlertDialog(
                 onDismissRequest = { showAddSlotDialog = false },
-                title = { Text("Add Slot for $selectedDate", fontWeight = FontWeight.Bold) },
+                title = { Text(if (isLabClinic) "Add Sample Collection Slot for $selectedDate" else "Add Slot for $selectedDate", fontWeight = FontWeight.Bold) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Doctor Assignment", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        if (userRole == "doctor" && doctors.isNotEmpty()) {
-                            val myDoc = selectedDoctor ?: doctors.find { it.id == doctorId } ?: doctors.first()
+                        if (!isLabClinic) {
+                            Text("Doctor Assignment", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            if (userRole == "doctor" && doctors.isNotEmpty()) {
+                                val myDoc = selectedDoctor ?: doctors.find { it.id == doctorId } ?: doctors.first()
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFE0F2FE),
+                                    border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(18.dp))
+                                        Text(
+                                            "Assigning to: Dr. ${myDoc.fullName} (${myDoc.specialty ?: "OPD"})",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color(0xFF0369A1)
+                                        )
+                                    }
+                                }
+                            } else if (doctors.isNotEmpty()) {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    doctors.forEach { doc ->
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { selectedDoctor = doc }
+                                        ) {
+                                            RadioButton(selected = selectedDoctor?.id == doc.id, onClick = { selectedDoctor = doc })
+                                            Text("${doc.fullName} (${doc.specialty ?: "General"})", fontSize = 13.sp)
+                                        }
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    "No doctors found in clinic. Please register a doctor first.",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFFDC2626)
+                                )
+                            }
+                        } else {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFFE0F2FE),
-                                border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                                color = Color(0xFFF0FDF4),
+                                border = BorderStroke(1.dp, Color(0xFFBBF7D0)),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(
@@ -1058,35 +1116,15 @@ fun FutureAppointmentsScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.Science, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(18.dp))
                                     Text(
-                                        "Assigning to: Dr. ${myDoc.fullName} (${myDoc.specialty ?: "OPD"})",
+                                        "Diagnostic Lab Phlebotomy Counter (Facility-Wide)",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = Color(0xFF0369A1)
+                                        color = Color(0xFF166534)
                                     )
                                 }
                             }
-                        } else if (doctors.isNotEmpty()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                doctors.forEach { doc ->
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable { selectedDoctor = doc }
-                                    ) {
-                                        RadioButton(selected = selectedDoctor?.id == doc.id, onClick = { selectedDoctor = doc })
-                                        Text("${doc.fullName} (${doc.specialty ?: "General"})", fontSize = 13.sp)
-                                    }
-                                }
-                            }
-                        } else {
-                            Text(
-                                "No doctors found in clinic. Please register a doctor first.",
-                                fontSize = 12.sp,
-                                color = Color(0xFFDC2626)
-                            )
                         }
 
                         Text("Slot Schedule Time Window:", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -1171,9 +1209,9 @@ fun FutureAppointmentsScreen(
                     Button(
                         onClick = {
                             if (hasTimeError) return@Button
-                            val capVal = (slotCapacity.toIntOrNull() ?: 5).coerceAtLeast(1)
-                            val doc = selectedDoctor ?: doctors.firstOrNull()
-                            if (doc == null) {
+                            val capVal = (slotCapacity.toIntOrNull() ?: if (isLabClinic) 25 else 5).coerceAtLeast(1)
+                            val doc = if (isLabClinic) null else (selectedDoctor ?: doctors.firstOrNull())
+                            if (!isLabClinic && doc == null) {
                                 actionMessage = "Please select or register a doctor first."
                                 return@Button
                             }
@@ -1188,7 +1226,7 @@ fun FutureAppointmentsScreen(
                             val newSlot = Slot(
                                 id = UUID.randomUUID().toString(),
                                 clinicId = effectiveClinicId,
-                                doctorId = doc.id,
+                                doctorId = doc?.id,
                                 slotDate = selectedDate,
                                 startTime = slotStartTime.trim(),
                                 endTime = slotEndTime.trim(),
@@ -1198,19 +1236,20 @@ fun FutureAppointmentsScreen(
                             )
                             coroutineScope.launch {
                                 val created = slotRepository?.createSlot(newSlot)
+                                val labelText = if (isLabClinic) "Sample Collection Slot" else (doc?.fullName ?: "OPD")
                                 if (created != null) {
-                                    actionMessage = "✓ Slot published for $selectedDate (${doc.fullName}: ${format12h(newSlot.startTime)} - ${format12h(newSlot.endTime)})!"
+                                    actionMessage = "✓ Slot published for $selectedDate ($labelText: ${format12h(newSlot.startTime)} - ${format12h(newSlot.endTime)})!"
                                     slots = (slots + created).sortedBy { it.startTime }
                                     allClinicSlots = allClinicSlots + created
                                 } else {
-                                    actionMessage = "✓ Slot published for $selectedDate (${doc.fullName})!"
+                                    actionMessage = "✓ Slot published for $selectedDate ($labelText)!"
                                     loadSlots()
                                 }
                                 showAddSlotDialog = false
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0097A7)),
-                        enabled = !hasTimeError && (selectedDoctor != null || doctors.isNotEmpty())
+                        enabled = !hasTimeError && (isLabClinic || selectedDoctor != null || doctors.isNotEmpty())
                     ) {
                         Text("Add slot", color = Color.White, fontWeight = FontWeight.Bold)
                     }

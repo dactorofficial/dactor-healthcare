@@ -160,6 +160,7 @@ export interface Appointment {
   clinicId: string
   doctorId?: string | null
   slotId?: string | null
+  queueEntryId?: string | null
   patientName: string
   patientAge?: number | null
   patientGender?: string | null
@@ -379,6 +380,9 @@ export interface QueueEntry {
   calledAt?: string
   insideAt?: string
   completedAt?: string
+  consultationDurationSeconds?: number | null
+  updatedByActorType?: 'doctor' | 'receptionist' | null
+  updatedByActorId?: string | null
 }
 
 export interface PatientProfile {
