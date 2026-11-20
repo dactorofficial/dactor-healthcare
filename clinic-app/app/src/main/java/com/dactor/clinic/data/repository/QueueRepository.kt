@@ -108,6 +108,12 @@ open class QueueRepository @Inject constructor(
         }
     }
 
+    suspend fun isDiagnosticLab(clinicId: String): Boolean {
+        if (clinicId.isBlank()) return false
+        val c = try { clinicRepository.getCachedClinicById(clinicId) ?: clinicRepository.getClinicById(clinicId) } catch (_: Exception) { null }
+        return c?.isDiagnosticLab() == true
+    }
+
     suspend fun getLocalOrCachedQueueForClinic(clinicId: String): List<QueueEntry> = withContext(Dispatchers.IO) {
         if (clinicId.isBlank()) return@withContext emptyList()
         clinicQueueCache[clinicId]?.second?.let { if (it.isNotEmpty()) return@withContext it }
@@ -150,6 +156,10 @@ open class QueueRepository @Inject constructor(
     }
 
     open suspend fun syncQueueDeltaForDoctor(doctorId: String, clinicId: String? = null): List<QueueEntry> = withContext(Dispatchers.IO) {
+        if (!clinicId.isNullOrBlank() && isDiagnosticLab(clinicId)) {
+            // Diagnostic Lab: Single common live queue across this clinic facility!
+            return@withContext syncQueueDeltaForClinic(clinicId)
+        }
         if (doctorId.isBlank()) return@withContext emptyList()
         val cacheKey = "${doctorId}_${clinicId ?: "all"}"
         try {
@@ -228,7 +238,8 @@ open class QueueRepository @Inject constructor(
     ): QueueEntry? = withContext(Dispatchers.IO) {
         if (clinicId.isBlank() || appointmentId.isBlank()) return@withContext null
         try {
-            val cleanDocId = doctorId?.takeIf { com.dactor.clinic.domain.util.PatientIdentitySync.isValidUuid(it) }
+            val isLab = isDiagnosticLab(clinicId)
+            val cleanDocId = if (isLab) null else doctorId?.takeIf { com.dactor.clinic.domain.util.PatientIdentitySync.isValidUuid(it) }
             val newEntryDto = QueueEntryInsertDto(
                 id = java.util.UUID.randomUUID().toString(),
                 appointmentId = appointmentId,
@@ -261,6 +272,8 @@ open class QueueRepository @Inject constructor(
         }
     }
 
+    private val lastAuditRunMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     suspend fun getQueueForClinic(clinicId: String, forceRefresh: Boolean = false): List<QueueEntry> = withContext(Dispatchers.IO) {
         if (clinicId.isBlank()) return@withContext emptyList()
         if (!forceRefresh) {
@@ -270,11 +283,16 @@ open class QueueRepository @Inject constructor(
             }
         }
         try {
-            // Run background audit asynchronously so it never delays live queue response
-            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    autoTransferUncompletedQueueToNoShow(clinicId = clinicId, includeTodayExpired = false)
-                } catch (_: Exception) {}
+            // Run background audit asynchronously (debounced to avoid reindex contention)
+            val lastAudit = lastAuditRunMs[clinicId] ?: 0L
+            val nowMs = System.currentTimeMillis()
+            if (nowMs - lastAudit > 60_000L) {
+                lastAuditRunMs[clinicId] = nowMs
+                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        autoTransferUncompletedQueueToNoShow(clinicId = clinicId, includeTodayExpired = false)
+                    } catch (_: Exception) {}
+                }
             }
 
             var currentEntries = supabaseClient.postgrest["queue_entries"]
@@ -349,7 +367,18 @@ open class QueueRepository @Inject constructor(
                 var nextPos = (currentEntries.map { it.queuePosition }.maxOrNull() ?: 0) + 1
                 var addedAny = false
 
-                for (appt in todayAppts) {
+                // Strictly sort today's approved appointments by slot time, then booking turn (createdAt)
+                val sortedTodayAppts = todayAppts.sortedWith(
+                    compareBy<com.dactor.clinic.data.model.Appointment> {
+                        AppointmentRepository.parseTimeToMinutes(it.appointmentTime)
+                    }.thenBy {
+                        it.createdAt.orEmpty()
+                    }.thenBy {
+                        it.id
+                    }
+                )
+
+                for (appt in sortedTodayAppts) {
                     if (!enrolledIds.contains(appt.id)) {
                         val cleanDocId = appt.doctorId?.takeIf { com.dactor.clinic.domain.util.PatientIdentitySync.isValidUuid(it) }
                         val newEntryDto = QueueEntryInsertDto(
@@ -382,7 +411,11 @@ open class QueueRepository @Inject constructor(
                     }
                 }
 
-                if (addedAny) {
+                // Check for any duplicate or unaligned queue positions among active entries
+                val activeEntries = currentEntries.filter { it.status == "waiting" || it.status == "inside" }
+                val hasDuplicatePositions = activeEntries.groupBy { it.queuePosition }.any { it.value.size > 1 }
+
+                if (addedAny || hasDuplicatePositions) {
                     reindexActiveQueue(clinicId, null, sortBySlotTime = true)
                     currentEntries = supabaseClient.postgrest["queue_entries"]
                         .select {
@@ -393,7 +426,9 @@ open class QueueRepository @Inject constructor(
                 }
             } catch (ignored: Exception) {}
 
-            val sorted = currentEntries.sortedBy { it.queuePosition }
+            val sorted = currentEntries.sortedWith(
+                compareBy<QueueEntry> { it.queuePosition }.thenBy { it.id }
+            )
             clinicQueueCache[clinicId] = Pair(System.currentTimeMillis(), sorted)
             try {
                 queueDao?.upsertAll(
@@ -416,6 +451,20 @@ open class QueueRepository @Inject constructor(
         clinicId: String? = null,
         forceRefresh: Boolean = false
     ): List<QueueEntry> = withContext(Dispatchers.IO) {
+        val effectiveClinicId = clinicId?.takeIf { it.isNotBlank() } ?: run {
+            val doc = try {
+                supabaseClient.postgrest["doctors"]
+                    .select { filter { eq("id", doctorId) } }
+                    .decodeSingleOrNull<com.dactor.clinic.data.model.Doctor>()
+            } catch (e: Exception) { null }
+            doc?.clinicId
+        }
+
+        if (!effectiveClinicId.isNullOrBlank() && isDiagnosticLab(effectiveClinicId)) {
+            // Diagnostic Lab: Single common live queue across this clinic facility!
+            return@withContext getQueueForClinic(effectiveClinicId, forceRefresh = forceRefresh)
+        }
+
         if (doctorId.isBlank()) return@withContext emptyList()
         val cacheKey = "${doctorId}_${clinicId ?: "all"}"
         if (!forceRefresh) {
@@ -1301,7 +1350,7 @@ open class QueueRepository @Inject constructor(
     suspend fun reindexActiveQueue(
         clinicId: String,
         doctorId: String? = null,
-        sortBySlotTime: Boolean = false
+        sortBySlotTime: Boolean = true
     ): Boolean = withContext(Dispatchers.IO) {
         try {
             val activeEntries = supabaseClient.postgrest["queue_entries"]
@@ -1320,15 +1369,13 @@ open class QueueRepository @Inject constructor(
 
             if (activeEntries.isEmpty()) return@withContext true
 
-            val apptMap = if (sortBySlotTime) {
+            val apptIds = activeEntries.map { it.appointmentId }.filter { it.isNotBlank() }
+            val apptMap = if (sortBySlotTime && apptIds.isNotEmpty()) {
                 try {
                     supabaseClient.postgrest["appointments"]
                         .select {
                             filter {
-                                eq("clinic_id", clinicId)
-                                if (!doctorId.isNullOrBlank()) {
-                                    eq("doctor_id", doctorId)
-                                }
+                                isIn("id", apptIds)
                             }
                         }.decodeList<com.dactor.clinic.data.model.Appointment>()
                         .associateBy { it.id }
@@ -1339,49 +1386,73 @@ open class QueueRepository @Inject constructor(
                 emptyMap()
             }
 
-            // Group by doctorId to partition queues per cabin/doctor
-            val groupedEntries = if (!doctorId.isNullOrBlank()) {
-                mapOf(doctorId to activeEntries)
+            // If doctorId is specified, reindex that doctor cabin's queue.
+            // If doctorId is null/blank, reindex clinic-wide sequentially without duplicate positions!
+            val entryGroups: List<List<QueueEntry>> = if (!doctorId.isNullOrBlank()) {
+                listOf(activeEntries.filter { it.doctorId == doctorId })
             } else {
-                activeEntries.groupBy { it.doctorId ?: "" }
+                listOf(activeEntries)
             }
 
-            for ((_, group) in groupedEntries) {
-                // Patients currently inside consultation room maintain #1.
-                // Waiting entries keep existing queuePosition priority unless chronological slot sort is explicitly requested.
+            val nowMin = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
+
+            for (group in entryGroups) {
+                // 1. Patients currently inside consultation room maintain #1
+                // 2. Pay at Desk appointment with slot passed -> placed at top of waiting queue
+                // 3. Strictly arranged by time slot start minutes
+                // 4. Same slot: booking turn (createdAt)
+                // 5. Deterministic tie-breaker
                 val sortedEntries = if (sortBySlotTime) {
                     group.sortedWith(
                         compareBy<QueueEntry> { if (it.status == "inside") 0 else 1 }
                             .thenBy { entry ->
                                 val appt = apptMap[entry.appointmentId]
+                                val isPayAtDesk = appt?.paymentMode == "PAY_AT_DESK"
+                                val slotEndMin = AppointmentRepository.parseAppointmentEndTimeToMinutes(appt?.appointmentTime)
+                                if (isPayAtDesk && slotEndMin < nowMin) 0 else 1
+                            }
+                            .thenBy { entry ->
+                                val appt = apptMap[entry.appointmentId]
                                 AppointmentRepository.parseTimeToMinutes(appt?.appointmentTime)
-                            }.thenBy { it.queuePosition }
+                            }
+                            .thenBy { entry ->
+                                val appt = apptMap[entry.appointmentId]
+                                appt?.createdAt.orEmpty()
+                            }
+                            .thenBy { entry ->
+                                val appt = apptMap[entry.appointmentId]
+                                appt?.id ?: entry.id
+                            }
                     )
                 } else {
                     group.sortedWith(
                         compareBy<QueueEntry> { if (it.status == "inside") 0 else 1 }
                             .thenBy { it.queuePosition }
+                            .thenBy { it.id }
                     )
                 }
 
-                // Two-pass update with negative offsets to prevent unique key violation
-                for (entry in sortedEntries) {
-                    try {
-                        supabaseClient.postgrest["queue_entries"]
-                            .update({ set("queue_position", - (entry.queuePosition + 10000)) }) {
-                                filter { eq("id", entry.id) }
-                            }
-                    } catch (ignored: Exception) {}
-                }
+                // Two-pass update only when necessary to avoid negative offset thrashing
+                val needsUpdate = sortedEntries.mapIndexed { idx, e -> (idx + 1) != e.queuePosition }.any { it }
+                if (needsUpdate) {
+                    for (entry in sortedEntries) {
+                        try {
+                            supabaseClient.postgrest["queue_entries"]
+                                .update({ set("queue_position", - (entry.queuePosition + 10000)) }) {
+                                    filter { eq("id", entry.id) }
+                                }
+                        } catch (ignored: Exception) {}
+                    }
 
-                sortedEntries.forEachIndexed { index, entry ->
-                    val newPosition = index + 1
-                    try {
-                        supabaseClient.postgrest["queue_entries"]
-                            .update({ set("queue_position", newPosition) }) {
-                                filter { eq("id", entry.id) }
-                            }
-                    } catch (ignored: Exception) {}
+                    sortedEntries.forEachIndexed { index, entry ->
+                        val newPosition = index + 1
+                        try {
+                            supabaseClient.postgrest["queue_entries"]
+                                .update({ set("queue_position", newPosition) }) {
+                                    filter { eq("id", entry.id) }
+                                }
+                        } catch (ignored: Exception) {}
+                    }
                 }
             }
             true

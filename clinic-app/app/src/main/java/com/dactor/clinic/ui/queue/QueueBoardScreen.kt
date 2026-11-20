@@ -89,7 +89,8 @@ data class QueueItemUi(
     val paymentStatus: String? = null,
     val totalAmount: Double = 0.0,
     val userId: String? = null,
-    val isWalkin: Boolean = false
+    val isWalkin: Boolean = false,
+    val createdAt: String? = null
 )
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -180,9 +181,30 @@ fun QueueBoardScreen(
                     paymentStatus = appt?.paymentStatus,
                     totalAmount = rawTotal,
                     userId = appt?.userId,
-                    isWalkin = appt?.isWalkin ?: false
+                    isWalkin = appt?.isWalkin ?: false,
+                    createdAt = appt?.createdAt
                 )
-            }.sortedWith(compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }.thenBy { it.queuePosition })
+            }.let { rawList ->
+                val nowMin = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
+                rawList.sortedWith(
+                    compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }
+                        .thenBy { item -> item.queuePosition.takeIf { it > 0 } ?: 9999 }
+                        .thenBy { item ->
+                            val isPayAtDesk = item.paymentMode == "PAY_AT_DESK"
+                            val slotEndMin = com.dactor.clinic.data.repository.AppointmentRepository.parseAppointmentEndTimeToMinutes(item.appointmentTime)
+                            if (isPayAtDesk && slotEndMin < nowMin) 0 else 1
+                        }
+                        .thenBy { item ->
+                            com.dactor.clinic.data.repository.AppointmentRepository.parseTimeToMinutes(item.appointmentTime)
+                        }
+                        .thenBy { item ->
+                            item.createdAt.orEmpty()
+                        }
+                        .thenBy { item ->
+                            item.id
+                        }
+                )
+            }
         }
     }
 
@@ -392,9 +414,27 @@ fun QueueBoardScreen(
                 }
             } else current
         }
+        val nowMin = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
         val active = updated
             .filter { it.status == "waiting" || it.status == "inside" }
-            .sortedWith(compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }.thenBy { it.queuePosition })
+            .sortedWith(
+                compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }
+                    .thenBy { item -> item.queuePosition.takeIf { it > 0 } ?: 9999 }
+                    .thenBy { item ->
+                        val isPayAtDesk = item.paymentMode == "PAY_AT_DESK"
+                        val slotEndMin = com.dactor.clinic.data.repository.AppointmentRepository.parseAppointmentEndTimeToMinutes(item.appointmentTime)
+                        if (isPayAtDesk && slotEndMin < nowMin) 0 else 1
+                    }
+                    .thenBy { item ->
+                        com.dactor.clinic.data.repository.AppointmentRepository.parseTimeToMinutes(item.appointmentTime)
+                    }
+                    .thenBy { item ->
+                        item.createdAt.orEmpty()
+                    }
+                    .thenBy { item ->
+                        item.id
+                    }
+            )
             .mapIndexed { idx, itm -> itm.copy(queuePosition = idx + 1) }
         val past = updated.filter { it.status in allFinishedStatuses }
         queueItems = active + past
@@ -535,12 +575,24 @@ fun QueueBoardScreen(
                             ) ?: emptyList()
 
                             if (newAppts.isNotEmpty()) {
+                                val sortedNew = newAppts.sortedWith(
+                                    compareBy<com.dactor.clinic.data.model.Appointment> {
+                                        com.dactor.clinic.data.repository.AppointmentRepository.parseTimeToMinutes(it.appointmentTime)
+                                    }.thenBy {
+                                        it.createdAt.orEmpty()
+                                    }.thenBy {
+                                        it.id
+                                    }
+                                )
                                 var curMax = queueItems.map { it.queuePosition }.maxOrNull() ?: 0
-                                newAppts.forEach { newAppt ->
+                                sortedNew.forEach { newAppt ->
                                     curMax++
                                     runCatching {
                                         queueRepository.autoEnrollNewAppointment(effectiveClinicId, newAppt.doctorId, newAppt.id, curMax)
                                     }
+                                }
+                                runCatching {
+                                    queueRepository.reindexActiveQueue(effectiveClinicId, null, sortBySlotTime = true)
                                 }
                             }
 
@@ -665,12 +717,28 @@ fun QueueBoardScreen(
                             paymentStatus = appt?.paymentStatus,
                             totalAmount = appt?.let { if (it.totalAmount > 0.0) it.totalAmount else it.feeAmount } ?: 0.0,
                             userId = appt?.userId,
-                            isWalkin = appt?.isWalkin ?: false
+                            isWalkin = appt?.isWalkin ?: false,
+                            createdAt = appt?.createdAt
                         )
                     }
                     .sortedWith(
                         compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }
-                            .thenBy { it.queuePosition }
+                            .thenBy { item -> item.queuePosition.takeIf { it > 0 } ?: 9999 }
+                            .thenBy { item ->
+                                val isPayAtDesk = item.paymentMode == "PAY_AT_DESK"
+                                val slotEndMin = com.dactor.clinic.data.repository.AppointmentRepository.parseAppointmentEndTimeToMinutes(item.appointmentTime)
+                                val nowMin = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
+                                if (isPayAtDesk && slotEndMin < nowMin) 0 else 1
+                            }
+                            .thenBy { item ->
+                                com.dactor.clinic.data.repository.AppointmentRepository.parseTimeToMinutes(item.appointmentTime)
+                            }
+                            .thenBy { item ->
+                                item.createdAt.orEmpty()
+                            }
+                            .thenBy { item ->
+                                item.id
+                            }
                     )
 
                 pendingStatusOverrides = resolvedOverridesToKeep
@@ -767,7 +835,22 @@ fun QueueBoardScreen(
         (if (isLabClinic) true else (selectedDoctorFilterId == null || it.doctorId == selectedDoctorFilterId || (it.doctorId.isNullOrBlank() && clinicDoctors.size <= 1)))
     }.sortedWith(
         compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }
-            .thenBy { it.queuePosition }
+            .thenBy { item -> item.queuePosition.takeIf { it > 0 } ?: 9999 }
+            .thenBy { item ->
+                val isPayAtDesk = item.paymentMode == "PAY_AT_DESK"
+                val slotEndMin = com.dactor.clinic.data.repository.AppointmentRepository.parseAppointmentEndTimeToMinutes(item.appointmentTime)
+                val nowMin = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
+                if (isPayAtDesk && slotEndMin < nowMin) 0 else 1
+            }
+            .thenBy { item ->
+                com.dactor.clinic.data.repository.AppointmentRepository.parseTimeToMinutes(item.appointmentTime)
+            }
+            .thenBy { item ->
+                item.createdAt.orEmpty()
+            }
+            .thenBy { item ->
+                item.id
+            }
     )
     val processingQueue = queueItems.filter {
         it.status in processingStatuses &&

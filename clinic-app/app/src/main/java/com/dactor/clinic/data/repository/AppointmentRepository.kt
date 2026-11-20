@@ -122,6 +122,26 @@ open class AppointmentRepository @Inject constructor(
     fun clearCache() {
         clinicAppointmentsCache.clear()
         doctorAppointmentsCache.clear()
+        diagnosticLabClinicCache.clear()
+    }
+
+    private val diagnosticLabClinicCache = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+
+    suspend fun isDiagnosticLabClinic(clinicId: String): Boolean {
+        if (clinicId.isBlank()) return false
+        val cached = diagnosticLabClinicCache[clinicId]
+        if (cached != null) return cached
+        return try {
+            val clinicList = supabaseClient.postgrest["clinics"]
+                .select { filter { eq("id", clinicId) } }
+                .decodeList<com.dactor.clinic.data.model.Clinic>()
+            val c = clinicList.firstOrNull()
+            val isLab = c?.isDiagnosticLab() == true
+            diagnosticLabClinicCache[clinicId] = isLab
+            isLab
+        } catch (_: Exception) {
+            false
+        }
     }
 
     fun invalidateClinicAppointments(clinicId: String) {
@@ -194,13 +214,14 @@ open class AppointmentRepository @Inject constructor(
     ): List<Appointment> = withContext(Dispatchers.IO) {
         if (clinicId.isBlank() || date.isBlank()) return@withContext emptyList()
         try {
+            val isLab = isDiagnosticLabClinic(clinicId)
             val appts = supabaseClient.postgrest["appointments"]
                 .select {
                     filter {
                         eq("clinic_id", clinicId)
                         eq("appointment_date", date)
                         eq("status", "APPROVED")
-                        if (!doctorId.isNullOrBlank()) {
+                        if (!isLab && !doctorId.isNullOrBlank()) {
                             eq("doctor_id", doctorId)
                         }
                         if (!sinceIso.isNullOrBlank()) {
@@ -1357,10 +1378,11 @@ open class AppointmentRepository @Inject constructor(
                 }.decodeList<QueueEntry>()
             if (activeEntries.isEmpty()) return
 
-            val apptMap = if (sortBySlotTime) {
+            val apptIds = activeEntries.map { it.appointmentId }.filter { it.isNotBlank() }
+            val apptMap = if (sortBySlotTime && apptIds.isNotEmpty()) {
                 try {
                     supabaseClient.postgrest["appointments"]
-                        .select { filter { eq("clinic_id", clinicId) } }
+                        .select { filter { isIn("id", apptIds) } }
                         .decodeList<Appointment>()
                         .associateBy { it.id }
                 } catch (e: Exception) {
@@ -1368,43 +1390,64 @@ open class AppointmentRepository @Inject constructor(
                 }
             } else emptyMap()
 
+            val nowMin = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
+
             // Sort order:
             // 1. Patient inside consultation cabin maintains #1
-            // 2. If sortBySlotTime: earlier time slots precede later time slots, preserving queuePosition ties
-            // 3. Otherwise: preserve exact priority/slot queuePosition order
+            // 2. Pay at Desk appointment with passed slot time -> top of waiting queue
+            // 3. Earlier time slots strictly precede later time slots
+            // 4. Same slot: turn at what they booked appointment (createdAt)
+            // 5. Deterministic ID tie-breaker
             val sortedEntries = if (sortBySlotTime) {
                 activeEntries.sortedWith(
                     compareBy<QueueEntry> { if (it.status == "inside") 0 else 1 }
                         .thenBy { entry ->
                             val appt = apptMap[entry.appointmentId]
+                            val isPayAtDesk = appt?.paymentMode == "PAY_AT_DESK"
+                            val slotEndMin = parseAppointmentEndTimeToMinutes(appt?.appointmentTime)
+                            if (isPayAtDesk && slotEndMin < nowMin) 0 else 1
+                        }
+                        .thenBy { entry ->
+                            val appt = apptMap[entry.appointmentId]
                             parseTimeToMinutes(appt?.appointmentTime)
-                        }.thenBy { it.queuePosition }
+                        }
+                        .thenBy { entry ->
+                            val appt = apptMap[entry.appointmentId]
+                            appt?.createdAt.orEmpty()
+                        }
+                        .thenBy { entry ->
+                            val appt = apptMap[entry.appointmentId]
+                            appt?.id ?: entry.id
+                        }
                 )
             } else {
                 activeEntries.sortedWith(
                     compareBy<QueueEntry> { if (it.status == "inside") 0 else 1 }
                         .thenBy { it.queuePosition }
+                        .thenBy { it.id }
                 )
             }
 
-            // Safe two-pass update to eliminate duplicate key collision
-            for (entry in sortedEntries) {
-                try {
-                    supabaseClient.postgrest["queue_entries"]
-                        .update({ set("queue_position", - (entry.queuePosition + 10000)) }) {
-                            filter { eq("id", entry.id) }
-                        }
-                } catch (ignored: Exception) {}
-            }
+            val needsUpdate = sortedEntries.mapIndexed { idx, e -> (idx + 1) != e.queuePosition }.any { it }
+            if (needsUpdate) {
+                for (entry in sortedEntries) {
+                    try {
+                        supabaseClient.postgrest["queue_entries"]
+                            .update({ set("queue_position", - (entry.queuePosition + 10000)) }) {
+                                filter { eq("id", entry.id) }
+                            }
+                    } catch (ignored: Exception) {}
+                }
 
-            sortedEntries.forEachIndexed { index, entry ->
-                val newPos = index + 1
-                try {
-                    supabaseClient.postgrest["queue_entries"]
-                        .update({ set("queue_position", newPos) }) {
-                            filter { eq("id", entry.id) }
-                        }
-                } catch (ignored: Exception) {}
+                sortedEntries.forEachIndexed { index, entry ->
+                    val newPos = index + 1
+                    try {
+                        supabaseClient.postgrest["queue_entries"]
+                            .update({ set("queue_position", newPos) }) {
+                                filter { eq("id", entry.id) }
+                            }
+                    } catch (ignored: Exception) {}
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -1732,7 +1775,8 @@ open class AppointmentRepository @Inject constructor(
                         // Rule 2: Slot time has passed -> Put at TOP of waiting queue (after any inside entry)
                         assignedQueuePos = insideCount + 1
                     } else {
-                        // Rule 3: Slot time has NOT passed -> Put at END of the same exact slot
+                        // Rule 3: Slot time has NOT passed -> Position by time slot, then by booking turn (createdAt)
+                        val targetCreated = appt?.createdAt.orEmpty()
                         var lastMatchIdx = 0
                         partitionEntries.forEachIndexed { idx, entry ->
                             val itemIdx = idx + 1
@@ -1742,8 +1786,13 @@ open class AppointmentRepository @Inject constructor(
                                 val entryAppt = todayApptMap[entry.appointmentId]
                                 val sameSlot = linkedSlot != null && entryAppt?.slotId == linkedSlot.id
                                 val entryStartMin = parseTimeToMinutes(entryAppt?.appointmentTime)
-                                if (sameSlot || entryStartMin <= targetStartMin) {
+                                if (entryStartMin < targetStartMin) {
                                     lastMatchIdx = itemIdx
+                                } else if (sameSlot || entryStartMin == targetStartMin) {
+                                    val entryCreated = entryAppt?.createdAt.orEmpty()
+                                    if (targetCreated.isBlank() || entryCreated.isBlank() || entryCreated <= targetCreated) {
+                                        lastMatchIdx = itemIdx
+                                    }
                                 }
                             }
                         }

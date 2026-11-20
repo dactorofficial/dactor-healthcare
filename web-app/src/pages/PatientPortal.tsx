@@ -1807,24 +1807,70 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         ? `${selectedSlot.startTime} - ${selectedSlot.endTime}`
         : '10:00 AM'
 
+      let finalAppt: Appointment
+      let code10: string
+
+      // 1. Reschedule handling: Strictly shift existing appointment in-place
+      // NEVER create a new appointment or overwrite the existing bill as 0!
+      if (isRescheduleMode) {
+        if (!retainedAppointment) {
+          throw new Error('Existing appointment could not be retrieved. Please verify your tracking code before rescheduling.')
+        }
+        code10 = retainedAppointment.trackingCode10Digit
+        const targetDoctorId = isLabClinic ? null : (selectedDoctor?.id || retainedAppointment.doctorId)
+        const shiftReason = `Rescheduled by patient via Patient Portal (Ref: #${retainedAppointment.trackingCode10Digit})`
+        const ok = await shiftAppointmentDate(
+          retainedAppointment.id,
+          bookingDate,
+          slotTimeStr,
+          shiftReason,
+          selectedSlot?.id,
+          targetDoctorId,
+          retainedAppointment.trackingCode10Digit
+        )
+        if (!ok) {
+          throw new Error('Could not reschedule appointment for this slot. Please try another slot.')
+        }
+        const preservedStatus =
+          retainedAppointment.status?.toUpperCase() === 'WAITING_FOR_APPROVAL'
+            ? 'WAITING_FOR_APPROVAL'
+            : 'APPROVED'
+        finalAppt = {
+          ...retainedAppointment,
+          appointmentDate: bookingDate,
+          appointmentTime: slotTimeStr,
+          slotId: selectedSlot?.id,
+          doctorId: targetDoctorId || undefined,
+          doctor: selectedDoctor || retainedAppointment.doctor,
+          status: preservedStatus,
+          checkinStatus: 'not_checked_in',
+        }
+
+        // Reschedule is strictly an administrative date/time shift:
+        // Do NOT invoke recordPaymentTransaction with amount 0 (which would overwrite the bill)
+        saveTrackingCodeLocally(code10)
+        localStorage.removeItem('dactor_patient_payment_session')
+        setConfirmedBooking(finalAppt)
+        setBookingStep(5)
+        triggerConfettiBurst()
+        loadAppointments()
+        loadTransactions()
+        return
+      }
+
       const isFreeFollowup = Boolean(
-        retainedAppointment && (isRescheduleMode || (isReturningPatient && calculatedFee === 0))
+        retainedAppointment && isReturningPatient && calculatedFee === 0
       )
       const targetPatientName = isFreeFollowup && retainedAppointment ? retainedAppointment.patientName : bookPatientName.trim()
       const targetPatientAge = isFreeFollowup && retainedAppointment ? (retainedAppointment.patientAge || parseInt(bookPatientAge) || 28) : (parseInt(bookPatientAge) || 28)
       const targetPatientGender = isFreeFollowup && retainedAppointment ? (retainedAppointment.patientGender || bookPatientGender) : bookPatientGender
       const targetPatientMobile = isFreeFollowup && retainedAppointment ? (retainedAppointment.patientMobile || bookPatientPhone.trim()) : bookPatientPhone.trim()
 
-      let finalAppt: Appointment
-      let code10: string
-
-      // 1. Reschedule / Follow-Up: Update/Shift existing appointment in-place without generating a new ID or token
+      // 2. Follow-Up: Update/Shift existing appointment in-place for free follow-up
       if (isFreeFollowup && retainedAppointment) {
         code10 = retainedAppointment.trackingCode10Digit
         const targetDoctorId = selectedDoctor?.id || retainedAppointment.doctorId
-        const shiftReason = isRescheduleMode
-          ? `Rescheduled by patient via Patient Portal (Ref: #${retainedAppointment.trackingCode10Digit})`
-          : `Follow-Up Consultation (Ref: ${retainedAppointment.trackingCode10Digit})`
+        const shiftReason = `Follow-Up Consultation (Ref: ${retainedAppointment.trackingCode10Digit})`
         const ok = await shiftAppointmentDate(
           retainedAppointment.id,
           bookingDate,

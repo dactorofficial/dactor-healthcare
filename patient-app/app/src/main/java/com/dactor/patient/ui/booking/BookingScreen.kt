@@ -460,57 +460,34 @@ fun BookingScreen(
                                             navController.popBackStack()
                                             return@launch
                                         }
-                                        val isCompleted = existingAppt?.checkinStatus?.lowercase() in listOf("done", "completed")
-
-                                        if (isCompleted && !isLabClinic) {
-                                            // Completed consultation -> Protect medical record, book fresh follow-up
-                                            val created = appointmentRepository?.bookFollowUpAppointment(
-                                                trackingCode = pendingReschedule.trackingCode,
-                                                slotId = selectedSlot.id,
-                                                clinicId = pendingReschedule.clinicId,
-                                                doctorId = targetDoctorId,
-                                                appointmentDate = selectedDate,
-                                                appointmentTime = selectedSlot.startTime
-                                            )
-                                            if (created != null) {
-                                                sessionManager?.clearPendingReschedule()
-                                                Toast.makeText(context, "Follow-Up booked for $selectedDate at ${selectedSlot.startTime}!", Toast.LENGTH_LONG).show()
-                                                navController.navigate(NavRoutes.QueueStatus.createRoute(created.trackingCode10Digit)) {
-                                                    popUpTo(NavRoutes.PatientMain.route) { inclusive = false }
-                                                }
+                                        // Reschedule existing appointment strictly in-place (never create new appointment or overwrite bill)
+                                        val ok = appointmentRepository?.rescheduleAppointment(
+                                            id = pendingReschedule.appointmentId,
+                                            newDate = selectedDate,
+                                            newTime = selectedSlot.startTime,
+                                            slotId = selectedSlot.id,
+                                            newDoctorId = if (isLabClinic) null else targetDoctorId
+                                        ) ?: false
+                                        if (ok) {
+                                            val effectiveStatus = existingAppt?.status ?: pendingReschedule.status
+                                            if (selectedDate == today && !effectiveStatus.equals("WAITING_FOR_APPROVAL", ignoreCase = true)) {
+                                                queueRepository?.ensureQueueEntryForAppointment(
+                                                    appointmentId = pendingReschedule.appointmentId,
+                                                    clinicId = pendingReschedule.clinicId,
+                                                    doctorId = targetDoctorId
+                                                )
                                             } else {
-                                                Toast.makeText(context, "Failed to book follow-up. Please try again.", Toast.LENGTH_SHORT).show()
+                                                queueRepository?.removeOrCancelQueueEntry(pendingReschedule.appointmentId)
+                                            }
+                                            sessionManager?.clearCachedQueueStatus(pendingReschedule.appointmentId)
+                                            sessionManager?.clearCachedQueueStatus(pendingReschedule.trackingCode)
+                                            sessionManager?.clearPendingReschedule()
+                                            Toast.makeText(context, "Rescheduled to $selectedDate at ${selectedSlot.startTime} successfully!", Toast.LENGTH_LONG).show()
+                                            navController.navigate(NavRoutes.QueueStatus.createRoute(pendingReschedule.trackingCode)) {
+                                                popUpTo(NavRoutes.PatientMain.route) { inclusive = false }
                                             }
                                         } else {
-                                            // Active / Upcoming / Missed / No-Show visit -> Reschedule in-place
-                                            val ok = appointmentRepository?.rescheduleAppointment(
-                                                id = pendingReschedule.appointmentId,
-                                                newDate = selectedDate,
-                                                newTime = selectedSlot.startTime,
-                                                slotId = selectedSlot.id,
-                                                newDoctorId = if (isLabClinic) null else targetDoctorId
-                                            ) ?: false
-                                            if (ok) {
-                                                val effectiveStatus = existingAppt?.status ?: pendingReschedule.status
-                                                if (selectedDate == today && !effectiveStatus.equals("WAITING_FOR_APPROVAL", ignoreCase = true)) {
-                                                    queueRepository?.ensureQueueEntryForAppointment(
-                                                        appointmentId = pendingReschedule.appointmentId,
-                                                        clinicId = pendingReschedule.clinicId,
-                                                        doctorId = targetDoctorId
-                                                    )
-                                                } else {
-                                                    queueRepository?.removeOrCancelQueueEntry(pendingReschedule.appointmentId)
-                                                }
-                                                sessionManager?.clearCachedQueueStatus(pendingReschedule.appointmentId)
-                                                sessionManager?.clearCachedQueueStatus(pendingReschedule.trackingCode)
-                                                sessionManager?.clearPendingReschedule()
-                                                Toast.makeText(context, "Rescheduled to $selectedDate at ${selectedSlot.startTime} successfully!", Toast.LENGTH_LONG).show()
-                                                navController.navigate(NavRoutes.QueueStatus.createRoute(pendingReschedule.trackingCode)) {
-                                                    popUpTo(NavRoutes.PatientMain.route) { inclusive = false }
-                                                }
-                                            } else {
-                                                Toast.makeText(context, "Failed to reschedule. Please try again.", Toast.LENGTH_SHORT).show()
-                                            }
+                                            Toast.makeText(context, "Failed to reschedule. Please try again.", Toast.LENGTH_SHORT).show()
                                         }
                                     } catch (e: Exception) {
                                         Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()

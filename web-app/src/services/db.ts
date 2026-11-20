@@ -2041,6 +2041,9 @@ export async function shiftAppointmentDate(
       appointment_date: newDate,
       appointment_time: normalizedTime,
       checkin_status: 'not_checked_in',
+      consultation_completed_at: null,
+      cancelled_at: null,
+      cancellation_reason: null,
       updated_at: new Date().toISOString(),
     }
     if (oldAppt?.status !== preservedStatus) {
@@ -5898,7 +5901,7 @@ export async function recordPaymentTransaction(record: {
     const expectedApptTotal =
       isPayAtDesk && baseFee > 0
         ? Math.max(Number(apptRow?.total_amount || 0), Math.round((baseFee + serviceCharge) * 100) / 100)
-        : Number(record.amount || 0)
+        : Math.max(Number(apptRow?.total_amount || 0), Number(apptRow?.fee_amount || 0), Number(record.amount || 0))
 
     const existingItemsRaw: any[] = Array.isArray(existingInv?.items) ? existingInv.items : []
     let existingItems: any[]
@@ -5944,6 +5947,7 @@ export async function recordPaymentTransaction(record: {
         },
       ]
     } else {
+      const itemPrice = Number(record.amount || 0) > 0 ? Number(record.amount) : baseFee
       existingItems = [
         {
           id: crypto.randomUUID(),
@@ -5951,8 +5955,8 @@ export async function recordPaymentTransaction(record: {
           itemName: 'Consultation & Clinical Services',
           name: 'Consultation & Clinical Services',
           quantity: 1,
-          price: record.amount,
-          total: record.amount,
+          price: itemPrice,
+          total: itemPrice,
         },
       ]
     }
@@ -5960,9 +5964,10 @@ export async function recordPaymentTransaction(record: {
     const effectiveTotal = Math.max(
       Number(record.amount || 0),
       expectedApptTotal,
+      baseFee,
       Number(existingInv?.total_amount || 0)
     )
-    const paidAmt = dbPayStatus === 'paid' ? effectiveTotal : 0
+    const paidAmt = dbPayStatus === 'paid' ? effectiveTotal : Math.max(0, Number((existingInv as any)?.paid_amount || 0))
     const invoicePayload = {
       id: existingInv?.id || crypto.randomUUID(),
       appointment_id: record.appointmentId,

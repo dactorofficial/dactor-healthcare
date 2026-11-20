@@ -1,5 +1,6 @@
 package com.dactor.clinic.data.repository
 
+import com.dactor.clinic.data.model.Appointment
 import com.dactor.clinic.data.model.BillingInvoice
 import com.dactor.clinic.data.model.InvoiceItem
 import com.dactor.clinic.data.model.CatalogItem
@@ -367,15 +368,23 @@ class BillingRepository @Inject constructor(
                         filter { eq("id", existing.id) }
                     }
             } else {
+                val apptRow = try {
+                    supabaseClient.postgrest["appointments"]
+                        .select { filter { eq("id", appointmentId) } }
+                        .decodeSingleOrNull<Appointment>()
+                } catch (_: Exception) { null }
+                val initialTotal = apptRow?.effectiveTotalAmount ?: 0.0
+                val initialPaid = if (apptRow?.paymentStatus.equals("paid", ignoreCase = true)) initialTotal else 0.0
+                val initialBalance = (initialTotal - initialPaid).coerceAtLeast(0.0)
                 val newInvoice = BillingInvoice(
                     id = java.util.UUID.randomUUID().toString(),
                     appointmentId = appointmentId,
                     clinicId = clinicId,
                     items = emptyList(),
-                    totalAmount = 0.0,
-                    paidAmount = 0.0,
-                    balanceDue = 0.0,
-                    paymentStatus = "pending",
+                    totalAmount = initialTotal,
+                    paidAmount = initialPaid,
+                    balanceDue = initialBalance,
+                    paymentStatus = apptRow?.paymentStatus ?: "pending",
                     remarks = cleanRemark,
                     createdAt = nowIso,
                     updatedAt = nowIso
