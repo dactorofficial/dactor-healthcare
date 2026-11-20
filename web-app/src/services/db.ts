@@ -45,7 +45,7 @@ import {
 export function isDiagnosticLabClinic(
   clinic?: Clinic | null,
   doctor?: Doctor | null,
-  appt?: Appointment | null
+  appt?: Partial<Appointment> | null
 ): boolean {
   if (doctor?.isLabTechnician || doctor?.practitionerRole === 'lab_technician') {
     return true
@@ -1046,16 +1046,20 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
       const targetSlotTime = appt.appointmentTime || apptTime
       const targetSlotMinutes = parseTimeToMinutes(targetSlotTime)
 
+      const clinicData = (data as any)?.clinic || (appt.clinicId ? await getClinicById(appt.clinicId) : null)
+      const isLab = isDiagnosticLabClinic(clinicData, null, appt)
       let qEntryQuery = supabase
         .from('queue_entries')
         .select('id, appointment_id, queue_position, status, doctor_id')
         .eq('clinic_id', appt.clinicId)
         .in('status', ['waiting', 'inside'])
 
-      if (appt.doctorId) {
-        qEntryQuery = qEntryQuery.eq('doctor_id', appt.doctorId)
-      } else {
-        qEntryQuery = qEntryQuery.is('doctor_id', null)
+      if (!isLab) {
+        if (appt.doctorId) {
+          qEntryQuery = qEntryQuery.eq('doctor_id', appt.doctorId)
+        } else {
+          qEntryQuery = qEntryQuery.is('doctor_id', null)
+        }
       }
 
       const { data: activeEntries } = await qEntryQuery.order('queue_position', { ascending: true })
@@ -1100,7 +1104,7 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
         id: crypto.randomUUID(),
         appointment_id: apptId,
         clinic_id: appt.clinicId,
-        doctor_id: appt.doctorId || null,
+        doctor_id: isLab ? null : (appt.doctorId || null),
         queue_position: nextPos,
         status: 'waiting',
       })
@@ -1857,17 +1861,20 @@ export async function reindexActiveQueue(
       .eq('clinic_id', clinicId)
       .in('status', ['waiting', 'inside'])
 
-    if (doctorId) {
+    const clinic = await getClinicById(clinicId)
+    const isLab = isDiagnosticLabClinic(clinic)
+
+    if (!isLab && doctorId) {
       query = query.eq('doctor_id', doctorId)
     }
 
     const { data: entries, error } = await query
     if (error || !entries || entries.length === 0) return true
 
-    // Group by doctorId if doctorId was not explicitly provided to partition per doctor's cabin
+    // Group by doctorId if doctorId was not explicitly provided to partition per doctor's cabin (or single common queue for diagnostic labs)
     const groups: Record<string, typeof entries> = {}
     for (const entry of entries) {
-      const key = entry.doctor_id || '__clinic__'
+      const key = isLab ? '__clinic__' : (entry.doctor_id || '__clinic__')
       if (!groups[key]) groups[key] = []
       groups[key].push(entry)
     }
@@ -6433,7 +6440,10 @@ export async function checkNewAppointments(
       .eq('status', 'APPROVED')
       .neq('checkin_status', 'cancelled')
 
-    if (doctorId) {
+    const clinic = await getClinicById(clinicId)
+    const isLab = isDiagnosticLabClinic(clinic)
+
+    if (!isLab && doctorId) {
       query = query.eq('doctor_id', doctorId)
     }
     if (sinceIso) {
@@ -6513,11 +6523,13 @@ export async function autoEnrollNewAppointment(
 ): Promise<boolean> {
   if (!clinicId || !appointmentId) return false
   try {
+    const clinic = await getClinicById(clinicId)
+    const isLab = isDiagnosticLabClinic(clinic)
     const { error } = await supabase.from('queue_entries').insert({
       id: crypto.randomUUID(),
       appointment_id: appointmentId,
       clinic_id: clinicId,
-      doctor_id: doctorId || null,
+      doctor_id: isLab ? null : (doctorId || null),
       queue_position: nextPos,
       status: 'waiting',
     })

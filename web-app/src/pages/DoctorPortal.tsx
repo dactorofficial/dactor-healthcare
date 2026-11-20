@@ -1502,7 +1502,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
         const knownIds = appointments.map((a) => a.id)
         const newAppts = await checkNewAppointments(
           selectedClinic.id,
-          currentDoctor.id,
+          isDiagnosticPortalClinic ? null : currentDoctor.id,
           selectedQueueDate,
           knownIds
         )
@@ -1511,7 +1511,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           let maxPos = Math.max(0, ...liveQueue.map((a) => a.queuePosition || 0))
           for (const newAppt of newAppts) {
             maxPos++
-            autoEnrollNewAppointment(selectedClinic.id, currentDoctor.id, newAppt.id, maxPos).catch(() => {})
+            autoEnrollNewAppointment(selectedClinic.id, isDiagnosticPortalClinic ? null : currentDoctor.id, newAppt.id, maxPos).catch(() => {})
           }
           setAppointments((prev) => {
             const currentIds = new Set(prev.map((a) => a.id))
