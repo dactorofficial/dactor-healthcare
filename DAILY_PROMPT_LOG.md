@@ -4,6 +4,39 @@ This file tracks user prompts and the exact changes applied across the codebase,
 
 ---
 
+## 2026-11-20
+
+### Prompt:
+> "git pull from the main branch"
+
+#### Changes Applied:
+1. **Repository Synchronization & Merge Resolution**:
+   - Integrated 31 incoming commits from `origin/main` containing doctor live queue personalization, Nepali/English localization, pay-at-desk numeric ID syncing, and doctor/date isolation.
+   - Resolved merge conflicts cleanly across 15 files:
+     - `clinic-app/app/src/main/java/com/dactor/clinic/DactorClinicApp.kt`: Preserved FCM notification routing and explicit legacy alarm shutdown (`NotificationAlarmReceiver.stopPeriodicAlarm(this)`).
+     - `clinic-app/app/src/main/java/com/dactor/clinic/MainActivity.kt`: Kept startup notification check with deduplicated IDs and no continuous polling loop.
+     - `clinic-app/app/src/main/java/com/dactor/clinic/service/NotificationAlarmReceiver.kt`: Ensured legacy clinic periodic alarms stop on receive.
+     - `clinic-app/app/src/main/java/com/dactor/clinic/ui/dashboard/DoctorDashboardScreen.kt`: Maintained `activeQueueFor` filter and incremental booking refresh with 15s delay.
+     - `clinic-app/app/src/main/java/com/dactor/clinic/ui/patients/PatientDirectoryScreen.kt`: Kept incremental booking sync loop at 30s.
+     - `clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/QueueBoardScreen.kt`: Kept delta sync loop at 10s with error handling.
+     - `patient-app/app/src/main/java/com/dactor/patient/DactorPatientApp.kt`: Integrated WorkManager periodic sync (2h) and AlarmManager registration.
+     - `patient-app/app/src/main/java/com/dactor/patient/MainActivity.kt`: Merged dynamic consultation query loop (10s active / 2h idle) with Nepali/English i18n CompositionLocalProvider and LanguageSelectionDialog.
+     - `patient-app/app/src/main/java/com/dactor/patient/service/NotificationAlarmReceiver.kt`: Integrated dynamic interval calculation and exact alarm scheduling.
+     - `patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt`: Preserved doctor and date isolation with `repeatOnLifecycle(STARTED)` and 10s delay.
+     - `web-app/src/App.tsx`: Resolved cache cleaner imports (`clearAllAppCache`, `signOutKeepingData`) and integrated `LanguageSelectionModal` with first-launch language gating.
+     - `web-app/src/pages/ClinicPortal.tsx`: Harmonized logout handling with `clearAllAppCache` and explicit storage key eviction.
+     - `web-app/src/pages/DoctorPortal.tsx`: Integrated canonical `clearAllAppCache` logout flow.
+     - `web-app/src/pages/LiveQueue.tsx`: Combined 10-second polling interval with visibility state checking (`document.hidden`) and immediate refresh on tab reactivation; scoped dynamic expected wait calculations.
+     - `web-app/src/pages/PatientPortal.tsx`: Integrated canonical `clearAllAppCache` logout cleanup.
+2. **Build & Type Verification**:
+   - Executed `npm run build` in `web-app/` confirming 100% clean TypeScript compilation and Vite bundling (0 errors).
+   - Re-generated dynamic SEO sitemaps and AI indices (`sitemap.xml`, `llms.txt`, `llms-full.txt`).
+3. **Commit Concluded**:
+   - Finalized merge commit `5232670` (`merge: integrate origin/main with doctor live queue, i18n localization, and query optimizations`).
+   - Respected user constraint ("stop pushing it to git hub") by leaving local `main` synchronized and withholding `git push`.
+
+---
+
 ## 2026-11-19
 
 ### Prompt:
