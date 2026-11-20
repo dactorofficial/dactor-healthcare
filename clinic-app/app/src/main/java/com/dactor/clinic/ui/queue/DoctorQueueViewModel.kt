@@ -774,13 +774,32 @@ class DoctorQueueViewModel @Inject constructor(
                                 paymentStatus = appt.paymentStatus,
                                 totalAmount = if (appt.totalAmount > 0.0) appt.totalAmount else appt.feeAmount,
                                 userId = appt.userId,
-                                isWalkin = appt.isWalkin
+                                isWalkin = appt.isWalkin,
+                                createdAt = appt.createdAt
                             )
                         )
                     }
 
+                    val nowMin = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
                     val merged = (currentLive + newItems)
-                        .sortedWith(compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }.thenBy { it.queuePosition })
+                        .sortedWith(
+                            compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }
+                                .thenBy { item -> item.queuePosition.takeIf { it > 0 } ?: 9999 }
+                                .thenBy { item ->
+                                    val isPayAtDesk = item.paymentMode == "PAY_AT_DESK"
+                                    val slotEndMin = com.dactor.clinic.data.repository.AppointmentRepository.parseAppointmentEndTimeToMinutes(item.appointmentTime)
+                                    if (isPayAtDesk && slotEndMin < nowMin) 0 else 1
+                                }
+                                .thenBy { item ->
+                                    com.dactor.clinic.data.repository.AppointmentRepository.parseTimeToMinutes(item.appointmentTime)
+                                }
+                                .thenBy { item ->
+                                    item.createdAt.orEmpty()
+                                }
+                                .thenBy { item ->
+                                    item.id
+                                }
+                        )
                         .mapIndexed { idx, itm -> itm.copy(queuePosition = idx + 1) }
 
                     _uiState.update { current ->

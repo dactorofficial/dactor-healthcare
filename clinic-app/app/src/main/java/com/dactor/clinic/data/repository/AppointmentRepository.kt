@@ -733,12 +733,13 @@ open class AppointmentRepository @Inject constructor(
                 } catch (ignored: Exception) {}
             }
 
+            val isLab = appointment.selectedLabTests?.isNotBlank() == true || isDiagnosticLabClinic(appointment.clinicId)
             val insertDto = AppointmentInsertDto(
                 id = apptId,
                 trackingCode10Digit = trackingCode,
                 slotId = validSlotId,
                 clinicId = appointment.clinicId,
-                doctorId = validDoctorId,
+                doctorId = if (isLab) null else validDoctorId,
                 userId = resolvedUserId,
                 patientName = appointment.patientName.trim(),
                 patientAge = appointment.patientAge ?: 28,
@@ -854,7 +855,7 @@ open class AppointmentRepository @Inject constructor(
                         }
 
                         // Insert the new walkin entry at insertPos
-                        val cleanDoctorId = created.doctorId?.takeIf { isValidUuid(it) }
+                        val cleanDoctorId = if (isLab) null else created.doctorId?.takeIf { isValidUuid(it) }
                         val queueEntryDto = QueueEntryInsertDto(
                             id = UUID.randomUUID().toString(),
                             appointmentId = created.id,
