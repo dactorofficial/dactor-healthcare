@@ -562,6 +562,30 @@
 
 ---
 
+#### [VULN-019] Hardcoded GitHub Personal Access Token in Deployment Script
+- **Severity**: **Critical**
+- **CVSS v3.1 Score**: **9.1** (`CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N`)
+- **CWE**: CWE-798 (Use of Hard-coded Credentials)
+- **Compliance & Standards**: OWASP ASVS V14 · SEC-001 · GitHub Secret Scanning
+- **Location**: [`scripts/deploy_ghpages.ps1:6`](file:///g:/My%20Drive/New%20folder/scripts/deploy_ghpages.ps1#L6)
+- **Source-to-Sink Proof**:
+  `scripts/deploy_ghpages.ps1` lines 6–10 hardcoded a raw GitHub Personal Access Token:
+  ```powershell
+  $token = "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"
+  ```
+  GitHub Secret Scanning automatically detects committed PATs and revokes them immediately upon push, causing subsequent Git remote operations to fail authentication. Hardcoded personal access tokens must never reside in script source files.
+- **Remediation Diff**:
+  ```diff
+  --- a/scripts/deploy_ghpages.ps1
+  +++ b/scripts/deploy_ghpages.ps1
+  @@ -6,3 +6,3 @@ $distPath = Resolve-Path "web-app/dist"
+  -$token = "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"
+  +$token = $env:GH_PAGES_TOKEN ?? $env:GITHUB_TOKEN ?? ""
+   $env:GIT_TERMINAL_PROMPT = "0"
+  ```
+
+---
+
 ## 5. Compliance & Security Controls Traceability Matrix
 
 | Standard / Control | Requirement Summary | Status | Relevant Findings |
