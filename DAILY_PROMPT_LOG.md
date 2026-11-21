@@ -4,6 +4,22 @@ This file tracks user prompts and the exact changes applied across the codebase,
 
 ---
 
+## 2026-11-21
+
+### Prompt:
+> "complete a security audit for this project first patient app , clinic then website /plan"
+
+#### Changes Applied:
+1. **Defensive Cross-Platform Security Vulnerability Audit**:
+   - Conducted an in-depth defensive audit in the required sequence: Patient App (`patient-app`), Clinic App (`clinic-app`), Website (`web-app`), and Shared Infrastructure (`supabase/`, `.github/workflows/`, `shared-keystore/`).
+   - Mapped all surfaces against OWASP MASVS v2, OWASP ASVS L2, SOC2 Type II, and PCI-DSS v4.0.
+   - Identified and triaged 18 confirmed vulnerabilities (2 Critical, 6 High, 9 Medium, 1 Low) with full CVSS v3.1 scoring, root cause analysis, threat modeling, and zero-false-positive validation.
+2. **Deliverables Created**:
+   - Created comprehensive audit report [`SECURITY_AUDIT.md`](file:///g:/My%20Drive/New%20folder/SECURITY_AUDIT.md) containing detailed vulnerability descriptions, CVSS v3.1 vector strings, compliance traceability matrix, and drop-in unified diff remediation patches.
+   - Maintained strict adherence to Mandatory Global Rules 1 & 2: executed 0 `./gradlew` builds and generated 0 APKs.
+
+---
+
 ## 2026-11-20
 
 ### Prompt:
