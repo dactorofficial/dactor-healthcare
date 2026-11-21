@@ -190,6 +190,21 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
             Consultation Completed
           </span>
         )
+      case 'sample_collected':
+      case 'processing':
+        return (
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300">
+            <Activity className="w-3.5 h-3.5 mr-1" />
+            {status === 'sample_collected' ? 'Sample Collected' : 'Processing in Lab'}
+          </span>
+        )
+      case 'report_prepared':
+        return (
+          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300">
+            <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+            Report Prepared
+          </span>
+        )
       case 'waiting':
         return (
           <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-brand-100 dark:bg-brand-900/40 text-brand-800 dark:text-brand-300">

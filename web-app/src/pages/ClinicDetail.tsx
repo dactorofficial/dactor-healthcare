@@ -972,8 +972,51 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         return
       }
 
-      // 1. Reschedule & Follow-Up handling
-      if ((isReschedule || isReturningPatient) && retainedAppointment) {
+      // 1. Reschedule handling (Strictly in-place: NEVER create new appointment or overwrite bill)
+      if (isReschedule) {
+        if (!retainedAppointment) {
+          alert('Appointment details are still loading. Please wait a moment or verify your tracking code.')
+          setSubmitting(false)
+          return
+        }
+
+        const ok = await shiftAppointmentDate(
+          retainedAppointment.id,
+          selectedDate,
+          selectedSlotTime || '10:00 AM',
+          'Patient rescheduled via clinic booking portal',
+          selectedSlotId,
+          activeTab === 'opd' ? (selectedDoctor?.id || retainedAppointment.doctorId) : null,
+          retainedAppointment.trackingCode10Digit
+        )
+        if (ok) {
+          const preservedStatus =
+            retainedAppointment.status === 'WAITING_FOR_APPROVAL'
+              ? 'WAITING_FOR_APPROVAL'
+              : 'APPROVED'
+          const updatedAppt: Appointment = {
+            ...retainedAppointment,
+            appointmentDate: selectedDate,
+            appointmentTime: selectedSlotTime || '10:00 AM',
+            slotId: selectedSlotId,
+            status: preservedStatus,
+            checkinStatus: 'not_checked_in',
+          }
+          setConfirmedAppt(updatedAppt)
+          setConfirmedTxnId(`RESCHEDULED-${retainedAppointment.trackingCode10Digit}`)
+          setConfirmedPayMethod('Rescheduled Appointment (Retained Fee)')
+          setShowBookingModal(false)
+          setSubmitting(false)
+          return
+        } else {
+          alert('Could not reschedule appointment for this slot. Please try another slot or contact reception.')
+          setSubmitting(false)
+          return
+        }
+      }
+
+      // 2. Returning Patient Follow-Up handling (Only when NOT in reschedule mode)
+      if (isReturningPatient && retainedAppointment) {
         const isRetainedCompleted = ['done', 'completed'].includes((retainedAppointment.checkinStatus || '').toLowerCase())
 
         if (isRetainedCompleted) {

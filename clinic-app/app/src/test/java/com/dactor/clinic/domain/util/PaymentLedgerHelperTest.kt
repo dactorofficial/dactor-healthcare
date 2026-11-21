@@ -247,4 +247,77 @@ class PaymentLedgerHelperTest {
         assertTrue(csv.contains("\"Dactor Pay-at-Desk Platform Commission (NPR)\",\"22\""))
         assertTrue(csv.contains("\"Net Clinic OPD Payout (NPR)\",\"450\""))
     }
+
+    @Test
+    fun testDerivePatientKey_distinguishesFamilyMembersUnderSameUserId() {
+        val key1 = PaymentLedgerHelper.derivePatientKey(
+            userId = "shared_account_uuid",
+            phone = "9703951751",
+            name = "evil pathogen",
+            fallbackId = "fb1"
+        )
+        val key2 = PaymentLedgerHelper.derivePatientKey(
+            userId = "shared_account_uuid",
+            phone = "9345842404",
+            name = "anubhav",
+            fallbackId = "fb2"
+        )
+        // Two distinct patients under the same user account must not collide
+        assertFalse("Distinct patients under same account should not share key", key1 == key2)
+        assertEquals("9703951751|evil pathogen", key1)
+        assertEquals("9345842404|anubhav", key2)
+    }
+
+    @Test
+    fun testComputeDoctorDailyAndMonthlyStats_chargedVisitReturningPatientMaintainsRevenue() {
+        val doctor = Doctor(
+            id = "doc-1",
+            fullName = "Dr. Test Doctor",
+            email = "doc@example.com",
+            consultationFee = 1300.0
+        )
+        // Patient visits on 2026-11-20 (visit 1, free/earlier)
+        val appt1 = Appointment(
+            id = "appt-1",
+            clinicId = "clinic-1",
+            doctorId = "doc-1",
+            userId = "usr-1",
+            patientName = "evil pathogen",
+            patientMobile = "9703951751",
+            appointmentDate = "2026-11-20",
+            appointmentTime = "10:00:00",
+            feeAmount = 0.0,
+            totalAmount = 0.0,
+            status = "APPROVED"
+        )
+        // Patient visits again on 2026-11-21 as a paid consultation (visit 2, fee = 1300)
+        val appt2 = Appointment(
+            id = "appt-2",
+            clinicId = "clinic-1",
+            doctorId = "doc-1",
+            userId = "usr-1",
+            patientName = "evil pathogen",
+            patientMobile = "9703951751",
+            appointmentDate = "2026-11-21",
+            appointmentTime = "09:00:00",
+            feeAmount = 1300.0,
+            totalAmount = 1365.0,
+            status = "APPROVED"
+        )
+
+        val stats = PaymentLedgerHelper.computeDoctorDailyAndMonthlyStats(
+            appointments = listOf(appt1, appt2),
+            invoices = emptyList(),
+            doctors = listOf(doctor),
+            transactions = emptyList()
+        )
+
+        assertEquals(1, stats.size)
+        val docStat = stats[0]
+        assertEquals(2, docStat.totalVisits)
+        assertEquals(1, docStat.newPatients)
+        assertEquals(1, docStat.followupPatients)
+        // Revenue should include the 1300.0 from appt2, not be wiped to 0!
+        assertEquals(1300.0, docStat.totalOpdRevenue, 0.001)
+    }
 }

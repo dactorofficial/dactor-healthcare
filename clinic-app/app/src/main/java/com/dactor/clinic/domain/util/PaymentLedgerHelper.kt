@@ -119,11 +119,17 @@ object PaymentLedgerHelper {
 
     // Nepal family-phone safe unique patient key resolution
     fun derivePatientKey(userId: String?, phone: String?, name: String?, fallbackId: String): String {
-        if (!userId.isNullOrBlank()) return userId.trim()
-        val cleanPhone = (phone ?: "").filter { it.isDigit() }
+        val cleanPhone = (phone ?: "").filter { it.isDigit() }.takeLast(10)
         val cleanName = (name ?: "").trim().lowercase()
+        val cleanUserId = (userId ?: "").trim()
         if (cleanPhone.length >= 7) {
             return "$cleanPhone|$cleanName"
+        }
+        if (cleanUserId.isNotBlank() && cleanName.isNotBlank()) {
+            return "$cleanUserId|$cleanName"
+        }
+        if (cleanUserId.isNotBlank()) {
+            return cleanUserId
         }
         return cleanName.ifBlank { fallbackId }
     }
@@ -167,7 +173,7 @@ object PaymentLedgerHelper {
             val inv = tx.invoiceId?.let { iId -> invoices.find { it.id == iId } } ?: tx.appointmentId?.let { invoiceMap[it] }
             val doc = appt?.doctorId?.let { doctorMap[it] }
             val isNew = appt?.let { firstVisitSet.contains(it.id) } ?: false
-            val isFollowUp = !isNew || (appt?.feeAmount ?: 1.0) == 0.0
+            val isFollowUp = (appt?.feeAmount ?: 0.0) <= 0.0
             val isConsultation = tx.category == null || tx.category.equals("CONSULTATION", ignoreCase = true)
             val isPad = appt?.isPayAtDesk == true
             val expectedPadTotal = if (isPad && !isFollowUp) (appt?.effectiveTotalAmount ?: 0.0) else 0.0
@@ -227,7 +233,7 @@ object PaymentLedgerHelper {
             val appt = apptMap[inv.appointmentId]
             val doc = appt?.doctorId?.let { doctorMap[it] }
             val isNew = appt?.let { firstVisitSet.contains(it.id) } ?: false
-            val isFollowUp = !isNew || (appt?.feeAmount ?: 1.0) == 0.0
+            val isFollowUp = (appt?.feeAmount ?: 0.0) <= 0.0
             val isPad = appt?.isPayAtDesk == true
             val expectedPadTotal = if (isPad && !isFollowUp) (appt?.effectiveTotalAmount ?: 0.0) else 0.0
             val effInvTotal = if (isPad && !isFollowUp && expectedPadTotal > 0.0) maxOf(inv.totalAmount, expectedPadTotal) else inv.totalAmount
@@ -307,7 +313,7 @@ object PaymentLedgerHelper {
             if (processedAppointmentIds.contains(appt.id)) continue
             val doc = appt.doctorId?.let { doctorMap[it] }
             val isNew = firstVisitSet.contains(appt.id)
-            val isFollowUp = !isNew || appt.feeAmount == 0.0
+            val isFollowUp = appt.feeAmount <= 0.0
             val effectiveAmount = if (isFollowUp) 0.0 else appt.effectiveTotalAmount
             val apptDateTime = "${appt.appointmentDate} ${appt.appointmentTime.ifBlank { "10:00 AM" }}"
             val isPad = appt.isPayAtDesk
@@ -381,8 +387,9 @@ object PaymentLedgerHelper {
             val apptTxs = txMap[appt.id] ?: emptyList()
             val txPaid = apptTxs.sumOf { it.amount }
 
-            // Follow-up patients do NOT add money until bill items or payments are explicitly added
-            val revenueAdded: Double = if (isNew) {
+            // Follow-up patients (feeAmount == 0.0 and returning) do NOT add money until bill items or payments are explicitly added
+            val isFreeFollowUp = !isNew && (appt.feeAmount <= 0.0)
+            val revenueAdded: Double = if (!isFreeFollowUp) {
                 if (inv != null && inv.totalAmount > 0.0) {
                     maxOf(inv.totalAmount, standardFee)
                 } else if (txPaid > 0.0) {

@@ -91,6 +91,7 @@ import {
   checkNewAppointments,
   removeRogueQueueEntry,
   autoEnrollNewAppointment,
+  parseTimeToMinutes,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
 import { extractCleanClinicalRemarks } from '../utils/paymentLedger'
@@ -1329,11 +1330,48 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
         a.status !== 'EXPIRED'
       )
     })
+    const now = new Date()
+    const currentMinutes = now.getHours() * 60 + now.getMinutes()
     return [...list].sort((a, b) => {
+      // 1. Inside consultation cabin first
       const aInside = a.checkinStatus === 'in_consultation' || a.checkinStatus === 'inside' ? 0 : 1
       const bInside = b.checkinStatus === 'in_consultation' || b.checkinStatus === 'inside' ? 0 : 1
       if (aInside !== bInside) return aInside - bInside
-      return (a.appointmentTime || '').localeCompare(b.appointmentTime || '')
+
+      // 2. Approved Pay at Desk appointments whose slot time has passed are placed at top of waiting queue
+      const aPadPassed =
+        a.paymentMode === 'PAY_AT_DESK' &&
+        (a.status || '').toUpperCase() === 'APPROVED' &&
+        a.appointmentDate === todayDateStr &&
+        parseTimeToMinutes(a.appointmentTime) <= currentMinutes
+          ? 0
+          : 1
+      const bPadPassed =
+        b.paymentMode === 'PAY_AT_DESK' &&
+        (b.status || '').toUpperCase() === 'APPROVED' &&
+        b.appointmentDate === todayDateStr &&
+        parseTimeToMinutes(b.appointmentTime) <= currentMinutes
+          ? 0
+          : 1
+      if (aPadPassed !== bPadPassed) return aPadPassed - bPadPassed
+
+      // 3. Chronological time slot order
+      const aMins = parseTimeToMinutes(a.appointmentTime)
+      const bMins = parseTimeToMinutes(b.appointmentTime)
+      if (aMins !== bMins) return aMins - bMins
+
+      // 4. Booking turn (created_at timestamp)
+      const aCreated = a.createdAt || ''
+      const bCreated = b.createdAt || ''
+      if (aCreated !== bCreated) return aCreated.localeCompare(bCreated)
+
+      // 5. Preserved queue position
+      const aPos = a.queuePosition ?? a.queueNumber ?? 999
+      const bPos = b.queuePosition ?? b.queueNumber ?? 999
+      if (aPos !== bPos) return aPos - bPos
+
+      // 6. Deterministic tie-breaker
+      return a.id.localeCompare(b.id)
     })
   }, [appointments, todayDateStr])
   const waitingPatients = useMemo(
@@ -1409,16 +1447,51 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
         a.checkinStatus === 'in_consultation' ||
         a.checkinStatus === 'inside'
     )
+    const now = new Date()
+    const currentMinutes = now.getHours() * 60 + now.getMinutes()
+    const todayIso = now.toISOString().split('T')[0]
     return [...live].sort((a, b) => {
+      // 1. Inside consultation cabin first
       const aInside =
         a.checkinStatus === 'in_consultation' || a.checkinStatus === 'inside' ? 0 : 1
       const bInside =
         b.checkinStatus === 'in_consultation' || b.checkinStatus === 'inside' ? 0 : 1
       if (aInside !== bInside) return aInside - bInside
+
+      // 2. Approved Pay at Desk appointments whose slot time has passed are placed at top of waiting queue
+      const aPadPassed =
+        a.paymentMode === 'PAY_AT_DESK' &&
+        (a.status || '').toUpperCase() === 'APPROVED' &&
+        a.appointmentDate === todayIso &&
+        parseTimeToMinutes(a.appointmentTime) <= currentMinutes
+          ? 0
+          : 1
+      const bPadPassed =
+        b.paymentMode === 'PAY_AT_DESK' &&
+        (b.status || '').toUpperCase() === 'APPROVED' &&
+        b.appointmentDate === todayIso &&
+        parseTimeToMinutes(b.appointmentTime) <= currentMinutes
+          ? 0
+          : 1
+      if (aPadPassed !== bPadPassed) return aPadPassed - bPadPassed
+
+      // 3. Chronological time slot order
+      const aMins = parseTimeToMinutes(a.appointmentTime)
+      const bMins = parseTimeToMinutes(b.appointmentTime)
+      if (aMins !== bMins) return aMins - bMins
+
+      // 4. Booking turn (created_at timestamp)
+      const aCreated = a.createdAt || ''
+      const bCreated = b.createdAt || ''
+      if (aCreated !== bCreated) return aCreated.localeCompare(bCreated)
+
+      // 5. Preserved queue position
       const aPos = a.queuePosition ?? a.queueNumber ?? 999
       const bPos = b.queuePosition ?? b.queueNumber ?? 999
       if (aPos !== bPos) return aPos - bPos
-      return (a.appointmentTime || '').localeCompare(b.appointmentTime || '')
+
+      // 6. Deterministic tie-breaker
+      return a.id.localeCompare(b.id)
     })
   }, [queueDateAppointments])
 
@@ -1502,7 +1575,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
         const knownIds = appointments.map((a) => a.id)
         const newAppts = await checkNewAppointments(
           selectedClinic.id,
-          currentDoctor.id,
+          isDiagnosticPortalClinic ? null : currentDoctor.id,
           selectedQueueDate,
           knownIds
         )
@@ -1511,7 +1584,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           let maxPos = Math.max(0, ...liveQueue.map((a) => a.queuePosition || 0))
           for (const newAppt of newAppts) {
             maxPos++
-            autoEnrollNewAppointment(selectedClinic.id, currentDoctor.id, newAppt.id, maxPos).catch(() => {})
+            autoEnrollNewAppointment(selectedClinic.id, isDiagnosticPortalClinic ? null : currentDoctor.id, newAppt.id, maxPos).catch(() => {})
           }
           setAppointments((prev) => {
             const currentIds = new Set(prev.map((a) => a.id))

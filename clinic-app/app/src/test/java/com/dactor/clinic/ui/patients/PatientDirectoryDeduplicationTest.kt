@@ -3,12 +3,14 @@ package com.dactor.clinic.ui.patients
 import com.dactor.clinic.data.local.dao.PatientDao
 import com.dactor.clinic.data.local.entity.PatientEntity
 import com.dactor.clinic.data.model.Appointment
+import com.dactor.clinic.data.model.Clinic
 import com.dactor.clinic.data.model.Profile
 import com.dactor.clinic.domain.util.PatientIdentitySync
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -363,5 +365,56 @@ class PatientDirectoryDeduplicationTest {
         val saved = fakeDao.getPatientById(pId)
         assertEquals("totalVisits must stay at 1 without polling inflation", 1, saved?.totalVisits)
         assertEquals("lastVisitDate must retain previous completed visit date", "2026-11-10", saved?.lastVisitDate)
+    }
+
+    @Test
+    fun testDiagnosticLabClinicTypeHidesBookAppointmentInPatientDirectory() {
+        val labClinic1 = Clinic(
+            id = "lab-c1",
+            name = "Apex Pathology & Diagnostic Lab",
+            type = "diagnostic_lab"
+        )
+        val labClinic2 = Clinic(
+            id = "lab-c2",
+            name = "City Diagnostic Center",
+            type = "lab"
+        )
+        val labClinic3 = Clinic(
+            id = "lab-c3",
+            name = "Modern Imaging & Scanning Center",
+            type = "opd_clinic",
+            specialties = listOf("Pathology & Lab Diagnostics", "Radiology Scan")
+        )
+
+        assertTrue(labClinic1.isDiagnosticLab())
+        assertTrue(labClinic2.isDiagnosticLab())
+        assertTrue(labClinic3.isDiagnosticLab())
+
+        // In patient directory, book appointment action is strictly hidden for diagnostic lab clinics
+        fun shouldShowBookAppointment(clinic: Clinic?): Boolean {
+            return clinic?.isDiagnosticLab() != true
+        }
+
+        assertFalse("Book appointment should NOT be shown in diagnostic_lab clinic", shouldShowBookAppointment(labClinic1))
+        assertFalse("Book appointment should NOT be shown in lab clinic", shouldShowBookAppointment(labClinic2))
+        assertFalse("Book appointment should NOT be shown in pathology/scan clinic", shouldShowBookAppointment(labClinic3))
+    }
+
+    @Test
+    fun testOpdClinicShowsBookAppointmentInPatientDirectory() {
+        val opdClinic = Clinic(
+            id = "opd-c1",
+            name = "Medicare Polyclinic & Health Care",
+            type = "opd_clinic",
+            specialties = listOf("General Medicine", "Pediatrics", "Cardiology")
+        )
+
+        assertFalse(opdClinic.isDiagnosticLab())
+
+        fun shouldShowBookAppointment(clinic: Clinic?): Boolean {
+            return clinic?.isDiagnosticLab() != true
+        }
+
+        assertTrue("Book appointment SHOULD be shown in standard OPD polyclinic", shouldShowBookAppointment(opdClinic))
     }
 }

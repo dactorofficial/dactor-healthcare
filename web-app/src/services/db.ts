@@ -45,7 +45,7 @@ import {
 export function isDiagnosticLabClinic(
   clinic?: Clinic | null,
   doctor?: Doctor | null,
-  appt?: Appointment | null
+  appt?: Partial<Appointment> | null
 ): boolean {
   if (doctor?.isLabTechnician || doctor?.practitionerRole === 'lab_technician') {
     return true
@@ -1046,16 +1046,20 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
       const targetSlotTime = appt.appointmentTime || apptTime
       const targetSlotMinutes = parseTimeToMinutes(targetSlotTime)
 
+      const clinicData = (data as any)?.clinic || (appt.clinicId ? await getClinicById(appt.clinicId) : null)
+      const isLab = isDiagnosticLabClinic(clinicData, null, appt)
       let qEntryQuery = supabase
         .from('queue_entries')
         .select('id, appointment_id, queue_position, status, doctor_id')
         .eq('clinic_id', appt.clinicId)
         .in('status', ['waiting', 'inside'])
 
-      if (appt.doctorId) {
-        qEntryQuery = qEntryQuery.eq('doctor_id', appt.doctorId)
-      } else {
-        qEntryQuery = qEntryQuery.is('doctor_id', null)
+      if (!isLab) {
+        if (appt.doctorId) {
+          qEntryQuery = qEntryQuery.eq('doctor_id', appt.doctorId)
+        } else {
+          qEntryQuery = qEntryQuery.is('doctor_id', null)
+        }
       }
 
       const { data: activeEntries } = await qEntryQuery.order('queue_position', { ascending: true })
@@ -1066,17 +1070,41 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
         const apptIds = activeEntries.map((e) => e.appointment_id).filter(Boolean)
         const { data: activeAppts } = await supabase
           .from('appointments')
-          .select('id, appointment_time, appointment_date')
+          .select('id, appointment_time, appointment_date, created_at, payment_mode, status')
           .in('id', apptIds)
 
         const apptMap = new Map<string, any>((activeAppts || []).map((a) => [a.id, a]))
+        const now = new Date()
+        const todayIso = now.toISOString().split('T')[0]
+        const currentMinutes = now.getHours() * 60 + now.getMinutes()
+        const isTargetPadPassed =
+          isPayAtDesk && apptDate === todayIso && targetSlotMinutes <= currentMinutes
+        const targetCreated = appt.createdAt || new Date().toISOString()
 
-        // Preceding entries: patient inside cabin OR patients in earlier or same time slot
+        // Preceding entries: patient inside cabin OR passed Pay-at-Desk OR earlier slot OR (same slot with earlier booking turn)
         const preceding = activeEntries.filter((entry) => {
           if (entry.status === 'inside') return true
           const a = apptMap.get(entry.appointment_id)
+          const isAPadPassed =
+            a?.payment_mode === 'PAY_AT_DESK' &&
+            (a?.status || '').toUpperCase() === 'APPROVED' &&
+            a?.appointment_date === todayIso &&
+            parseTimeToMinutes(a?.appointment_time) <= currentMinutes
+
+          if (isTargetPadPassed && !isAPadPassed) {
+            return false
+          }
+          if (isAPadPassed && !isTargetPadPassed) {
+            return true
+          }
+
           const slotMins = parseTimeToMinutes(a?.appointment_time)
-          return slotMins <= targetSlotMinutes
+          if (slotMins < targetSlotMinutes) return true
+          if (slotMins === targetSlotMinutes) {
+            const aCreated = a?.created_at || ''
+            return aCreated <= targetCreated
+          }
+          return false
         })
 
         // Target insertion position is right after the last preceding patient in this slot
@@ -1100,7 +1128,7 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
         id: crypto.randomUUID(),
         appointment_id: apptId,
         clinic_id: appt.clinicId,
-        doctor_id: appt.doctorId || null,
+        doctor_id: isLab ? null : (appt.doctorId || null),
         queue_position: nextPos,
         status: 'waiting',
       })
@@ -1533,7 +1561,7 @@ export async function autoTransferUncompletedQueueToNoShow(
     let apptQuery = supabase
       .from('appointments')
       .select('id, appointment_date, appointment_time, checkin_status, slot_id')
-      .not('checkin_status', 'in', '("completed","cancelled","done","no_show","processing","report_prepared")')
+      .not('checkin_status', 'in', '("completed","cancelled","done","no_show","processing","sample_collected","report_prepared")')
 
     if (includeToday) {
       apptQuery = apptQuery.lte('appointment_date', todayStr)
@@ -1589,7 +1617,7 @@ export async function autoTransferUncompletedQueueToNoShow(
         const isPastOrToday = includeToday
           ? (appt ? appt.appointment_date <= todayStr : true)
           : (appt ? appt.appointment_date < todayStr : (entry.created_at && entry.created_at.slice(0, 10) < todayStr))
-        const isUncompleted = appt ? !['completed', 'cancelled', 'done', 'processing', 'report_prepared'].includes(appt.checkin_status || '') : true
+        const isUncompleted = appt ? !['completed', 'cancelled', 'done', 'processing', 'sample_collected', 'report_prepared'].includes(appt.checkin_status || '') : true
 
         if (isPastOrToday && isUncompleted) {
           await supabase
@@ -1857,17 +1885,20 @@ export async function reindexActiveQueue(
       .eq('clinic_id', clinicId)
       .in('status', ['waiting', 'inside'])
 
-    if (doctorId) {
+    const clinic = await getClinicById(clinicId)
+    const isLab = isDiagnosticLabClinic(clinic)
+
+    if (!isLab && doctorId) {
       query = query.eq('doctor_id', doctorId)
     }
 
     const { data: entries, error } = await query
     if (error || !entries || entries.length === 0) return true
 
-    // Group by doctorId if doctorId was not explicitly provided to partition per doctor's cabin
+    // Group by doctorId if doctorId was not explicitly provided to partition per doctor's cabin (or single common queue for diagnostic labs)
     const groups: Record<string, typeof entries> = {}
     for (const entry of entries) {
-      const key = entry.doctor_id || '__clinic__'
+      const key = isLab ? '__clinic__' : (entry.doctor_id || '__clinic__')
       if (!groups[key]) groups[key] = []
       groups[key].push(entry)
     }
@@ -2041,6 +2072,9 @@ export async function shiftAppointmentDate(
       appointment_date: newDate,
       appointment_time: normalizedTime,
       checkin_status: 'not_checked_in',
+      consultation_completed_at: null,
+      cancelled_at: null,
+      cancellation_reason: null,
       updated_at: new Date().toISOString(),
     }
     if (oldAppt?.status !== preservedStatus) {
@@ -4453,8 +4487,8 @@ function mapAppointment(a: any): Appointment {
     'done',
   ].includes(rawCheckinLower)
 
-  if (isProgressedCheckin && (!qe?.status || qe.status === 'waiting' || qe.status === 'inside')) {
-    // Do not let a lagging/stale 'waiting' or 'inside' queue_entries row revert a progressed diagnostic/completed status
+  if (isProgressedCheckin) {
+    // Progressed diagnostic/completed checkin_status takes precedence over queue_entries (waiting, inside, no_show)
     derivedStatus = rawCheckinLower === 'done' ? 'completed' : rawCheckinLower
   } else if (isFutureOrToday && a.checkin_status === 'waiting') {
     // If appointment is booked/rescheduled for today or future and checkin_status is waiting,
@@ -4957,6 +4991,9 @@ export function computeMultiSlotDailyPosition(params: {
       const aMins = parseTimeToMinutes(a.appointmentTime)
       const bMins = parseTimeToMinutes(b.appointmentTime)
       if (aMins !== bMins) return aMins - bMins
+      const aCreated = a.createdAt || ''
+      const bCreated = b.createdAt || ''
+      if (aCreated !== bCreated) return aCreated.localeCompare(bCreated)
       return a.id.localeCompare(b.id)
     })
 
@@ -4968,6 +5005,9 @@ export function computeMultiSlotDailyPosition(params: {
       const aMins = parseTimeToMinutes(a.appointmentTime)
       const bMins = parseTimeToMinutes(b.appointmentTime)
       if (aMins !== bMins) return aMins - bMins
+      const aCreated = a.createdAt || ''
+      const bCreated = b.createdAt || ''
+      if (aCreated !== bCreated) return aCreated.localeCompare(bCreated)
       return a.id.localeCompare(b.id)
     })
     const myIdx = sortedAppts.findIndex((a) => a.id === targetAppointmentId)
@@ -5898,7 +5938,7 @@ export async function recordPaymentTransaction(record: {
     const expectedApptTotal =
       isPayAtDesk && baseFee > 0
         ? Math.max(Number(apptRow?.total_amount || 0), Math.round((baseFee + serviceCharge) * 100) / 100)
-        : Number(record.amount || 0)
+        : Math.max(Number(apptRow?.total_amount || 0), Number(apptRow?.fee_amount || 0), Number(record.amount || 0))
 
     const existingItemsRaw: any[] = Array.isArray(existingInv?.items) ? existingInv.items : []
     let existingItems: any[]
@@ -5944,6 +5984,7 @@ export async function recordPaymentTransaction(record: {
         },
       ]
     } else {
+      const itemPrice = Number(record.amount || 0) > 0 ? Number(record.amount) : baseFee
       existingItems = [
         {
           id: crypto.randomUUID(),
@@ -5951,8 +5992,8 @@ export async function recordPaymentTransaction(record: {
           itemName: 'Consultation & Clinical Services',
           name: 'Consultation & Clinical Services',
           quantity: 1,
-          price: record.amount,
-          total: record.amount,
+          price: itemPrice,
+          total: itemPrice,
         },
       ]
     }
@@ -5960,9 +6001,10 @@ export async function recordPaymentTransaction(record: {
     const effectiveTotal = Math.max(
       Number(record.amount || 0),
       expectedApptTotal,
+      baseFee,
       Number(existingInv?.total_amount || 0)
     )
-    const paidAmt = dbPayStatus === 'paid' ? effectiveTotal : 0
+    const paidAmt = dbPayStatus === 'paid' ? effectiveTotal : Math.max(0, Number((existingInv as any)?.paid_amount || 0))
     const invoicePayload = {
       id: existingInv?.id || crypto.randomUUID(),
       appointment_id: record.appointmentId,
@@ -6428,7 +6470,10 @@ export async function checkNewAppointments(
       .eq('status', 'APPROVED')
       .neq('checkin_status', 'cancelled')
 
-    if (doctorId) {
+    const clinic = await getClinicById(clinicId)
+    const isLab = isDiagnosticLabClinic(clinic)
+
+    if (!isLab && doctorId) {
       query = query.eq('doctor_id', doctorId)
     }
     if (sinceIso) {
@@ -6508,11 +6553,13 @@ export async function autoEnrollNewAppointment(
 ): Promise<boolean> {
   if (!clinicId || !appointmentId) return false
   try {
+    const clinic = await getClinicById(clinicId)
+    const isLab = isDiagnosticLabClinic(clinic)
     const { error } = await supabase.from('queue_entries').insert({
       id: crypto.randomUUID(),
       appointment_id: appointmentId,
       clinic_id: clinicId,
-      doctor_id: doctorId || null,
+      doctor_id: isLab ? null : (doctorId || null),
       queue_position: nextPos,
       status: 'waiting',
     })

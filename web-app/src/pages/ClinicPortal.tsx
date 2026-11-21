@@ -3799,8 +3799,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     }
   }, [scheduleNextModalOpen, selectedClinic?.id, scheduleNextDate, scheduleNextDoctorId])
 
-  // Schedule Next Follow-Up Visit
+  // Schedule Next Follow-Up Visit (Hidden for Diagnostic Lab clinics)
   const handleOpenScheduleNextVisit = (pat: any) => {
+    if (isLabClinic) return
     setScheduleNextPatient(pat)
     setScheduleNextDoctorId(clinicDoctors[0]?.id || selectedDoctor?.id || '')
     const d = new Date()
@@ -4399,11 +4400,50 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
       }
       return true
     })
+    const now = new Date()
+    const currentMinutes = now.getHours() * 60 + now.getMinutes()
+    const todayIso = now.toISOString().split('T')[0]
+
     return [...list].sort((a, b) => {
+      // 1. In-consultation / inside cabin patient is strictly first (#1)
       const aInside = a.checkinStatus === 'in_consultation' || a.checkinStatus === 'inside' ? 0 : 1
       const bInside = b.checkinStatus === 'in_consultation' || b.checkinStatus === 'inside' ? 0 : 1
       if (aInside !== bInside) return aInside - bInside
-      return (a.appointmentTime || '').localeCompare(b.appointmentTime || '')
+
+      // 2. Approved Pay at Desk appointments whose slot time has passed are placed at top of waiting queue
+      const aPadPassed =
+        a.paymentMode === 'PAY_AT_DESK' &&
+        (a.status || '').toUpperCase() === 'APPROVED' &&
+        a.appointmentDate === todayIso &&
+        parseTimeToMinutes(a.appointmentTime) <= currentMinutes
+          ? 0
+          : 1
+      const bPadPassed =
+        b.paymentMode === 'PAY_AT_DESK' &&
+        (b.status || '').toUpperCase() === 'APPROVED' &&
+        b.appointmentDate === todayIso &&
+        parseTimeToMinutes(b.appointmentTime) <= currentMinutes
+          ? 0
+          : 1
+      if (aPadPassed !== bPadPassed) return aPadPassed - bPadPassed
+
+      // 3. Chronological time slot order
+      const aMins = parseTimeToMinutes(a.appointmentTime)
+      const bMins = parseTimeToMinutes(b.appointmentTime)
+      if (aMins !== bMins) return aMins - bMins
+
+      // 4. For identical time slots, order by booking turn (created_at timestamp)
+      const aCreated = a.createdAt || ''
+      const bCreated = b.createdAt || ''
+      if (aCreated !== bCreated) return aCreated.localeCompare(bCreated)
+
+      // 5. Preserved queue position
+      const aPos = a.queuePosition ?? a.queueNumber ?? 999
+      const bPos = b.queuePosition ?? b.queueNumber ?? 999
+      if (aPos !== bPos) return aPos - bPos
+
+      // 6. Deterministic tie-breaker
+      return a.id.localeCompare(b.id)
     })
   }, [appointments, selectedQueueDate])
 
@@ -4465,20 +4505,30 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         const knownIds = appointments.map((a) => a.id)
         const newAppts = await checkNewAppointments(
           selectedClinic.id,
-          selectedDoctor?.id || null,
+          isLabClinic ? null : (selectedDoctor?.id || null),
           selectedQueueDate,
           knownIds
         )
 
         if (newAppts.length > 0) {
+          const sortedNew = [...newAppts].sort((a, b) => {
+            const aMins = parseTimeToMinutes(a.appointmentTime)
+            const bMins = parseTimeToMinutes(b.appointmentTime)
+            if (aMins !== bMins) return aMins - bMins
+            const aCreated = a.createdAt || ''
+            const bCreated = b.createdAt || ''
+            if (aCreated !== bCreated) return aCreated.localeCompare(bCreated)
+            return a.id.localeCompare(b.id)
+          })
+
           let maxPos = Math.max(0, ...todayAppointments.map((a) => a.queuePosition || 0))
-          for (const newAppt of newAppts) {
+          for (const newAppt of sortedNew) {
             maxPos++
-            autoEnrollNewAppointment(selectedClinic.id, newAppt.doctorId || null, newAppt.id, maxPos).catch(() => {})
+            autoEnrollNewAppointment(selectedClinic.id, isLabClinic ? null : (newAppt.doctorId || null), newAppt.id, maxPos).catch(() => {})
           }
           setAppointments((prev) => {
             const currentIds = new Set(prev.map((a) => a.id))
-            const toAdd = newAppts.filter((a) => !currentIds.has(a.id))
+            const toAdd = sortedNew.filter((a) => !currentIds.has(a.id))
             return toAdd.length > 0 ? [...prev, ...toAdd] : prev
           })
         }
@@ -9891,15 +9941,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                     <span>Shift Date</span>
                                   </button>
                                 )}
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenScheduleNextVisit(pat)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-[11px] shadow-xs transition-colors cursor-pointer"
-                                  title="Book New Appointment / Schedule Visit"
-                                >
-                                  <CalendarPlus className="w-3 h-3" />
-                                  <span>Book Appt</span>
-                                </button>
+                                {!isLabClinic && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenScheduleNextVisit(pat)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-[11px] shadow-xs transition-colors cursor-pointer"
+                                    title="Book New Appointment / Schedule Visit"
+                                  >
+                                    <CalendarPlus className="w-3 h-3" />
+                                    <span>Book Appt</span>
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   onClick={() => handleOpenPrintSlip(matchingAppt)}
@@ -10183,6 +10235,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                     .filter((appt) => {
                       const st = (appt.status || 'APPROVED').toUpperCase()
                       if (st !== 'APPROVED') return false
+                      const hasLabReport = labReports.some(
+                        (r) =>
+                          r.appointmentId === appt.id ||
+                          (Boolean(appt.trackingCode10Digit) && r.trackingCode10Digit === appt.trackingCode10Digit)
+                      )
+                      if (hasLabReport) return true
                       return appt.checkinStatus !== 'cancelled' && appt.checkinStatus !== 'no_show'
                     })
                     .map((appt) => {
@@ -12797,9 +12855,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
       )}
 
       {/* ========================================================= */}
-      {/* MODAL: SCHEDULE NEXT FOLLOW-UP VISIT */}
+      {/* MODAL: SCHEDULE NEXT FOLLOW-UP VISIT (Hidden for Diagnostic Lab clinics) */}
       {/* ========================================================= */}
-      {scheduleNextModalOpen && scheduleNextPatient && (
+      {scheduleNextModalOpen && scheduleNextPatient && !isLabClinic && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-md">
           <div className="liquid-glass-modal rounded-3xl max-w-md w-full p-6 space-y-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-white/60">

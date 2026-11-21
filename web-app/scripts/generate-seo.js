@@ -724,7 +724,8 @@ async function pingSearchEngines(urls) {
       headers: {
         'Content-Type': 'application/json; charset=utf-8'
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(4000)
     })
 
     if (res.ok || res.status === 200 || res.status === 202) {
@@ -739,7 +740,7 @@ async function pingSearchEngines(urls) {
   // Google sitemap ping
   try {
     const googlePingUrl = `https://www.google.com/ping?sitemap=${encodeURIComponent(`${BASE_URL}/sitemap.xml`)}`
-    await fetch(googlePingUrl, { method: 'GET' })
+    await fetch(googlePingUrl, { method: 'GET', signal: AbortSignal.timeout(3000) })
   } catch (e) {}
 }
 
@@ -756,7 +757,11 @@ function escapeXml(unsafe) {
   })
 }
 
-generateSEOArtifacts().catch(err => {
-  console.error('Fatal SEO generation error:', err)
-  process.exit(1)
-})
+generateSEOArtifacts()
+  .then(() => {
+    process.exit(0)
+  })
+  .catch(err => {
+    console.error('Fatal SEO generation error:', err)
+    process.exit(1)
+  })

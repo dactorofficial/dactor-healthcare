@@ -134,9 +134,8 @@ BEGIN
         RAISE EXCEPTION 'Appointment % not found', p_appointment_id;
     END IF;
 
-    IF LOWER(COALESCE(v_appt.checkin_status::TEXT, '')) IN ('completed', 'done', 'finished') THEN
-        RETURN jsonb_build_object('success', false, 'error', 'Completed appointments cannot be rescheduled');
-    END IF;
+    -- If previously completed, allow rescheduling in-place by resetting checkin_status and clearing consultation_completed_at
+    -- (Strictly preserves existing fee_amount, total_amount, payment_status, and billing_invoices)
 
     v_old_slot_id := v_appt.slot_id;
     v_target_slot_id := COALESCE(p_new_slot_id, v_appt.slot_id);

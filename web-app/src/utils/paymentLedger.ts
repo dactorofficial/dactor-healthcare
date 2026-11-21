@@ -233,13 +233,15 @@ export function derivePatientKey(appt?: {
   patientName?: string | null
 } | null): string {
   if (!appt) return 'unknown_patient'
-  if (appt.userId && appt.userId.trim()) return appt.userId.trim()
   const cleanEmail = (appt.patientEmail || '').trim().toLowerCase()
   const cleanName = (appt.patientName || '').trim().toLowerCase()
   const cleanPhone = (appt.patientMobile || '').replace(/\D/g, '').slice(-10)
+  const cleanUserId = (appt.userId || '').trim()
 
+  if (cleanPhone && cleanPhone.length >= 7) return `${cleanPhone}|${cleanName}`
+  if (cleanUserId && cleanName) return `${cleanUserId}|${cleanName}`
+  if (cleanUserId) return cleanUserId
   if (cleanEmail) return `${cleanEmail}|${cleanName}`
-  if (cleanPhone) return `${cleanPhone}|${cleanName}`
   return cleanName || 'unknown_patient'
 }
 
@@ -309,7 +311,7 @@ export function buildUnifiedClinicPaymentLogs(
     const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
     const expectedPadTotal = isPad ? getEffectiveAppointmentTotal(appt) : 0
     const isConsultationTx = String(tx.category || 'CONSULTATION').toUpperCase() === 'CONSULTATION'
-    const isFollowUp = !isNew
+    const isFollowUp = Number(appt.feeAmount || 0) <= 0
     const rawTxAmount = Number(tx.amount || 0)
     const effectiveTxAmount =
       isPad && isConsultationTx && expectedPadTotal > 0 && rawTxAmount > 0 && rawTxAmount < expectedPadTotal
@@ -383,7 +385,7 @@ export function buildUnifiedClinicPaymentLogs(
 
         const rawPrAmt = Number(pr.amount || 0)
         const isConsultationPr = String(pr.category || 'CONSULTATION').toUpperCase() === 'CONSULTATION'
-        const isFollowUp = !isNew
+        const isFollowUp = Number(appt.feeAmount || 0) <= 0
         const effPrAmt =
           isPad && isConsultationPr && parsedRecords.length === 1 && effInvTotal > 0 && rawPrAmt > 0 && rawPrAmt < effInvTotal
             ? effInvTotal
@@ -440,7 +442,7 @@ export function buildUnifiedClinicPaymentLogs(
           inv.paymentStatus === 'paid'
             ? 0
             : Math.max(0, effInvTotal - effectivePaidAmt)
-        const isFollowUp = !isNew
+        const isFollowUp = Number(appt.feeAmount || 0) <= 0
         const rawApptServiceCharge = Number(appt.serviceChargeAmount || 0)
         const serviceCharge =
           isPad && !isFollowUp && appt.id && !assignedCommissionApptIds.has(appt.id)
@@ -576,11 +578,12 @@ export function computeDoctorDailyAndMonthlyStats(
       else followupCount++
 
       const docFee = doc.consultationFee || Number(a.feeAmount || 0) || 0
-      const fee = isNew ? docFee : 0
+      const isFreeFollowUp = !isNew && Number(a.feeAmount || 0) <= 0
+      const fee = !isFreeFollowUp ? docFee : 0
       const inv = invMap.get(a.id)
 
       let followupBillAdded = 0
-      if (!isNew && inv) {
+      if (isFreeFollowUp && inv) {
         const nonConsultationItemsTotal = (inv.items || [])
           .filter((it: any) => {
             const n = (it.name || it.itemName || it.item_name || '').toLowerCase()
@@ -597,7 +600,7 @@ export function computeDoctorDailyAndMonthlyStats(
           : 0
       }
 
-      const apptRevenue = isNew ? (Number(a.totalAmount || 0) > 0 ? Number(a.totalAmount) : fee) : followupBillAdded
+      const apptRevenue = !isFreeFollowUp ? (Number(a.totalAmount || 0) > 0 ? Number(a.totalAmount) : fee) : followupBillAdded
 
       consultationRev += fee
       totalRev += apptRevenue

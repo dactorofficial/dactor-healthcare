@@ -135,7 +135,20 @@ fun PatientDirectoryScreen(
     }
     var affiliatedDoctors by remember(effectiveClinicId) { mutableStateOf<List<Doctor>>(emptyList()) }
     var allClinicsMap by remember(effectiveClinicId) { mutableStateOf<Map<String, Clinic>>(emptyMap()) }
-    var currentClinic by remember(effectiveClinicId) { mutableStateOf<Clinic?>(null) }
+    var currentClinic by remember(effectiveClinicId) {
+        mutableStateOf<Clinic?>(
+            if (effectiveClinicId.isNotBlank()) {
+                clinicRepository?.getCachedClinicById(effectiveClinicId)
+                    ?: clinicRepository?.getLastCachedClinic()
+                    ?: effectiveSessionManager.getLastCachedClinicJson()?.let {
+                        try {
+                            kotlinx.serialization.json.Json { ignoreUnknownKeys = true; isLenient = true }
+                                .decodeFromString<Clinic>(it)
+                        } catch (_: Exception) { null }
+                    }
+            } else null
+        )
+    }
     var remarksMap by remember(effectiveClinicId) { mutableStateOf<Map<String, String>>(emptyMap()) }
 
     var actionMessage by remember { mutableStateOf<String?>(null) }
@@ -273,12 +286,21 @@ fun PatientDirectoryScreen(
             locallyAddedProfiles = loaded
         } catch (_: Exception) {}
 
-        if (clinicRepository != null && allClinicsMap.isEmpty()) {
+        if (clinicRepository != null) {
             try {
-                val clinics = clinicRepository.getClinics()
-                allClinicsMap = clinics.associateBy { it.id }
-                if (effectiveClinicId.isNotBlank()) {
-                    currentClinic = clinics.find { it.id == effectiveClinicId }
+                if (allClinicsMap.isEmpty()) {
+                    val clinics = clinicRepository.getClinics()
+                    allClinicsMap = clinics.associateBy { it.id }
+                    if (effectiveClinicId.isNotBlank()) {
+                        currentClinic = clinics.find { it.id == effectiveClinicId } ?: currentClinic
+                    }
+                }
+                if (currentClinic == null && effectiveClinicId.isNotBlank()) {
+                    val c = clinicRepository.getCachedClinicById(effectiveClinicId)
+                        ?: clinicRepository.getClinicById(effectiveClinicId)
+                    if (c != null) {
+                        currentClinic = c
+                    }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -373,7 +395,15 @@ fun PatientDirectoryScreen(
         }
     }
 
-    // Determine if current clinic is a multi-type / polyclinic
+    // Determine if current clinic is a diagnostic lab or multi-type / polyclinic
+    val isLabClinic = remember(currentClinic, defaultClinicName) {
+        currentClinic?.isDiagnosticLab() == true ||
+        (currentClinic == null && (
+            defaultClinicName.lowercase().contains("diagnostic") ||
+            defaultClinicName.lowercase().contains("lab")
+        ))
+    }
+
     val isMultiTypeClinic = remember(currentClinic) {
         val type = currentClinic?.type?.lowercase() ?: ""
         type.contains("multi") || type.contains("poly") || type.contains("hospital") || type.contains("center") || currentClinic?.specialties?.size ?: 0 > 1
@@ -1075,6 +1105,7 @@ fun PatientDirectoryScreen(
                                     badgeText = "In Doctor Queue",
                                     existingRemark = existingRemark,
                                     isMultiTypeClinic = isMultiTypeClinic,
+                                    isLabClinic = isLabClinic,
                                     onCardClick = { openPatientHistory(detailItem) },
                                     onCopyTracking = { code ->
                                         clipboardManager.setText(AnnotatedString(code))
@@ -1087,11 +1118,13 @@ fun PatientDirectoryScreen(
                                         } catch (ignored: Exception) {}
                                     },
                                     onScheduleNextVisit = {
-                                        showScheduleDialogForPatient = detailItem
-                                        scheduleDoctorId = appt.doctorId ?: affiliatedDoctors.firstOrNull()?.id ?: ""
-                                        scheduleDateInput = LocalDate.now().toString()
-                                        selectedScheduleSlotId = null
-                                        scheduleRemarksInput = ""
+                                        if (!isLabClinic) {
+                                            showScheduleDialogForPatient = detailItem
+                                            scheduleDoctorId = appt.doctorId ?: affiliatedDoctors.firstOrNull()?.id ?: ""
+                                            scheduleDateInput = LocalDate.now().toString()
+                                            selectedScheduleSlotId = null
+                                            scheduleRemarksInput = ""
+                                        }
                                     },
                                     onOpenBilling = {
                                         navController.navigate("${NavRoutes.BillingScreen}/${appt.id}")
@@ -1197,6 +1230,7 @@ fun PatientDirectoryScreen(
                                     },
                                     existingRemark = existingRemark,
                                     isMultiTypeClinic = isMultiTypeClinic,
+                                    isLabClinic = isLabClinic,
                                     onCardClick = { openPatientHistory(detailItem) },
                                     onCopyTracking = { code ->
                                         clipboardManager.setText(AnnotatedString(code))
@@ -1209,11 +1243,13 @@ fun PatientDirectoryScreen(
                                         } catch (ignored: Exception) {}
                                     },
                                     onScheduleNextVisit = {
-                                        showScheduleDialogForPatient = detailItem
-                                        scheduleDoctorId = thisAppt?.doctorId ?: affiliatedDoctors.firstOrNull()?.id ?: ""
-                                        scheduleDateInput = LocalDate.now().toString()
-                                        selectedScheduleSlotId = null
-                                        scheduleRemarksInput = ""
+                                        if (!isLabClinic) {
+                                            showScheduleDialogForPatient = detailItem
+                                            scheduleDoctorId = thisAppt?.doctorId ?: affiliatedDoctors.firstOrNull()?.id ?: ""
+                                            scheduleDateInput = LocalDate.now().toString()
+                                            selectedScheduleSlotId = null
+                                            scheduleRemarksInput = ""
+                                        }
                                     },
                                     onOpenBilling = {
                                         val targetId = thisAppt?.id ?: assignedApptId
@@ -1772,6 +1808,7 @@ fun PatientDirectoryScreen(
                 doctors = affiliatedDoctors,
                 remarksMap = remarksMap,
                 isMultiTypeClinic = isMultiTypeClinic,
+                isLabClinic = isLabClinic,
                 onDismiss = { selectedPatientForDetails = null },
                 onCopyTracking = { code ->
                     clipboardManager.setText(AnnotatedString(code))
@@ -1795,8 +1832,10 @@ fun PatientDirectoryScreen(
                     selectedRescheduleSlotId = appt.slotId
                 },
                 onScheduleNewVisit = {
-                    showScheduleDialogForPatient = patientItem
-                    scheduleDoctorId = affiliatedDoctors.firstOrNull()?.id ?: ""
+                    if (!isLabClinic) {
+                        showScheduleDialogForPatient = patientItem
+                        scheduleDoctorId = affiliatedDoctors.firstOrNull()?.id ?: ""
+                    }
                 }
             )
         }
@@ -2191,11 +2230,12 @@ fun PatientDirectoryScreen(
         }
 
         // =========================================================================
-        // DIRECT APPOINTMENT BOOKING / SLOT SELECTION DIALOG
+        // DIRECT APPOINTMENT BOOKING / SLOT SELECTION DIALOG (Hidden for Diagnostic Lab clinics)
         // =========================================================================
-        showScheduleDialogForPatient?.let { pItem ->
-            AlertDialog(
-                onDismissRequest = { if (!isScheduling) showScheduleDialogForPatient = null },
+        if (!isLabClinic) {
+            showScheduleDialogForPatient?.let { pItem ->
+                AlertDialog(
+                    onDismissRequest = { if (!isScheduling) showScheduleDialogForPatient = null },
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = Color(0xFF0097A7))
@@ -2583,6 +2623,7 @@ fun PatientDirectoryScreen(
                 }
             )
         }
+        }
 
         // =========================================================================
         // ADD PATIENT TO DIRECTORY DIALOG
@@ -2826,6 +2867,7 @@ private fun PatientRecordCardItem(
     badgeText: String,
     existingRemark: String?,
     isMultiTypeClinic: Boolean,
+    isLabClinic: Boolean = false,
     onCardClick: () -> Unit,
     onCopyTracking: (String) -> Unit,
     onCallPatient: (String) -> Unit,
@@ -3108,58 +3150,60 @@ private fun PatientRecordCardItem(
                 }
             }
 
-            // Action Row: Book Appointment & Push / Edit Bill
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = { onScheduleNextVisit() },
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, Color(0xFF0097A7)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(38.dp)
+            // Action Row: Book Appointment & Push / Edit Bill (Hidden for Diagnostic Lab clinics)
+            if (!isLabClinic || onOpenBilling != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(
-                        Icons.Default.CalendarMonth,
-                        contentDescription = null,
-                        tint = Color(0xFF0097A7),
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Spacer(Modifier.width(5.dp))
-                    Text(
-                        text = "Book Appointment",
-                        color = Color(0xFF0097A7),
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                    if (!isLabClinic) {
+                        OutlinedButton(
+                            onClick = { onScheduleNextVisit() },
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Color(0xFF0097A7)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = (if (onOpenBilling != null) Modifier.weight(1f) else Modifier.fillMaxWidth())
+                                .height(38.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.CalendarMonth,
+                                contentDescription = null,
+                                tint = Color(0xFF0097A7),
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                text = "Book Appointment",
+                                color = Color(0xFF0097A7),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
 
-                if (onOpenBilling != null) {
-                    Button(
-                        onClick = { onOpenBilling() },
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E)),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(38.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.ReceiptLong,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(Modifier.width(5.dp))
-                        Text(
-                            text = "Push / Edit Bill",
-                            color = Color.White,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                    if (onOpenBilling != null) {
+                        Button(
+                            onClick = { onOpenBilling() },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = (if (!isLabClinic) Modifier.weight(1f) else Modifier.fillMaxWidth())
+                                .height(38.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.ReceiptLong,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                text = "Push / Edit Bill",
+                                color = Color.White,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
@@ -3183,6 +3227,7 @@ private fun PatientFullHistoryModalDialog(
     doctors: List<Doctor>,
     remarksMap: Map<String, String>,
     isMultiTypeClinic: Boolean,
+    isLabClinic: Boolean = false,
     onDismiss: () -> Unit,
     onCopyTracking: (String) -> Unit,
     onCallPatient: (String) -> Unit,
@@ -3309,20 +3354,22 @@ private fun PatientFullHistoryModalDialog(
 
                 Spacer(Modifier.height(10.dp))
 
-                // Direct Appointment Booking Button
-                Button(
-                    onClick = { onScheduleNewVisit() },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0097A7)),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(42.dp)
-                ) {
-                    Icon(Icons.Default.AddCircleOutline, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("+ Book Appointment / Slot", fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Color.White)
+                // Direct Appointment Booking Button (Hidden for Diagnostic Lab clinics)
+                if (!isLabClinic) {
+                    Button(
+                        onClick = { onScheduleNewVisit() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0097A7)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(42.dp)
+                    ) {
+                        Icon(Icons.Default.AddCircleOutline, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("+ Book Appointment / Slot", fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Color.White)
+                    }
+                    Spacer(Modifier.height(10.dp))
                 }
-                Spacer(Modifier.height(10.dp))
 
                 // Visits Header
                 Row(
@@ -3359,7 +3406,11 @@ private fun PatientFullHistoryModalDialog(
                         ) {
                             Icon(Icons.Default.FolderOpen, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(40.dp))
                             Text("No Past Consultations on File", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF0F172A))
-                            Text("Tap '+ Schedule Next Visit' to book a consultation slot.", fontSize = 12.sp, color = Color(0xFF64748B))
+                            if (!isLabClinic) {
+                                Text("Tap '+ Schedule Next Visit' to book a consultation slot.", fontSize = 12.sp, color = Color(0xFF64748B))
+                            } else {
+                                Text("No diagnostic or laboratory records on file.", fontSize = 12.sp, color = Color(0xFF64748B))
+                            }
                         }
                     }
                 } else {

@@ -417,39 +417,59 @@ fun BookingFormScreen(
                 }
 
                 if (isReturningPatient) {
-                    // Retain patient from the 10-digit Appointment ID without requiring patient details input
-                    val bookedFollowUp = appointmentRepository?.bookFollowUpAppointment(
-                        trackingCode = manualCodeInput,
-                        slotId = slotId.ifBlank { null },
-                        clinicId = finalClinicId,
-                        doctorId = resolvedDoctorId,
-                        appointmentDate = resolvedDate,
-                        appointmentTime = resolvedTime,
-                        fallbackUserId = resolvedUserId,
-                        fallbackEmail = cleanBookingEmail
-                    )
+                    // If active appointment, reschedule in-place (never create new appointment or overwrite bill)
+                    val effectiveAppt: Appointment? = if (isRetainedActive && retainedAppointment != null) {
+                        val ok = appointmentRepository?.rescheduleAppointment(
+                            id = retainedAppointment!!.id,
+                            newDate = resolvedDate,
+                            newTime = resolvedTime,
+                            slotId = slotId.ifBlank { null },
+                            newDoctorId = if (isLabClinic) null else resolvedDoctorId,
+                            reason = "Rescheduled by patient via Booking Form"
+                        ) ?: false
+                        if (ok) {
+                            appointmentRepository?.getAppointmentById(retainedAppointment!!.id) ?: retainedAppointment!!.copy(
+                                appointmentDate = resolvedDate,
+                                appointmentTime = resolvedTime,
+                                slotId = slotId.ifBlank { null },
+                                doctorId = if (isLabClinic) null else resolvedDoctorId
+                            )
+                        } else null
+                    } else {
+                        // Retain patient from the 10-digit Appointment ID without requiring patient details input
+                        appointmentRepository?.bookFollowUpAppointment(
+                            trackingCode = manualCodeInput,
+                            slotId = slotId.ifBlank { null },
+                            clinicId = finalClinicId,
+                            doctorId = resolvedDoctorId,
+                            appointmentDate = resolvedDate,
+                            appointmentTime = resolvedTime,
+                            fallbackUserId = resolvedUserId,
+                            fallbackEmail = cleanBookingEmail
+                        )
+                    }
 
-                    if (bookedFollowUp == null) {
-                        errorMessage = "No patient record found for Appointment ID $manualCodeInput. Please verify your 10-digit code."
+                    if (effectiveAppt == null) {
+                        errorMessage = "Could not process appointment for ID $manualCodeInput. Please verify your 10-digit code or choose another slot."
                         isSubmitting = false
                         return@launch
                     }
 
                     sessionManager?.saveTrackingCode(
-                        bookedFollowUp.trackingCode10Digit,
-                        "${bookedFollowUp.patientName} \u2022 $resolvedDate"
+                        effectiveAppt.trackingCode10Digit,
+                        "${effectiveAppt.patientName} \u2022 $resolvedDate"
                     )
                     sessionManager?.saveLastConfirmedAppointment(
-                        appointmentId = bookedFollowUp.id,
-                        trackingCode = bookedFollowUp.trackingCode10Digit,
+                        appointmentId = effectiveAppt.id,
+                        trackingCode = effectiveAppt.trackingCode10Digit,
                         clinicName = clinicDisplayName ?: "Patan Clinic",
                         doctorName = slotDoctorName ?: "Dr. Kshitiz",
                         doctorSpecialty = slotDoctorSpecialty ?: "Ophthalmology",
-                        patientName = bookedFollowUp.patientName,
+                        patientName = effectiveAppt.patientName,
                         appointmentDate = resolvedDate,
                         timeWindow = if (resolvedTime.contains(" - ")) resolvedTime else if (resolvedTime.contains("09:30") || resolvedTime.contains("09:00")) "09:00 AM - 12:00 PM" else resolvedTime
                     )
-                    navController.navigate(NavRoutes.AppointmentConfirmed.createRoute(bookedFollowUp.id))
+                    navController.navigate(NavRoutes.AppointmentConfirmed.createRoute(effectiveAppt.id))
                 } else {
                     // 1. Detect unapproved Pay at Desk appointment for this exact patient
                     if (!forceProceed && appointmentRepository != null) {

@@ -87,10 +87,29 @@ class QueueRepository @Inject constructor(
 
     private val queueEntriesForClinicCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<QueueEntry>>>()
     private val queueStatusCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, QueueEntry>>()
+    private val diagnosticLabClinicCache = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
 
     fun clearCache() {
         queueEntriesForClinicCache.clear()
         queueStatusCache.clear()
+        diagnosticLabClinicCache.clear()
+    }
+
+    suspend fun isDiagnosticLabClinic(clinicId: String): Boolean {
+        if (clinicId.isBlank()) return false
+        val cached = diagnosticLabClinicCache[clinicId]
+        if (cached != null) return cached
+        return try {
+            val clinicList = supabaseClient.postgrest["clinics"]
+                .select { filter { eq("id", clinicId) } }
+                .decodeList<com.dactor.patient.data.model.Clinic>()
+            val c = clinicList.firstOrNull()
+            val isLab = com.dactor.patient.util.DiagnosticLabPolicy.isDiagnosticOrPathologyLab(c)
+            diagnosticLabClinicCache[clinicId] = isLab
+            isLab
+        } catch (_: Exception) {
+            false
+        }
     }
 
     suspend fun getQueueStatus(appointmentId: String, forceRefresh: Boolean = false): QueueEntry? {
@@ -151,17 +170,18 @@ class QueueRepository @Inject constructor(
             }
 
             val existing = getQueueStatus(appointmentId)
-            val cleanDocId = doctorId?.takeIf { com.dactor.patient.domain.util.PatientIdentitySync.isValidUuid(it) }
+            val isLab = isDiagnosticLabClinic(clinicId)
+            val cleanDocId = if (isLab) null else doctorId?.takeIf { com.dactor.patient.domain.util.PatientIdentitySync.isValidUuid(it) }
 
             if (existing != null) {
                 // If previous queue entry is already done or completed, do not reset it
                 if (existing.status.lowercase() in listOf("done", "completed")) {
                     return@withContext existing
                 }
-                // If previous queue entry was cancelled, no_show, or skipped, reset it to active waiting for today's OPD
+                // If previous queue entry was cancelled, no_show, or skipped, reset it to active waiting for today's OPD/Lab
                 if (existing.status.lowercase() in listOf("cancelled", "no_show", "skipped")) {
-                    val resolvedDoc = cleanDocId ?: existing.doctorId
-                    val currentEntries = getQueueEntriesForDoctor(clinicId, resolvedDoc)
+                    val resolvedDoc = if (isLab) null else (cleanDocId ?: existing.doctorId)
+                    val currentEntries = if (isLab) getQueueEntriesForClinic(clinicId) else getQueueEntriesForDoctor(clinicId, resolvedDoc)
                     val nextPos = (currentEntries
                         .filter { it.status == "waiting" || it.status == "inside" }
                         .map { it.queuePosition }
@@ -174,7 +194,7 @@ class QueueRepository @Inject constructor(
                             set("called_at", null as String?)
                             set("inside_at", null as String?)
                             set("completed_at", null as String?)
-                            if (resolvedDoc != null) set("doctor_id", resolvedDoc)
+                            set("doctor_id", resolvedDoc)
                         }) {
                             filter { eq("id", existing.id) }
                         }
@@ -193,9 +213,11 @@ class QueueRepository @Inject constructor(
                 return@withContext existing
             }
 
-            // Doctor-partitioned queue sequence: token starts from 1 for each specific doctor
-            val doctorEntries = getQueueEntriesForDoctor(clinicId, cleanDocId)
-            val nextPos = (doctorEntries
+            // Queue sequence:
+            // For diagnostic lab: single common queue across this clinic_id (Tokens 1..N across entire lab, doctor_id = null)
+            // For doctor clinic: doctor-partitioned queue sequence (Token starts from 1 for each specific doctor)
+            val activeEntries = if (isLab) getQueueEntriesForClinic(clinicId) else getQueueEntriesForDoctor(clinicId, cleanDocId)
+            val nextPos = (activeEntries
                 .filter { it.status == "waiting" || it.status == "inside" }
                 .map { it.queuePosition }
                 .maxOrNull() ?: 0) + 1
@@ -204,7 +226,7 @@ class QueueRepository @Inject constructor(
                 id = UUID.randomUUID().toString(),
                 appointmentId = appointmentId,
                 clinicId = clinicId,
-                doctorId = cleanDocId,
+                doctorId = if (isLab) null else cleanDocId,
                 queuePosition = nextPos,
                 status = "waiting"
             )
@@ -275,6 +297,10 @@ class QueueRepository @Inject constructor(
     suspend fun getQueueEntriesForDoctor(clinicId: String, doctorId: String?): List<QueueEntry> {
         if (clinicId.isBlank()) return emptyList()
         val all = getQueueEntriesForClinic(clinicId)
+        if (isDiagnosticLabClinic(clinicId)) {
+            // Diagnostic Lab: Single common queue across this clinic (no doctor partition)
+            return all
+        }
         return if (doctorId.isNullOrBlank()) {
             all.filter { it.doctorId.isNullOrBlank() }
         } else {
@@ -289,7 +315,8 @@ class QueueRepository @Inject constructor(
         forceRefresh: Boolean = false
     ): List<QueueEntry> {
         if (clinicId.isBlank()) return emptyList()
-        val allEntries = getQueueEntriesForDoctor(clinicId, doctorId)
+        val isLab = isDiagnosticLabClinic(clinicId)
+        val allEntries = if (isLab) getQueueEntriesForClinic(clinicId, forceRefresh) else getQueueEntriesForDoctor(clinicId, doctorId)
         val targetDateStr = appointmentDate.trim().take(10)
         if (targetDateStr.isBlank()) return allEntries
         return try {
@@ -297,7 +324,7 @@ class QueueRepository @Inject constructor(
                 filter {
                     eq("clinic_id", clinicId)
                     eq("appointment_date", targetDateStr)
-                    if (!doctorId.isNullOrBlank()) {
+                    if (!isLab && !doctorId.isNullOrBlank()) {
                         eq("doctor_id", doctorId)
                     }
                 }

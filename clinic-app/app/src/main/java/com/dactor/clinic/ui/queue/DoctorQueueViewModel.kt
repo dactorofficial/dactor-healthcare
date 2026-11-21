@@ -121,19 +121,24 @@ class DoctorQueueViewModel @Inject constructor(
                 // 1. Fetch clinic break status
                 val clinic = clinicRepository.getClinicById(s.clinicId)
                 val isBreak = clinic?.isOnBreak == true
+                val isLabClinic = clinic?.isDiagnosticLab() == true
 
-                // 2. Fetch doctor queue entries & appointments for doctor and clinic
+                // 2. Fetch queue entries & appointments (Single common queue for Diagnostic Lab; doctor-partitioned for OPD clinic)
                 val entries = if (isDeltaOnly) {
                     queueRepository.syncQueueDeltaForDoctor(s.doctorId, s.clinicId)
                 } else {
                     queueRepository.getQueueForDoctor(s.doctorId, s.clinicId, forceRefresh = forceRefresh)
                 }
 
-                val appts = appointmentRepository.getAppointmentsByDoctor(s.doctorId, s.selectedDate, forceRefresh = forceRefresh)
+                val appts = if (isLabClinic) {
+                    appointmentRepository.getAppointmentsByClinic(s.clinicId, forceRefresh = forceRefresh)
+                } else {
+                    appointmentRepository.getAppointmentsByDoctor(s.doctorId, s.selectedDate, forceRefresh = forceRefresh)
+                }
 
-                // 3. Strict filter: Only approved appointments for current doctor and clinic on selectedDate
+                // 3. Strict filter: Only approved appointments for current facility on selectedDate
                 val initialApproved = appts.filter { appt ->
-                    appt.doctorId == s.doctorId &&
+                    (if (isLabClinic) true else appt.doctorId == s.doctorId) &&
                     appt.clinicId == s.clinicId &&
                     appt.appointmentDate == s.selectedDate &&
                     appt.status.equals("APPROVED", ignoreCase = true) &&
@@ -222,7 +227,8 @@ class DoctorQueueViewModel @Inject constructor(
                         paymentStatus = appt.paymentStatus,
                         totalAmount = if (appt.totalAmount > 0.0) appt.totalAmount else appt.feeAmount,
                         userId = appt.userId,
-                        isWalkin = appt.isWalkin
+                        isWalkin = appt.isWalkin,
+                        createdAt = appt.createdAt
                     )
                 }
 
@@ -233,8 +239,26 @@ class DoctorQueueViewModel @Inject constructor(
                     }
                 }
 
+                val nowMin = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
                 val live = mapped.filter { it.status == "waiting" || it.status == "inside" }
-                    .sortedWith(compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }.thenBy { it.queuePosition })
+                    .sortedWith(
+                        compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }
+                            .thenBy { item -> item.queuePosition.takeIf { it > 0 } ?: 9999 }
+                            .thenBy { item ->
+                                val isPayAtDesk = item.paymentMode == "PAY_AT_DESK"
+                                val slotEndMin = com.dactor.clinic.data.repository.AppointmentRepository.parseAppointmentEndTimeToMinutes(item.appointmentTime)
+                                if (isPayAtDesk && slotEndMin < nowMin) 0 else 1
+                            }
+                            .thenBy { item ->
+                                com.dactor.clinic.data.repository.AppointmentRepository.parseTimeToMinutes(item.appointmentTime)
+                            }
+                            .thenBy { item ->
+                                item.createdAt.orEmpty()
+                            }
+                            .thenBy { item ->
+                                item.id
+                            }
+                    )
                     .mapIndexed { idx, item -> item.copy(queuePosition = idx + 1) }
 
                 val completed = mapped.filter { it.status in setOf("done", "report_prepared", "no_show", "processing") }
@@ -709,11 +733,12 @@ class DoctorQueueViewModel @Inject constructor(
                 }
 
                 // 2. Incrementally discover newly booked or approved appointments for today
+                val isLabClinic = clinicRepository.getCachedClinicById(s.clinicId)?.isDiagnosticLab() == true
                 val allKnownApptIds = (_uiState.value.liveQueue + _uiState.value.completedQueue).map { it.appointmentId }.toSet()
                 val newAppts = try {
                     appointmentRepository.checkNewAppointments(
                         clinicId = s.clinicId,
-                        doctorId = s.doctorId,
+                        doctorId = if (isLabClinic) null else s.doctorId,
                         date = s.selectedDate,
                         knownApptIds = allKnownApptIds
                     )
@@ -728,7 +753,7 @@ class DoctorQueueViewModel @Inject constructor(
 
                     for (appt in newAppts) {
                         runCatching {
-                            queueRepository.autoEnrollNewAppointment(s.clinicId, s.doctorId, appt.id, nextPos)
+                            queueRepository.autoEnrollNewAppointment(s.clinicId, if (isLabClinic) null else s.doctorId, appt.id, nextPos)
                         }
                         newItems.add(
                             QueueItemUi(
@@ -749,13 +774,32 @@ class DoctorQueueViewModel @Inject constructor(
                                 paymentStatus = appt.paymentStatus,
                                 totalAmount = if (appt.totalAmount > 0.0) appt.totalAmount else appt.feeAmount,
                                 userId = appt.userId,
-                                isWalkin = appt.isWalkin
+                                isWalkin = appt.isWalkin,
+                                createdAt = appt.createdAt
                             )
                         )
                     }
 
+                    val nowMin = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
                     val merged = (currentLive + newItems)
-                        .sortedWith(compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }.thenBy { it.queuePosition })
+                        .sortedWith(
+                            compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }
+                                .thenBy { item -> item.queuePosition.takeIf { it > 0 } ?: 9999 }
+                                .thenBy { item ->
+                                    val isPayAtDesk = item.paymentMode == "PAY_AT_DESK"
+                                    val slotEndMin = com.dactor.clinic.data.repository.AppointmentRepository.parseAppointmentEndTimeToMinutes(item.appointmentTime)
+                                    if (isPayAtDesk && slotEndMin < nowMin) 0 else 1
+                                }
+                                .thenBy { item ->
+                                    com.dactor.clinic.data.repository.AppointmentRepository.parseTimeToMinutes(item.appointmentTime)
+                                }
+                                .thenBy { item ->
+                                    item.createdAt.orEmpty()
+                                }
+                                .thenBy { item ->
+                                    item.id
+                                }
+                        )
                         .mapIndexed { idx, itm -> itm.copy(queuePosition = idx + 1) }
 
                     _uiState.update { current ->

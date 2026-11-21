@@ -773,12 +773,6 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       (appointment as any)?.queueStatus?.toLowerCase() || ''
     )
 
-  const isNoShow =
-    ['no_show', 'noshow'].includes(appointment?.checkinStatus?.toLowerCase() || '') ||
-    ['no_show', 'noshow'].includes((appointment as any)?.queueStatus?.toLowerCase() || '')
-
-  const isClinicClosed = clinic?.isOpen === false
-
   const hasPreparedReport =
     labReports.some((r) => {
       const st = (r.status as string | undefined)?.toLowerCase()
@@ -786,7 +780,10 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     }) ||
     appointment?.checkinStatus?.toLowerCase() === 'report_prepared' ||
     (appointment as any)?.queueStatus?.toLowerCase() === 'report_prepared'
-  const hasProcessingReport = labReports.some((r) => r.status === 'processing')
+  const hasProcessingReport = labReports.some((r) => {
+    const st = (r.status as string | undefined)?.toLowerCase()
+    return st === 'processing' || st === 'sample_collected' || st === 'in_lab'
+  })
   const isLabOrderProcessing =
     ['processing', 'sample_collected', 'in_lab'].includes(
       appointment?.checkinStatus?.toLowerCase() || ''
@@ -795,12 +792,37 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       (appointment as any)?.queueStatus?.toLowerCase() || ''
     )
 
+  const isSampleCollectedOrFurther =
+    isLabOrderProcessing ||
+    hasProcessingReport ||
+    hasPreparedReport ||
+    labReports.length > 0 ||
+    ['sample_collected', 'processing', 'in_lab', 'report_prepared', 'prepared', 'delivered'].includes(
+      appointment?.checkinStatus?.toLowerCase() || ''
+    ) ||
+    ['sample_collected', 'processing', 'in_lab', 'report_prepared', 'prepared', 'delivered'].includes(
+      (appointment as any)?.queueStatus?.toLowerCase() || ''
+    )
+
+  const isNoShow =
+    !isConsultancyCompleted &&
+    !isSampleCollectedOrFurther &&
+    (['no_show', 'noshow'].includes(appointment?.checkinStatus?.toLowerCase() || '') ||
+      ['no_show', 'noshow'].includes((appointment as any)?.queueStatus?.toLowerCase() || ''))
+
+  const isClinicClosed = clinic?.isOpen === false
+  const showClinicClosedUI =
+    isClinicClosed &&
+    isAppointmentToday &&
+    !isConsultancyCompleted &&
+    !isSampleCollectedOrFurther
+
   const isCalledInsideOrDone =
     isConsultancyCompleted || isInsideChamber || isLabOrderProcessing || hasProcessingReport || hasPreparedReport
 
   const effectiveLabStatus: 'waiting' | 'inside' | 'processing' | 'prepared' = hasPreparedReport
     ? 'prepared'
-    : hasProcessingReport || isLabOrderProcessing
+    : hasProcessingReport || isLabOrderProcessing || isSampleCollectedOrFurther
     ? 'processing'
     : isInsideChamber
     ? 'inside'
@@ -1087,7 +1109,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     const now = new Date()
     const isDoctorFree = isDoctorInClinic && !inConsultationPatient && clinic?.isOnBreak !== true
 
-    if (clinic?.isOpen === false && isAppointmentToday) {
+    if (showClinicClosedUI) {
       return {
         effectiveExpectedTime: now,
         timeWindowText: 'Clinic Closed',
@@ -1106,6 +1128,28 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         suggestedArrivalText: 'Marked as No-Show',
         slotNoticeText: 'This appointment was marked as No-Show as clinic consultations concluded.',
         displayWaitText: 'No Show',
+      }
+    }
+
+    if (isLabClinic && effectiveLabStatus === 'prepared') {
+      return {
+        effectiveExpectedTime: now,
+        timeWindowText: 'Report Prepared',
+        approxTimeText: 'Report Ready',
+        suggestedArrivalText: 'Diagnostic Report Ready',
+        slotNoticeText: 'Your certified lab report is ready. Verify your identity below to view and download.',
+        displayWaitText: 'Ready',
+      }
+    }
+
+    if (isLabClinic && (effectiveLabStatus === 'processing' || isSampleCollectedOrFurther)) {
+      return {
+        effectiveExpectedTime: now,
+        timeWindowText: 'Sample Processing',
+        approxTimeText: 'In Laboratory',
+        suggestedArrivalText: 'Sample Collected',
+        slotNoticeText: 'Your sample was collected and is currently being processed in the laboratory.',
+        displayWaitText: 'In Lab',
       }
     }
 
@@ -1265,7 +1309,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       slotNoticeText: isArriveSoon ? 'You are at position 1! You are next in line — arrive soon.' : notice,
       displayWaitText: waitText
     }
-  }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, clinic?.isOpen, isNoShow, clinic?.weeklyScheduleJson, clinicAvgMinutes, patientsAhead, estimatedWaitMinutes, isFutureOrTomorrow, multiSlotResult, dateLabel, slotStartTimeStr, isAppointmentToday])
+  }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, clinic?.isOpen, isNoShow, showClinicClosedUI, isLabClinic, effectiveLabStatus, isSampleCollectedOrFurther, clinic?.weeklyScheduleJson, clinicAvgMinutes, patientsAhead, estimatedWaitMinutes, isFutureOrTomorrow, multiSlotResult, dateLabel, slotStartTimeStr, isAppointmentToday])
 
   // Formatted expected call time
   const formattedExpectedTime = approxTimeText
@@ -1892,7 +1936,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             ) : (
               <>
             {/* 2. CLINIC CLOSED BANNER */}
-            {clinic?.isOpen === false && !isConsultancyCompleted && isAppointmentToday && (
+            {showClinicClosedUI && (
               <div className="bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 flex items-center space-x-3 text-rose-900 dark:text-rose-300 shadow-glass-sm backdrop-blur-sm">
                 <div className="w-9 h-9 rounded-full bg-rose-500 text-white flex items-center justify-center shrink-0">
                   <AlertCircle className="w-5 h-5" />
@@ -1964,8 +2008,12 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                 <div className="relative flex items-center justify-center shrink-0">
                   <div
                     className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center backdrop-blur-md border ${
-                      clinic?.isOpen === false || isNoShow
+                      showClinicClosedUI || isNoShow
                         ? 'bg-rose-500/15 border-rose-500/30'
+                        : isLabClinic && effectiveLabStatus === 'prepared'
+                        ? 'bg-emerald-500/15 border-emerald-500/30'
+                        : isLabClinic && (effectiveLabStatus === 'processing' || isSampleCollectedOrFurther)
+                        ? 'bg-amber-500/15 border-amber-500/30'
                         : isInsideChamber
                         ? 'bg-blue-500/15 border-blue-500/30'
                         : isConsultancyCompleted
@@ -1981,8 +2029,12 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                   >
                     <div
                       className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full flex flex-col items-center justify-center text-white shadow-glass-base ${
-                        (clinic?.isOpen === false && isAppointmentToday) || isNoShow
+                        showClinicClosedUI || isNoShow
                           ? 'bg-gradient-to-tr from-rose-600 to-red-600'
+                          : isLabClinic && effectiveLabStatus === 'prepared'
+                          ? 'bg-gradient-to-tr from-emerald-600 to-teal-600'
+                          : isLabClinic && (effectiveLabStatus === 'processing' || isSampleCollectedOrFurther)
+                          ? 'bg-gradient-to-tr from-amber-600 to-yellow-600'
                           : isInsideChamber
                           ? 'bg-gradient-to-tr from-blue-600 to-indigo-600'
                           : isConsultancyCompleted
@@ -1997,10 +2049,14 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                       }`}
                     >
                       <span className="text-[7px] sm:text-[8px] font-black uppercase tracking-wider opacity-90 leading-tight">
-                        {clinic?.isOpen === false && isAppointmentToday
+                        {showClinicClosedUI
                           ? 'CLINIC'
                           : isNoShow
                           ? 'VISIT'
+                          : isLabClinic && effectiveLabStatus === 'prepared'
+                          ? 'REPORT'
+                          : isLabClinic && (effectiveLabStatus === 'processing' || isSampleCollectedOrFurther)
+                          ? 'IN LAB'
                           : isInsideChamber
                           ? 'CURRENT'
                           : isConsultancyCompleted
@@ -2013,11 +2069,15 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           ? 'UP NEXT'
                           : 'POSITION'}
                       </span>
-                      <span className={`${(clinic?.isOpen === false && isAppointmentToday) || isNoShow ? 'text-[10px] sm:text-[11px] tracking-tight' : 'text-xl sm:text-2xl'} font-black leading-none mt-0.5`}>
-                        {clinic?.isOpen === false && isAppointmentToday
+                      <span className={`${showClinicClosedUI || isNoShow ? 'text-[10px] sm:text-[11px] tracking-tight' : 'text-xl sm:text-2xl'} font-black leading-none mt-0.5`}>
+                        {showClinicClosedUI
                           ? 'CLOSED'
                           : isNoShow
                           ? 'NO SHOW'
+                          : isLabClinic && effectiveLabStatus === 'prepared'
+                          ? 'READY'
+                          : isLabClinic && (effectiveLabStatus === 'processing' || isSampleCollectedOrFurther)
+                          ? 'LAB'
                           : isInsideChamber
                           ? 'NOW'
                           : isConsultancyCompleted
@@ -2037,11 +2097,11 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                   <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                     <h3
                       className={`text-base sm:text-xl font-black leading-snug ${
-                        (clinic?.isOpen === false && isAppointmentToday) || isNoShow
+                        showClinicClosedUI || isNoShow
                           ? 'text-rose-700 dark:text-rose-300'
                           : isLabClinic && effectiveLabStatus === 'prepared'
                           ? 'text-emerald-700 dark:text-emerald-300'
-                          : isLabClinic && effectiveLabStatus === 'processing'
+                          : isLabClinic && (effectiveLabStatus === 'processing' || isSampleCollectedOrFurther)
                           ? 'text-amber-700 dark:text-amber-300'
                           : isLabClinic && effectiveLabStatus === 'inside'
                           ? 'text-blue-700 dark:text-blue-300'
@@ -2056,13 +2116,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           : 'text-slate-900 dark:text-white'
                       }`}
                     >
-                      {clinic?.isOpen === false && isAppointmentToday
+                      {showClinicClosedUI
                         ? 'Clinic is Closed for Today'
                         : isNoShow
                         ? 'Visit Concluded as No-Show'
                         : isLabClinic && effectiveLabStatus === 'prepared'
                         ? 'Status: Report Prepared'
-                        : isLabClinic && effectiveLabStatus === 'processing'
+                        : isLabClinic && (effectiveLabStatus === 'processing' || isSampleCollectedOrFurther)
                         ? 'Status: Sample Processing'
                         : isLabClinic && effectiveLabStatus === 'inside'
                         ? 'Called Inside Phlebotomy Booth!'
@@ -2093,13 +2153,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                   </div>
 
                   <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
-                    {clinic?.isOpen === false && isAppointmentToday
+                    {showClinicClosedUI
                       ? 'The clinic has closed for today. Live queue tracking and consultations have concluded.'
                       : isNoShow
                       ? 'This visit was concluded as No-Show after clinic closing hours.'
                       : isLabClinic && effectiveLabStatus === 'prepared'
                       ? 'Certified report ready • Verify identity below to view & download file'
-                      : isLabClinic && effectiveLabStatus === 'processing'
+                      : isLabClinic && (effectiveLabStatus === 'processing' || isSampleCollectedOrFurther)
                       ? 'Sample collected • Biochemical processing underway in laboratory'
                       : isLabClinic && effectiveLabStatus === 'inside'
                       ? '🔔 Token called! Please proceed immediately into the phlebotomy collection booth'
@@ -2214,20 +2274,20 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                     </div>
 
                     <div className={`p-4 rounded-2xl liquid-glass-subtle space-y-0.5 border ${
-                      (clinic?.isOpen === false && isAppointmentToday)
+                      showClinicClosedUI
                         ? 'border-rose-500/40 bg-rose-500/5'
                         : (clinic?.isOnBreak && isAppointmentToday)
                         ? 'border-amber-500/50 bg-amber-500/5'
                         : 'border-teal-500/30'
                     }`}>
                       <span className={`text-[10px] font-bold uppercase tracking-wider ${
-                        (clinic?.isOpen === false && isAppointmentToday)
+                        showClinicClosedUI
                           ? 'text-rose-700 dark:text-rose-300'
                           : (clinic?.isOnBreak && isAppointmentToday)
                           ? 'text-amber-800 dark:text-amber-300'
                           : 'text-teal-700 dark:text-teal-300'
                       }`}>
-                        {clinic?.isOpen === false && isAppointmentToday
+                        {showClinicClosedUI
                           ? 'Clinic Status'
                           : (clinic?.isOnBreak && isAppointmentToday)
                           ? 'Clinic on Break'
@@ -2238,13 +2298,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           : 'Expected Window'}
                       </span>
                       <div className={`text-base font-black ${
-                        (clinic?.isOpen === false && isAppointmentToday)
+                        showClinicClosedUI
                           ? 'text-rose-900 dark:text-rose-200'
                           : (clinic?.isOnBreak && isAppointmentToday)
                           ? 'text-amber-900 dark:text-amber-200'
                           : 'text-teal-900 dark:text-teal-200'
                       }`}>
-                        {clinic?.isOpen === false && isAppointmentToday
+                        {showClinicClosedUI
                           ? 'Clinic Closed'
                           : isPastAppointment
                           ? 'Visit Concluded'
@@ -2254,8 +2314,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           ? `${slotStartTimeStr} (±15 min)`
                           : displayWaitText}
                       </div>
-                      <span className={`text-[11px] ${(clinic?.isOpen === false && isAppointmentToday) ? 'text-rose-700 dark:text-rose-400' : 'text-teal-700 dark:text-teal-400'}`}>
-                        {clinic?.isOpen === false && isAppointmentToday
+                      <span className={`text-[11px] ${showClinicClosedUI ? 'text-rose-700 dark:text-rose-400' : 'text-teal-700 dark:text-teal-400'}`}>
+                        {showClinicClosedUI
                           ? 'Consultations ended for today'
                           : isPastAppointment
                           ? 'Live tracking closes after appointment date'

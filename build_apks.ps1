@@ -1,4 +1,4 @@
-# PowerShell script to build Dactor APKs with automatic version incrementing & naming
+﻿# PowerShell script to build Dactor APKs with automatic version incrementing & naming
 # Usage:
 #   .\build_apks.ps1                  (Builds both apps, auto-incrementing versionCode and patch versionName)
 #   .\build_apks.ps1 -App Clinic      (Builds only Clinic App)
@@ -10,7 +10,8 @@ param(
     [string]$App = "All",
     [string]$Version = "",
     [ValidateSet("Release", "Debug")]
-    [string]$BuildType = "Release"
+    [string]$BuildType = "Release",
+    [switch]$NoBump
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,10 +39,10 @@ function Bump-App {
     # Parse current versionCode
     if ($content -match 'versionCode\s*=\s*(\d+)') {
         $oldCode = [int]$matches[1]
-        $newCode = $oldCode + 1
+        $newCode = if ($NoBump) { $oldCode } else { $oldCode + 1 }
     } else {
         $oldCode = 1
-        $newCode = 2
+        $newCode = if ($NoBump) { 1 } else { 2 }
     }
 
     # Parse current versionName
@@ -52,7 +53,9 @@ function Bump-App {
     }
 
     # Determine new versionName
-    if ($Version -ne "") {
+    if ($NoBump) {
+        $newName = $oldName
+    } elseif ($Version -ne "") {
         $newName = $Version
     } else {
         # Auto-increment patch: e.g. "1.0" -> "1.0.1", "1.0.1" -> "1.0.2"
@@ -71,24 +74,26 @@ function Bump-App {
     }
 
     Write-Host "============================================================" -ForegroundColor Cyan
-    Write-Host "Building ${AppName}: v${newName} (versionCode: ${newCode}, previous: v${oldName} / ${oldCode})" -ForegroundColor Green
+    Write-Host "Building ${AppName} ($BuildType): v${newName} (versionCode: ${newCode}, previous: v${oldName} / ${oldCode})" -ForegroundColor Green
     Write-Host "============================================================" -ForegroundColor Cyan
 
-    # Replace versionCode and versionName in build.gradle.kts
-    $updatedContent = $content -replace 'versionCode\s*=\s*\d+', "versionCode = $newCode"
-    $updatedContent = $updatedContent -replace 'versionName\s*=\s*"[^"]+"', "versionName = `"$newName`""
-    $written = $false
-    for ($retry = 0; $retry -lt 10; $retry++) {
-        try {
-            Set-Content -Path $gradlePath -Value $updatedContent -NoNewline -ErrorAction Stop
-            $written = $true
-            break
-        } catch {
-            Start-Sleep -Milliseconds 1500
+    if ($newCode -ne $oldCode -or $newName -ne $oldName) {
+        # Replace versionCode and versionName in build.gradle.kts
+        $updatedContent = $content -replace 'versionCode\s*=\s*\d+', "versionCode = $newCode"
+        $updatedContent = $updatedContent -replace 'versionName\s*=\s*"[^"]+"', "versionName = `"$newName`""
+        $written = $false
+        for ($retry = 0; $retry -lt 10; $retry++) {
+            try {
+                Set-Content -Path $gradlePath -Value $updatedContent -NoNewline -ErrorAction Stop
+                $written = $true
+                break
+            } catch {
+                Start-Sleep -Milliseconds 1500
+            }
         }
-    }
-    if (-not $written) {
-        Set-Content -Path $gradlePath -Value $updatedContent -NoNewline
+        if (-not $written) {
+            Set-Content -Path $gradlePath -Value $updatedContent -NoNewline
+        }
     }
 
     $appNameClean = if ($AppName -match 'Clinic') { 'clinic-app' } else { 'patient-app' }
@@ -167,23 +172,38 @@ function Bump-App {
     $builtApk = $found.FullName
 
     # Destination versioned APK
-    $destVersionedName = "$OutputPrefix-v$newName.apk"
+    $destVersionedName = if ($BuildType -eq "Debug") {
+        "$OutputPrefix-v$newName-debug.apk"
+    } else {
+        "$OutputPrefix-v$newName.apk"
+    }
     $destVersionedPath = Join-Path $apksDir $destVersionedName
     Copy-Item $builtApk $destVersionedPath -Force
 
     # Also save directly to SSD location
-    $ssdApksDir = "C:\Users\nitup\Dactor-APKs"
-    if (-not (Test-Path $ssdApksDir)) {
-        New-Item -ItemType Directory -Path $ssdApksDir -Force | Out-Null
+    $ssdApksDir = if (Test-Path "C:\Users\nitup\Dactor-APKs") {
+        "C:\Users\nitup\Dactor-APKs"
+    } else {
+        Join-Path $env:USERPROFILE "Dactor-APKs"
     }
-    $destSsdPath = Join-Path $ssdApksDir $destVersionedName
-    Copy-Item $builtApk $destSsdPath -Force
-    Write-Host "✅ Copied to SSD: $destSsdPath" -ForegroundColor Green
+    try {
+        if (-not (Test-Path $ssdApksDir)) {
+            New-Item -ItemType Directory -Path $ssdApksDir -Force | Out-Null
+        }
+        $destSsdPath = Join-Path $ssdApksDir $destVersionedName
+        Copy-Item $builtApk $destSsdPath -Force
+        Write-Host "✅ Copied to SSD: $destSsdPath" -ForegroundColor Green
+    } catch {
+        Write-Warning "Could not copy to SSD directory $ssdApksDir : $_"
+    }
 
     # Also keep standard alias for backward compatibility
     try {
         $destAliasPath = Join-Path $apksDir "$OutputPrefix-$btLower.apk"
         Copy-Item $builtApk $destAliasPath -Force -ErrorAction SilentlyContinue
+        if (Test-Path $ssdApksDir) {
+            Copy-Item $builtApk (Join-Path $ssdApksDir "$OutputPrefix-$btLower.apk") -Force -ErrorAction SilentlyContinue
+        }
     } catch {
         Write-Warning "Could not update alias file due to file lock: $_"
     }

@@ -56,14 +56,9 @@ data class InvoiceLineItem(
 }
 
 private fun checkIsFollowUp(appt: Appointment, allAppts: List<Appointment>): Boolean {
-    if ((appt.feeAmount ?: 0.0) == 0.0) return true
-    val docId = appt.doctorId ?: return false
-    val pKey = PaymentLedgerHelper.derivePatientKey(appt.userId, appt.patientMobile, appt.patientName, appt.id)
-    val earliest = allAppts
-        .filter { !it.status.equals("cancelled", ignoreCase = true) && !it.status.equals("rejected", ignoreCase = true) && it.doctorId == docId }
-        .sortedWith(compareBy({ it.appointmentDate }, { it.appointmentTime }, { it.id }))
-        .firstOrNull { PaymentLedgerHelper.derivePatientKey(it.userId, it.patientMobile, it.patientName, it.id) == pKey }
-    return earliest != null && earliest.id != appt.id
+    // If an appointment was booked or charged with a consultation fee > 0, it is a chargeable visit, NEVER a free follow-up
+    if ((appt.feeAmount ?: 0.0) > 0.0) return false
+    return true
 }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -497,7 +492,7 @@ fun BillingScreen(
                             }
                         } else {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                directoryFilteredAppointments.take(8).forEach { appt ->
+                                directoryFilteredAppointments.forEach { appt ->
                                     val isSelected = selectedAppointment?.id == appt.id
                                     val apptInvoice = invoicesMap[appt.id]
                                     val totalBilled = if (isSelected && (totalAmount > 0.0 || lineItems.isNotEmpty())) {
@@ -1202,7 +1197,14 @@ fun BillingScreen(
                             val itemsToSave = if (baseItems.isNotEmpty()) {
                                 baseItems
                             } else if (!isSavingFollowUp && opdFee > 0.0) {
-                                listOf(InvoiceItem(itemName = "OPD Doctor Consultation", quantity = 1, price = opdFee, total = opdFee))
+                                if (finalAppt.isPayAtDesk && finalAppt.effectiveServiceCharge > 0.0) {
+                                    listOf(
+                                        InvoiceItem(itemName = "OPD Doctor Consultation", quantity = 1, price = opdFee, total = opdFee),
+                                        InvoiceItem(itemName = "Pay at Desk Service Charge (5%)", quantity = 1, price = finalAppt.effectiveServiceCharge, total = finalAppt.effectiveServiceCharge)
+                                    )
+                                } else {
+                                    listOf(InvoiceItem(itemName = "OPD Doctor Consultation", quantity = 1, price = opdFee, total = opdFee))
+                                }
                             } else if (isSavingFollowUp) {
                                 listOf(InvoiceItem(itemName = "OPD Doctor Consultation (Follow-up)", quantity = 1, price = 0.0, total = 0.0))
                             } else {
