@@ -7,6 +7,18 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-21
 
 ### Prompt:
+> "how kuch query request does every function does it take by search home screen of patient app live queue tracker and also for clinic app , patient directory, live queue slot generation, everything that takes query give me a report and also tell me how much query will it be if 10000 users uses patient app and 100 devices uses clinic app also include query for notifications"
+
+#### Changes Applied:
+1. **Query Architecture & Scaling Simulation Report**:
+   - Performed comprehensive static codebase audit across Kotlin data layers, repositories, ViewModels, lifecycle pollers, background workers, and Supabase RPC/Realtime channels in both `patient-app` and `clinic-app`.
+   - Mapped granular query counts across all key functions: Patient Search (`PatientSearchScreen`), Home Screen (`PatientMainScreen`/`HomeDataCache`), Live Queue Tracker (`QueueStatusScreen`), Patient Notifications & Background Alarms (`NotificationAlarmReceiver`/`AppointmentAlarmPlanner`), Clinic Patient Directory (`PatientRepository`/`PatientDao`), Slot Generation & Management (`SlotManagerScreen`/`SlotRepository`), Doctor Live Queue (`DoctorQueueScreen`/`DoctorQueueViewModel`), and Clinic Queue Board (`QueueBoardScreen`).
+   - Conducted full mathematical scaling simulation for 10,000 Patient App users (2,500 DAU, 600 visiting patients) and 100 Clinic App devices, calculating a total projected platform volume of **~1,192,858 queries/day** (~100–150 QPS peak).
+   - Evaluated Supabase Cloud Free Tier limits vs. Pro Tier and Self-Hosted Dedicated VPS, highlighting that the 200 Realtime connection cap and 5 GB egress bandwidth make Free Tier unviable without upgrading or applying recommended polling optimizations.
+   - Generated full architectural artifact report: `query_analysis_and_scaling_report.md`.
+
+
+### Prompt:
 > "accepted" (Collaborator invitation accepted for purbeynitu)
 
 #### Changes Applied:
