@@ -14,6 +14,17 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.JsonPrimitive
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
+import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import javax.inject.Inject
+import javax.inject.Singleton
 
 @Serializable
 data class FastLiveQueueItemDto(
@@ -44,17 +55,6 @@ data class FastLiveQueueItemDto(
     @SerialName("opt_in_early_call") val optInEarlyCall: Boolean = false,
     @SerialName("created_at") val createdAt: String? = null
 )
-import java.time.Instant
-import java.time.LocalDate
-import java.time.LocalTime
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
-import java.util.UUID
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import javax.inject.Inject
-import javax.inject.Singleton
 
 @Serializable
 data class NotificationInsertDto(
@@ -247,10 +247,6 @@ class QueueRepository @Inject constructor(
         } catch (e: Exception) {
             e.printStackTrace()
             getQueueStatus(appointmentId)
-        }
-    }
-            e.printStackTrace()
-            null
         }
     }
 

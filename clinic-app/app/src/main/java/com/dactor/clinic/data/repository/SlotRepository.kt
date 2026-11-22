@@ -138,7 +138,7 @@ open class SlotRepository @Inject constructor(
                         !(it.paymentMode.equals("PAY_AT_DESK", ignoreCase = true) && it.status.equals("WAITING_FOR_APPROVAL", ignoreCase = true))
                 }
                 val waitingCount = appointments.count {
-                    val cStatus = it.checkinStatus.lowercase().trim()
+                    val cStatus = it.checkinStatus?.lowercase()?.trim().orEmpty()
                     val status = it.status.uppercase().trim()
                     it.slotId == slot.id &&
                         cStatus !in listOf("completed", "done", "finished", "report_prepared", "results_ready", "cancelled", "no_show", "rejected") &&
