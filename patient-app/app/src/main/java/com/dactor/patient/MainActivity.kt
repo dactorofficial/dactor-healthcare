@@ -19,6 +19,7 @@ import com.dactor.patient.ui.navigation.DactorNavHost
 import com.google.firebase.messaging.FirebaseMessaging
 import dagger.hilt.android.AndroidEntryPoint
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.postgrest.query.filter.FilterOperator
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
@@ -80,12 +81,17 @@ class MainActivity : ComponentActivity() {
                                 val userId = authRepository.getCurrentUser() ?: sessionManager.getSavedPatientId()
                                 val phone = sessionManager.getSavedPhone()
                                 val trackingCodes = sessionManager.getSavedTrackingCodes().map { it.first }
+                                // Upload only when the token or what it is linked to changed
+                                val uploadPrefs = getSharedPreferences("dactor_alert_planner", MODE_PRIVATE)
+                                val signature = listOf(token, userId, phone, trackingCodes.sorted().joinToString(",")).joinToString("|")
+                                if (uploadPrefs.getString("fcm_upload_signature", null) == signature) return@launch
                                 notificationRepository.uploadFcmToken(
                                     token = token,
                                     userId = userId,
                                     trackingCodes = trackingCodes,
                                     patientMobile = phone
                                 )
+                                uploadPrefs.edit().putString("fcm_upload_signature", signature).apply()
                             } catch (e: Exception) {
                                 e.printStackTrace()
                             }
@@ -103,6 +109,8 @@ class MainActivity : ComponentActivity() {
                     val phone = sessionManager.getSavedPhone()
                     val email = sessionManager.getSavedEmail()
                     val appts = appointmentRepository.getAllPatientAppointments(uid, email, phone, trackingCodes)
+                    // Set reminders, the appointment-window loop and the background check
+                    com.dactor.patient.service.AppointmentAlarmPlanner.plan(this@MainActivity, appts)
                     for (a in appts) {
                         val cId = a.clinicId.takeIf { it.isNotBlank() }
                         if (cId != null) {
@@ -137,9 +145,13 @@ class MainActivity : ComponentActivity() {
                 var channel: io.github.jan.supabase.realtime.RealtimeChannel? = null
                 try {
                     // WebSocket subscription to postgres changes on public.notifications
+                    // Only this user's rows; broadcasts arrive via FCM topics. Guests rely on FCM.
+                    val realtimeUserId = authRepository.getCurrentUser() ?: sessionManager.getSavedPatientId()
+                    if (realtimeUserId.isNullOrBlank()) break
                     channel = supabaseClient.channel("patient_realtime_notifications")
                     val changeFlow = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
                         table = "notifications"
+                        filter("user_id", FilterOperator.EQ, realtimeUserId)
                     }
                     channel.subscribe()
 
@@ -172,7 +184,6 @@ class MainActivity : ComponentActivity() {
                 delay(nextDelayMs)
             }
         }
-
         setContent {
             val navController = androidx.navigation.compose.rememberNavController()
             navHostControllerRef = navController

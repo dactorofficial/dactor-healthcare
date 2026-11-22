@@ -129,12 +129,21 @@ fun DashboardScreen(
     fun performLogout() {
         coroutineScope.launch {
             try {
-                com.dactor.clinic.data.cache.AppCacheManager.getInstance(context).clearAllCache()
+                com.dactor.clinic.data.cache.AppCacheManager.getInstance(context).signOutKeepingData()
             } catch (_: Exception) {}
             navController.navigate(NavRoutes.ClinicLogin) {
                 popUpTo(0) { inclusive = true }
             }
         }
+    }
+
+    // Doctors rarely change: use the list saved on the phone (refreshed by other screens too)
+    // and download the full list only if nothing is saved or it is over a day old.
+    suspend fun doctorsPreferSaved(clinicId: String): List<Doctor> {
+        val repo = doctorRepository ?: return emptyList()
+        val saved = repo.getCachedDoctorsByClinic(clinicId)
+        val age = repo.savedDoctorsAgeMs(clinicId)
+        return if (saved.isNotEmpty() && age != null && age < 24 * 60 * 60 * 1000L) saved else repo.getDoctorsByClinic(clinicId)
     }
 
     fun loadClinic() {
@@ -155,7 +164,7 @@ fun DashboardScreen(
                 // Fetch doctors concurrently with clinic so there is zero sequential delay
                 val earlyDocsJob = if (resolvedCid.isNotBlank() && doctorRepository != null) {
                     launch {
-                        val liveDocs = doctorRepository.getDoctorsByClinic(resolvedCid)
+                        val liveDocs = doctorsPreferSaved(resolvedCid)
                         if (liveDocs.isNotEmpty() || doctors.isEmpty()) {
                             doctors = liveDocs
                         }
@@ -220,7 +229,7 @@ fun DashboardScreen(
                 }
 
                 if (fetchedClinic != null && doctorRepository != null && earlyDocsJob == null) {
-                    val liveDocs = doctorRepository.getDoctorsByClinic(fetchedClinic.id)
+                    val liveDocs = doctorsPreferSaved(fetchedClinic.id)
                     if (liveDocs.isNotEmpty() || doctors.isEmpty()) {
                         doctors = liveDocs
                     }
@@ -239,14 +248,16 @@ fun DashboardScreen(
 
     LaunchedEffect(initialEffectiveClinicId) {
         loadClinic()
-        // Periodic live presence sync loop:
+        // Periodic live presence sync loop: only each doctor's in/out status (not the profiles)
         // Automatically reflects whenever a doctor is toggled in another clinic or by the doctor themselves
         while (isActive) {
-            delay(3500L)
+            delay(90_000L)
             val currentCid = clinic?.id ?: sessionManager.getSavedClinicId()
             if (!currentCid.isNullOrBlank() && doctorRepository != null) {
                 try {
-                    val liveDocs = doctorRepository.getDoctorsByClinic(currentCid)
+                    val presence = doctorRepository.getDoctorPresence(doctors.map { it.id })
+                    val liveDocs = doctors.map { doc -> presence[doc.id]?.let { doc.copy(isInClinic = it) } ?: doc }
+                    doctorRepository.updateCachedDoctorsByClinic(currentCid, liveDocs)
                     val now = System.currentTimeMillis()
                     val activePending = pendingToggleDoctors.filterValues { now - it < 4500L }
                     pendingToggleDoctors = activePending

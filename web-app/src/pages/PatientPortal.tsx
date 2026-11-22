@@ -3696,7 +3696,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                           </button>
                         )}
 
-                        {!isCancelled && appt.checkinStatus !== 'completed' && (
+                        {appt.checkinStatus !== 'completed' && (
                           <div className="flex items-center space-x-1.5">
                             <button
                               onClick={() => {
@@ -3719,17 +3719,23 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                                   setRescheduleReason('')
                                 }
                               }}
-                              className="px-3 py-2 text-xs font-bold text-sky-700 dark:text-sky-300 liquid-glass-card hover:bg-sky-500/20 rounded-xl transition border border-sky-500/30 cursor-pointer active:scale-[0.98]"
+                              className={`px-3 py-2 text-xs font-bold rounded-xl transition cursor-pointer active:scale-[0.98] ${
+                                isCancelled
+                                  ? 'text-teal-700 dark:text-teal-300 bg-teal-500/10 border border-teal-500/20 hover:bg-teal-500/20'
+                                  : 'text-sky-700 dark:text-sky-300 liquid-glass-card hover:bg-sky-500/20 border border-sky-500/30'
+                              }`}
                             >
-                              Reschedule
+                              {isCancelled ? 'Reschedule Slot' : 'Reschedule'}
                             </button>
-                            <button
-                              onClick={() => handleOpenCancelModal(appt)}
-                              disabled={cancellingApptId === appt.id}
-                              className="px-3 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 liquid-glass-card hover:bg-rose-500/20 rounded-xl transition border border-rose-500/30 cursor-pointer disabled:opacity-50 active:scale-[0.98]"
-                            >
-                              Cancel
-                            </button>
+                            {!isCancelled && (
+                              <button
+                                onClick={() => handleOpenCancelModal(appt)}
+                                disabled={cancellingApptId === appt.id}
+                                className="px-3 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 liquid-glass-card hover:bg-rose-500/20 rounded-xl transition border border-rose-500/30 cursor-pointer disabled:opacity-50 active:scale-[0.98]"
+                              >
+                                Cancel
+                              </button>
+                            )}
                           </div>
                         )}
 

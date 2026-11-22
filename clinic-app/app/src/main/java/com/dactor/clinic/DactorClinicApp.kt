@@ -3,7 +3,6 @@ package com.dactor.clinic
 import android.app.Application
 import android.content.Context
 import android.util.Log
-import com.dactor.clinic.service.NotificationAlarmReceiver
 import com.dactor.clinic.service.NotificationHelper
 import dagger.hilt.android.HiltAndroidApp
 
@@ -27,7 +26,7 @@ class DactorClinicApp : Application() {
             Log.e("DactorClinicApp", "Failed to create notification channel", e)
         }
 
-        // 3. Ensure any background notification alarm is stopped (queries restricted to patient app)
+        // 3. Closed-app notifications arrive via FCM; ensure any legacy background notification alarm is stopped
         try {
             NotificationAlarmReceiver.stopPeriodicAlarm(this)
         } catch (_: Throwable) {}

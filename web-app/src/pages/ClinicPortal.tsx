@@ -1549,13 +1549,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
       )
       .subscribe()
 
-    const interval = setInterval(() => {
-      fetchPayAtDesk(selectedClinic.id)
-    }, 10000)
+    // Pending pay-at-desk requests: every 30 s while the tab is visible, at once when it becomes visible
+    const refreshIfVisible = () => {
+      if (!document.hidden) fetchPayAtDesk(selectedClinic.id)
+    }
+    const interval = setInterval(refreshIfVisible, 30000)
+    document.addEventListener('visibilitychange', refreshIfVisible)
 
     return () => {
       supabase.removeChannel(sub)
       clearInterval(interval)
+      document.removeEventListener('visibilitychange', refreshIfVisible)
     }
   }, [selectedClinic?.id])
 

@@ -23,7 +23,7 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
         val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "dactor:ClinicAlarmWakeLock")
         wakeLock?.acquire(60_000L) // 1 minute max lock
 
-        // Background query requests removed from doctor and clinic portal (restricted to patient app)
+        // Closed-app notifications arrive via FCM; ensure any legacy periodic alarm is stopped
         stopPeriodicAlarm(context)
 
         val pendingResult = goAsync()

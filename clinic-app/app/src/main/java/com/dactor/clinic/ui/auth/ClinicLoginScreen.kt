@@ -956,6 +956,10 @@ fun ClinicLoginScreen(
     }
 
     fun resetToAuthChoice() {
+        // Hide (not delete) any account data restored during this sign-in attempt
+        com.dactor.clinic.data.local.AccountDataVault.accountKey(sessionManager?.getSavedEmail())?.let {
+            com.dactor.clinic.data.local.AccountDataVault.hide(context, it)
+        }
         sessionManager?.clearSession()
         clinicRepository?.clearCache()
         doctorRepository?.clearCache()
@@ -1404,7 +1408,7 @@ fun ClinicLoginScreen(
     fun signOutFromPending() {
         coroutineScope.launch {
             try {
-                com.dactor.clinic.data.cache.AppCacheManager.getInstance(context).clearAllCache()
+                com.dactor.clinic.data.cache.AppCacheManager.getInstance(context).signOutKeepingData()
             } catch (ignored: Exception) {}
         }
         currentView = "auth_choice"

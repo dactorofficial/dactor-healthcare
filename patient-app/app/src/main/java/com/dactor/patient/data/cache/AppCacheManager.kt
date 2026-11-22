@@ -3,6 +3,7 @@ package com.dactor.patient.data.cache
 import android.content.Context
 import android.webkit.WebStorage
 import coil.Coil
+import com.dactor.patient.data.local.AccountDataVault
 import com.dactor.patient.data.local.UserSessionManager
 import com.dactor.patient.data.repository.AppointmentRepository
 import com.dactor.patient.data.repository.AuthRepository
@@ -35,6 +36,32 @@ class AppCacheManager @Inject constructor(
     private val queueRepository: QueueRepository,
     private val authRepository: AuthRepository
 ) {
+    /**
+     * Sign out but keep everything on the phone: this account's own data is hidden (moved to
+     * a copy named after the account) and comes back when the same account signs in again.
+     * Common data (clinic/doctor lists, images, caches) is left as it is.
+     */
+    suspend fun signOutKeepingData() = withContext(Dispatchers.IO) {
+        // In-memory lists of this user's appointments/queue (re-read on next sign-in)
+        runCatching { appointmentRepository.clearCache() }
+        runCatching { queueRepository.clearCache() }
+
+        // Stop this account's reminders and background checks before its data is hidden
+        runCatching { com.dactor.patient.service.AppointmentAlarmPlanner.plan(context, emptyList()) }
+
+        val accountKey = AccountDataVault.accountKey(sessionManager.getSavedEmail() ?: sessionManager.getSavedPatientId())
+        if (accountKey != null) runCatching { AccountDataVault.hide(context, accountKey) }
+        // Leaves device-level flags (onboarding, terms, FCM token) and switches to guest mode
+        runCatching { sessionManager.clearSession() }
+
+        runCatching { authRepository.signOut() }
+        runCatching {
+            GoogleSignIn.getClient(context, GoogleSignInOptions.DEFAULT_SIGN_IN).signOut()
+        }
+        runCatching { FirebaseAuth.getInstance().signOut() }
+    }
+
+    /** Full wipe; used when an account is deleted. */
     suspend fun clearAllCache() = withContext(Dispatchers.IO) {
         // 1. Clear In-Memory Caches across all repositories
         runCatching { appointmentRepository.clearCache() }

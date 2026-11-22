@@ -22,6 +22,8 @@ class UserSessionManager @Inject constructor(
         isArchived: Boolean = false,
         deletionScheduledAt: String? = null
     ) {
+        // Bring back this account's data hidden at its last sign-out (no-op if none)
+        AccountDataVault.accountKey(email)?.let { AccountDataVault.restore(context, it) }
         prefs.edit()
             .putString("patient_id", patientId)
             .putString("user_email", email.trim().lowercase())

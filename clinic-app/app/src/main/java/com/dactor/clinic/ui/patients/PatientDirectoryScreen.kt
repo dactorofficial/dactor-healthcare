@@ -111,6 +111,9 @@ fun PatientDirectoryScreen(
         } ?: emptyList()
     }
     var appointments by remember(effectiveClinicId) { mutableStateOf<List<Appointment>>(cachedInitialAppts) }
+    // After today's bookings are loaded once, only bookings created/approved after this time are fetched
+    var newBookingsSince by remember(effectiveClinicId) { mutableStateOf<String?>(null) }
+    var bookingsLoadedForDate by remember(effectiveClinicId) { mutableStateOf<String?>(null) }
     var locallyAddedProfiles by remember(effectiveClinicId) {
         val savedRaw = directoryPrefs.getString("records_${effectiveClinicId.ifBlank { "default" }}", "") ?: ""
         val loaded = savedRaw.split("\n").mapNotNull { line ->
@@ -377,8 +380,19 @@ fun PatientDirectoryScreen(
                         if (doctorRepository != null && affiliatedDoctors.isEmpty()) {
                             affiliatedDoctors = doctorRepository.getDoctorsByClinic(cId)
                         }
-                        // Fetch full clinic appointments for persistent patient directory
-                        appointmentRepository.getAppointmentsByClinic(cId, forceRefresh = forceRefresh)
+                        // Daily Active Sync with forceRefresh fallback
+                        val since = if (forceRefresh) null else newBookingsSince
+                        val result = if (since == null || bookingsLoadedForDate != today) {
+                            bookingsLoadedForDate = today
+                            appointmentRepository.getAppointmentsByClinic(cId, forceRefresh = forceRefresh)
+                        } else {
+                            val fresh = appointmentRepository.getNewOrApprovedAppointmentsForDate(cId, today, since)
+                            (appointments.associateBy { it.id } + fresh.associateBy { it.id }).values.toList()
+                        }
+                        com.dactor.clinic.data.repository.AppointmentRepository.latestBookingTime(result)?.let { latest ->
+                            if (since == null || latest > since) newBookingsSince = latest
+                        }
+                        result
                     } else emptyList()
                 }
                 // Strict Clinic Directory Guard: Retain active, completed, and cancelled appointments (excluding unapproved/pending payment/expired)
@@ -429,7 +443,7 @@ fun PatientDirectoryScreen(
             } catch (e: Exception) {
                 android.util.Log.e("PatientDirectoryScreen", "Loop error", e)
             }
-            delay(5000L)
+            delay(30_000L)
         }
     }
 
@@ -819,6 +833,7 @@ fun PatientDirectoryScreen(
                             IconButton(
                                 onClick = {
                                     coroutineScope.launch {
+                                        newBookingsSince = null
                                         isLoadingDirectory = true
                                         loadData(forceRefresh = true)
                                     }

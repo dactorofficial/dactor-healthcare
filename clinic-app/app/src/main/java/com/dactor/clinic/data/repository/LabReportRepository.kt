@@ -40,6 +40,23 @@ open class LabReportRepository @Inject constructor(
         }
     }
 
+    /** Reports not yet prepared (sample collected or processing). */
+    suspend fun getInProgressLabReports(clinicId: String): List<LabReport> = withContext(Dispatchers.IO) {
+        supabaseClient.postgrest["lab_reports"]
+            .select {
+                filter {
+                    eq("clinic_id", clinicId)
+                    isIn("stage", listOf("sample_collected", "processing"))
+                }
+            }.decodeList<LabReport>()
+    }
+
+    suspend fun getLabReportsByIds(ids: List<String>): List<LabReport> = withContext(Dispatchers.IO) {
+        supabaseClient.postgrest["lab_reports"]
+            .select { filter { isIn("id", ids) } }
+            .decodeList<LabReport>()
+    }
+
     suspend fun getLabReports(clinicId: String): List<LabReport> = withContext(Dispatchers.IO) {
         try {
             if (clinicId.isBlank()) {

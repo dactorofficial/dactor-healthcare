@@ -20,7 +20,7 @@ import { NotificationModal } from './components/NotificationModal'
 import { getPatientNotifications, getDoctorById, getLoggedInUserSession, refreshOnlinePayment, checkAppClosureStatus, AppClosureStatus } from './services/db'
 import { supabase } from './lib/supabase'
 import { LiquidAuroraBackground } from './components/glass'
-import { clearAllAppCache } from './utils/cacheCleaner'
+import { signOutKeepingData, clearAllAppCache } from './utils/cacheCleaner'
 import { hasChosenInitialLanguage } from './utils/i18n'
 import { LanguageSelectionModal } from './components/LanguageSelectionModal'
 
@@ -773,7 +773,7 @@ export const App: React.FC = () => {
   // Handle logout
   const handleLogout = () => {
     try {
-      clearAllAppCache().catch(() => {})
+      signOutKeepingData().catch(() => {})
 
       const st = getTabAuthState(activeTab)
       setIsLoggedIn(false)

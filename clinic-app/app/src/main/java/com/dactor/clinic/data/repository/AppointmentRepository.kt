@@ -397,6 +397,62 @@ open class AppointmentRepository @Inject constructor(
         }
     }
 
+    /**
+     * Doctor's bookings for [date] created or approved after [since], merged into the
+     * cached list for that day. Returns the merged list.
+     */
+    suspend fun refreshNewDoctorAppointments(doctorId: String, date: String, since: String): List<Appointment> = withContext(Dispatchers.IO) {
+        val key = "${doctorId}_$date"
+        val current = doctorAppointmentsCache[key] ?: emptyList()
+        try {
+            val fresh = supabaseClient.postgrest["appointments"]
+                .select {
+                    filter {
+                        eq("doctor_id", doctorId)
+                        eq("appointment_date", date)
+                        or {
+                            gt("created_at", since)
+                            gt("approved_at", since)
+                        }
+                    }
+                }.decodeList<Appointment>()
+            if (fresh.isEmpty()) return@withContext current
+            val attached = attachQueueStatus(fresh, doctorId = doctorId)
+            val merged = (current.associateBy { it.id } + attached.associateBy { it.id }).values.toList()
+            doctorAppointmentsCache[key] = merged
+            merged
+        } catch (e: Exception) {
+            e.printStackTrace()
+            current
+        }
+    }
+
+    /** Bookings for [date] created or approved after [since] (ISO timestamp); usually none. */
+    suspend fun getNewOrApprovedAppointmentsForDate(clinicId: String, date: String, since: String): List<Appointment> = withContext(Dispatchers.IO) {
+        try {
+            val appts = supabaseClient.postgrest["appointments"]
+                .select {
+                    filter {
+                        eq("clinic_id", clinicId)
+                        eq("appointment_date", date)
+                        or {
+                            gt("created_at", since)
+                            gt("approved_at", since)
+                        }
+                    }
+                }.decodeList<Appointment>()
+            if (appts.isEmpty()) return@withContext appts
+            val attached = attachQueueStatus(appts, clinicId = clinicId)
+            try {
+                appointmentDao?.upsertAll(attached.map { AppointmentEntity.fromDomainModel(it, syncStatus = "synced") })
+            } catch (_: Exception) {}
+            attached
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
     suspend fun getAppointmentsForPatient(
         patientMobile: String? = null,
         userId: String? = null,
@@ -1476,17 +1532,21 @@ open class AppointmentRepository @Inject constructor(
         }
     }
 
+    @Serializable
+    private data class IdOnlyRow(val id: String)
+
     suspend fun getPendingPayAtDeskCount(clinicId: String): Int = withContext(Dispatchers.IO) {
         try {
             val list = supabaseClient.postgrest["appointments"]
-                .select {
+                // Only ids: the badge needs a count, not the booking details
+                .select(io.github.jan.supabase.postgrest.query.Columns.list("id")) {
                     filter {
                         eq("clinic_id", clinicId)
                         eq("payment_mode", "PAY_AT_DESK")
                         eq("status", "WAITING_FOR_APPROVAL")
                     }
                 }
-                .decodeList<Appointment>()
+                .decodeList<IdOnlyRow>()
             list.size
         } catch (e: Exception) {
             0
@@ -2038,6 +2098,14 @@ open class AppointmentRepository @Inject constructor(
     }
 
     companion object {
+        /** Newest created/approved time among [appts], minus 2 minutes of overlap, as an ISO string. */
+        fun latestBookingTime(appts: List<Appointment>): String? =
+            appts.flatMap { listOfNotNull(it.createdAt, it.approvedAt) }
+                .mapNotNull { runCatching { java.time.OffsetDateTime.parse(it.trim()).toInstant() }.getOrNull() }
+                .maxOrNull()
+                ?.minusSeconds(120)
+                ?.toString()
+
         fun isValidUuid(str: String?): Boolean {
             if (str.isNullOrBlank()) return false
             return try {

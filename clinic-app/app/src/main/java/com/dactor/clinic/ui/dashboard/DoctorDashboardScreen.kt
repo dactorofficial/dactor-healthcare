@@ -80,6 +80,9 @@ fun DoctorDashboardScreen(
     var affiliatedClinics by remember { mutableStateOf<List<Clinic>>(emptyList()) }
     var doctorIsInClinic by remember { mutableStateOf(true) }
     var appointmentsQueue by remember { mutableStateOf<List<Appointment>>(emptyList()) }
+    // Periodic refresh fetches only bookings created/approved after this time
+    var newBookingsSince by remember { mutableStateOf<String?>(null) }
+    var bookingsLoadedForDate by remember { mutableStateOf<String?>(null) }
     var pendingInvitations by remember { mutableStateOf<List<ClinicInvitation>>(emptyList()) }
     var invitingClinics by remember { mutableStateOf<Map<String, Clinic>>(emptyMap()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -150,7 +153,7 @@ fun DoctorDashboardScreen(
     fun performLogout() {
         coroutineScope.launch {
             try {
-                com.dactor.clinic.data.cache.AppCacheManager.getInstance(context).clearAllCache()
+                com.dactor.clinic.data.cache.AppCacheManager.getInstance(context).signOutKeepingData()
             } catch (_: Exception) {}
             navController.navigate(NavRoutes.ClinicLogin) {
                 popUpTo(0) { inclusive = true }
@@ -164,6 +167,34 @@ fun DoctorDashboardScreen(
         while (isActive && appointmentsQueue.any { it.checkinStatus == "inside" || it.checkinStatus == "in_consultation" || it.checkinStatus == "inside_opd" }) {
             delay(1000L)
             activeConsultationSeconds++
+        }
+    }
+
+    fun activeQueueFor(appts: List<Appointment>, targetClinicId: String?): List<Appointment> = appts.filter { appt ->
+        (targetClinicId.isNullOrBlank() || appt.clinicId == targetClinicId) &&
+        appt.checkinStatus !in listOf("completed", "done", "cancelled", "no_show", "processing", "report_prepared") &&
+        appt.status.equals("APPROVED", ignoreCase = true) &&
+        appt.status != "WAITING_FOR_APPROVAL" &&
+        appt.status != "pending_payment" &&
+        appt.status != "UNAPPROVED" &&
+        appt.status != "EXPIRED"
+    }
+
+    // Lightweight periodic check: only new or newly approved bookings for today
+    suspend fun refreshNewBookings() {
+        val doc = doctor ?: return
+        val repo = appointmentRepository ?: return
+        val todayStr = java.time.LocalDate.now().toString()
+        val since = newBookingsSince
+        val appts = if (since == null || bookingsLoadedForDate != todayStr) {
+            bookingsLoadedForDate = todayStr
+            repo.getAppointmentsByDoctor(doc.id, todayStr, forceRefresh = true)
+        } else {
+            repo.refreshNewDoctorAppointments(doc.id, todayStr, since)
+        }
+        appointmentsQueue = activeQueueFor(appts, clinic?.id)
+        com.dactor.clinic.data.repository.AppointmentRepository.latestBookingTime(appts)?.let { latest ->
+            if (since == null || latest > since) newBookingsSince = latest
         }
     }
 
@@ -257,15 +288,10 @@ fun DoctorDashboardScreen(
                     if (appointmentRepository != null) {
                         val todayStr = java.time.LocalDate.now().toString()
                         val appts = appointmentRepository.getAppointmentsByDoctor(targetDoc.id, todayStr)
-                        val effectiveTargetClinicId = clinic?.id ?: activeCId
-                        appointmentsQueue = appts.filter { appt ->
-                            (effectiveTargetClinicId.isNullOrBlank() || appt.clinicId == effectiveTargetClinicId) &&
-                            appt.checkinStatus !in listOf("completed", "done", "cancelled", "no_show", "processing", "report_prepared") &&
-                            appt.status.equals("APPROVED", ignoreCase = true) &&
-                            appt.status != "WAITING_FOR_APPROVAL" &&
-                            appt.status != "pending_payment" &&
-                            appt.status != "UNAPPROVED" &&
-                            appt.status != "EXPIRED"
+                        appointmentsQueue = activeQueueFor(appts, clinic?.id ?: activeCId)
+                        bookingsLoadedForDate = todayStr
+                        com.dactor.clinic.data.repository.AppointmentRepository.latestBookingTime(appts)?.let { latest ->
+                            if (newBookingsSince.let { it == null || latest > it }) newBookingsSince = latest
                         }
                     }
                 }
@@ -280,13 +306,19 @@ fun DoctorDashboardScreen(
     }
 
     LaunchedEffect(doctorId) {
+        // Profile, clinics, specialty lists and invitations: once (and after the doctor's own actions)
+        try {
+            loadDoctorData()
+        } catch (e: Exception) {
+            android.util.Log.e("DoctorDashboardScreen", "Error loading doctor data", e)
+        }
         while (isActive) {
+            delay(15_000L)
             try {
-                loadDoctorData()
+                refreshNewBookings()
             } catch (e: Exception) {
-                android.util.Log.e("DoctorDashboardScreen", "Periodic doctor data loop error", e)
+                android.util.Log.e("DoctorDashboardScreen", "Periodic booking refresh error", e)
             }
-            delay(2000L)
         }
     }
 

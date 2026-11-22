@@ -108,6 +108,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   const [labReports, setLabReports] = useState<LabReport[]>([])
   const [publicQueueStatus, setPublicQueueStatus] = useState<any | null>(null)
   const [liveDelta, setLiveDelta] = useState<LiveQueueDelta | null>(null)
+  // Inputs for the on-device expected-time calculation (from get_public_queue_status)
+  const [queueTiming, setQueueTiming] = useState<{ insideSince: string | null; avgSeconds: number | null } | null>(null)
   const [multiSlotResult, setMultiSlotResult] = useState<MultiSlotPositionResult | null>(null)
   const [linkedConsultations, setLinkedConsultations] = useState<LinkedConsultationsResult | null>(null)
   const [loading, setLoading] = useState(false)
@@ -318,6 +320,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         if (seq !== requestSeqRef.current) return
 
         const status = !publicError && Array.isArray(publicRows) ? publicRows[0] : null
+        setQueueTiming(status ? { insideSince: status.current_inside_since ?? null, avgSeconds: status.avg_consultation_seconds ?? null } : null)
         setAppointment(null)
         setLinkedConsultations(null)
         setClinicQueue([])
@@ -388,6 +391,14 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         const apptDate = targetAppt.appointmentDate?.trim().slice(0, 10)
         const nowStr = new Date().toISOString().slice(0, 10)
         const isToday = apptDate === nowStr
+
+        // Doctor's running average and current consultation start, for the on-device estimate
+        if (/^[0-9]{10}$/.test(effectiveCode)) {
+          const { data: timingRows } = await supabase.rpc('get_public_queue_status', { p_tracking_code: effectiveCode })
+          if (seq !== requestSeqRef.current) return
+          const timing = Array.isArray(timingRows) ? timingRows[0] : null
+          setQueueTiming(timing ? { insideSince: timing.current_inside_since ?? null, avgSeconds: timing.avg_consultation_seconds ?? null } : null)
+        }
 
         // Fetch clinic details - avoid re-fetching static clinic master data during silent 2s poll,
         // but always fetch doctor to track dynamic cabin status changes (e.g. waiting -> inside).
@@ -549,6 +560,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   }, [appointment, publicQueueStatus, clinic, isUnlocked])
 
   // Live auto-refresh every 10 seconds for ongoing appointment today (matching Android QueueStatusScreen.kt)
+  // Pauses while the tab is hidden and refreshes immediately when the tab becomes visible again
   useEffect(() => {
     if (!activeCode) return
     const isFinished =
@@ -560,11 +572,17 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
     if (isFinished) return
 
-    const interval = setInterval(() => {
-      fetchQueueData(activeCode, true)
-    }, 10000) // 10-second interval when patient has ongoing appointment on appointment day
+    const refreshIfVisible = () => {
+      if (!document.hidden) fetchQueueData(activeCode, true)
+    }
 
-    return () => clearInterval(interval)
+    const interval = setInterval(refreshIfVisible, 10000)
+    document.addEventListener('visibilitychange', refreshIfVisible)
+
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', refreshIfVisible)
+    }
   }, [activeCode, appointment?.checkinStatus, publicQueueStatus?.status])
 
   // Active Supabase Realtime WebSocket subscription for instant alerts & queue changes
@@ -823,12 +841,26 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     displayTokenNumber = (liveDelta && liveDelta.token_number > 0) ? liveDelta.token_number : (appointment.queueNumber || (myPos > 0 ? myPos : 1))
   }
 
-  const clinicAvgMinutes = clinic?.avgConsultationTimeMinutes || 10
-  const estimatedWaitMinutes = (isPastAppointment || (clinic?.isOpen === false && isAppointmentToday))
+  // Expected time is worked out on this device: the doctor's running average (from the server)
+  // and the current consultation's start time. Re-evaluated every second via the ticker, and
+  // whenever a refresh shows that a consultation finished.
+  const clinicAvgMinutes = queueTiming?.avgSeconds
+    ? Math.max(1, Math.round(queueTiming.avgSeconds / 60))
+    : (clinic?.avgConsultationTimeMinutes || 10)
+  const insideSinceMs = queueTiming?.insideSince ? Date.parse(queueTiming.insideSince) : NaN
+  // Remaining time of the patient inside now; an overrun pushes everyone later (minimum 1 min)
+  const currentRemainingMinutes = inConsultationPatient && Number.isFinite(insideSinceMs)
+    ? Math.max(1, (insideSinceMs + clinicAvgMinutes * 60000 - currentEpochSecond * 1000) / 60000)
+    : null
+  const fallbackWaitMinutes = currentRemainingMinutes !== null
+    ? Math.max(0, (patientsAhead - 1) * clinicAvgMinutes + currentRemainingMinutes)
+    : Math.max(0, patientsAhead * clinicAvgMinutes)
+
+  const estimatedWaitMinutes = (isPastAppointment || (clinic?.isOpen === false && isAppointmentToday) || patientsAhead <= 0)
     ? 0
     : (liveDelta?.estimated_wait_minutes !== undefined && isAppointmentToday
       ? Math.max(0, liveDelta.estimated_wait_minutes)
-      : Math.max(0, patientsAhead * clinicAvgMinutes))
+      : Math.round(fallbackWaitMinutes))
 
   const isConsultancyCompleted =
     appointment?.checkinStatus !== 'waiting' &&
