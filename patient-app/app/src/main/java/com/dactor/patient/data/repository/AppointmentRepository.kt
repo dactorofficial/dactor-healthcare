@@ -1522,19 +1522,24 @@ class AppointmentRepository @Inject constructor(
 
     suspend fun claimAppointment(
         appointmentId: String,
-        userId: String,
-        email: String? = null,
-        trackingCode: String? = null
+        userId: String? = null,
+        patientEmail: String? = null,
+        trackingCode: String? = null,
+        email: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            val cleanUid = userId.trim()
-            val cleanEmail = email?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+            val cleanUid = userId?.trim()
+            val cleanEmail = (patientEmail ?: email)?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+
+            if (cleanUid.isNullOrBlank() && cleanEmail.isNullOrBlank()) {
+                return@withContext false
+            }
 
             if (isValidUuid(appointmentId)) {
                 try {
                     supabaseClient.postgrest["appointments"]
                         .update({
-                            set("user_id", cleanUid)
+                            if (!cleanUid.isNullOrBlank()) set("user_id", cleanUid)
                             if (cleanEmail != null) set("patient_email", cleanEmail)
                         }) {
                             filter { eq("id", appointmentId) }
@@ -1548,7 +1553,7 @@ class AppointmentRepository @Inject constructor(
                 try {
                     supabaseClient.postgrest["appointments"]
                         .update({
-                            set("user_id", cleanUid)
+                            if (!cleanUid.isNullOrBlank()) set("user_id", cleanUid)
                             if (cleanEmail != null) set("patient_email", cleanEmail)
                         }) {
                             filter { eq("tracking_code_10_digit", clean10) }

@@ -531,101 +531,106 @@ fun QueueStatusScreen(
                         liveTimingEstimate = timing
                     }
 
+                    val liveAhead = patientsAhead
+                    val timing = liveTimingEstimate
+
                     // Expected wait time calculation for legacy formatting
                     val estWaitMinutes = if (liveAhead > 0) liveAhead * clinicAvgTimeMinutes else 0
 
                     val todayStr = java.time.LocalDate.now().toString()
                     val isAppointmentForToday = appt.appointmentDate.trim().take(10) == todayStr
 
-                    // ── Late Patient Notification Trigger (Fires once when patient turn is bypassed) ──
-                    if (isAppointmentForToday && timing.isPatientLate && queueStatus == "waiting") {
-                        val alreadySentLate = sessionManager?.isLateAlertTriggered(appt.id) == true
-                        if (!alreadySentLate) {
-                            sessionManager?.markLateAlertTriggered(appt.id)
+                    if (timing != null) {
+                        // ── Late Patient Notification Trigger (Fires once when patient turn is bypassed) ──
+                        if (isAppointmentForToday && timing.isPatientLate && queueStatus == "waiting") {
+                            val alreadySentLate = sessionManager?.isLateAlertTriggered(appt.id) == true
+                            if (!alreadySentLate) {
+                                sessionManager?.markLateAlertTriggered(appt.id)
+                                try {
+                                    val lateTitle = "⚠️ Arrive Soon, You Are Late!"
+                                    val lateMsg = "Dear ${appt.patientName}, your turn was reached at ${clinicName.ifBlank { "the clinic" }}, but you haven't arrived. Another patient has been called inside. Please proceed to the clinic immediately."
+                                    com.dactor.patient.service.NotificationHelper.showSystemNotification(
+                                        context = context,
+                                        id = (appt.id.hashCode() and 0x7FFFFFFF) % 100000,
+                                        title = lateTitle,
+                                        message = lateMsg,
+                                        appointmentId = appt.id,
+                                        type = com.dactor.patient.data.model.NotificationType.ARRIVE_SOON.key
+                                    )
+                                    queueRepository?.insertAutoAlert(
+                                        appointmentId = appt.id,
+                                        userId = appt.userId,
+                                        title = lateTitle,
+                                        message = lateMsg,
+                                        estimatedTimeLeft = "Arrive Soon",
+                                        expectedTime = "Arrive soon, you are late",
+                                        trackingCode = appt.trackingCode10Digit
+                                    )
+                                } catch (_: Exception) {}
+                            }
+                        }
+
+                        // ── 1-Hour Reminder Trigger (Fires once at most when turn is within ≤ 1 hour ONLY FOR TODAY) ──
+                        val isWithinOneHour = (timing.estimatedTimeLeftText.contains("min") && !timing.estimatedTimeLeftText.contains("60")) || (liveAhead in 0..1)
+                        if (isAppointmentForToday && !timing.isPatientLate && isWithinOneHour && queueStatus == "waiting") {
+                            val alreadySent = sessionManager?.isOneHourReminderTriggered(appt.id) == true
+                            if (!alreadySent) {
+                                sessionManager?.markOneHourReminderTriggered(appt.id)
+                                try {
+                                    val notifTitle = "⏰ Queue Turn Approaching!"
+                                    val notifMsg = "Dear ${appt.patientName}, your turn at ${clinicName.ifBlank { "the clinic" }} is expected at ${timing.expectedExactTimeText} (${timing.estimatedTimeLeftText}). Please be nearby in the waiting area."
+                                    
+                                    com.dactor.patient.service.NotificationHelper.showSystemNotification(
+                                        context = context,
+                                        id = (appt.id.hashCode() and 0x7FFFFFFF) % 100000,
+                                        title = notifTitle,
+                                        message = notifMsg,
+                                        appointmentId = appt.id
+                                    )
+                                    queueRepository?.insertAutoAlert(
+                                        appointmentId = appt.id,
+                                        userId = appt.userId,
+                                        title = notifTitle,
+                                        message = notifMsg,
+                                        estimatedTimeLeft = timing.estimatedTimeLeftText,
+                                        expectedTime = timing.expectedExactTimeText,
+                                        trackingCode = appt.trackingCode10Digit
+                                    )
+                                } catch (ignored: Exception) {}
+                            }
+                        }
+
+                        // ── Automatic Alert: fire once when ≤2 people ahead in live queue ONLY FOR TODAY ──
+                        val alreadyTriggeredTwoAhead = sessionManager?.isTwoAheadAlertTriggered(appt.id) == true || hasTriggeredTwoAheadAlert
+                        if (isAppointmentForToday && !timing.isPatientLate && liveAhead in 0..2 && queueStatus == "waiting" && !alreadyTriggeredTwoAhead) {
+                            hasTriggeredTwoAheadAlert = true
+                            sessionManager?.markTwoAheadAlertTriggered(appt.id)
                             try {
-                                val lateTitle = "⚠️ Arrive Soon, You Are Late!"
-                                val lateMsg = "Dear ${appt.patientName}, your turn was reached at ${clinicName.ifBlank { "the clinic" }}, but you haven't arrived. Another patient has been called inside. Please proceed to the clinic immediately."
+                                val alertTitle = if (liveAhead == 0) "You're Next!" else "Almost Your Turn!"
+                                val alertMsg = if (liveAhead == 0) {
+                                    "Dear ${appt.patientName}, you are next in line at ${clinicName.ifBlank { "the clinic" }}. Expected time: ${timing.expectedExactTimeText}. Please proceed to the consultation area."
+                                } else {
+                                    "Dear ${appt.patientName}, only $liveAhead patient${if (liveAhead > 1) "s" else ""} ahead of you at ${clinicName.ifBlank { "the clinic" }}. Expected time: ${timing.expectedExactTimeText}. Please be ready."
+                                }
                                 com.dactor.patient.service.NotificationHelper.showSystemNotification(
                                     context = context,
                                     id = (appt.id.hashCode() and 0x7FFFFFFF) % 100000,
-                                    title = lateTitle,
-                                    message = lateMsg,
+                                    title = alertTitle,
+                                    message = alertMsg,
                                     appointmentId = appt.id,
                                     type = com.dactor.patient.data.model.NotificationType.ARRIVE_SOON.key
                                 )
                                 queueRepository?.insertAutoAlert(
                                     appointmentId = appt.id,
                                     userId = appt.userId,
-                                    title = lateTitle,
-                                    message = lateMsg,
-                                    estimatedTimeLeft = "Arrive Soon",
-                                    expectedTime = "Arrive soon, you are late",
-                                    trackingCode = appt.trackingCode10Digit
-                                )
-                            } catch (_: Exception) {}
-                        }
-                    }
-
-                    // ── 1-Hour Reminder Trigger (Fires once at most when turn is within ≤ 1 hour ONLY FOR TODAY) ──
-                    val isWithinOneHour = (timing.estimatedTimeLeftText.contains("min") && !timing.estimatedTimeLeftText.contains("60")) || (liveAhead in 0..1)
-                    if (isAppointmentForToday && !timing.isPatientLate && isWithinOneHour && queueStatus == "waiting") {
-                        val alreadySent = sessionManager?.isOneHourReminderTriggered(appt.id) == true
-                        if (!alreadySent) {
-                            sessionManager?.markOneHourReminderTriggered(appt.id)
-                            try {
-                                val notifTitle = "⏰ Queue Turn Approaching!"
-                                val notifMsg = "Dear ${appt.patientName}, your turn at ${clinicName.ifBlank { "the clinic" }} is expected at ${timing.expectedExactTimeText} (${timing.estimatedTimeLeftText}). Please be nearby in the waiting area."
-                                
-                                com.dactor.patient.service.NotificationHelper.showSystemNotification(
-                                    context = context,
-                                    id = (appt.id.hashCode() and 0x7FFFFFFF) % 100000,
-                                    title = notifTitle,
-                                    message = notifMsg,
-                                    appointmentId = appt.id
-                                )
-                                queueRepository?.insertAutoAlert(
-                                    appointmentId = appt.id,
-                                    userId = appt.userId,
-                                    title = notifTitle,
-                                    message = notifMsg,
+                                    title = alertTitle,
+                                    message = alertMsg,
                                     estimatedTimeLeft = timing.estimatedTimeLeftText,
                                     expectedTime = timing.expectedExactTimeText,
                                     trackingCode = appt.trackingCode10Digit
                                 )
                             } catch (ignored: Exception) {}
                         }
-                    }
-
-                    // ── Automatic Alert: fire once when ≤2 people ahead in live queue ONLY FOR TODAY ──
-                    val alreadyTriggeredTwoAhead = sessionManager?.isTwoAheadAlertTriggered(appt.id) == true || hasTriggeredTwoAheadAlert
-                    if (isAppointmentForToday && !timing.isPatientLate && liveAhead in 0..2 && queueStatus == "waiting" && !alreadyTriggeredTwoAhead) {
-                        hasTriggeredTwoAheadAlert = true
-                        sessionManager?.markTwoAheadAlertTriggered(appt.id)
-                        try {
-                            val alertTitle = if (liveAhead == 0) "You're Next!" else "Almost Your Turn!"
-                            val alertMsg = if (liveAhead == 0) {
-                                "Dear ${appt.patientName}, you are next in line at ${clinicName.ifBlank { "the clinic" }}. Expected time: ${timing.expectedExactTimeText}. Please proceed to the consultation area."
-                            } else {
-                                "Dear ${appt.patientName}, only $liveAhead patient${if (liveAhead > 1) "s" else ""} ahead of you at ${clinicName.ifBlank { "the clinic" }}. Expected time: ${timing.expectedExactTimeText}. Please be ready."
-                            }
-                            com.dactor.patient.service.NotificationHelper.showSystemNotification(
-                                context = context,
-                                id = (appt.id.hashCode() and 0x7FFFFFFF) % 100000,
-                                title = alertTitle,
-                                message = alertMsg,
-                                appointmentId = appt.id,
-                                type = com.dactor.patient.data.model.NotificationType.ARRIVE_SOON.key
-                            )
-                            queueRepository?.insertAutoAlert(
-                                appointmentId = appt.id,
-                                userId = appt.userId,
-                                title = alertTitle,
-                                message = alertMsg,
-                                estimatedTimeLeft = timing.estimatedTimeLeftText,
-                                expectedTime = timing.expectedExactTimeText,
-                                trackingCode = appt.trackingCode10Digit
-                            )
-                        } catch (ignored: Exception) {}
                     }
 
                     // ── Instant Live Alert Check: Query latest unread alerts for this appointment (<4s latency) ──

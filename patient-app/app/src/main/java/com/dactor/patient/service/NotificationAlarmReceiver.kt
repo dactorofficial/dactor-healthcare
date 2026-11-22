@@ -24,6 +24,22 @@ import java.time.LocalDate
 class NotificationAlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
+        val action = intent?.action
+        if (action == ACTION_REMINDER) {
+            val title = intent.getStringExtra(EXTRA_TITLE) ?: "Appointment Reminder"
+            val message = intent.getStringExtra(EXTRA_MESSAGE) ?: "You have an upcoming appointment."
+            val appointmentId = intent.getStringExtra(EXTRA_APPOINTMENT_ID)
+            NotificationHelper.showSystemNotification(
+                context = context,
+                id = (title.hashCode() xor (appointmentId?.hashCode() ?: 0)) and 0x7FFFFFFF,
+                title = title,
+                message = message,
+                appointmentId = appointmentId,
+                type = NotificationType.QUEUE_ALERT.key
+            )
+            return
+        }
+
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "dactor:AlarmSyncWakeLock")
         wakeLock?.acquire(60_000L) // 1 minute max lock
@@ -326,7 +342,21 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_CHECK_ALERTS = "com.dactor.patient.ACTION_CHECK_ALERTS"
-        private const val ALARM_REQUEST_CODE = 10091
+        const val ACTION_REMINDER = "com.dactor.patient.ACTION_REMINDER"
+        const val EXTRA_TITLE = "extra_title"
+        const val EXTRA_MESSAGE = "extra_message"
+        const val EXTRA_APPOINTMENT_ID = "extra_appointment_id"
+        const val ALARM_REQUEST_CODE = 10091
+
+        fun recentUnfinishedIds(appointments: List<Appointment>): List<String> {
+            val todayStr = LocalDate.now().toString()
+            return appointments
+                .filter {
+                    it.appointmentDate.trim().take(10) == todayStr &&
+                        it.checkinStatus.lowercase() !in listOf("completed", "done", "cancelled", "rejected", "noshow")
+                }
+                .map { it.id }
+        }
 
         fun scheduleNextAlarm(context: Context, delayMillis: Long = 30_000L) {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
