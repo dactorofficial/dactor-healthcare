@@ -86,13 +86,14 @@ CREATED ─► PENDING ─┬─► COMPLETE                      (verified + ap
 |---|---|---|---|
 | PENDING | COMPLETE | return / verifier / staff check | gateway `COMPLETE` + merchant, txn id, amount match. Confirmed into the booked slot (no capacity check, no extra handling). |
 | PENDING | NEEDS_ATTENTION | same | gateway `COMPLETE` but: duplicate payment for an already-paid appointment, **or** amount/merchant mismatch, **or** gateway status `AMBIGUOUS` / partial refund |
-| PENDING | FAILED | verifier | gateway gives a **final** "not paid" answer (see §7: cancelled, failed, refunded, or "no such payment" after the session has closed) |
+| PENDING | FAILED | verifier | gateway gives a **final** "not paid" answer within the hold (see §7) |
+| PENDING | UNRESOLVED | verifier | no final answer when the 15-minute hold ends |
 | NEEDS_ATTENTION | COMPLETE / REFUNDED | clinic or admin | manual action, with note and reference |
 
 Rules:
 - Network errors, timeouts and HTTP 5xx from the gateway **never** change state; they only reschedule.
-- There is no blind time-based expiry: an attempt only becomes `FAILED` on a final gateway answer;
-  after the 24 h check without one it becomes `UNRESOLVED` (visible to staff, "check now").
+- There is no blind expiry: an attempt only becomes `FAILED` on a final gateway answer; without one
+  at the end of the 15-minute hold it becomes `UNRESOLVED` (visible to staff, "check now").
 - `COMPLETE`, `FAILED`, `REFUNDED` are final. If a gateway later reports `COMPLETE` for a `FAILED`
   attempt (should not happen, but possible after disputes), it is confirmed the same way, never ignored.
 - The existing `EXPIRED` status is kept only for old rows; the backfill (§16) re-checks them.
@@ -129,13 +130,11 @@ Move gateway secrets from plain columns to **Supabase Vault**; the table keeps o
 | When | Checks |
 |---|---|
 | 0–15 min (slot held) | every 1 min |
-| then | at 30 min, 1 h, 3 h and 24 h |
-| after 24 h | none automatically |
+| after 15 min | **none** (no later automatic re-checks) |
 
-Checks stop as soon as the gateway gives a final answer (§7). If there is still no final answer after
-the 24 h check, the attempt becomes **UNRESOLVED**: shown in the clinic's and admin's lists with a
-"check now" button (path 3), never closed silently. In practice almost every attempt is settled
-within the first 15 minutes.
+Checks stop as soon as the gateway gives a final answer (§7). If there is no final answer when the
+15-minute hold ends, the attempt becomes **UNRESOLVED**: shown in the clinic's and admin's lists with a
+"check now" button (path 3), never closed silently.
 
 ### 6.2 Mechanics
 - `pg_cron` every minute calls edge function `appointment-payment` with `action=verify_due`,
@@ -172,7 +171,7 @@ the `merchant_code` / `environment` stored on the attempt.
 | Where it opens | App: in-app payment screen. Website: payment window (eSewa sends `X-Frame-Options: DENY`, tested 2026-11-22). |
 | Return | eSewa redirects to `success_url?data=<base64 JSON>`; server checks the signature in `data`, then always verifies via the status API. |
 | Verify | `GET /api/epay/transaction/status/?product_code&total_amount&transaction_uuid` (`rc.esewa.com.np` / `epay.esewa.com.np`). |
-| Statuses | `COMPLETE` → confirm. `PENDING` → ask again. `CANCELED`, `FULL_REFUND` → final not paid. `PARTIAL_REFUND`, `AMBIGUOUS` → needs attention. `NOT_FOUND` → ask again while the hold is open; final not paid after the hold ends **and** the 30 min check still says `NOT_FOUND`. |
+| Statuses | `COMPLETE` → confirm. `PENDING` → ask again. `CANCELED`, `FULL_REFUND` → final not paid. `PARTIAL_REFUND`, `AMBIGUOUS` → needs attention. `NOT_FOUND` → ask again while the hold is open; still `NOT_FOUND` at the last check of the hold → final not paid (patient never paid). |
 | Test | `EPAYTEST` product code with eSewa's published test key; sandbox checkout tested from the build environment. |
 
 ### 7.2 Khalti (ePayment v2)
@@ -308,7 +307,7 @@ View `payment_health`:
 
 Alerts (job every 5 min → FCM/email to admin):
 - verifier heartbeat older than 5 min,
-- any pending attempt older than 30 min,
+- any pending attempt older than 20 min (hold is 15 min, so the verifier is behind),
 - any `needs_attention` older than 2 h,
 - gateway error rate > 20% over 15 min.
 
@@ -333,8 +332,8 @@ reference), report differences.
 | No-show sweep during payment | sweep skips pending payments | confirm | — |
 | Clinic changes keys mid-payment | merchant code stored on attempt | verify with original code | — |
 | Demo mode left on | admin banner, live-env refusal | blocked | — |
-| Payment arrives after the hold | follow-up checks (30 min, 1 h, 3 h, 24 h) | confirmed into the same slot | next check |
-| Gateway never gives a final answer | 24 h check | `UNRESOLVED`, shown to staff with "check now" | staff |
+| Payment completes after the hold | patient return (path 1) or staff "check now" (path 3) | confirmed into the same slot | when the patient returns / staff check |
+| Gateway gives no final answer within the hold | end of hold | `UNRESOLVED`, shown to staff with "check now" | staff |
 
 ## 15. Testing
 
@@ -373,7 +372,7 @@ reference), report differences.
 Decided:
 1. Slot hold: **15 minutes** (ends earlier on a final gateway answer) (§9).
 2. Late payment: confirmed into the same slot, **no extra mechanism** (no capacity check or notices) (§8).
-5. Checking: every minute during the hold, then 30 min, 1 h, 3 h, 24 h; then `UNRESOLVED` for staff (§6).
+5. Checking: every minute during the 15-minute hold only; then `UNRESOLVED` for staff, no later automatic re-checks (§6).
 6. In-app payment screen in the apps for all gateways; on the website a payment window over the booking
    page (gateways forbid embedding), Fonepay as an on-page QR (§11a).
 
