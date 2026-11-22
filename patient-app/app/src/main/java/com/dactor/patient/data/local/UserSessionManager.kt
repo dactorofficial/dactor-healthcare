@@ -111,23 +111,26 @@ class UserSessionManager @Inject constructor(
         return null
     }
 
-    fun saveTrackingCode(code: String, label: String = "Patient Appointment", explicitUnhide: Boolean = false) {
-        val trimmedCode = code.trim()
-        if (trimmedCode.length != 10) return
+    fun saveTrackingCode(code: String, label: String = "Patient Appointment", explicitUnhide: Boolean = true) {
+        val clean = code.trim().replace("#", "").replace(" ", "").replace("-", "")
+        val clean10 = if (clean.length > 10) clean.takeLast(10).uppercase() else clean.uppercase()
+        if (clean10.length != 10 || !clean10.all { it.isLetterOrDigit() }) return
+
         if (explicitUnhide) {
-            unhideRecord(trimmedCode)
-        } else if (isRecordHidden(trimmedCode)) {
+            unhideRecord(clean10)
+        } else if (isRecordHidden(clean10)) {
             return
         }
+        val safeLabel = label.replace("|", " \u2022 ").replace(";;", " - ").trim()
         val current = getRawSavedTrackingCodes().toMutableList()
-        current.removeAll { it.first == trimmedCode }
-        current.add(0, Pair(trimmedCode, label.trim().ifBlank { "Appointment $trimmedCode" }))
-        val serialized = current.take(20).joinToString(";;") { "${it.first}|${it.second}" }
+        current.removeAll { it.first.equals(clean10, ignoreCase = true) }
+        current.add(0, Pair(clean10, safeLabel.ifBlank { "Appointment $clean10" }))
+        val serialized = current.take(30).joinToString(";;") { "${it.first}|${it.second}" }
         prefs.edit().putString("saved_tracking_codes", serialized).apply()
 
         // Sync FCM device token with this tracking code in Supabase
         try {
-            com.dactor.patient.service.FcmService.syncDeviceToken(context, trimmedCode)
+            com.dactor.patient.service.FcmService.syncDeviceToken(context, clean10)
         } catch (_: Exception) {}
     }
 
@@ -135,9 +138,11 @@ class UserSessionManager @Inject constructor(
         val raw = prefs.getString("saved_tracking_codes", null) ?: return emptyList()
         if (raw.isBlank()) return emptyList()
         return raw.split(";;").mapNotNull { entry ->
-            val parts = entry.split("|")
-            if (parts.size >= 2 && parts[0].isNotBlank()) {
-                Pair(parts[0].trim(), parts[1])
+            val firstPipe = entry.indexOf('|')
+            if (firstPipe > 0) {
+                val code = entry.substring(0, firstPipe).trim()
+                val lbl = entry.substring(firstPipe + 1).trim()
+                if (code.isNotBlank()) Pair(code, lbl) else null
             } else null
         }
     }
@@ -148,34 +153,42 @@ class UserSessionManager @Inject constructor(
     }
 
     fun removeTrackingCode(code: String) {
-        val trimmed = code.trim()
+        val clean = code.trim().replace("#", "").replace(" ", "").replace("-", "")
+        val clean10 = if (clean.length > 10) clean.takeLast(10).uppercase() else clean.uppercase()
         val current = getRawSavedTrackingCodes().toMutableList()
-        current.removeAll { it.first == trimmed }
+        current.removeAll { it.first.equals(clean10, ignoreCase = true) || it.first.equals(code.trim(), ignoreCase = true) }
         val serialized = current.joinToString(";;") { "${it.first}|${it.second}" }
         prefs.edit().putString("saved_tracking_codes", serialized).apply()
-        hideRecord(trimmed)
+        hideRecord(clean10)
+        if (code.trim() != clean10) hideRecord(code.trim())
     }
 
     fun hideRecord(codeOrId: String) {
         val trimmed = codeOrId.trim()
         if (trimmed.isBlank()) return
+        val clean = trimmed.replace("#", "").replace(" ", "").replace("-", "").uppercase()
         val current = getHiddenRecordCodes().toMutableSet()
         current.add(trimmed)
+        current.add(clean)
         prefs.edit().putStringSet("hidden_record_codes", current).apply()
     }
 
     fun unhideRecord(codeOrId: String) {
         val trimmed = codeOrId.trim()
         if (trimmed.isBlank()) return
+        val clean = trimmed.replace("#", "").replace(" ", "").replace("-", "").uppercase()
         val current = getHiddenRecordCodes().toMutableSet()
         current.remove(trimmed)
+        current.remove(clean)
         prefs.edit().putStringSet("hidden_record_codes", current).apply()
     }
 
     fun isRecordHidden(codeOrId: String?): Boolean {
         if (codeOrId.isNullOrBlank()) return false
         val hidden = getHiddenRecordCodes()
-        return hidden.contains(codeOrId.trim())
+        val trimmed = codeOrId.trim()
+        val clean = trimmed.replace("#", "").replace(" ", "").replace("-", "").uppercase()
+        return hidden.contains(trimmed) || hidden.contains(clean)
     }
 
     fun getHiddenRecordCodes(): Set<String> {

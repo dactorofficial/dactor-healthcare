@@ -132,7 +132,7 @@ fun DoctorLiveQueueContent(
         }
     }
 
-    // 1-second ticking timer for elapsed times, midnight rollover, and targeted 2s upcoming queue refresh
+    // 1-second ticking timer for elapsed times, midnight rollover, and targeted 5s upcoming queue refresh
     LaunchedEffect(Unit) {
         var tickCount = 0
         while (isActive) {
@@ -141,7 +141,7 @@ fun DoctorLiveQueueContent(
                 currentEpochSecond = System.currentTimeMillis() / 1000L
                 viewModel.onTickSecond()
                 tickCount++
-                if (tickCount % 2 == 0) {
+                if (tickCount % 5 == 0) {
                     viewModel.refreshUpcomingPatientsAndCheckNew()
                 }
             } catch (e: Exception) {
@@ -306,7 +306,7 @@ fun DoctorLiveQueueContent(
                             onCardClick = {
                                 expandedItemId = if (expandedItemId == item.id) null else item.id
                             },
-                            currentEpochSecond = currentEpochSecond,
+                            currentEpochSecond = if (item.status == "inside") currentEpochSecond else 0L,
                             slotCapacityRatio = slotRatio,
                             isSlotOverloaded = isOverloaded,
                             onCallInside = { targetItem ->
@@ -361,7 +361,7 @@ fun DoctorLiveQueueContent(
                             onCardClick = {
                                 expandedItemId = if (expandedItemId == item.id) null else item.id
                             },
-                            currentEpochSecond = currentEpochSecond,
+                            currentEpochSecond = if (item.status == "inside") currentEpochSecond else 0L,
                             onCallInside = {},
                             onCompleteConsultation = {},
                             onNoShowClick = {}

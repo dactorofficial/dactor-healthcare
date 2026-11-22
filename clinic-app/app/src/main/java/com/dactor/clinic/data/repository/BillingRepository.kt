@@ -62,9 +62,11 @@ class BillingRepository @Inject constructor(
             val dbPaymentStatus = if (invoice.balanceDue <= 0.0 && invoice.totalAmount > 0.0) "paid" else "pending"
             val invoiceId = existing?.id?.takeIf { it.isNotBlank() } ?: invoice.id.takeIf { it.isNotBlank() } ?: java.util.UUID.randomUUID().toString()
             val nowIso = java.time.Instant.now().toString()
+            val effectivePaidAt = if (dbPaymentStatus == "paid") (invoice.paidAt ?: existing?.paidAt ?: nowIso) else invoice.paidAt
             val invoiceToSave = invoice.copy(
                 id = invoiceId,
                 paymentStatus = dbPaymentStatus,
+                paidAt = effectivePaidAt,
                 remarks = invoice.remarks?.takeIf { it.isNotBlank() } ?: existing?.remarks,
                 createdAt = existing?.createdAt ?: invoice.createdAt ?: nowIso,
                 updatedAt = nowIso
@@ -157,6 +159,29 @@ class BillingRepository @Inject constructor(
                 }
             } catch (ignored: Exception) {
                 ignored.printStackTrace()
+            }
+
+            // Record transaction audit log for incoming payment on that day
+            if (invoiceToSave.paidAmount > 0.0) {
+                try {
+                    val txId = java.util.UUID.randomUUID().toString()
+                    val txTime = effectivePaidAt ?: nowIso
+                    supabaseClient.postgrest["invoice_transactions"].insert(
+                        InvoiceTransaction(
+                            id = txId,
+                            invoiceId = invoiceToSave.id,
+                            clinicId = invoiceToSave.clinicId,
+                            appointmentId = invoiceToSave.appointmentId,
+                            amount = invoiceToSave.paidAmount,
+                            paymentMethod = if (invoiceToSave.totalAmount > 0.0 && invoiceToSave.totalAmount == invoiceToSave.paidAmount) "CASH" else "PARTIAL",
+                            notes = "Bill Payment Saved ($txTime)",
+                            category = "CONSULTATION",
+                            createdAt = txTime
+                        )
+                    )
+                } catch (txEx: Exception) {
+                    txEx.printStackTrace()
+                }
             }
 
             val effectiveInvoice = saved ?: invoiceToSave

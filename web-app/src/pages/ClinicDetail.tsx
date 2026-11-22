@@ -3596,6 +3596,17 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                           <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                           <span>A {PAY_AT_DESK_SERVICE_CHARGE_PERCENT}% service charge will be added to your bill when paying at the desk</span>
                         </div>
+                        {/* Appointment Slot & Date patient wants to book */}
+                        <div className="p-3 bg-white/80 dark:bg-slate-900/80 rounded-xl border border-amber-500/30 space-y-1.5 text-xs">
+                          <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-200">
+                            <Calendar className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                            <span><strong>Appointment Date:</strong> {selectedDate}</span>
+                          </div>
+                          <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-200">
+                            <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                            <span><strong>Appointment Slot:</strong> {selectedSlotTime || 'Selected Slot'}</span>
+                          </div>
+                        </div>
                         <div className="p-3 liquid-glass-subtle rounded-xl space-y-1.5 border border-amber-500/20 text-xs">
                           <div className="flex justify-between text-slate-600 dark:text-slate-300">
                             <span>Consultation Fee:</span>

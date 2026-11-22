@@ -99,7 +99,8 @@ fun BookingFormScreen(
     var retainedAppointment by remember { mutableStateOf<Appointment?>(null) }
     var isLookingUpCode by remember { mutableStateOf(false) }
     val isRetainedCompleted = retainedAppointment?.checkinStatus?.lowercase() in listOf("done", "completed")
-    val isRetainedActive = retainedAppointment != null && !isRetainedCompleted && retainedAppointment?.checkinStatus?.lowercase() != "cancelled"
+    val isRetainedCancelled = retainedAppointment != null && !isRetainedCompleted && (retainedAppointment?.checkinStatus?.lowercase() == "cancelled" || retainedAppointment?.status?.equals("CANCELLED", ignoreCase = true) == true)
+    val isRetainedActive = retainedAppointment != null && !isRetainedCompleted && !isRetainedCancelled
 
     var fullName by remember { mutableStateOf("") }
     var age by remember { mutableStateOf("") }
@@ -417,8 +418,8 @@ fun BookingFormScreen(
                 }
 
                 if (isReturningPatient) {
-                    // If active appointment, reschedule in-place (never create new appointment or overwrite bill)
-                    val effectiveAppt: Appointment? = if (isRetainedActive && retainedAppointment != null) {
+                    // If active or cancelled uncompleted appointment, reschedule in-place (never create new appointment or overwrite bill)
+                    val effectiveAppt: Appointment? = if ((isRetainedActive || isRetainedCancelled) && retainedAppointment != null) {
                         val ok = appointmentRepository?.rescheduleAppointment(
                             id = retainedAppointment!!.id,
                             newDate = resolvedDate,
@@ -1222,11 +1223,11 @@ fun BookingFormScreen(
                                         )
                                     }
                                 } else if (retained != null) {
-                                    val isRetainedActiveAppt = isRetainedActive
+                                    val isRetainedActiveAppt = isRetainedActive || isRetainedCancelled
                                     Surface(
                                         shape = RoundedCornerShape(12.dp),
-                                        color = if (isRetainedActiveAppt) Color(0xFFEFF6FF) else Color(0xFFECFDF5),
-                                        border = BorderStroke(1.dp, if (isRetainedActiveAppt) Color(0xFF93C5FD) else Color(0xFFA7F3D0)),
+                                        color = if (isRetainedCancelled) Color(0xFFFFF1F2) else if (isRetainedActive) Color(0xFFEFF6FF) else Color(0xFFECFDF5),
+                                        border = BorderStroke(1.dp, if (isRetainedCancelled) Color(0xFFFECDD3) else if (isRetainedActive) Color(0xFF93C5FD) else Color(0xFFA7F3D0)),
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Row(
@@ -1235,17 +1236,17 @@ fun BookingFormScreen(
                                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
                                             Icon(
-                                                if (isRetainedActiveAppt) Icons.Default.Update else Icons.Default.CheckCircle,
+                                                if (isRetainedCancelled) Icons.Default.EventRepeat else if (isRetainedActive) Icons.Default.Update else Icons.Default.CheckCircle,
                                                 contentDescription = null,
-                                                tint = if (isRetainedActiveAppt) Color(0xFF1D4ED8) else Color(0xFF059669),
+                                                tint = if (isRetainedCancelled) Color(0xFFE11D48) else if (isRetainedActive) Color(0xFF1D4ED8) else Color(0xFF059669),
                                                 modifier = Modifier.size(20.dp).padding(top = 2.dp)
                                             )
                                             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                                 Text(
-                                                    text = if (isRetainedActiveAppt) "Active Appointment Found \u2022 Rescheduling" else "Completed Visit Found \u2022 Free Follow-Up",
+                                                    text = if (isRetainedCancelled) "Cancelled Visit Found \u2022 Rescheduling to New Slot" else if (isRetainedActive) "Active Appointment Found \u2022 Rescheduling" else "Completed Visit Found \u2022 Free Follow-Up",
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 12.5.sp,
-                                                    color = if (isRetainedActiveAppt) Color(0xFF1E3A8A) else Color(0xFF065F46)
+                                                    color = if (isRetainedCancelled) Color(0xFF9F1239) else if (isRetainedActive) Color(0xFF1E3A8A) else Color(0xFF065F46)
                                                 )
                                                 Text(
                                                     text = "Patient: ${retained.patientName} (${retained.patientAge} yrs \u2022 ${retained.patientGender} \u2022 ${retained.patientMobile})",
@@ -1254,13 +1255,15 @@ fun BookingFormScreen(
                                                     color = SlateDark
                                                 )
                                                 Text(
-                                                    text = if (isRetainedActiveAppt) {
+                                                    text = if (isRetainedCancelled) {
+                                                        "Previously cancelled visit (#${retained.trackingCode10Digit}). Confirming below will reschedule this uncompleted visit to your newly selected slot."
+                                                    } else if (isRetainedActive) {
                                                         "Currently scheduled: ${retained.appointmentDate} at ${retained.appointmentTime}. Confirming below will shift this visit to your newly selected slot."
                                                     } else {
                                                         "Eligible for free follow-up consultation. Completed visit medical history is safely preserved in records."
                                                     },
                                                     fontSize = 11.sp,
-                                                    color = if (isRetainedActiveAppt) Color(0xFF2563EB) else Color(0xFF047857)
+                                                    color = if (isRetainedCancelled) Color(0xFFE11D48) else if (isRetainedActive) Color(0xFF2563EB) else Color(0xFF047857)
                                                 )
                                             }
                                         }

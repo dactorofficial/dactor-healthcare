@@ -32,6 +32,7 @@ data class Appointment(
     @SerialName("expires_at") val expiresAt: String? = null,
     @SerialName("approved_at") val approvedAt: String? = null,
     @SerialName("rejected_at") val rejectedAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
     @SerialName("created_at") val createdAt: String? = null
 ) {
     val isPayAtDesk: Boolean

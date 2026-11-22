@@ -146,15 +146,24 @@ object DiagnosticLabPolicy {
         labReports: List<LabReport> = emptyList(),
         requireNoShow: Boolean = true
     ): Boolean {
+        // Strictly non-reschedulable once sample collection or subsequent laboratory processing has occurred
         if (isSampleCollectedOrFurther(appointment, queueStatus, labReports)) {
             return false
         }
         val qLower = queueStatus?.trim()?.lowercase() ?: ""
         val cLower = appointment?.checkinStatus?.trim()?.lowercase() ?: ""
         val sLower = appointment?.status?.trim()?.lowercase() ?: ""
-        if (cLower == "cancelled" || sLower == "cancelled" || sLower == "rejected" || qLower == "cancelled") {
+
+        if (sLower == "rejected") {
             return false
         }
+
+        // Diagnostic lab visit was NEVER completed (sample was never collected).
+        // Cancellation in live queue allows the patient to reschedule/book a new slot later.
+        if (cLower == "cancelled" || sLower == "cancelled" || qLower == "cancelled") {
+            return true
+        }
+
         if (requireNoShow) {
             return qLower in setOf("no_show", "missed") ||
                 cLower in setOf("no_show", "missed") ||

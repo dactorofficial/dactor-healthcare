@@ -91,8 +91,17 @@ fun PatientDetailScreen(
     var pastRemarksMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var clinicsMap by remember { mutableStateOf<Map<String, Clinic>>(emptyMap()) }
     var doctorsList by remember { mutableStateOf<List<Doctor>>(emptyList()) }
+    var isLabClinicState by remember { mutableStateOf(false) }
 
     var actionMessage by remember { mutableStateOf<String?>(null) }
+
+    val currentClinic = clinicsMap[appointment.clinicId]
+        ?: (if (appointment.clinicId.isNotBlank()) clinicRepository?.getCachedClinicById(appointment.clinicId) else null)
+        ?: clinicRepository?.getLastCachedClinic()
+
+    val isLabClinic = isLabClinicState ||
+        currentClinic?.isDiagnosticLab() == true ||
+        !appointment.selectedLabTests.isNullOrBlank()
 
     // Editing Past Visit Remark Dialog
     var editingPastApptRemark by remember { mutableStateOf<Appointment?>(null) }
@@ -152,6 +161,24 @@ fun PatientDetailScreen(
                 followUpDoctorId = remote.doctorId ?: ""
                 if (doctorRepository != null && remote.clinicId.isNotBlank()) {
                     doctorsList = doctorRepository.getDoctorsByClinic(remote.clinicId)
+                }
+
+                if (clinicRepository != null && remote.clinicId.isNotBlank() && !clinicsMap.containsKey(remote.clinicId)) {
+                    try {
+                        val c = clinicRepository.getClinicById(remote.clinicId)
+                        if (c != null) {
+                            clinicsMap = clinicsMap + (c.id to c)
+                        }
+                    } catch (ignored: Exception) {}
+                }
+
+                val isLab = appointmentRepository.isDiagnosticLabClinic(remote.clinicId) ||
+                    remote.selectedLabTests?.isNotBlank() == true ||
+                    clinicsMap[remote.clinicId]?.isDiagnosticLab() == true ||
+                    clinicRepository?.getCachedClinicById(remote.clinicId)?.isDiagnosticLab() == true ||
+                    clinicRepository?.getLastCachedClinic()?.isDiagnosticLab() == true
+                if (isLab) {
+                    isLabClinicState = true
                 }
 
                 val existingRemarks = billingRepository?.getRemarkForAppointment(remote.id)
@@ -347,16 +374,18 @@ fun PatientDetailScreen(
                         }
                     }
 
-                    // Schedule Follow-Up Button
-                    OutlinedButton(
-                        onClick = { showScheduleFollowUpDialog = true },
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, Color(0xFF0097A7)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = Color(0xFF0097A7), modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Schedule Follow-Up / Next Appointment", color = Color(0xFF0097A7), fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                    // Schedule Follow-Up Button (Hidden for Diagnostic Lab clinics as follow-ups are not allowed)
+                    if (!isLabClinic) {
+                        OutlinedButton(
+                            onClick = { showScheduleFollowUpDialog = true },
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Color(0xFF0097A7)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = Color(0xFF0097A7), modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Schedule Follow-Up / Next Appointment", color = Color(0xFF0097A7), fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                        }
                     }
                 }
             }
@@ -568,9 +597,6 @@ fun PatientDetailScreen(
                     }
                 }
             }
-
-            val currentClinic = clinicsMap[appointment.clinicId]
-            val isLabClinic = currentClinic?.isDiagnosticLab() == true
 
             // Quick Actions: Billing & (Only for Lab Type Clinics) Lab Process Workflow
             Row(
@@ -1071,8 +1097,8 @@ fun PatientDetailScreen(
         }
     }
 
-    // Schedule Follow-Up Dialog
-    if (showScheduleFollowUpDialog) {
+    // Schedule Follow-Up Dialog (Disabled for Diagnostic Lab clinics)
+    if (!isLabClinic && showScheduleFollowUpDialog) {
         AlertDialog(
             onDismissRequest = { showScheduleFollowUpDialog = false },
             title = { Text("Schedule Follow-Up Visit", fontWeight = FontWeight.Bold, fontSize = 16.sp) },

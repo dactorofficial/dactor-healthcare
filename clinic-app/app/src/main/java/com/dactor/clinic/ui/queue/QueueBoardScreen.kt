@@ -145,11 +145,16 @@ fun QueueBoardScreen(
             val docMap = clinicDoctors.associateBy { it.id }
             cachedInitialQueue.filter { entry ->
                 val appt = apptMap[entry.appointmentId]
-                appt != null && appt.status.equals("APPROVED", ignoreCase = true) && appt.checkinStatus != "cancelled"
+                appt != null &&
+                    appt.status != "WAITING_FOR_APPROVAL" &&
+                    appt.status != "pending_payment" &&
+                    appt.status != "UNAPPROVED" &&
+                    appt.status != "EXPIRED"
             }.map { entry ->
                 val appt = apptMap[entry.appointmentId]
                 val apptCheckinLower = appt?.checkinStatus?.lowercase() ?: ""
                 val serverResolvedStatus = when {
+                    apptCheckinLower == "cancelled" || appt?.status.equals("CANCELLED", ignoreCase = true) -> "cancelled"
                     entry.status in listOf("waiting", "inside") && apptCheckinLower == "processing" -> "processing"
                     entry.status in listOf("waiting", "inside") && apptCheckinLower == "sample_collected" -> "sample_collected"
                     entry.status in listOf("waiting", "inside", "processing", "sample_collected") && apptCheckinLower == "report_prepared" -> "report_prepared"
@@ -385,7 +390,7 @@ fun QueueBoardScreen(
     val coroutineScope = rememberCoroutineScope()
     val processingStatuses = remember { setOf("processing", "sample_collected") }
     val completedStatuses = remember { setOf("done", "report_prepared") }
-    val pastStatuses = remember { setOf("done", "report_prepared", "no_show") }
+    val pastStatuses = remember { setOf("done", "report_prepared", "no_show", "cancelled") }
     val allFinishedStatuses = remember { processingStatuses + pastStatuses }
     var pendingStatusOverrides by remember(effectiveClinicId) { mutableStateOf<Map<String, Pair<String, Long>>>(emptyMap()) }
 
@@ -496,6 +501,47 @@ fun QueueBoardScreen(
 
     suspend fun loadQueue(isDeltaOnly: Boolean = false) {
         if (queueRepository != null && effectiveClinicId.isNotBlank()) {
+            // 1. High-speed atomic Live Queue RPC
+            val fastEntries = try {
+                if (selectedDoctorFilterId != null && !isLabClinic) {
+                    queueRepository.getFastDoctorLiveQueue(selectedDoctorFilterId!!, effectiveClinicId, selectedQueueDate)
+                } else {
+                    queueRepository.getFastClinicLiveQueue(effectiveClinicId, selectedQueueDate)
+                }
+            } catch (_: Exception) { null }
+
+            if (!fastEntries.isNullOrEmpty()) {
+                val nowMs = System.currentTimeMillis()
+                val activeOverrides = pendingStatusOverrides.filterValues { it.second > nowMs }
+                val resolvedOverridesToKeep = activeOverrides.toMutableMap()
+
+                val mappedItems = fastEntries.map { dto ->
+                    val itm = dto.toQueueItemUi()
+                    val pending = activeOverrides[itm.id]
+                    if (pending != null && itm.status != pending.first) {
+                        itm.copy(status = pending.first)
+                    } else {
+                        if (pending != null && itm.status == pending.first) {
+                            resolvedOverridesToKeep.remove(itm.id)
+                        }
+                        itm
+                    }
+                }.sortedWith(
+                    compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }
+                        .thenBy { item -> item.queuePosition.takeIf { it > 0 } ?: 9999 }
+                        .thenBy { item ->
+                            com.dactor.clinic.data.repository.AppointmentRepository.parseTimeToMinutes(item.appointmentTime)
+                        }
+                        .thenBy { item -> item.createdAt.orEmpty() }
+                        .thenBy { item -> item.id }
+                )
+
+                pendingStatusOverrides = resolvedOverridesToKeep
+                queueItems = mappedItems
+                isQueueLoading = false
+                return
+            }
+
             if (!isDeltaOnly) {
                 // Offload background audits so they never delay UI rendering
                 coroutineScope.launch {
@@ -660,15 +706,17 @@ fun QueueBoardScreen(
                     .filter { entry ->
                         val appt = apptMap[entry.appointmentId]
                         appt != null &&
-                            appt.status.equals("APPROVED", ignoreCase = true) &&
-                            !appt.status.equals("CANCELLED", ignoreCase = true) &&
-                            appt.checkinStatus != "cancelled" &&
+                            appt.status != "WAITING_FOR_APPROVAL" &&
+                            appt.status != "pending_payment" &&
+                            appt.status != "UNAPPROVED" &&
+                            appt.status != "EXPIRED" &&
                             (appt.appointmentDate.isBlank() || appt.appointmentDate == selectedQueueDate)
                     }
                     .map { entry ->
                         val appt = apptMap[entry.appointmentId]
                         val apptCheckinLower = appt?.checkinStatus?.lowercase() ?: ""
                         val serverResolvedStatus = when {
+                            apptCheckinLower == "cancelled" || appt?.status.equals("CANCELLED", ignoreCase = true) -> "cancelled"
                             entry.status in listOf("waiting", "inside") && apptCheckinLower == "processing" -> "processing"
                             entry.status in listOf("waiting", "inside") && apptCheckinLower == "sample_collected" -> "sample_collected"
                             entry.status in listOf("waiting", "inside", "processing", "sample_collected") && apptCheckinLower == "report_prepared" -> "report_prepared"
@@ -746,6 +794,13 @@ fun QueueBoardScreen(
 
                 isQueueLoading = false
 
+                // Persist full enriched items into Room DB cache
+                if (queueRepository != null && mappedItems.isNotEmpty()) {
+                    try {
+                        queueRepository.saveEnrichedQueueItems(mappedItems, effectiveClinicId)
+                    } catch (_: Exception) {}
+                }
+
                 val pastApptIds = mappedItems.filter { it.status in allFinishedStatuses }.map { it.appointmentId }
                 if (billingRepository != null && pastApptIds.isNotEmpty()) {
                     try {
@@ -811,6 +866,18 @@ fun QueueBoardScreen(
         }
     }
 
+    LaunchedEffect(effectiveClinicId, selectedQueueDate) {
+        if (effectiveClinicId.isNotBlank() && queueRepository != null) {
+            try {
+                val cached = queueRepository.getLocalCachedQueueForClinic(effectiveClinicId, selectedQueueDate)
+                if (cached.isNotEmpty()) {
+                    queueItems = cached
+                    isQueueLoading = false
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
     LaunchedEffect(effectiveClinicId) {
         // Initial full sync of clinic, doctors, and appointments
         try {
@@ -819,7 +886,7 @@ fun QueueBoardScreen(
             android.util.Log.e("QueueBoardScreen", "Initial loadQueue failed", e)
         }
         while (isActive) {
-            delay(2000L)
+            delay(8000L)
             try {
                 // Lightweight operational delta sync: only queue entries without heavy table scans
                 loadQueue(isDeltaOnly = true)
@@ -2354,7 +2421,7 @@ fun QueueBoardScreen(
                                                 "processing", "sample_collected" -> Color(0xFFE0F2FE)
                                                 "report_prepared" -> Color(0xFFFEF3C7)
                                                 "done" -> Color(0xFFF1F5F9)
-                                                "no_show" -> Color(0xFFFEE2E2)
+                                                "no_show", "cancelled" -> Color(0xFFFEE2E2)
                                                 else -> Color(0xFFEBF3FE)
                                             },
                                             modifier = Modifier
@@ -2376,6 +2443,7 @@ fun QueueBoardScreen(
                                                     item.status == "report_prepared" -> "Prepared"
                                                     item.status == "done" -> "Done"
                                                     item.status == "no_show" -> "No Show"
+                                                    item.status == "cancelled" -> "Cancelled"
                                                     isPassedOver -> "Late"
                                                     else -> "#${index + 1}"
                                                 },
@@ -2384,7 +2452,7 @@ fun QueueBoardScreen(
                                                     item.status == "processing" || item.status == "sample_collected" -> Color(0xFF0369A1)
                                                     item.status == "report_prepared" -> Color(0xFFB45309)
                                                     item.status == "done" -> Color(0xFF475569)
-                                                    item.status == "no_show" -> Color(0xFFDC2626)
+                                                    item.status == "no_show" || item.status == "cancelled" -> Color(0xFFDC2626)
                                                     isPassedOver -> Color(0xFFD97706)
                                                     else -> Color(0xFF1D68E2)
                                                 },

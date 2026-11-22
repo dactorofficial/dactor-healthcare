@@ -8,8 +8,42 @@ import com.dactor.patient.data.model.QueueEntry
 import com.dactor.patient.data.model.Slot
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.rpc
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.JsonPrimitive
+
+@Serializable
+data class FastLiveQueueItemDto(
+    @SerialName("id") val id: String = "",
+    @SerialName("appointment_id") val appointmentId: String = "",
+    @SerialName("clinic_id") val clinicId: String = "",
+    @SerialName("doctor_id") val doctorId: String? = null,
+    @SerialName("doctor_name") val doctorName: String? = null,
+    @SerialName("queue_position") val queuePosition: Int = 0,
+    @SerialName("status") val status: String = "waiting",
+    @SerialName("called_at") val calledAt: String? = null,
+    @SerialName("inside_at") val insideAt: String? = null,
+    @SerialName("completed_at") val completedAt: String? = null,
+    @SerialName("consultation_duration_seconds") val consultationDurationSeconds: Long? = null,
+    @SerialName("patient_name") val patientName: String = "",
+    @SerialName("patient_age") val patientAge: Int = 0,
+    @SerialName("patient_gender") val patientGender: String = "",
+    @SerialName("patient_mobile") val patientMobile: String = "",
+    @SerialName("tracking_code") val trackingCode: String = "",
+    @SerialName("appointment_date") val appointmentDate: String = "",
+    @SerialName("appointment_time") val appointmentTime: String = "",
+    @SerialName("payment_mode") val paymentMode: String? = null,
+    @SerialName("payment_status") val paymentStatus: String? = null,
+    @SerialName("total_amount") val totalAmount: Double = 0.0,
+    @SerialName("user_id") val userId: String? = null,
+    @SerialName("is_walkin") val isWalkin: Boolean = false,
+    @SerialName("selected_lab_tests") val selectedLabTests: String? = null,
+    @SerialName("opt_in_early_call") val optInEarlyCall: Boolean = false,
+    @SerialName("created_at") val createdAt: String? = null
+)
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -64,6 +98,29 @@ data class MultiSlotPositionResult(
     val isToday: Boolean = true,
     val isTomorrow: Boolean = false,
     val isFutureDate: Boolean = false
+)
+
+@Serializable
+data class LiveQueueDelta(
+    @SerialName("tracking_code_10_digit") val trackingCode10Digit: String = "",
+    @SerialName("appointment_id") val appointmentId: String = "",
+    @SerialName("clinic_id") val clinicId: String = "",
+    @SerialName("clinic_name") val clinicName: String = "",
+    @SerialName("doctor_id") val doctorId: String? = null,
+    @SerialName("doctor_name") val doctorName: String = "",
+    @SerialName("doctor_specialty") val doctorSpecialty: String = "",
+    @SerialName("appointment_date") val appointmentDate: String = "",
+    @SerialName("appointment_time") val appointmentTime: String = "",
+    @SerialName("checkin_status") val checkinStatus: String = "waiting",
+    @SerialName("queue_status") val queueStatus: String = "waiting",
+    @SerialName("token_number") val tokenNumber: Int = 1,
+    @SerialName("queue_position") val queuePosition: Int = 1,
+    @SerialName("patients_ahead") val patientsAhead: Int = 0,
+    @SerialName("current_serving_token") val currentServingToken: Int = 0,
+    @SerialName("doctor_is_in_clinic") val doctorIsInClinic: Boolean = false,
+    @SerialName("is_anyone_inside") val isAnyoneInside: Boolean = false,
+    @SerialName("estimated_wait_minutes") val estimatedWaitMinutes: Int = 0,
+    @SerialName("slot_notice") val slotNotice: String = ""
 )
 
 @Singleton
@@ -122,6 +179,22 @@ class QueueRepository @Inject constructor(
         }
     }
 
+    suspend fun fetchLiveQueueDelta(codeOrId: String): LiveQueueDelta? = withContext(Dispatchers.IO) {
+        if (codeOrId.isBlank()) return@withContext null
+        try {
+            val list = supabaseClient.postgrest.rpc(
+                function = "get_live_queue_status",
+                parameters = buildJsonObject {
+                    put("p_code_or_id", JsonPrimitive(codeOrId.trim()))
+                }
+            ).decodeList<LiveQueueDelta>()
+            list.firstOrNull()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
     suspend fun ensureQueueEntryForAppointment(
         appointmentId: String,
         clinicId: String,
@@ -129,108 +202,39 @@ class QueueRepository @Inject constructor(
     ): QueueEntry? = withContext(Dispatchers.IO) {
         if (appointmentId.isBlank() || clinicId.isBlank()) return@withContext null
         try {
-            // Guard: Never create a queue entry for an unapproved appointment
-            val appt = try {
-                supabaseClient.postgrest["appointments"]
-                    .select { filter { eq("id", appointmentId) } }
-                    .decodeList<com.dactor.patient.data.model.Appointment>()
-                    .firstOrNull()
-            } catch (_: Exception) { null }
-
-            val isUnapproved = appt == null ||
-                !appt.status.equals("APPROVED", ignoreCase = true) ||
-                appt.status == "WAITING_FOR_APPROVAL" ||
-                appt.status == "pending_payment" ||
-                appt.status == "UNAPPROVED" ||
-                appt.status == "EXPIRED" ||
-                appt.checkinStatus == "cancelled"
-
-            if (isUnapproved) {
-                try {
-                    supabaseClient.postgrest["queue_entries"].delete {
-                        filter { eq("appointment_id", appointmentId) }
-                    }
-                } catch (_: Exception) {}
-                return@withContext null
-            }
-
-            val existing = getQueueStatus(appointmentId)
-            val isLab = isDiagnosticLabClinic(clinicId)
-            val cleanDocId = if (isLab) null else doctorId?.takeIf { com.dactor.patient.domain.util.PatientIdentitySync.isValidUuid(it) }
-
-            if (existing != null) {
-                // If previous queue entry is already done or completed, do not reset it
-                if (existing.status.lowercase() in listOf("done", "completed")) {
-                    return@withContext existing
-                }
-                // If previous queue entry was cancelled, no_show, or skipped, reset it to active waiting for today's OPD/Lab
-                if (existing.status.lowercase() in listOf("cancelled", "no_show", "skipped")) {
-                    val resolvedDoc = if (isLab) null else (cleanDocId ?: existing.doctorId)
-                    val currentEntries = if (isLab) getQueueEntriesForClinic(clinicId) else getQueueEntriesForDoctor(clinicId, resolvedDoc)
-                    val nextPos = (currentEntries
-                        .filter { it.status == "waiting" || it.status == "inside" }
-                        .map { it.queuePosition }
-                        .maxOrNull() ?: 0) + 1
-
-                    try {
-                        supabaseClient.postgrest["queue_entries"].update({
-                            set("status", "waiting")
-                            set("queue_position", nextPos)
-                            set("called_at", null as String?)
-                            set("inside_at", null as String?)
-                            set("completed_at", null as String?)
-                            set("doctor_id", resolvedDoc)
-                        }) {
-                            filter { eq("id", existing.id) }
-                        }
-                        return@withContext existing.copy(
-                            status = "waiting",
-                            queuePosition = nextPos,
-                            doctorId = resolvedDoc,
-                            calledAt = null,
-                            insideAt = null,
-                            completedAt = null
-                        )
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-                return@withContext existing
-            }
-
-            // Queue sequence:
-            // For diagnostic lab: single common queue across this clinic_id (Tokens 1..N across entire lab, doctor_id = null)
-            // For doctor clinic: doctor-partitioned queue sequence (Token starts from 1 for each specific doctor)
-            val activeEntries = if (isLab) getQueueEntriesForClinic(clinicId) else getQueueEntriesForDoctor(clinicId, cleanDocId)
-            val nextPos = (activeEntries
-                .filter { it.status == "waiting" || it.status == "inside" }
-                .map { it.queuePosition }
-                .maxOrNull() ?: 0) + 1
-
-            val newEntry = QueueEntry(
-                id = UUID.randomUUID().toString(),
-                appointmentId = appointmentId,
-                clinicId = clinicId,
-                doctorId = if (isLab) null else cleanDocId,
-                queuePosition = nextPos,
-                status = "waiting"
-            )
-
+            // Server-side authoritative assignment with SECURITY DEFINER
             try {
-                supabaseClient.postgrest["queue_entries"].insert(newEntry)
-                newEntry
-            } catch (e: Exception) {
-                if (cleanDocId != null) {
-                    try {
-                        val fallbackEntry = newEntry.copy(doctorId = null)
-                        supabaseClient.postgrest["queue_entries"].insert(fallbackEntry)
-                        fallbackEntry
-                    } catch (e2: Exception) {
-                        null
+                supabaseClient.postgrest.rpc(
+                    function = "assign_or_get_queue_token",
+                    parameters = buildJsonObject {
+                        put("p_appointment_id", JsonPrimitive(appointmentId.trim()))
                     }
-                } else null
+                )
+            } catch (rpcErr: Exception) {
+                rpcErr.printStackTrace()
             }
+
+            // Fetch live operational status from delta
+            val delta = fetchLiveQueueDelta(appointmentId)
+            if (delta != null && delta.tokenNumber > 0) {
+                val qe = QueueEntry(
+                    id = UUID.randomUUID().toString(),
+                    appointmentId = appointmentId,
+                    clinicId = clinicId,
+                    doctorId = doctorId,
+                    queuePosition = delta.tokenNumber,
+                    status = delta.queueStatus
+                )
+                queueStatusCache[appointmentId] = Pair(System.currentTimeMillis(), qe)
+                return@withContext qe
+            }
+
+            getQueueStatus(appointmentId, forceRefresh = true)
         } catch (e: Exception) {
+            e.printStackTrace()
+            getQueueStatus(appointmentId)
+        }
+    }
             e.printStackTrace()
             null
         }
@@ -278,8 +282,41 @@ class QueueRepository @Inject constructor(
     ): List<QueueEntry> {
         if (clinicId.isBlank()) return emptyList()
         val isLab = isDiagnosticLabClinic(clinicId)
-        val allEntries = if (isLab) getQueueEntriesForClinic(clinicId, forceRefresh) else getQueueEntriesForDoctor(clinicId, doctorId)
         val targetDateStr = appointmentDate.trim().take(10)
+
+        // 1. Try atomic high-speed live queue RPC first
+        if (targetDateStr.isNotBlank()) {
+            try {
+                val cleanDocId = if (isLab) null else doctorId?.takeIf { it.length == 36 && it.contains("-") }
+                val params = buildJsonObject {
+                    if (cleanDocId != null) {
+                        put("p_doctor_id", cleanDocId)
+                    }
+                    put("p_clinic_id", clinicId)
+                    put("p_date", targetDateStr)
+                }
+                val response = supabaseClient.postgrest.rpc("get_doctor_live_queue", params)
+                val dtos = response.decodeList<FastLiveQueueItemDto>()
+                if (dtos.isNotEmpty()) {
+                    return dtos.map { dto ->
+                        QueueEntry(
+                            id = dto.id,
+                            appointmentId = dto.appointmentId,
+                            clinicId = dto.clinicId,
+                            doctorId = dto.doctorId,
+                            queuePosition = dto.queuePosition,
+                            status = dto.status,
+                            calledAt = dto.calledAt,
+                            insideAt = dto.insideAt,
+                            completedAt = dto.completedAt
+                        )
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 2. Legacy fallback path
+        val allEntries = if (isLab) getQueueEntriesForClinic(clinicId, forceRefresh) else getQueueEntriesForDoctor(clinicId, doctorId)
         if (targetDateStr.isBlank()) return allEntries
         return try {
             val validApptIds = supabaseClient.postgrest["appointments"].select {

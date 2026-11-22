@@ -383,7 +383,8 @@ fun PayAtDeskRequestsScreen(
                         DetailRow("Email", req.patientEmail)
                     }
                     DetailRow("Doctor", doc?.fullName ?: "Assigned Doctor")
-                    DetailRow("Date & Time", "${req.appointmentDate} \u2022 ${req.appointmentTime}")
+                    DetailRow("Appointment Date", req.appointmentDate, isBold = true)
+                    DetailRow("Requested Slot", req.appointmentTime.ifBlank { "Consultation Slot" }, isBold = true, valueColor = Color(0xFF0284C7))
                     if (!req.createdAt.isNullOrBlank()) {
                         DetailRow("Requested At", "${formatRelativeTime(req.createdAt)} (${req.createdAt})")
                     }
@@ -605,9 +606,16 @@ fun PayAtDeskRequestCard(
                         Text(doctor?.fullName ?: "Assigned Doctor", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E293B))
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.CalendarToday, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(14.dp))
+                        Icon(Icons.Default.CalendarToday, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Slot: ${appointment.appointmentDate} \u2022 ${appointment.appointmentTime}", fontSize = 12.sp, color = Color(0xFF475569))
+                        Text("Appointment Date: ", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF334155))
+                        Text(appointment.appointmentDate, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Schedule, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Requested Slot: ", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF334155))
+                        Text(appointment.appointmentTime.ifBlank { "Consultation Slot" }, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0284C7))
                     }
                     if (!appointment.createdAt.isNullOrBlank()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {

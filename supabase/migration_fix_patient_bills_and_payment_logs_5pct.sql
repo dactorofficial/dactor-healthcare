@@ -359,7 +359,7 @@ BEGIN
             paid_amount = GREATEST(COALESCE(v_existing_inv.paid_amount, 0.00), COALESCE(v_existing_inv.total_amount, 0.00), v_total),
             balance_due = 0.00,
             payment_status = 'paid',
-            paid_at = COALESCE(v_existing_inv.paid_at, NOW()),
+            paid_at = NOW(),
             updated_at = NOW()
         WHERE id = v_existing_inv.id
         RETURNING id, total_amount INTO v_invoice_id, v_final_inv_total;
@@ -371,7 +371,8 @@ BEGIN
         SET amount = GREATEST(COALESCE(amount, 0.00), v_final_inv_total),
             notes = 'Pay at Desk Collection (Includes 5% Commission: NPR ' || v_charge::TEXT || ')',
             reference_id = COALESCE(reference_id, v_appt.tracking_code_10_digit, v_appt.id::TEXT),
-            category = COALESCE(NULLIF(category, ''), 'CONSULTATION')
+            category = COALESCE(NULLIF(category, ''), 'CONSULTATION'),
+            transaction_time = NOW()
         WHERE appointment_id = v_appt.id
           AND UPPER(COALESCE(payment_method, '')) IN ('PAY_AT_DESK', 'CASH');
 

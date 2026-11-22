@@ -211,7 +211,7 @@ BEGIN
             paid_amount = GREATEST(COALESCE(v_existing_inv.paid_amount, 0.00), v_final_inv_total),
             balance_due = 0.00,
             payment_status = 'paid',
-            paid_at = COALESCE(v_existing_inv.paid_at, NOW()),
+            paid_at = NOW(),
             updated_at = NOW()
         WHERE id = v_existing_inv.id
         RETURNING id INTO v_invoice_id;
@@ -219,26 +219,32 @@ BEGIN
 
     -- Synchronize invoice_transactions audit log idempotently
     IF v_invoice_id IS NOT NULL AND v_final_inv_total > 0 THEN
-        INSERT INTO public.invoice_transactions (
-            invoice_id, clinic_id, appointment_id, transaction_type, amount,
-            payment_method, reference_id, category, notes, transaction_time
-        )
-        SELECT
-            v_invoice_id,
-            v_appt.clinic_id,
-            v_appt.id,
-            'PAYMENT',
-            v_final_inv_total,
-            'PAY_AT_DESK',
-            COALESCE(v_appt.tracking_code_10_digit, v_appt.id::TEXT),
-            'CONSULTATION',
-            'Pay at Desk Collection (Includes 5% Commission: NPR ' || v_charge::TEXT || ')',
-            NOW()
-        WHERE NOT EXISTS (
-            SELECT 1 FROM public.invoice_transactions it
-            WHERE it.appointment_id = v_appt.id
-              AND UPPER(COALESCE(it.payment_method, '')) = 'PAY_AT_DESK'
-        );
+        UPDATE public.invoice_transactions
+        SET amount = GREATEST(COALESCE(amount, 0.00), v_final_inv_total),
+            notes = 'Pay at Desk Collection (Includes 5% Commission: NPR ' || v_charge::TEXT || ')',
+            reference_id = COALESCE(reference_id, v_appt.tracking_code_10_digit, v_appt.id::TEXT),
+            category = COALESCE(NULLIF(category, ''), 'CONSULTATION'),
+            transaction_time = NOW()
+        WHERE appointment_id = v_appt.id
+          AND UPPER(COALESCE(payment_method, '')) IN ('PAY_AT_DESK', 'CASH');
+
+        IF NOT FOUND THEN
+            INSERT INTO public.invoice_transactions (
+                invoice_id, clinic_id, appointment_id, transaction_type, amount,
+                payment_method, reference_id, category, notes, transaction_time
+            ) VALUES (
+                v_invoice_id,
+                v_appt.clinic_id,
+                v_appt.id,
+                'PAYMENT',
+                v_final_inv_total,
+                'PAY_AT_DESK',
+                COALESCE(v_appt.tracking_code_10_digit, v_appt.id::TEXT),
+                'CONSULTATION',
+                'Pay at Desk Collection (Includes 5% Commission: NPR ' || v_charge::TEXT || ')',
+                NOW()
+            );
+        END IF;
     END IF;
 
     RETURN jsonb_build_object(

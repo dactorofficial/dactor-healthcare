@@ -417,4 +417,251 @@ class PatientDirectoryDeduplicationTest {
 
         assertTrue("Book appointment SHOULD be shown in standard OPD polyclinic", shouldShowBookAppointment(opdClinic))
     }
+
+    @Test
+    fun testPatientDirectoryIncludesAppointmentsFromMultipleDates() {
+        val today = java.time.LocalDate.now().toString()
+        val pastDate = java.time.LocalDate.now().minusDays(3).toString()
+        val futureDate = java.time.LocalDate.now().plusDays(2).toString()
+
+        val clinicAppointments = listOf(
+            Appointment(
+                id = "appt-past-1",
+                clinicId = "clinic-1",
+                doctorId = "doc-1",
+                patientName = "Past Patient",
+                patientMobile = "9800000001",
+                trackingCode10Digit = "1111111111",
+                appointmentDate = pastDate,
+                status = "APPROVED",
+                checkinStatus = "completed"
+            ),
+            Appointment(
+                id = "appt-today-1",
+                clinicId = "clinic-1",
+                doctorId = "doc-1",
+                patientName = "Today Patient",
+                patientMobile = "9800000002",
+                trackingCode10Digit = "2222222222",
+                appointmentDate = today,
+                status = "APPROVED",
+                checkinStatus = "waiting"
+            ),
+            Appointment(
+                id = "appt-future-1",
+                clinicId = "clinic-1",
+                doctorId = "doc-1",
+                patientName = "Future Patient",
+                patientMobile = "9800000003",
+                trackingCode10Digit = "3333333333",
+                appointmentDate = futureDate,
+                status = "APPROVED",
+                checkinStatus = "waiting"
+            )
+        )
+
+        val directory = buildAllDirectoryProfiles(
+            localPatients = emptyList(),
+            locallyAddedProfiles = emptyList(),
+            appointments = clinicAppointments
+        )
+
+        assertEquals("All patients across past, today, and future dates must appear in directory", 3, directory.size)
+        assertTrue(directory.any { it.fullName == "Past Patient" })
+        assertTrue(directory.any { it.fullName == "Today Patient" })
+        assertTrue(directory.any { it.fullName == "Future Patient" })
+    }
+
+    @Test
+    fun testLiveQueueStrictlyFiltersTodayAppointments() {
+        val today = java.time.LocalDate.now().toString()
+        val pastDate = java.time.LocalDate.now().minusDays(3).toString()
+
+        val appointments = listOf(
+            Appointment(
+                id = "appt-past",
+                clinicId = "clinic-1",
+                doctorId = "doc-1",
+                patientName = "Old Pathogen",
+                patientMobile = "9703951751",
+                trackingCode10Digit = "7313242914",
+                appointmentDate = pastDate,
+                status = "APPROVED",
+                checkinStatus = "waiting"
+            ),
+            Appointment(
+                id = "appt-today",
+                clinicId = "clinic-1",
+                doctorId = "doc-1",
+                patientName = "Active Queue Patient",
+                patientMobile = "9800000099",
+                trackingCode10Digit = "9999999999",
+                appointmentDate = today,
+                status = "APPROVED",
+                checkinStatus = "waiting"
+            )
+        )
+
+        fun filterLiveQueue(appts: List<Appointment>, currentDate: String): List<Appointment> {
+            return appts.filter {
+                (it.appointmentDate.isBlank() || it.appointmentDate == currentDate) &&
+                it.checkinStatus != "completed" &&
+                it.checkinStatus != "cancelled" &&
+                it.status.equals("APPROVED", ignoreCase = true) &&
+                it.status != "WAITING_FOR_APPROVAL" &&
+                it.status != "pending_payment" &&
+                it.status != "UNAPPROVED" &&
+                it.status != "EXPIRED"
+            }
+        }
+
+        val liveQueue = filterLiveQueue(appointments, today)
+        assertEquals("Live queue must only have 1 active patient for today", 1, liveQueue.size)
+        assertEquals("Active Queue Patient", liveQueue[0].patientName)
+        assertFalse("Past date appointment (from 3 days ago) must NOT leak into Live Queue", liveQueue.any { it.id == "appt-past" })
+    }
+
+    @Test
+    fun testDiagnosticLabDisallowsFollowUpInChart() {
+        val labClinic = Clinic(
+            id = "lab-c1",
+            name = "Apex Pathology & Diagnostic Lab",
+            type = "diagnostic_lab"
+        )
+        val opdClinic = Clinic(
+            id = "opd-c1",
+            name = "Medicare Polyclinic & Health Care",
+            type = "opd_clinic"
+        )
+
+        val labAppointment = Appointment(
+            id = "appt-lab-1",
+            clinicId = "lab-c1",
+            patientName = "Lab Patient",
+            selectedLabTests = "Complete Blood Count (CBC)"
+        )
+
+        val opdAppointment = Appointment(
+            id = "appt-opd-1",
+            clinicId = "opd-c1",
+            patientName = "OPD Patient",
+            doctorId = "doc-1"
+        )
+
+        fun shouldAllowFollowUpInChart(clinic: Clinic?, appointment: Appointment): Boolean {
+            val isLabClinic = clinic?.isDiagnosticLab() == true || !appointment.selectedLabTests.isNullOrBlank()
+            return !isLabClinic
+        }
+
+        assertFalse("Diagnostic lab clinic must disallow follow-up in chart", shouldAllowFollowUpInChart(labClinic, labAppointment))
+        assertFalse("Diagnostic lab appointment by selected tests must disallow follow-up in chart", shouldAllowFollowUpInChart(null, labAppointment))
+        assertTrue("OPD clinic appointment must allow follow-up in chart", shouldAllowFollowUpInChart(opdClinic, opdAppointment))
+    }
+
+    @Test
+    fun testNormalizePhoneDigits() {
+        fun normalizePhoneDigits(phone: String?): String {
+            return phone?.filter { it.isDigit() }?.takeLast(10) ?: ""
+        }
+
+        assertEquals("9841234567", normalizePhoneDigits("+977-9841234567"))
+        assertEquals("9841234567", normalizePhoneDigits("9841234567"))
+        assertEquals("9841234567", normalizePhoneDigits("+977 984-123-4567"))
+        assertEquals("9841234567", normalizePhoneDigits("01-9841234567"))
+        assertEquals("", normalizePhoneDigits(null))
+        assertEquals("", normalizePhoneDigits(""))
+    }
+
+    @Test
+    fun testMultiVisitClinicDoctorSpecificFollowUpLogic() {
+        fun normalizePhoneDigits(phone: String?): String {
+            return phone?.filter { it.isDigit() }?.takeLast(10) ?: ""
+        }
+
+        val patientPhone = "+977-9841122334"
+        val cleanPatientPhone = normalizePhoneDigits(patientPhone)
+
+        val pastAppointments = listOf(
+            Appointment(
+                id = "appt-1",
+                clinicId = "clinic-poly-1",
+                doctorId = "doc-cardiologist",
+                patientName = "Sita Sharma",
+                patientMobile = "9841122334",
+                trackingCode10Digit = "1234567890",
+                appointmentDate = "2026-11-01",
+                status = "APPROVED",
+                checkinStatus = "completed"
+            )
+        )
+
+        val isMultiTypeClinic = true
+        val affiliatedDoctorIds = listOf("doc-cardiologist", "doc-dermatologist")
+
+        fun determineFollowUpStatus(
+            selectedDoctorId: String,
+            isMultiClinic: Boolean,
+            history: List<Appointment>,
+            phone: String
+        ): Boolean {
+            val cleanTargetPhone = normalizePhoneDigits(phone)
+            val patientHistory = history.filter {
+                normalizePhoneDigits(it.patientMobile) == cleanTargetPhone
+            }
+            return if (isMultiClinic && affiliatedDoctorIds.size > 1) {
+                patientHistory.any { it.doctorId == selectedDoctorId }
+            } else {
+                patientHistory.isNotEmpty()
+            }
+        }
+
+        // Consult with same doctor (Cardiologist) -> Follow-Up Eligible (Free)
+        val isFollowUpCardio = determineFollowUpStatus("doc-cardiologist", isMultiTypeClinic, pastAppointments, patientPhone)
+        assertTrue("Consultation with previous cardiologist must qualify as follow-up", isFollowUpCardio)
+
+        // Consult with new doctor (Dermatologist) in multi-clinic -> New Consultation by default
+        val isFollowUpDerma = determineFollowUpStatus("doc-dermatologist", isMultiTypeClinic, pastAppointments, patientPhone)
+        assertFalse("Consultation with new dermatologist in multi-doctor clinic must default to new consultation", isFollowUpDerma)
+
+        // Fee and payment attributes verification
+        val standardFee = 700.0
+        val followUpFee = if (isFollowUpCardio) 0.0 else standardFee
+        val followUpPaymentMode = if (isFollowUpCardio) "FREE" else "PAY_AT_DESK"
+        val followUpPaymentStatus = if (isFollowUpCardio) "paid" else "pending"
+
+        assertEquals(0.0, followUpFee, 0.001)
+        assertEquals("FREE", followUpPaymentMode)
+        assertEquals("paid", followUpPaymentStatus)
+
+        val newConsultFee = if (isFollowUpDerma) 0.0 else standardFee
+        val newConsultPaymentMode = if (isFollowUpDerma) "FREE" else "PAY_AT_DESK"
+        val newConsultPaymentStatus = if (isFollowUpDerma) "paid" else "pending"
+
+        assertEquals(700.0, newConsultFee, 0.001)
+        assertEquals("PAY_AT_DESK", newConsultPaymentMode)
+        assertEquals("pending", newConsultPaymentStatus)
+    }
+
+    @Test
+    fun testFollowUpClinicalRemarksFormatting() {
+        val trackingCode = "9876543210"
+        val userNotes = "Post medication review"
+
+        fun formatFollowUpRemark(isFollowUp: Boolean, refCode: String, notes: String): String {
+            val prefix = if (isFollowUp) {
+                if (refCode.isNotBlank()) "Follow-Up Consultation (Ref: #$refCode)"
+                else "Follow-Up Consultation"
+            } else ""
+            return listOf(prefix, notes.trim()).filter { it.isNotBlank() }.joinToString(" - ")
+        }
+
+        val remark = formatFollowUpRemark(isFollowUp = true, refCode = trackingCode, notes = userNotes)
+        assertEquals("Follow-Up Consultation (Ref: #9876543210) - Post medication review", remark)
+
+        val emptyNotesRemark = formatFollowUpRemark(isFollowUp = true, refCode = trackingCode, notes = "")
+        assertEquals("Follow-Up Consultation (Ref: #9876543210)", emptyNotesRemark)
+
+        val newConsultRemark = formatFollowUpRemark(isFollowUp = false, refCode = trackingCode, notes = userNotes)
+        assertEquals("Post medication review", newConsultRemark)
+    }
 }

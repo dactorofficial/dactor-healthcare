@@ -253,7 +253,10 @@ object PaymentLedgerHelper {
                 effInvPaid
             }
 
-            val records = parsePaymentRecords(inv.remarks, fallbackAmt, inv.createdAt)
+            val fallbackDateToUse = inv.paidAt?.takeIf { it.isNotBlank() }
+                ?: inv.updatedAt?.takeIf { it.isNotBlank() }
+                ?: inv.createdAt
+            val records = parsePaymentRecords(inv.remarks, fallbackAmt, fallbackDateToUse)
 
             for (r in records) {
                 val method = r.paymentMethod ?: when {
@@ -311,11 +314,17 @@ object PaymentLedgerHelper {
         val processedAppointmentIds = entries.mapNotNull { it.appointmentId }.toSet()
         for (appt in validAppts) {
             if (processedAppointmentIds.contains(appt.id)) continue
+            // Only add appointments that have been paid; pending appointments must not inflate incoming revenue
+            val isPaid = appt.paymentStatus.equals("paid", ignoreCase = true)
+            if (!isPaid) continue
+
             val doc = appt.doctorId?.let { doctorMap[it] }
             val isNew = firstVisitSet.contains(appt.id)
             val isFollowUp = appt.feeAmount <= 0.0
             val effectiveAmount = if (isFollowUp) 0.0 else appt.effectiveTotalAmount
-            val apptDateTime = "${appt.appointmentDate} ${appt.appointmentTime.ifBlank { "10:00 AM" }}"
+            val apptDateTime = appt.approvedAt?.takeIf { it.isNotBlank() }
+                ?: appt.createdAt?.takeIf { it.isNotBlank() }
+                ?: "${appt.appointmentDate} ${appt.appointmentTime.ifBlank { "10:00 AM" }}"
             val isPad = appt.isPayAtDesk
             val serviceCharge = if (isPad && !isFollowUp && assignedCommissionApptIds.add(appt.id)) {
                 appt.effectiveServiceCharge

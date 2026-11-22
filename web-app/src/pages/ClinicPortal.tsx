@@ -3531,6 +3531,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         paymentStatus: derivedApptStatus as any,
         remarks: billRemarks.trim() || undefined,
         receiptUrl,
+        paidAt: derivedApptStatus === 'paid' ? new Date().toISOString() : undefined,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }
@@ -3547,6 +3548,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           payment_status: derivedApptStatus,
           remarks: encodedRemarks,
           receipt_url: receiptUrl,
+          paid_at: localInvoice.paidAt,
           created_at: localInvoice.createdAt,
           updated_at: localInvoice.updatedAt,
         })
@@ -6898,9 +6900,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                       <Stethoscope className="w-3.5 h-3.5 text-brand-600" />
                       <span>{req.doctor?.fullName || 'Assigned Doctor'}</span>
                     </div>
-                    <div className="flex items-center space-x-1.5">
-                      <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                      <span>{req.appointmentDate} • {req.appointmentTime}</span>
+                    <div className="flex items-center space-x-1.5 font-medium text-slate-700 dark:text-slate-200">
+                      <Calendar className="w-3.5 h-3.5 text-brand-600 dark:text-brand-400" />
+                      <span><strong>Appointment Date:</strong> {req.appointmentDate}</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5 font-medium text-slate-700 dark:text-slate-200">
+                      <Clock className="w-3.5 h-3.5 text-brand-600 dark:text-brand-400" />
+                      <span><strong>Requested Slot:</strong> {req.appointmentTime || 'Consultation Slot'}</span>
                     </div>
                     {req.createdAt && (
                       <div className="flex items-center space-x-1.5 text-amber-700 dark:text-amber-300 font-medium pt-0.5">

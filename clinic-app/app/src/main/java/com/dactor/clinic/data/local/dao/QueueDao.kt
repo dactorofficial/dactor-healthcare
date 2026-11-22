@@ -25,6 +25,12 @@ interface QueueDao {
     @Query("SELECT * FROM queue_entries WHERE clinic_id = :clinicId AND is_deleted = 0 ORDER BY queue_position ASC")
     suspend fun getQueueForClinicList(clinicId: String): List<QueueEntryEntity>
 
+    @Query("SELECT * FROM queue_entries WHERE clinic_id = :clinicId AND (:doctorId IS NULL OR doctor_id = :doctorId) AND (:date IS NULL OR appointment_date = :date OR appointment_date = '') AND is_deleted = 0 ORDER BY queue_position ASC")
+    suspend fun getQueueForClinicAndDoctorAndDate(clinicId: String, doctorId: String?, date: String?): List<QueueEntryEntity>
+
+    @Query("SELECT * FROM queue_entries WHERE clinic_id = :clinicId AND (:date IS NULL OR appointment_date = :date OR appointment_date = '') AND is_deleted = 0 ORDER BY queue_position ASC")
+    suspend fun getQueueForClinicAndDateList(clinicId: String, date: String?): List<QueueEntryEntity>
+
     @Query("SELECT * FROM queue_entries WHERE id = :id AND is_deleted = 0 LIMIT 1")
     suspend fun getQueueEntryById(id: String): QueueEntryEntity?
 

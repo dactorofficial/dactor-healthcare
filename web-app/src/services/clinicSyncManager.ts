@@ -414,6 +414,38 @@ export class ClinicSyncManager {
       console.warn('[clinicSyncManager] Appointments delta pull error:', err);
     }
 
+    // Pull queue_entries for target clinic and persist into opd_queue store with enriched appointment data
+    try {
+      let qQuery = this.remoteDb
+        .from('queue_entries')
+        .select('*')
+        .eq('clinic_id', targetClinicId);
+      if (lastPull) {
+        qQuery = qQuery.gte('updated_at', lastPull);
+      }
+      const qRes = await qQuery;
+      const remoteQueues = qRes?.data || [];
+      if (Array.isArray(remoteQueues) && remoteQueues.length > 0) {
+        for (const q of remoteQueues) {
+          if (!q || !q.id) continue;
+          const appt = await getRecord<any>('appointments', q.appointment_id);
+          const enrichedQueue = {
+            ...q,
+            patient_name: appt?.patient_name || '',
+            patient_mobile: appt?.patient_mobile || '',
+            tracking_code: appt?.tracking_code_10_digit || appt?.tracking_code || '',
+            appointment_date: appt?.appointment_date || '',
+            appointment_time: appt?.appointment_time || '',
+            doctor_name: appt?.doctor?.full_name || appt?.doctor_name || '',
+          };
+          await putRecord('opd_queue', enrichedQueue);
+          pulled++;
+        }
+      }
+    } catch (err) {
+      console.warn('[clinicSyncManager] Queue entries delta pull error:', err);
+    }
+
     // Update synchronization metadata markers
     await setSyncMeta('last_synced_at', nowIso);
     await setSyncMeta('last_pull_timestamp', nowIso);

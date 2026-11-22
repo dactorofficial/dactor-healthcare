@@ -89,10 +89,12 @@ fun TrackingLookupScreen(
             return
         }
 
+        val cleanAlpha10 = cleaned.filter { it.isLetterOrDigit() }.uppercase().take(10)
         val isEmail = cleaned.contains("@") && cleaned.contains(".")
         val isDigits = cleaned.all { it.isDigit() }
+        val isTrackingCode = (cleanAlpha10.length == 10)
 
-        if (!isEmail && !isDigits) {
+        if (!isEmail && !isDigits && !isTrackingCode && cleaned.length != 36) {
             errorMessage = "Please enter a valid 10-digit code, Gmail address, or 10-digit mobile number"
             return
         }
@@ -103,12 +105,21 @@ fun TrackingLookupScreen(
         coroutineScope.launch {
             try {
                 // 1. If 10-digit code entered, check if an appointment matches this tracking code
-                if (isDigits && cleaned.length == 10) {
-                    val apptByCode = appointmentRepository?.getAppointmentByTrackingCode(cleaned)
+                if (isTrackingCode) {
+                    val apptByCode = appointmentRepository?.getAppointmentByTrackingCodeOrContact(cleaned)
+                        ?: (if (cleanAlpha10.length == 10) appointmentRepository?.getAppointmentByTrackingCode(cleanAlpha10) else null)
+                        ?: appointmentRepository?.getAppointmentById(cleaned)
                     if (apptByCode != null) {
-                        sessionManager?.saveTrackingCode(cleaned, "${apptByCode.patientName} \u2022 ${apptByCode.appointmentDate}")
+                        val finalCode = if (apptByCode.trackingCode10Digit.isNotBlank()) apptByCode.trackingCode10Digit else cleanAlpha10
+                        sessionManager?.unhideRecord(finalCode)
+                        sessionManager?.unhideRecord(apptByCode.id)
+                        sessionManager?.saveTrackingCode(
+                            finalCode,
+                            "${apptByCode.patientName} \u2022 ${apptByCode.appointmentDate}",
+                            explicitUnhide = true
+                        )
                         isLoading = false
-                        navController.navigate(NavRoutes.QueueStatus.createRoute(cleaned))
+                        navController.navigate(NavRoutes.QueueStatus.createRoute(finalCode))
                         return@launch
                     }
                 }
@@ -126,13 +137,19 @@ fun TrackingLookupScreen(
                     userId = deterministicUid,
                     email = queryEmail,
                     phone = queryPhone,
-                    trackingCodes = if (isDigits && cleaned.length == 10) listOf(cleaned) else emptyList()
+                    trackingCodes = if (isTrackingCode) listOf(cleanAlpha10) else emptyList()
                 ) ?: emptyList()
 
                 if (foundAppts.isNotEmpty()) {
                     foundAppts.forEach { a ->
                         if (a.trackingCode10Digit.isNotBlank()) {
-                            sessionManager?.saveTrackingCode(a.trackingCode10Digit, "${a.patientName} \u2022 ${a.appointmentDate}")
+                            sessionManager?.unhideRecord(a.trackingCode10Digit)
+                            sessionManager?.unhideRecord(a.id)
+                            sessionManager?.saveTrackingCode(
+                                a.trackingCode10Digit,
+                                "${a.patientName} \u2022 ${a.appointmentDate}",
+                                explicitUnhide = true
+                            )
                         }
                     }
                     val targetAppt = foundAppts.find {
@@ -148,10 +165,10 @@ fun TrackingLookupScreen(
                     }
                 }
 
-                // 3. Fallback: if 10 digits entered and no record found online yet, try direct navigation
-                if (isDigits && cleaned.length == 10) {
+                // 3. Fallback: if 10-char tracking code entered and no record found online yet, try direct navigation
+                if (isTrackingCode) {
                     isLoading = false
-                    navController.navigate(NavRoutes.QueueStatus.createRoute(cleaned))
+                    navController.navigate(NavRoutes.QueueStatus.createRoute(cleanAlpha10))
                     return@launch
                 }
 

@@ -428,9 +428,12 @@ fun ProfileScreen(
     }
 
     fun handleClaimCode() {
-        val cleaned = claimCodeInput.trim()
-        if (cleaned.length != 10 || !cleaned.all { it.isDigit() }) {
-            claimStatusMessage = "Please enter a valid 10-digit code"
+        val rawInput = claimCodeInput.trim()
+        val cleanAlpha10 = rawInput.filter { it.isLetterOrDigit() }.uppercase().take(10)
+        val candidate = if (cleanAlpha10.length == 10) cleanAlpha10 else rawInput
+
+        if (cleanAlpha10.length != 10 && rawInput.length != 36) {
+            claimStatusMessage = "Please enter a valid 10-digit code or appointment ID"
             return
         }
 
@@ -438,15 +441,41 @@ fun ProfileScreen(
         coroutineScope.launch {
             try {
                 if (appointmentRepository != null) {
-                    val appt = appointmentRepository.getAppointmentByTrackingCode(cleaned)
+                    val appt = appointmentRepository.getAppointmentByTrackingCodeOrContact(rawInput)
+                        ?: (if (cleanAlpha10.length == 10) appointmentRepository.getAppointmentByTrackingCode(cleanAlpha10) else null)
+                        ?: appointmentRepository.getAppointmentById(rawInput)
                     if (appt != null) {
-                        sessionManager?.saveTrackingCode(cleaned, "${appt.patientName} \u2022 ${appt.appointmentDate}")
-                        savedAppointments = listOf(appt) + savedAppointments.filter { it.trackingCode10Digit != cleaned }
+                        val finalCode = if (appt.trackingCode10Digit.isNotBlank()) appt.trackingCode10Digit else cleanAlpha10
+                        if (finalCode.isNotBlank()) {
+                            sessionManager?.unhideRecord(finalCode)
+                            sessionManager?.saveTrackingCode(
+                                finalCode,
+                                "${appt.patientName} \u2022 ${appt.appointmentDate}",
+                                explicitUnhide = true
+                            )
+                        }
+                        sessionManager?.unhideRecord(appt.id)
+
+                        // If user is logged in, claim to account
+                        val uid = patientId?.takeIf { it.isNotBlank() }
+                        val email = userEmail?.takeIf { it.isNotBlank() }
+                        if (uid != null || email != null) {
+                            appointmentRepository.claimAppointment(
+                                appointmentId = appt.id,
+                                userId = uid,
+                                patientEmail = email,
+                                trackingCode = finalCode
+                            )
+                        }
+
+                        savedAppointments = listOf(appt) + savedAppointments.filter { it.trackingCode10Digit != finalCode && it.id != appt.id }
                         showClaimDialog = false
                         claimCodeInput = ""
                         claimStatusMessage = null
+                        // Refresh full list
+                        loadAppointmentsForUser(patientId, userEmail, userPhone)
                     } else {
-                        claimStatusMessage = "Appointment with code $cleaned not found."
+                        claimStatusMessage = "Appointment with code $rawInput not found."
                     }
                 } else {
                     showClaimDialog = false
@@ -803,7 +832,11 @@ fun ProfileScreen(
                                 }
 
                                 OutlinedButton(
-                                    onClick = { showClaimDialog = true },
+                                    onClick = {
+                                        claimCodeInput = ""
+                                        claimStatusMessage = null
+                                        showClaimDialog = true
+                                    },
                                     shape = RoundedCornerShape(10.dp),
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
@@ -1672,12 +1705,17 @@ fun ProfileScreen(
                     OutlinedTextField(
                         value = claimCodeInput,
                         onValueChange = { input ->
-                            val digitsOnly = input.filter { it.isDigit() }
-                            if (digitsOnly.length <= 10) claimCodeInput = digitsOnly
+                            val cleanChars = input.filter { it.isLetterOrDigit() }.uppercase()
+                            if (cleanChars.length <= 10) {
+                                claimCodeInput = cleanChars
+                            } else if (input.length <= 36) {
+                                // Allow typing/pasting UUID
+                                claimCodeInput = input.trim()
+                            }
                         },
-                        label = { Text("10-Digit Numeric Code") },
-                        placeholder = { Text("e.g. 9841203841") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        label = { Text("10-Digit Code or ID") },
+                        placeholder = { Text("e.g. 9841203841 or 982DCE95B6") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1694,7 +1732,7 @@ fun ProfileScreen(
             confirmButton = {
                 Button(
                     onClick = { handleClaimCode() },
-                    enabled = claimCodeInput.length == 10 && !isClaiming
+                    enabled = claimCodeInput.isNotBlank() && !isClaiming
                 ) {
                     if (isClaiming) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)

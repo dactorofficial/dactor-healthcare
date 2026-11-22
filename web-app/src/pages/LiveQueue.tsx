@@ -45,6 +45,8 @@ import {
   getAppointmentByTrackingCode,
   getAppointmentByTrackingCodeOrContact,
   getAppointmentsByClinic,
+  getFastDoctorLiveQueue,
+  getFastClinicLiveQueue,
   getClinicById,
   isDiagnosticLabClinic,
   getDoctorById,
@@ -69,6 +71,8 @@ import {
   resolveClinicLogoUrl,
   resolveClinicCoverUrl,
   resolveDoctorPhotoUrl,
+  fetchLiveQueueDelta,
+  LiveQueueDelta,
 } from '../services/db'
 import { printAppointmentBill, printPrescription } from '../utils/medicalDocPrinter'
 import { supabase } from '../lib/supabase'
@@ -103,6 +107,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   const [clinicQueue, setClinicQueue] = useState<Appointment[]>([])
   const [labReports, setLabReports] = useState<LabReport[]>([])
   const [publicQueueStatus, setPublicQueueStatus] = useState<any | null>(null)
+  const [liveDelta, setLiveDelta] = useState<LiveQueueDelta | null>(null)
   const [multiSlotResult, setMultiSlotResult] = useState<MultiSlotPositionResult | null>(null)
   const [linkedConsultations, setLinkedConsultations] = useState<LinkedConsultationsResult | null>(null)
   const [loading, setLoading] = useState(false)
@@ -208,6 +213,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         if (cached.appointment) setAppointment(cached.appointment)
         if (cached.clinic) setClinic(cached.clinic)
         if (cached.doctor) setDoctor(cached.doctor)
+        if (cached.liveDelta) setLiveDelta(cached.liveDelta)
         if (cachedDate === nowStr) {
           if (cached.clinicQueue) setClinicQueue(cached.clinicQueue)
           if (cached.multiSlotResult) setMultiSlotResult(cached.multiSlotResult)
@@ -225,15 +231,85 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         if (seq !== requestSeqRef.current) return
         setAppointment(null)
         setPublicQueueStatus(null)
+        setLiveDelta(null)
         setLabReports([])
         if (!silent) setErrorMsg('Enter the 10-digit tracking code to view queue status.')
         return
       }
 
-      // Always re-fetch the appointment record across all polls (silent or non-silent)
-      // to detect live token number, check-in status, and appointment state changes.
+      // Ultra-fast authoritative live queue delta fetch (<50ms)
+      const delta = await fetchLiveQueueDelta(clean)
+      if (seq !== requestSeqRef.current) return
+      if (delta) {
+        setLiveDelta(delta)
+      }
+
+      // Fast delta path for silent 10s polls when today's appointment is already hydrated:
+      // Avoids heavy unbundled queries across the database unless on every 6th poll (60s)
+      const isExistingToday = Boolean(
+        silent &&
+        appointment &&
+        appointment.clinicId &&
+        appointment.appointmentDate?.trim().slice(0, 10) === new Date().toISOString().slice(0, 10) &&
+        (requestSeqRef.current % 6 !== 0)
+      )
+
+      if (isExistingToday && delta) {
+        if (delta.token_number > 0) {
+          setAppointment((prev) => prev ? {
+            ...prev,
+            queueNumber: delta.token_number,
+            checkinStatus: (delta.queue_status || delta.checkin_status || delta.status as any) || prev.checkinStatus,
+          } : null)
+        }
+
+        const prev = lastSnapshotRef.current
+        const newCheckinStatus = delta.queue_status || delta.checkin_status || delta.status
+        const newQueueNum = delta.token_number
+        const newCabin = delta.doctor_is_in_clinic ? (delta.is_anyone_inside ? 'inside' : 'waiting') : 'away'
+
+        const hasInitialized = Boolean(
+          prev.checkinStatus !== undefined ||
+          prev.queueNumber !== undefined ||
+          prev.cabinStatus !== undefined
+        )
+
+        const hasChanged = Boolean(
+          hasInitialized && (
+            (newCheckinStatus && prev.checkinStatus !== newCheckinStatus) ||
+            (newQueueNum > 0 && prev.queueNumber !== newQueueNum) ||
+            (prev.cabinStatus !== newCabin)
+          )
+        )
+
+        if (hasChanged) {
+          playChimeSound()
+          setActiveAlert({
+            id: String(Date.now()),
+            title: 'Queue Updated',
+            message: `Queue status changed to ${String(newCheckinStatus || 'UPDATED').toUpperCase()}${newQueueNum ? ` (Token #${newQueueNum})` : ''}`,
+          })
+        }
+
+        lastSnapshotRef.current = {
+          checkinStatus: newCheckinStatus,
+          queueNumber: newQueueNum,
+          cabinStatus: newCabin,
+          queueLength: prev.queueLength,
+        }
+        return
+      }
+
+      // Full fetch path: query appointment record
       const appt = await getAppointmentByTrackingCodeOrContact(clean)
       if (seq !== requestSeqRef.current) return
+      if (appt && delta && delta.token_number > 0) {
+        appt.queueNumber = delta.token_number
+        const st = delta.queue_status || delta.checkin_status || delta.status
+        if (st) {
+          appt.checkinStatus = st as any
+        }
+      }
 
       if (!appt) {
         const { data: publicRows, error: publicError } = await supabase.rpc('get_public_queue_status', {
@@ -264,9 +340,11 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
         // Snapshot diffing for public queue status
         const prev = lastSnapshotRef.current
-        const newPubStatus = status?.status
-        const newPubToken = status?.token_number
-        const newCabin = status?.doctor_in_cabin ? 'inside' : 'waiting'
+        const newPubStatus = delta?.queue_status || delta?.checkin_status || delta?.status || status?.status
+        const newPubToken = delta?.token_number || status?.token_number
+        const newCabin = delta?.doctor_is_in_clinic
+          ? (delta.is_anyone_inside ? 'inside' : 'waiting')
+          : (status?.doctor_in_cabin ? 'inside' : 'waiting')
 
         const hasChanged = Boolean(
           (prev.publicStatus !== undefined || prev.publicToken !== undefined || prev.cabinStatus !== undefined) && (
@@ -320,20 +398,28 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
           const [clinicData, queueList, reportsData, docData] = await Promise.all([
             shouldFetchClinic ? getClinicById(targetAppt.clinicId) : Promise.resolve(clinic),
-            isToday ? getAppointmentsByClinic(targetAppt.clinicId, targetAppt.appointmentDate) : Promise.resolve([]),
+            isToday
+              ? (silent
+                  ? getFastClinicLiveQueue(targetAppt.clinicId, targetAppt.appointmentDate)
+                  : getAppointmentsByClinic(targetAppt.clinicId, targetAppt.appointmentDate))
+              : Promise.resolve([]),
             shouldFetchReports ? getLabReportsByTrackingCode(effectiveCode) : Promise.resolve(labReports),
             shouldFetchDoc ? getDoctorById(targetAppt.doctorId!) : Promise.resolve(doctor),
           ])
           if (seq !== requestSeqRef.current) return
 
           if (clinicData && (!clinic || clinic.id !== clinicData.id)) setClinic(clinicData)
-          setClinicQueue(queueList)
+          if (queueList && queueList.length > 0) setClinicQueue(queueList as any)
           if (shouldFetchReports) setLabReports(reportsData)
           if (docData) setDoctor(docData)
 
           // If the appointment exists in queueList, grab the freshest queue snapshot
-          const updatedFromQueue = queueList?.find((q: any) => q.id === targetAppt.id)
-          const freshAppt = updatedFromQueue || targetAppt
+          const updatedFromQueue = queueList?.find((q: any) => q.id === targetAppt.id || q.appointment_id === targetAppt.id)
+          const freshAppt = updatedFromQueue ? {
+            ...targetAppt,
+            checkinStatus: (updatedFromQueue as any).status || targetAppt.checkinStatus,
+            queuePosition: (updatedFromQueue as any).queue_position ?? targetAppt.queuePosition
+          } : targetAppt
           if (updatedFromQueue) {
             setAppointment(freshAppt)
           }
@@ -374,15 +460,18 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                 clinicQueue: queueList,
                 labReports: shouldFetchReports ? reportsData : labReports,
                 multiSlotResult: multiSlot,
+                liveDelta: delta || liveDelta,
               })
             )
           } catch (_) {}
 
           // Snapshot diffing for authenticated queue status
           const prev = lastSnapshotRef.current
-          const newCheckinStatus = freshAppt.checkinStatus
-          const newQueueNum = freshAppt.queueNumber
-          const newCabin = (docData as any)?.cabinStatus || (doctor as any)?.cabinStatus
+          const newCheckinStatus = delta?.queue_status || delta?.checkin_status || delta?.status || freshAppt.checkinStatus
+          const newQueueNum = delta?.token_number || freshAppt.queueNumber
+          const newCabin = delta?.doctor_is_in_clinic !== undefined
+            ? (delta.is_anyone_inside ? 'inside' : 'waiting')
+            : ((docData as any)?.cabinStatus || (doctor as any)?.cabinStatus)
           const newQueueLength = queueList?.length
 
           const hasInitialized = Boolean(
@@ -629,12 +718,23 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     [clinicQueue, appointment?.doctorId, apptDateRaw, isLabClinic]
   )
   const inConsultationPatient = useMemo(
-    () => clinicQueue.find((a) => {
-      const matchDoc = isLabClinic ? true : (appointment?.doctorId ? a.doctorId === appointment.doctorId : !a.doctorId)
-      const matchDate = !apptDateRaw || (a.appointmentDate || '').trim().slice(0, 10) === apptDateRaw
-      return matchDoc && matchDate && a.checkinStatus === 'in_consultation'
-    }),
-    [clinicQueue, appointment?.doctorId, apptDateRaw, isLabClinic]
+    () => {
+      const match = clinicQueue.find((a) => {
+        const matchDoc = isLabClinic ? true : (appointment?.doctorId ? a.doctorId === appointment.doctorId : !a.doctorId)
+        const matchDate = !apptDateRaw || (a.appointmentDate || '').trim().slice(0, 10) === apptDateRaw
+        return matchDoc && matchDate && a.checkinStatus === 'in_consultation'
+      })
+      if (match) return match
+      if (liveDelta?.is_anyone_inside && isAppointmentToday) {
+        return {
+          id: 'in_cabin_serving',
+          queueNumber: liveDelta.current_serving_token || 1,
+          checkinStatus: 'in_consultation',
+        } as any
+      }
+      return null
+    },
+    [clinicQueue, appointment?.doctorId, apptDateRaw, isLabClinic, liveDelta?.is_anyone_inside, liveDelta?.current_serving_token, isAppointmentToday]
   )
 
   // Check if the appointment is tomorrow or a future date
@@ -676,14 +776,19 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   }, [multiSlotResult?.slotStartTimeText, appointment?.appointmentTime])
 
   let patientsAhead = 0
-  let displayTokenNumber = appointment?.queueNumber || 1
+  let displayTokenNumber = (liveDelta && liveDelta.token_number > 0)
+    ? liveDelta.token_number
+    : (appointment?.queueNumber || 1)
 
   if (isPastAppointment) {
     patientsAhead = -1
     displayTokenNumber = 0
   } else if (isFutureOrTomorrow) {
     patientsAhead = multiSlotResult ? Math.max(0, multiSlotResult.patientsAheadInDay) : 0
-    displayTokenNumber = multiSlotResult?.cumulativePosition || appointment?.queueNumber || 1
+    displayTokenNumber = multiSlotResult?.cumulativePosition || (liveDelta?.token_number || appointment?.queueNumber || 1)
+  } else if (liveDelta && liveDelta.token_number > 0 && isAppointmentToday) {
+    displayTokenNumber = liveDelta.token_number
+    patientsAhead = Math.max(0, liveDelta.patients_ahead)
   } else if (appointment && isAppointmentToday) {
     // For today: count active queue patients ahead strictly for this specific doctor and specific date
     const activeWaiting = clinicQueue.filter(
@@ -703,7 +808,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         )
       }
     )
-    const myPos = appointment.queuePosition || appointment.queueNumber || 0
+    const myPos = (liveDelta && liveDelta.queue_position > 0) ? liveDelta.queue_position : (appointment.queuePosition || appointment.queueNumber || 0)
     let aheadCount = 0
     if (myPos > 0) {
       aheadCount = activeWaiting.filter((a) => (a.queuePosition || a.queueNumber || 0) < myPos).length
@@ -715,11 +820,15 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       aheadCount += 1
     }
     patientsAhead = Math.max(0, aheadCount)
-    displayTokenNumber = appointment.queueNumber || (myPos > 0 ? myPos : 1)
+    displayTokenNumber = (liveDelta && liveDelta.token_number > 0) ? liveDelta.token_number : (appointment.queueNumber || (myPos > 0 ? myPos : 1))
   }
 
   const clinicAvgMinutes = clinic?.avgConsultationTimeMinutes || 10
-  const estimatedWaitMinutes = (isPastAppointment || (clinic?.isOpen === false && isAppointmentToday)) ? 0 : Math.max(0, patientsAhead * clinicAvgMinutes)
+  const estimatedWaitMinutes = (isPastAppointment || (clinic?.isOpen === false && isAppointmentToday))
+    ? 0
+    : (liveDelta?.estimated_wait_minutes !== undefined && isAppointmentToday
+      ? Math.max(0, liveDelta.estimated_wait_minutes)
+      : Math.max(0, patientsAhead * clinicAvgMinutes))
 
   const isConsultancyCompleted =
     appointment?.checkinStatus !== 'waiting' &&
@@ -1042,12 +1151,14 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     }
   }
 
-  // Doctor presence flag (validated for this appointment's clinic)
-  const isDoctorInClinic = Boolean(
-    doctor &&
-    doctor.isInClinic !== false &&
-    (!doctor.activeClinicId || !appointment?.clinicId || doctor.activeClinicId === appointment.clinicId)
-  )
+  // Doctor presence flag (validated for this appointment's clinic or authoritative delta)
+  const isDoctorInClinic = (liveDelta?.doctor_is_in_clinic !== undefined && isAppointmentToday)
+    ? liveDelta.doctor_is_in_clinic
+    : Boolean(
+        doctor &&
+        doctor.isInClinic !== false &&
+        (!doctor.activeClinicId || !appointment?.clinicId || doctor.activeClinicId === appointment.clinicId)
+      )
 
   // Helper to parse slot start time
   const slotStartDate = useMemo(() => {
