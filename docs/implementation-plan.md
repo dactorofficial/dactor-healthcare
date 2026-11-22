@@ -13,6 +13,7 @@ Estimates are for one developer familiar with the codebase. **Total: about 6–7
 | 0 | Urgent security + deploy what is already merged | live risk / money | 1–2 days |
 | 1 | Clinic app sign-in token (the "authorization failed" error) | blocks clinics from setting up payments | 2–3 days |
 | 2 | eSewa not showing as a payment option | blocks online payments | 2 days |
+| 2b | Rescheduled / follow-up visits missing from the live queue (see [`reschedule-followup-fix-plan.md`](reschedule-followup-fix-plan.md)) | clinics lose patients from the queue; follow-ups overwrite the previous visit | 2–3 days |
 | 3 | Payment reliability (server-side confirmation) | paid-but-unconfirmed risk | 1.5–2 weeks |
 | 4 | Payment inside the app and website | UX, fewer abandoned payments | 1 week |
 | 5 | Security hardening | | 3–4 days |
