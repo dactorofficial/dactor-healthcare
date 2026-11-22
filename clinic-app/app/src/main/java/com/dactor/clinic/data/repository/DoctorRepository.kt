@@ -548,9 +548,10 @@ open class DoctorRepository @Inject constructor(
                 // Send FCM push notification directly to the patient device registered with this appointment
                 if (appt.id.length == 36) {
                     try {
-                        supabaseClient.functions.invoke(
-                            function = "send-fcm-alert",
-                            body = buildJsonObject {
+                        com.dactor.clinic.data.remote.EdgeFunctionCaller.call(
+                            supabaseClient,
+                            "send-fcm-alert",
+                            buildJsonObject {
                                 put("appointmentId", appt.id)
                                 put("title", title.trim())
                                 put("message", cleanBody.trim())

@@ -767,11 +767,11 @@ open class ClinicRepository @Inject constructor(
 
     suspend fun getGatewaySetupStatus(clinicId: String): com.dactor.clinic.data.model.GatewaySetupEnvelope? = withContext(Dispatchers.IO) {
         try {
-            val response = supabaseClient.functions.invoke("appointment-payment", body = buildJsonObject {
+            val response = com.dactor.clinic.data.remote.EdgeFunctionCaller.call(supabaseClient, "appointment-payment", buildJsonObject {
                 put("action", "get_gateway_setup_status")
                 put("clinicId", clinicId)
             })
-            val raw = response.body<String>()
+            val raw = response
             json.decodeFromString(com.dactor.clinic.data.model.GatewaySetupEnvelope.serializer(), raw)
         } catch (e: Exception) {
             e.printStackTrace()
@@ -781,11 +781,11 @@ open class ClinicRepository @Inject constructor(
 
     suspend fun reconcilePendingPayments(clinicId: String): Int = withContext(Dispatchers.IO) {
         try {
-            val response = supabaseClient.functions.invoke("appointment-payment", body = buildJsonObject {
+            val response = com.dactor.clinic.data.remote.EdgeFunctionCaller.call(supabaseClient, "appointment-payment", buildJsonObject {
                 put("action", "reconcile_pending")
                 put("clinicId", clinicId)
             })
-            val obj = json.decodeFromString<kotlinx.serialization.json.JsonObject>(response.body<String>())
+            val obj = json.decodeFromString<kotlinx.serialization.json.JsonObject>(response)
             obj["finalizedCount"]?.toString()?.trim('"')?.toIntOrNull() ?: 0
         } catch (_: Exception) {
             0
@@ -798,13 +798,13 @@ open class ClinicRepository @Inject constructor(
         enabled: Boolean
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
-            val response = supabaseClient.functions.invoke("appointment-payment", body = buildJsonObject {
+            val response = com.dactor.clinic.data.remote.EdgeFunctionCaller.call(supabaseClient, "appointment-payment", buildJsonObject {
                 put("action", "toggle_gateway")
                 put("clinicId", clinicId)
                 put("gateway", gateway.lowercase())
                 put("enabled", enabled)
             })
-            val raw = response.body<String>()
+            val raw = response
             val obj = try { json.decodeFromString<kotlinx.serialization.json.JsonObject>(raw) } catch (_: Exception) { null }
             val errMsg = obj?.get("error")?.toString()?.trim('"')
             if (!errMsg.isNullOrBlank() && errMsg != "null") {
@@ -837,7 +837,7 @@ open class ClinicRepository @Inject constructor(
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             val gw = gatewayProvider.lowercase().trim()
-            val response = supabaseClient.functions.invoke("appointment-payment", body = buildJsonObject {
+            val response = com.dactor.clinic.data.remote.EdgeFunctionCaller.call(supabaseClient, "appointment-payment", buildJsonObject {
                 put("action", "save_credentials")
                 put("clinicId", clinicId)
                 put("gateway", gw)
@@ -872,7 +872,7 @@ open class ClinicRepository @Inject constructor(
                     }
                 }
             })
-            val raw = response.body<String>()
+            val raw = response
             val obj = try { json.decodeFromString<kotlinx.serialization.json.JsonObject>(raw) } catch (_: Exception) { null }
             val errMsg = obj?.get("error")?.toString()?.trim('"')
             if (!errMsg.isNullOrBlank() && errMsg != "null") {

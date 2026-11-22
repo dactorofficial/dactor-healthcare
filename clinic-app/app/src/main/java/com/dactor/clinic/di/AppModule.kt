@@ -18,6 +18,10 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
+    const val SUPABASE_URL = "https://ojfoofojcpabqegxmsab.supabase.co"
+    // Public anon key (safe to ship in the app; access is controlled by row-level security)
+    const val SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9qZm9vZm9qY3BhYnFlZ3htc2FiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNTM1MTgsImV4cCI6MjEwNTkyOTUxOH0.pH1yOGykaaQTzlQxeCvcQ78HQwxhTSi4yA8JmvT-Y9Y"
+
 
     @Volatile
     private var instance: SupabaseClient? = null
@@ -27,8 +31,8 @@ object AppModule {
     fun provideSupabaseClient(): SupabaseClient {
         return instance ?: synchronized(this) {
             instance ?: createSupabaseClient(
-            supabaseUrl = "https://ojfoofojcpabqegxmsab.supabase.co",
-            supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9qZm9vZm9qY3BhYnFlZ3htc2FiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzNTM1MTgsImV4cCI6MjEwNTkyOTUxOH0.pH1yOGykaaQTzlQxeCvcQ78HQwxhTSi4yA8JmvT-Y9Y"
+            supabaseUrl = SUPABASE_URL,
+            supabaseKey = SUPABASE_ANON_KEY
         ) {
             defaultSerializer = KotlinXSerializer(
                 Json {

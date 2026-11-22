@@ -1626,9 +1626,10 @@ open class QueueRepository @Inject constructor(
             if (validUuidApptId != null) {
                 try {
                     val targetClinicId = appt?.clinicId
-                    supabaseClient.functions.invoke(
-                        function = "send-fcm-alert",
-                        body = buildJsonObject {
+                    com.dactor.clinic.data.remote.EdgeFunctionCaller.call(
+                        supabaseClient,
+                        "send-fcm-alert",
+                        buildJsonObject {
                             put("appointmentId", validUuidApptId)
                             if (!targetClinicId.isNullOrBlank()) {
                                 put("clinicId", targetClinicId)
@@ -1729,9 +1730,10 @@ open class QueueRepository @Inject constructor(
             // Direct FCM push broadcast dispatch to clinic topic and active patients
             if (clinicId.isNotBlank()) {
                 try {
-                    supabaseClient.functions.invoke(
-                        function = "send-fcm-alert",
-                        body = buildJsonObject {
+                    com.dactor.clinic.data.remote.EdgeFunctionCaller.call(
+                        supabaseClient,
+                        "send-fcm-alert",
+                        buildJsonObject {
                             put("clinicId", clinicId)
                             put("title", title.trim())
                             put("message", cleanMessage.trim())
@@ -1793,9 +1795,10 @@ open class QueueRepository @Inject constructor(
                     sentCount++
                     if (appt.id.length == 36) {
                         try {
-                            supabaseClient.functions.invoke(
-                                function = "send-fcm-alert",
-                                body = buildJsonObject {
+                            com.dactor.clinic.data.remote.EdgeFunctionCaller.call(
+                                supabaseClient,
+                                "send-fcm-alert",
+                                buildJsonObject {
                                     put("appointmentId", appt.id)
                                     put("title", title.trim())
                                     put("message", "Clinic is currently on break: ${breakWindowText ?: "Please check with reception"}")
@@ -1882,9 +1885,10 @@ open class QueueRepository @Inject constructor(
                     if (appt.id.length == 36) {
                         try {
                             val cleanMsg = if (isInClinic) "Doctor $doctorName has arrived at $clinicName." else "Doctor $doctorName has temporarily stepped out."
-                            supabaseClient.functions.invoke(
-                                function = "send-fcm-alert",
-                                body = buildJsonObject {
+                            com.dactor.clinic.data.remote.EdgeFunctionCaller.call(
+                                supabaseClient,
+                                "send-fcm-alert",
+                                buildJsonObject {
                                     put("appointmentId", appt.id)
                                     put("title", title.trim())
                                     put("message", cleanMsg)
@@ -1945,9 +1949,10 @@ open class QueueRepository @Inject constructor(
                             .decodeSingleOrNull<com.dactor.clinic.data.model.Appointment>()
                     } catch (_: Exception) { null }
                     val targetClinicId = appt?.clinicId
-                    supabaseClient.functions.invoke(
-                        function = "send-fcm-alert",
-                        body = buildJsonObject {
+                    com.dactor.clinic.data.remote.EdgeFunctionCaller.call(
+                        supabaseClient,
+                        "send-fcm-alert",
+                        buildJsonObject {
                             put("appointmentId", validUuid)
                             if (!targetClinicId.isNullOrBlank()) {
                                 put("clinicId", targetClinicId)
