@@ -221,6 +221,7 @@ import {
   WebPaymentRecord,
 } from '../utils/paymentLedger'
 import { escapeHtml } from '../utils/html'
+import { openPaymentWindow, sendToCheckout, closePaymentWindow } from '../utils/paymentWindow'
 import { setDefaultTabSEO } from '../utils/seo'
 
 // ==========================================
@@ -1802,6 +1803,15 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     if (isPaymentProcessing) return // Prevent double clicking!
     setIsPaymentProcessing(true)
 
+    // Online gateway: open the payment window now (on the click) so the browser does not block it
+    const needsOnlineCheckout =
+      !isBypass &&
+      !isRescheduleMode &&
+      calculatedFee > 0 &&
+      (['esewa', 'khalti', 'fonepay', 'connectips'] as const).includes(selectedPaymentMethod as any)
+    const paymentWin = needsOnlineCheckout ? openPaymentWindow() : null
+    let paymentWinUsed = false
+
     try {
       const slotTimeStr = selectedSlot
         ? `${selectedSlot.startTime} - ${selectedSlot.endTime}`
@@ -1949,7 +1959,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         const returnUrl = `${window.location.origin}${window.location.pathname}?tab=patient-portal&payment_result=checking&gateway=${gateway}&appointmentId=${newAppt.id}`
         const checkout = await startOnlinePayment(newAppt.id, gateway, returnUrl, code10, targetPatientMobile)
 
-        window.location.href = checkout.checkoutUrl
+        paymentWinUsed = sendToCheckout(paymentWin, checkout.checkoutUrl)
         return
       } else {
         code10 = generate10DigitTrackingCode()
@@ -2042,6 +2052,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     } catch (err: any) {
       alert(`Booking failed: ${err.message || 'Unknown network error'}`)
     } finally {
+      if (!paymentWinUsed) closePaymentWindow(paymentWin)
       setIsPaymentProcessing(false)
     }
   }

@@ -57,6 +57,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { updatePageSEO } from '../utils/seo'
 import { escapeHtml } from '../utils/html'
+import { openPaymentWindow, sendToCheckout, closePaymentWindow } from '../utils/paymentWindow'
 import { MapLibreLocationViewer } from '../components/MapLibreLocationViewer'
 
 interface ClinicDetailProps {
@@ -965,6 +966,12 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     }
 
     setSubmitting(true)
+    // Online gateway: open the payment window now (on the click) so the browser does not block it
+    const paymentWin =
+      !isReschedule && (['esewa', 'khalti', 'fonepay', 'connectips'] as const).includes(selectedPaymentMethod as any)
+        ? openPaymentWindow()
+        : null
+    let paymentWinUsed = false
     try {
       if (activeTab === 'opd' && selectedSlotTime && isSlotTimeExpired(selectedDate, selectedSlotTime)) {
         alert('This time slot has already passed. Please select an upcoming slot.')
@@ -1184,7 +1191,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
           finalPatientMobile,
           activeTab === 'lab' ? testsSelectedNames : undefined
         )
-        window.location.href = checkout.checkoutUrl
+        paymentWinUsed = sendToCheckout(paymentWin, checkout.checkoutUrl)
         return
       }
 
@@ -1267,6 +1274,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
       console.error('Error creating booking:', err)
       alert('An error occurred during booking.')
     } finally {
+      if (!paymentWinUsed) closePaymentWindow(paymentWin)
       setSubmitting(false)
     }
   }
