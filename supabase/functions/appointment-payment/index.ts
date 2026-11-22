@@ -986,7 +986,8 @@ async function handleCheckout(url: URL, corsHeaders: Record<string, string>): Pr
 // CREDENTIAL VERIFICATION PROBES (AUTHORITATIVE BEFORE SAVING)
 // =============================================================================
 
-async function verifyEsewaCredentials(productCode: string, secretKey: string, environment: "test" | "live"): Promise<{ ok: boolean; reason?: string }> {
+// unreachable = eSewa could not be asked (network, timeout, 5xx); rejected = eSewa said the keys are wrong
+async function verifyEsewaCredentials(productCode: string, secretKey: string, environment: "test" | "live"): Promise<{ ok: boolean; reason?: string; unreachable?: boolean }> {
   const pCode = productCode.trim();
   const sKey = secretKey.trim();
   if (!pCode || !sKey) return { ok: false, reason: "eSewa product code and secret key are required." };
@@ -1022,9 +1023,9 @@ async function verifyEsewaCredentials(productCode: string, secretKey: string, en
       }
       return { ok: true };
     }
-    return { ok: false, reason: `eSewa service returned HTTP ${res.status}.` };
+    return { ok: false, reason: `eSewa service returned HTTP ${res.status}.`, unreachable: res.status >= 500 || res.status === 429 };
   } catch (err: unknown) {
-    return { ok: false, reason: `Could not reach eSewa verification server: ${(err as Error)?.message || "timeout"}` };
+    return { ok: false, reason: `Could not reach eSewa verification server: ${(err as Error)?.message || "timeout"}`, unreachable: true };
   }
 }
 
@@ -1267,6 +1268,7 @@ async function saveCredentials(req: Request, body: Record<string, unknown>, cors
     updated_at: nowIso,
   };
 
+  let pendingVerification: string | null = null;
   if (gatewayRaw === "esewa") {
     const productCode = String(body.productCode ?? body.merchantId ?? existing?.esewa_product_code ?? "").trim();
     const secretKey = String(body.secretKey ?? "").trim() || String(existing?.esewa_secret_key ?? "").trim();
@@ -1274,17 +1276,26 @@ async function saveCredentials(req: Request, body: Record<string, unknown>, cors
       return json({ error: "eSewa Product Code and Secret Key are required before enabling eSewa." }, 400, corsHeaders);
     }
     const probe = await verifyEsewaCredentials(productCode, secretKey, environment);
-    if (!probe.ok) return json({ error: `eSewa verification failed: ${probe.reason}` }, 400, corsHeaders);
+    if (!probe.ok && !probe.unreachable) {
+      return json({ error: `eSewa rejected these keys: ${probe.reason}` }, 400, corsHeaders);
+    }
 
     upsertPatch.esewa_product_code = productCode;
     upsertPatch.esewa_secret_key = secretKey;
     upsertPatch.esewa_environment = environment;
     upsertPatch.esewa_enabled = requestedEnabled;
-    upsertPatch.esewa_is_verified = true;
-    upsertPatch.esewa_verified_at = nowIso;
-    upsertPatch.is_verified = true;
-    upsertPatch.verified_at = nowIso;
-    upsertPatch.verification_notes = `Verified ESEWA (${environment}) on ${nowIso}`;
+    if (probe.ok) {
+      upsertPatch.esewa_is_verified = true;
+      upsertPatch.esewa_verified_at = nowIso;
+      upsertPatch.is_verified = true;
+      upsertPatch.verified_at = nowIso;
+      upsertPatch.verification_notes = `Verified ESEWA (${environment}) on ${nowIso}`;
+    } else {
+      // eSewa could not be asked: keep the keys (not lost), but do not show eSewa to patients until verified
+      upsertPatch.esewa_is_verified = false;
+      upsertPatch.verification_notes = `ESEWA verification pending (${probe.reason}) on ${nowIso}`;
+      pendingVerification = probe.reason ?? "eSewa could not be reached";
+    }
   } else if (gatewayRaw === "khalti") {
     const publicKey = String(body.publicKey ?? body.merchantId ?? existing?.khalti_public_key ?? "").trim();
     const secretKey = String(body.secretKey ?? "").trim() || String(existing?.khalti_secret_key ?? "").trim();
@@ -1377,6 +1388,17 @@ async function saveCredentials(req: Request, body: Record<string, unknown>, cors
   const updatedCreds = await getCredentials(clinicId);
   if (updatedCreds) {
     await syncClinicPublicGatewayFlags(clinicId, updatedCreds, directEnabled);
+  }
+
+  if (pendingVerification) {
+    return json({
+      saved: true,
+      gateway: gatewayRaw,
+      enabled: requestedEnabled,
+      is_verified: false,
+      pending_verification: true,
+      message: `Keys saved, but eSewa could not be reached to verify them (${pendingVerification}). eSewa will not be shown to patients until verified. Please press Save again in a few minutes.`,
+    }, 202, corsHeaders);
   }
 
   return json({
@@ -1612,7 +1634,10 @@ async function reconcilePendingAttempts(req: Request, body: Record<string, unkno
   }
 
   // Expire abandoned attempts >24h
-  await service.rpc("expire_stale_online_payment_attempts").catch(() => null);
+  // Query builders are not real Promises (no .catch): calling .catch here threw and stopped every reconcile run
+  try {
+    await service.rpc("expire_stale_online_payment_attempts");
+  } catch (_) { /* best effort */ }
 
   const cutoffIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   let query = service.from("appointment_payment_attempts")
@@ -1954,11 +1979,17 @@ Deno.serve(async (req) => {
 
           if (clinicOwner?.id) {
             try {
+              // Token number from the queue entry created on confirmation (was an undefined variable)
+              const { data: queueEntry } = await service.from("queue_entries")
+                .select("queue_position")
+                .eq("appointment_id", updatedAppt.id)
+                .maybeSingle();
+              const tokenText = queueEntry?.queue_position ? ` (Token #${queueEntry.queue_position})` : "";
               await service.from("notifications").insert({
                 user_id: clinicOwner.id,
                 appointment_id: updatedAppt.id,
                 title: "New Pay at Desk Booking",
-                message: `Appointment #${tracking} for ${patientName} confirmed (Token #${nextPos}). NPR ${total} due at desk.`,
+                message: `Appointment #${tracking} for ${patientName} confirmed${tokenText}. NPR ${total} due at desk.`,
                 type: "queue_alert",
                 target_audience: "specific",
               });

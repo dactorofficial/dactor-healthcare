@@ -3763,9 +3763,28 @@ export async function updateClinic(id: string, updates: Partial<Clinic>): Promis
     if (updates.merchantId !== undefined) payload.merchant_id = updates.merchantId
     if (updates.isDirectPaymentEnabled !== undefined) payload.is_direct_payment_enabled = updates.isDirectPaymentEnabled
 
-    const { error } = await supabase.from('clinics').update(payload).eq('id', id)
-    if (error) {
-      await supabase.from('clinics').update({ description: JSON.stringify(newMeta), updated_at: new Date().toISOString() }).eq('id', id)
+    // .select('id') so a save silently blocked by row-level security (0 rows) is not reported as success
+    const { data: savedRows, error } = await supabase.from('clinics').update(payload).eq('id', id).select('id')
+    if (!error && Array.isArray(savedRows) && savedRows.length > 0) return true
+
+    console.warn('[updateClinic] full save failed, retrying essential fields:', error?.message || 'no row updated')
+    // Retry with the description and the direct-payment flag: the server decides payment options from
+    // the real is_direct_payment_enabled column, so it must never be left behind.
+    const essentials: Record<string, unknown> = {
+      description: JSON.stringify(newMeta),
+      updated_at: new Date().toISOString(),
+    }
+    if (updates.isDirectPaymentEnabled !== undefined) essentials.is_direct_payment_enabled = updates.isDirectPaymentEnabled
+    const { data: retryRows, error: retryError } = await supabase.from('clinics').update(essentials).eq('id', id).select('id')
+    if (retryError || !Array.isArray(retryRows) || retryRows.length === 0) {
+      console.error('[updateClinic] save failed:', retryError?.message || 'no row updated (check permissions)')
+      return false
+    }
+    // Essentials saved, but some other fields were not: report it so the screen does not claim full success
+    const unsaved = Object.keys(payload).filter((k) => !(k in essentials))
+    if (unsaved.length > 0) {
+      console.error('[updateClinic] these fields were not saved:', unsaved.join(', '), '-', error?.message)
+      return false
     }
     return true
   } catch (err) {

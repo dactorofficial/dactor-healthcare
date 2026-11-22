@@ -4158,9 +4158,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         })
         setSettingsSuccess(true)
         setTimeout(() => setSettingsSuccess(false), 3000)
+      } else {
+        alert('Some settings could not be saved. Please try again; if it keeps failing, contact Dactor support.')
       }
     } catch (err) {
       console.error('Error updating clinic profile:', err)
+      alert('Settings could not be saved. Please check your connection and try again.')
     } finally {
       setSavingSettings(false)
     }
