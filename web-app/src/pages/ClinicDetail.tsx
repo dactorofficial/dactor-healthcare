@@ -2041,21 +2041,32 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                         </div>
                       )}
 
-                      {retainedAppointment && (
-                        <div className="p-3 rounded-xl liquid-glass-subtle text-xs flex items-center justify-between border-emerald-500/30">
-                          <div>
-                            <span className="font-bold text-sm block text-emerald-900 dark:text-emerald-300">
-                              ✓ Patient Retained: {retainedAppointment.patientName}
-                            </span>
-                            <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
-                              {retainedAppointment.patientAge} yrs • {retainedAppointment.patientGender} • {retainedAppointment.patientMobile}
+                      {retainedAppointment && (() => {
+                        const isRetainedCancelled =
+                          (retainedAppointment.checkinStatus || '').toLowerCase() === 'cancelled' ||
+                          (retainedAppointment.status || '').toUpperCase() === 'CANCELLED'
+                        return (
+                          <div className={`p-3 rounded-xl liquid-glass-subtle text-xs flex items-center justify-between ${isRetainedCancelled ? 'border-rose-500/30' : 'border-emerald-500/30'}`}>
+                            <div>
+                              <span className={`font-bold text-sm block ${isRetainedCancelled ? 'text-rose-900 dark:text-rose-300' : 'text-emerald-900 dark:text-emerald-300'}`}>
+                                {isRetainedCancelled
+                                  ? `✓ Cancelled Visit Found • Rescheduling: ${retainedAppointment.patientName}`
+                                  : `✓ Patient Retained: ${retainedAppointment.patientName}`}
+                              </span>
+                              <span className={`text-[11px] font-medium ${isRetainedCancelled ? 'text-rose-700 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
+                                {retainedAppointment.patientAge} yrs • {retainedAppointment.patientGender} • {retainedAppointment.patientMobile}
+                              </span>
+                            </div>
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
+                              isRetainedCancelled
+                                ? 'bg-rose-500/10 text-rose-800 dark:text-rose-300 border border-rose-500/20'
+                                : 'bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20'
+                            }`}>
+                              {isRetainedCancelled ? 'Cancelled Slot' : 'Verified'}
                             </span>
                           </div>
-                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20">
-                            Verified
-                          </span>
-                        </div>
-                      )}
+                        )
+                      })()}
 
                       {followupLookupError && (
                         <p className="text-xs text-rose-600 font-bold">{followupLookupError}</p>

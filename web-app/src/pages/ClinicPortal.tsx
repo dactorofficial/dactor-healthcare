@@ -3802,12 +3802,48 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
   const handleOpenScheduleNextVisit = (pat: any) => {
     if (isLabClinic) return
     setScheduleNextPatient(pat)
-    setScheduleNextDoctorId(clinicDoctors[0]?.id || selectedDoctor?.id || '')
+
+    // Intelligently pre-select the doctor the patient previously consulted
+    const cleanPatPhone = (pat.phone || '').replace(/\D/g, '').slice(-10)
+    const priorDoctorId =
+      pat.consultations?.find((c: any) => c.doctorId)?.doctorId ||
+      appointments.find((a: any) => {
+        const cleanApptPhone = (a.patientMobile || '').replace(/\D/g, '').slice(-10)
+        return (
+          (cleanPatPhone.length >= 7 && cleanApptPhone === cleanPatPhone) ||
+          (pat.trackingCodes && pat.trackingCodes.includes(a.trackingCode10Digit)) ||
+          (a.patientName && a.patientName.toLowerCase() === (pat.fullName || '').toLowerCase())
+        )
+      })?.doctorId ||
+      clinicDoctors[0]?.id ||
+      selectedDoctor?.id ||
+      ''
+
+    setScheduleNextDoctorId(priorDoctorId)
+
+    // Determine default visit type based on doctor visit history in multi-doctor clinic
+    const isMultiDoctor = !isSingleDoctorClinic && clinicDoctors.length > 1
+    if (isMultiDoctor) {
+      const hasPriorConsult =
+        (pat.consultations || []).some((c: any) => c.doctorId === priorDoctorId) ||
+        appointments.some((a: any) => {
+          const cleanApptPhone = (a.patientMobile || '').replace(/\D/g, '').slice(-10)
+          return (
+            a.doctorId === priorDoctorId &&
+            ((cleanPatPhone.length >= 7 && cleanApptPhone === cleanPatPhone) ||
+              (pat.trackingCodes && pat.trackingCodes.includes(a.trackingCode10Digit)))
+          )
+        })
+      setScheduleNextIsFollowup(hasPriorConsult)
+    } else {
+      setScheduleNextIsFollowup(true)
+    }
+
     const d = new Date()
     setScheduleNextDate(d.toISOString().split('T')[0])
     setScheduleNextSlotId('')
     setScheduleNextTime('10:00 AM')
-    setScheduleNextRemarks('Follow-up consultation')
+    setScheduleNextRemarks('')
     setScheduleNextModalOpen(true)
   }
 
@@ -3820,6 +3856,16 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     setIsSchedulingNextVisit(true)
     try {
       const code10 = generate10DigitTrackingCode()
+      const selectedDoc = clinicDoctors.find((d) => d.id === scheduleNextDoctorId)
+      const standardFee = Number((selectedDoc as any)?.consultationFee ?? (selectedDoc as any)?.fee ?? 500)
+      const feeAmount = scheduleNextIsFollowup ? 0 : standardFee
+      const paymentStatus = scheduleNextIsFollowup ? 'paid' : 'pending'
+      const paymentMode = scheduleNextIsFollowup ? 'FREE' : 'PAY_AT_DESK'
+      const followUpPrefix = scheduleNextIsFollowup
+        ? (scheduleNextPatient.trackingCodes?.[0] ? `Follow-Up Consultation (Ref: #${scheduleNextPatient.trackingCodes[0]})` : 'Follow-Up Consultation')
+        : ''
+      const notes = [followUpPrefix, scheduleNextRemarks.trim()].filter(Boolean).join(' - ') || (scheduleNextIsFollowup ? 'Follow-up consultation' : 'Consultation')
+
       const created = await createAppointment({
         clinicId: selectedClinic.id,
         doctorId: scheduleNextDoctorId,
@@ -3831,12 +3877,13 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         patientEmail: scheduleNextPatient.email || undefined,
         appointmentDate: scheduleNextDate,
         appointmentTime: scheduleNextTime,
-        feeAmount: 0, // Free follow-up consultation
-        paymentStatus: 'paid',
-        paymentMode: 'PAY_AT_DESK',
+        feeAmount,
+        totalAmount: feeAmount,
+        paymentStatus,
+        paymentMode,
         checkinStatus: 'waiting',
         status: 'APPROVED',
-        notes: scheduleNextRemarks.trim() || 'Follow-up consultation',
+        notes,
         trackingCode10Digit: code10,
         isWalkin: true,
       })
@@ -3844,13 +3891,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
       if (created) {
         setScheduleNextModalOpen(false)
         setRefreshKey((k) => k + 1)
-        alert(`Follow-up visit for ${scheduleNextPatient.fullName} scheduled for ${scheduleNextDate} (${scheduleNextTime}) with Token #${code10}!`)
+        const visitLabel = scheduleNextIsFollowup ? 'Follow-up visit (Free Rs. 0)' : `Consultation (Rs. ${feeAmount})`
+        alert(`${visitLabel} for ${scheduleNextPatient.fullName} scheduled for ${scheduleNextDate} (${scheduleNextTime}) with Token #${code10}!`)
       } else {
-        alert('Failed to schedule follow-up visit.')
+        alert('Failed to schedule visit.')
       }
     } catch (err) {
-      console.error('Error scheduling follow-up visit:', err)
-      alert('Failed to schedule follow-up visit.')
+      console.error('Error scheduling visit:', err)
+      alert('Failed to schedule visit.')
     } finally {
       setIsSchedulingNextVisit(false)
     }
