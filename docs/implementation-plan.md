@@ -4,7 +4,7 @@ Covers every issue found in the review sessions. The payment confirmation design
 [`payment-reliability-plan.md`](payment-reliability-plan.md); this file says **what to build, where, in
 what order, and how to check it is done**. File references are against `main` (commit `163c36e`).
 
-Estimates are for one developer familiar with the codebase. **Total: about 5–6 weeks.**
+Estimates are for one developer familiar with the codebase. **Total: about 6–7 weeks** (including 7b).
 
 ## Order at a glance
 
@@ -18,6 +18,7 @@ Estimates are for one developer familiar with the codebase. **Total: about 5–6
 | 5 | Security hardening | | 3–4 days |
 | 6 | Push for every notification | instant alerts without polling | 2–3 days |
 | 7 | Data and storage savings | free-tier limits, cost | 3–4 days |
+| 7b | Stop re-downloading unchanged data (see [`query-optimization-plan.md`](query-optimization-plan.md)) | biggest remaining traffic: website appointment joins, live queue, doctor queue, history screens | 6–8 days |
 | 8 | Bugs found during review | | 1 day |
 | 9 | Clean-up and docs | | 1 day |
 | 10 | Operations and release | | ongoing |
