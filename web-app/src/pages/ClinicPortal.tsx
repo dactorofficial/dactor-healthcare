@@ -9997,10 +9997,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                     type="button"
                                     onClick={() => handleOpenScheduleNextVisit(pat)}
                                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-[11px] shadow-xs transition-colors cursor-pointer"
-                                    title="Book New Appointment / Schedule Visit"
+                                    title="Book Follow-Up / Schedule Next Visit"
                                   >
                                     <CalendarPlus className="w-3 h-3" />
-                                    <span>Book Appt</span>
+                                    <span>Book Follow-Up</span>
                                   </button>
                                 )}
                                 <button
@@ -12919,7 +12919,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                   <CalendarPlus className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-slate-900">Schedule Next Visit</h3>
+                  <h3 className="text-base font-black text-slate-900">Schedule Follow-Up / Next Visit</h3>
                   <p className="text-[11px] text-slate-500">
                     Patient: <strong className="text-slate-900">{scheduleNextPatient.fullName}</strong>
                   </p>
@@ -12941,7 +12941,26 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                 </label>
                 <select
                   value={scheduleNextDoctorId}
-                  onChange={(e) => setScheduleNextDoctorId(e.target.value)}
+                  onChange={(e) => {
+                    const newDocId = e.target.value
+                    setScheduleNextDoctorId(newDocId)
+                    setScheduleNextSlotId('')
+                    const isMulti = !isSingleDoctorClinic && clinicDoctors.length > 1
+                    if (isMulti && scheduleNextPatient) {
+                      const cleanPatPhone = (scheduleNextPatient.phone || '').replace(/\D/g, '').slice(-10)
+                      const hasPriorConsult =
+                        (scheduleNextPatient.consultations || []).some((c: any) => c.doctorId === newDocId) ||
+                        appointments.some((a: any) => {
+                          const cleanApptPhone = (a.patientMobile || '').replace(/\D/g, '').slice(-10)
+                          return (
+                            a.doctorId === newDocId &&
+                            ((cleanPatPhone.length >= 7 && cleanApptPhone === cleanPatPhone) ||
+                              (scheduleNextPatient.trackingCodes && scheduleNextPatient.trackingCodes.includes(a.trackingCode10Digit)))
+                          )
+                        })
+                      setScheduleNextIsFollowup(hasPriorConsult)
+                    }
+                  }}
                   className="w-full px-3.5 py-2.5 rounded-xl liquid-glass-input text-xs font-bold focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   required
                 >
@@ -13041,9 +13060,75 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                 />
               </div>
 
-              <div className="p-3 bg-teal-50/80 rounded-xl border border-teal-200 text-teal-800 text-xs">
-                ✨ Follow-up consultation is scheduled at <strong>Rs. 0 (Free Visit)</strong> by default and will appear in the Future Appointments list.
-              </div>
+              {(() => {
+                const selectedDoc = clinicDoctors.find((d) => d.id === scheduleNextDoctorId)
+                const docFee = Number((selectedDoc as any)?.consultationFee ?? (selectedDoc as any)?.fee ?? 500)
+                const cleanPatPhone = (scheduleNextPatient.phone || '').replace(/\D/g, '').slice(-10)
+                const priorVisitsCount =
+                  (scheduleNextPatient.consultations || []).filter((c: any) => c.doctorId === scheduleNextDoctorId).length ||
+                  appointments.filter((a: any) => {
+                    const cleanApptPhone = (a.patientMobile || '').replace(/\D/g, '').slice(-10)
+                    return (
+                      a.doctorId === scheduleNextDoctorId &&
+                      ((cleanPatPhone.length >= 7 && cleanApptPhone === cleanPatPhone) ||
+                        (scheduleNextPatient.trackingCodes && scheduleNextPatient.trackingCodes.includes(a.trackingCode10Digit)))
+                    )
+                  }).length
+
+                return (
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 block mb-1">
+                        Visit Type <span className="text-rose-500">*</span>
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setScheduleNextIsFollowup(true)}
+                          className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                            scheduleNextIsFollowup
+                              ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
+                              : 'bg-white/80 text-slate-700 border-slate-200 hover:border-emerald-300'
+                          }`}
+                        >
+                          Follow-Up Visit (Free Rs. 0)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setScheduleNextIsFollowup(false)}
+                          className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                            !scheduleNextIsFollowup
+                              ? 'bg-teal-600 text-white border-teal-700 shadow-sm'
+                              : 'bg-white/80 text-slate-700 border-slate-200 hover:border-teal-300'
+                          }`}
+                        >
+                          New Consultation (Rs. {docFee})
+                        </button>
+                      </div>
+                    </div>
+
+                    <div
+                      className={`p-3 rounded-xl border text-xs ${
+                        scheduleNextIsFollowup
+                          ? 'bg-emerald-50/80 border-emerald-200 text-emerald-800'
+                          : 'bg-slate-50/80 border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {scheduleNextIsFollowup ? (
+                        <span>
+                          {priorVisitsCount > 0
+                            ? `✓ Prior consultation found with this doctor (${priorVisitsCount} previous visit(s)). Free follow-up applied (Rs. 0).`
+                            : '✓ Follow-up visit: Consultation fee is recorded as Rs. 0 (Free Visit).'}
+                        </span>
+                      ) : (
+                        <span>
+                          Standard consultation fee of <strong>Rs. {docFee}</strong> will be recorded for this doctor.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })()}
 
               <div className="flex items-center space-x-3 pt-2">
                 <GlassButton

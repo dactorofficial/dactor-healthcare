@@ -887,6 +887,22 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     (['no_show', 'noshow'].includes(appointment?.checkinStatus?.toLowerCase() || '') ||
       ['no_show', 'noshow'].includes((appointment as any)?.queueStatus?.toLowerCase() || ''))
 
+  const isCancelled =
+    !isConsultancyCompleted &&
+    !isSampleCollectedOrFurther &&
+    ((appointment?.checkinStatus || '').toLowerCase() === 'cancelled' ||
+      (appointment?.status || '').toUpperCase() === 'CANCELLED' ||
+      (publicQueueStatus?.status || '').toLowerCase() === 'cancelled' ||
+      (appointment as any)?.queueStatus?.toLowerCase() === 'cancelled')
+
+  const hasCompletedVisitInHistory = Boolean(
+    linkedConsultations?.allConsultations?.some((c) =>
+      ['completed', 'done'].includes((c.checkinStatus || '').toLowerCase())
+    ) ||
+    (linkedConsultations?.initialAppointment &&
+      ['completed', 'done'].includes((linkedConsultations.initialAppointment.checkinStatus || '').toLowerCase()))
+  )
+
   const isClinicClosed = clinic?.isOpen === false
   const showClinicClosedUI =
     isClinicClosed &&

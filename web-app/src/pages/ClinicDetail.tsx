@@ -3430,21 +3430,29 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
                 {totalBookingFee === 0 ? (
                   <div className="space-y-4">
-                    <div className={`p-4 rounded-2xl border text-xs space-y-1.5 backdrop-blur-sm ${
-                      isReschedule ? 'bg-cyan-500/10 border-cyan-500/20' : 'bg-emerald-500/10 border-emerald-500/20'
-                    }`}>
-                      <div className={`flex items-center space-x-2 font-black text-sm ${
-                        isReschedule ? 'text-cyan-900 dark:text-cyan-300' : 'text-emerald-900 dark:text-emerald-300'
-                      }`}>
-                        <CheckCircle2 className={`w-4 h-4 shrink-0 ${isReschedule ? 'text-cyan-600 dark:text-cyan-400' : 'text-emerald-600 dark:text-emerald-400'}`} />
-                        <span>{isReschedule ? 'Reschedule Appointment' : '100% Free Follow-Up Visit'}</span>
-                      </div>
-                      <p className={`leading-relaxed ${isReschedule ? 'text-cyan-800 dark:text-cyan-300/90' : 'text-emerald-700 dark:text-emerald-400/90'}`}>
-                        {isReschedule
-                          ? `Your consultation with Dr. ${selectedDoctor?.fullName || 'the specialist'} is shifted to ${selectedDate} at ${selectedSlotTime} under existing Token #${retainedAppointment?.trackingCode10Digit || followupCodeInput || initialTrackingCode}. No payment is charged.`
-                          : `This follow-up consultation is retained under previous Appointment ID #${retainedAppointment?.trackingCode10Digit || followupCodeInput}. No payment is charged.`}
-                      </p>
-                    </div>
+                    {(() => {
+                      const isRetainedCancelled =
+                        (retainedAppointment?.checkinStatus || '').toLowerCase() === 'cancelled' ||
+                        (retainedAppointment?.status || '').toUpperCase() === 'CANCELLED'
+                      const isRescheduleMode = isReschedule || isRetainedCancelled
+                      return (
+                        <div className={`p-4 rounded-2xl border text-xs space-y-1.5 backdrop-blur-sm ${
+                          isRescheduleMode ? 'bg-cyan-500/10 border-cyan-500/20' : 'bg-emerald-500/10 border-emerald-500/20'
+                        }`}>
+                          <div className={`flex items-center space-x-2 font-black text-sm ${
+                            isRescheduleMode ? 'text-cyan-900 dark:text-cyan-300' : 'text-emerald-900 dark:text-emerald-300'
+                          }`}>
+                            <CheckCircle2 className={`w-4 h-4 shrink-0 ${isRescheduleMode ? 'text-cyan-600 dark:text-cyan-400' : 'text-emerald-600 dark:text-emerald-400'}`} />
+                            <span>{isRescheduleMode ? (isRetainedCancelled ? 'Reschedule Cancelled Appointment' : 'Reschedule Appointment') : '100% Free Follow-Up Visit'}</span>
+                          </div>
+                          <p className={`leading-relaxed ${isRescheduleMode ? 'text-cyan-800 dark:text-cyan-300/90' : 'text-emerald-700 dark:text-emerald-400/90'}`}>
+                            {isRescheduleMode
+                              ? `Your consultation with Dr. ${selectedDoctor?.fullName || 'the specialist'} is shifted to ${selectedDate} at ${selectedSlotTime} under existing Token #${retainedAppointment?.trackingCode10Digit || followupCodeInput || initialTrackingCode}. No payment is charged.`
+                              : `This follow-up consultation is retained under previous Appointment ID #${retainedAppointment?.trackingCode10Digit || followupCodeInput}. No payment is charged.`}
+                          </p>
+                        </div>
+                      )
+                    })()}
 
                     <div className="flex items-center space-x-3 pt-2">
                       <button
