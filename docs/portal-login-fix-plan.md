@@ -1,5 +1,7 @@
 # Fix plan: clinic app says "already associated with a Clinic Portal account" after sign-out
 
+> **Status 2026-11-22:** plan only, not implemented.
+
 Status: proposal. Audit of `main` (commit `163c36e`). Affects the **clinic app** only.
 Estimate: **1–2 days** including tests.
 

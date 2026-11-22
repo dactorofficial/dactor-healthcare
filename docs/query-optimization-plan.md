@@ -1,5 +1,7 @@
 # Query optimization plan: stop re-downloading data that does not change
 
+> **Status 2026-11-22:** plan only, not implemented.
+
 Audit of `main` (commit `163c36e`, which includes the merged scaling work). Covers the clinic app,
 the website (patient live queue, clinic portal, doctor portal, patient portal) and remaining patient
 app items. Each item: **problem → location → change → expected effect → how to check**.

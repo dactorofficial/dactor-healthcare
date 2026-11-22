@@ -6,6 +6,37 @@ what order, and how to check it is done**. File references are against `main` (c
 
 Estimates are for one developer familiar with the codebase. **Total: about 6–7 weeks** (including 7b).
 
+## Status (updated 2026-11-22, branch `payment-reliability-plan`)
+
+| Item | Status | Commit |
+|---|---|---|
+| 1.2 Clinic app sends the signed-in user's token to server functions ("authorization failed") | ✅ done — `EdgeFunctionCaller`, all 10 calls; compiles | `704be96` |
+| 1.1 Confirm Supabase accepts Firebase tokens (third-party auth + `role: authenticated` claim) | ⏳ to check in the Supabase dashboard — 1.2 only works once this is set up | — |
+| 1.3 / 1.4 Audit of clinic-app database writes and patient/web token use | ❌ not started | — |
+| 1b Clinic app "already associated with Clinic Portal" ([plan](portal-login-fix-plan.md)) | ❌ not started (plan only) | — |
+| 2.1 Clinic settings save loses "direct payment enabled" | ✅ done — retry keeps the column, RLS-blocked saves detected, failure shown | `e8549ed` |
+| 2.2 Show "visible to patients" status in settings | ❌ not started | — |
+| 2.3 eSewa keys discarded when eSewa is unreachable | ✅ done — saved as "verification pending", clear message | `e8549ed` |
+| 2b Rescheduled / follow-up visits missing from queue ([plan](reschedule-followup-fix-plan.md)) | ❌ not started (plan only) | — |
+| 3 Payment reliability ([plan](payment-reliability-plan.md)) | 🟡 partly — reconcile no longer crashes (see "Found and fixed"); verifier, statuses, needs-attention not started | `e8549ed` |
+| 4.1 Patient app: pay inside the app (WebView) | ✅ done — compiles, unit tests pass; not tested on a device | `1459cba` |
+| 4.2 Website: payment window over the booking page | ✅ done — browser-tested (normal, blocked window, foreign message) | `d50de17` |
+| 4.3 Status-only "Confirming…" screens | 🟡 existing screens already re-check with the server after return | — |
+| 4.4 Fonepay QR on our page | ❌ not started (needs Fonepay QR access) | — |
+| 0, 5, 6, 7, 7b, 8, 9, 10 | ❌ not started | — |
+
+### Found and fixed while implementing
+| Problem on `main` | Effect | Commit |
+|---|---|---|
+| `reconcile_pending` called `.catch` on a query builder (not a Promise) | **every reconcile request crashed** — background job, clinic "reconcile" button and the website's return check never confirmed pending payments | `e8549ed` |
+| `confirm_pay_at_desk` used an undefined variable `nextPos` | clinic owner's "new Pay at Desk booking" notification was never sent | `e8549ed` |
+| Clinic app: `DactorClinicApp.kt` lost the `NotificationAlarmReceiver` import in a merge | **clinic app did not compile** | `704be96` |
+| Patient app: commit `b1bea4f` replaced `NotificationAlarmReceiver` and dropped constants/helpers still used by `AppointmentAlarmPlanner` and `NotificationSyncWorker` | **patient app did not compile**; restored the missing pieces only | `1459cba` |
+
+### Needs a decision (not changed)
+- **Patient app background checks** (commit `b1bea4f`): every **10 s** on appointment day (full set of queries) and every **2 h on all other days for every installed phone**, re-enabled at app start. The agreed design was a light check every 90 s around the appointment and **nothing** without an appointment. Keep `b1bea4f`'s behaviour or restore the agreed design?
+- **Website sign-out** (commit `f65f107`): clinic, patient and doctor portals delete all browser data again (`clearAllAppCache`) instead of hiding it per account. Intended?
+
 ## Order at a glance
 
 | Phase | What | Why first | Estimate |

@@ -1,5 +1,7 @@
 # Fix plan: rescheduled and follow-up visits missing from the live queue
 
+> **Status 2026-11-22:** plan only, not implemented.
+
 Status: proposal. Audit of `main` (commit `163c36e`).
 Estimate: **2–3 days** for one developer, including tests.
 

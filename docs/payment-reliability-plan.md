@@ -1,5 +1,9 @@
 # Payment reliability plan: a paid appointment is never lost
 
+> **Status 2026-11-22:** not implemented yet, except: the reconcile crash (`.catch` on a query builder,
+> which stopped every reconcile run) is fixed in `e8549ed`; in-app (patient app) and in-window (website)
+> payment from §11a are done in `1459cba` / `d50de17`. See the status table in `implementation-plan.md`.
+
 Status: proposal. Applies to online gateways (eSewa, Khalti, Fonepay, ConnectIPS).
 Pay at Desk is out of scope except where noted.
 
