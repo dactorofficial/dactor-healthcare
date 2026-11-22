@@ -7572,7 +7572,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={isClaimingCode || claimCodeInput.length !== 10}
+                  disabled={isClaimingCode || !claimCodeInput.trim()}
                   className="flex-1 py-3 bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-glass-brand border border-white/25 active:scale-[0.98] cursor-pointer"
                 >
                   {isClaimingCode ? 'Verifying...' : 'Claim & Link Token'}

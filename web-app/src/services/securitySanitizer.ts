@@ -106,7 +106,7 @@ export function sanitizeUuid(id: unknown): string | null {
  */
 export function sanitizeTrackingCode(code: unknown): string | null {
   if (typeof code !== 'string') return null
-  const clean = code.trim().toUpperCase()
+  const clean = code.trim().replace(/^[#\s\-]+|[\s\-]+/g, '').toUpperCase()
   return TRACKING_CODE_REGEX.test(clean) ? clean : null
 }
 

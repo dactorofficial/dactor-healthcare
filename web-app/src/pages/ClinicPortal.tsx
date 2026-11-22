@@ -1042,6 +1042,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
   const [scheduleNextSlots, setScheduleNextSlots] = useState<Slot[]>([])
   const [isLoadingScheduleNextSlots, setIsLoadingScheduleNextSlots] = useState(false)
   const [scheduleNextRemarks, setScheduleNextRemarks] = useState('Follow-up consultation')
+  const [scheduleNextIsFollowup, setScheduleNextIsFollowup] = useState(true)
   const [isSchedulingNextVisit, setIsSchedulingNextVisit] = useState(false)
 
   // Onboarding Form State (when adding a new doctor/staff)
@@ -10085,7 +10086,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                             </div>
                                             <div>
                                               <strong className="text-slate-900">Status:</strong>{' '}
-                                              <span className="font-semibold capitalize">{consult.checkinStatus.replace('_', ' ')}</span>
+                                              <span className={`font-semibold capitalize ${consult.checkinStatus === 'cancelled' ? 'text-rose-600 font-bold' : ''}`}>
+                                                {consult.checkinStatus.replace('_', ' ')}
+                                              </span>
                                               {' • '}
                                               <strong className="text-slate-900">Fee:</strong> Rs. {consult.feeAmount}{' '}
                                               <span className="text-emerald-700 font-bold">({consult.paymentStatus})</span>

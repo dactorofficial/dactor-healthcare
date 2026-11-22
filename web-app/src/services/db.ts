@@ -6326,6 +6326,7 @@ export interface PatientDirectoryConsultation {
   id: string
   appointmentDate: string
   appointmentTime: string
+  doctorId?: string
   doctorName?: string
   doctorSpecialty?: string
   trackingCode: string
@@ -6357,16 +6358,13 @@ export interface ClinicPatientDirectoryEntry {
 export function buildClinicPatientDirectory(appointments: Appointment[]): ClinicPatientDirectoryEntry[] {
   const patientMap = new Map<string, ClinicPatientDirectoryEntry>()
 
-  // Strict Clinic Directory Guard: Only APPROVED appointments belong in the Patient Directory
+  // Strict Clinic Directory Guard: Retain approved and cancelled appointments in directory (data retention parity)
   const approvedOnly = (appointments || []).filter((a) => {
-    const st = (a.status || '').toUpperCase()
     return (
-      st === 'APPROVED' &&
       a.status !== 'WAITING_FOR_APPROVAL' &&
       a.status !== 'pending_payment' &&
       a.status !== 'UNAPPROVED' &&
-      a.status !== 'EXPIRED' &&
-      a.checkinStatus !== 'cancelled'
+      a.status !== 'EXPIRED'
     )
   })
 
@@ -6386,14 +6384,16 @@ export function buildClinicPatientDirectory(appointments: Appointment[]): Clinic
       : (a.userId || (cleanName ? cleanName.toLowerCase() : a.id))
 
     const isFollowup = Number(a.feeAmount) === 0
+    const isCancelled = (a.checkinStatus || '').toLowerCase() === 'cancelled' || (a.status || '').toUpperCase() === 'CANCELLED'
     const consultItem: PatientDirectoryConsultation = {
       id: a.id,
       appointmentDate: a.appointmentDate || new Date().toISOString().slice(0, 10),
       appointmentTime: a.appointmentTime || 'OPD',
+      doctorId: a.doctorId || a.doctor?.id || undefined,
       doctorName: a.doctor?.fullName || undefined,
       doctorSpecialty: a.doctor?.specialty || undefined,
       trackingCode: a.trackingCode10Digit || '',
-      checkinStatus: a.checkinStatus || 'booked',
+      checkinStatus: isCancelled ? 'cancelled' : (a.checkinStatus || 'booked'),
       paymentStatus: a.paymentStatus || 'unpaid',
       feeAmount: Number(a.feeAmount) || 0,
       notes: a.notes || undefined,
