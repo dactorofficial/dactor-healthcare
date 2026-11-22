@@ -24,6 +24,20 @@ import java.time.LocalDate
 class NotificationAlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
+        // Local appointment reminders scheduled by AppointmentAlarmPlanner: show, no server call
+        if (intent?.action == ACTION_REMINDER) {
+            val apptId = intent.getStringExtra(EXTRA_APPOINTMENT_ID)
+            NotificationHelper.showSystemNotification(
+                context = context,
+                id = ((apptId + intent.data).hashCode() and 0x7FFFFFFF) % 100000,
+                title = intent.getStringExtra(EXTRA_TITLE) ?: "Appointment reminder",
+                message = intent.getStringExtra(EXTRA_MESSAGE) ?: "",
+                appointmentId = apptId,
+                type = NotificationType.ARRIVE_SOON.key
+            )
+            return
+        }
+
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "dactor:AlarmSyncWakeLock")
         wakeLock?.acquire(60_000L) // 1 minute max lock
@@ -326,7 +340,21 @@ class NotificationAlarmReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_CHECK_ALERTS = "com.dactor.patient.ACTION_CHECK_ALERTS"
-        private const val ALARM_REQUEST_CODE = 10091
+        const val ACTION_REMINDER = "com.dactor.patient.ACTION_REMINDER"
+        const val EXTRA_TITLE = "title"
+        const val EXTRA_MESSAGE = "message"
+        const val EXTRA_APPOINTMENT_ID = "appointment_id"
+        const val ALARM_REQUEST_CODE = 10091
+
+        /** Appointments from the last 3 days (or today) that are not finished or cancelled. */
+        fun recentUnfinishedIds(appointments: List<Appointment>): List<String> {
+            val earliest = LocalDate.now().minusDays(3).toString()
+            val today = LocalDate.now().toString()
+            return appointments.filter {
+                val d = it.appointmentDate.trim().take(10)
+                d in earliest..today && it.checkinStatus.lowercase() !in listOf("completed", "done", "cancelled", "no_show")
+            }.map { it.id }
+        }
 
         fun scheduleNextAlarm(context: Context, delayMillis: Long = 30_000L) {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return

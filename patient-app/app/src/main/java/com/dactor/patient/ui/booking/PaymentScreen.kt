@@ -247,6 +247,9 @@ fun PaymentScreen(
         return false
     }
 
+    // In-app checkout (WebView) currently open, if any
+    var inAppCheckoutUrl by remember { mutableStateOf<String?>(null) }
+
     // Immediate re-check on resuming app from eSewa / Khalti / Fonepay / ConnectIPS checkout
     DisposableEffect(lifecycleOwner, appointmentId) {
         val observer = LifecycleEventObserver { _, event ->
@@ -282,6 +285,22 @@ fun PaymentScreen(
         else -> selectedPaymentMethod.uppercase()
     }
 
+    inAppCheckoutUrl?.let { url ->
+        InAppPaymentDialog(
+            checkoutUrl = url,
+            title = "Pay with $gatewayDisplayLabel",
+            onFinished = {
+                inAppCheckoutUrl = null
+                coroutineScope.launch { checkAndNavigateConfirmed(appointmentId) }
+            },
+            onClose = {
+                // The patient may have paid before closing: always ask the server
+                inAppCheckoutUrl = null
+                coroutineScope.launch { checkAndNavigateConfirmed(appointmentId) }
+            }
+        )
+    }
+
     // Start server-owned online checkout (eSewa, Khalti, Fonepay, ConnectIPS).
     // Payment completion is finalized on the server even if the app is closed in the background.
     fun handleCompletePayment() {
@@ -304,13 +323,8 @@ fun PaymentScreen(
                     selectedTests = appointment?.selectedLabTests
                 ) ?: throw IllegalStateException("Payment service is unavailable")
                 sessionManager?.updateActivePaymentSessionGateway(gw, checkout.transactionUuid)
-                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(checkout.checkoutUrl))
-                context.startActivity(intent)
-                Toast.makeText(
-                    context,
-                    "Opening $gatewayDisplayLabel. Slot is reserved \u2014 your appointment confirms automatically even in background.",
-                    Toast.LENGTH_LONG
-                ).show()
+                // Pay inside the app (no external browser); the result is still confirmed by the server
+                inAppCheckoutUrl = checkout.checkoutUrl
             } catch (e: Exception) {
                 Toast.makeText(context, "Could not open $gatewayDisplayLabel: ${e.message ?: "please try again"}", Toast.LENGTH_LONG).show()
             } finally {
