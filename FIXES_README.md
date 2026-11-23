@@ -66,6 +66,31 @@ network call per launch, and these screens get complete data too.
 
 ---
 
+## 3. Walk-in follow-up booking doesn't create the appointment
+
+### Problem
+Booking a **Follow-up (Free / Rs. 0)** in Walk-in Booking looked successful but no new
+appointment was created. Sometimes it failed with "Please select a published OPD time slot".
+
+### Cause
+1. **Duplicate check returned the old appointment.** `createWalkinAppointment()` looked for an
+   existing appointment with the same clinic + slot + mobile + date and, if found, returned it
+   instead of inserting a new one. This was meant to catch double taps, but a follow-up is the
+   same patient with the same mobile. When the follow-up was on the same day and in the same
+   slot as an earlier visit (common with one OPD slot per day), it returned the earlier
+   appointment. The screen showed "success" with the old tracking code, and nothing new was saved.
+2. **The slot was cleared after the code lookup.** The follow-up lookup set `selectedSlot = null`,
+   but the slot list only reloads when the doctor changes. If the follow-up was with the doctor
+   already selected, no slot was picked and Confirm was rejected.
+
+### Changes
+| File | Change |
+|---|---|
+| `clinic-app/.../data/repository/AppointmentRepository.kt` | The double-tap check now only matches a booking with the same mobile **and** patient name, same slot and date, **created in the last 2 minutes**. Genuine follow-ups now create a new appointment. |
+| `clinic-app/.../ui/walkin/WalkinBookingScreen.kt` | The follow-up lookup no longer clears the selected slot. The slot loader still re-selects a valid slot when the follow-up's doctor is different. |
+
+---
+
 ## Still to do
 
 1. **Build the clinic app** (`cd clinic-app && ./gradlew assembleDebug`) and fix any compile
@@ -76,8 +101,12 @@ network call per launch, and these screens get complete data too.
 3. **Test the patient directory:** open the live queue for a minute, then go to
    Patient Directory → All Patients. Past patients, not just today's, should appear. The
    refresh button in the header should also load everything.
-4. **Run unit tests:** `./gradlew testDebugUnitTest`.
-5. **Open a pull request** from `claude/pensive-edison-qg6rww` once testing passes.
+4. **Test walk-in follow-up:** book a walk-in for a patient today, then book a Follow-up using
+   that patient's 10-digit code for the **same day and slot**. A new tracking code should be shown,
+   and the patient should appear twice in the queue / appointment list. Also try a follow-up with
+   a different doctor and check that a slot for that doctor is auto-selected.
+5. **Run unit tests:** `./gradlew testDebugUnitTest`.
+6. **Open a pull request** from `claude/pensive-edison-qg6rww` once testing passes.
 
 ### Known issue not fixed here (decide if needed)
 - **Patients who share a phone number or account are merged into one.** The directory (and

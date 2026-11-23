@@ -770,16 +770,22 @@ open class AppointmentRepository @Inject constructor(
                 } catch (ignored: Exception) {}
             }
 
-            // 3. Deduplication guard against rapid double-taps on reception tablet
+            // 3. Deduplication guard against rapid double-taps on reception tablet.
+            // Only matches a booking for the same patient created in the last 2 minutes; without the
+            // time window, a follow-up (same mobile, same slot, same day) returned the original
+            // appointment and no new one was created.
             if (validSlotId != null && appointment.patientMobile.isNotBlank() && appointment.appointmentDate.isNotBlank()) {
                 try {
+                    val doubleTapWindowStart = java.time.Instant.now().minusSeconds(120).toString()
                     val existingDup = supabaseClient.postgrest["appointments"]
                         .select {
                             filter {
                                 eq("clinic_id", appointment.clinicId)
                                 eq("slot_id", validSlotId)
                                 eq("patient_mobile", appointment.patientMobile.trim())
+                                eq("patient_name", appointment.patientName.trim())
                                 eq("appointment_date", appointment.appointmentDate)
+                                gte("created_at", doubleTapWindowStart)
                             }
                         }
                         .decodeList<Appointment>()
