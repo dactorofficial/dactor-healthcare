@@ -5,9 +5,17 @@ code (clinic app, patient app, Supabase migrations), not by running the apps.
 
 **Decisions (agreed):**
 - **No time limit.** A follow-up can be booked any time after the original visit.
-- **Free follow-ups:** **unlimited** only for **multi-visit clinics** (`clinics.type = 'multi_visit'`).
-  For all other clinics (`single_visit`, etc.) **one free follow-up per original visit**. Further
+- **Clinic types** are exactly the 3 values of the database's `clinic_type_enum`: `single_visit`,
+  `multi_visit`, `diagnostic_lab` (`supabase/schema.sql`). There is no separate "multi" type. The
+  app code that checks `type.contains("multi")` should compare to `multi_visit` exactly.
+- **Multi-visit clinics (`multi_visit`):** follow-ups are allowed **as many times as needed**, all free.
+- **Single-visit clinics (`single_visit`):** **one free follow-up per original visit**. Further
   follow-ups on the same visit are charged the normal consultation fee.
+- **Diagnostic labs (`diagnostic_lab`): one-time visit, no follow-ups at all.**
+  - **Reschedule** is allowed **only until the sample is collected**.
+  - Once the sample is collected, the visit can't be rescheduled.
+  - Once the report is published, nothing more can be booked from that visit (no follow-up,
+    no reschedule). A new test is a new booking.
 - **Doctor-specific.** A follow-up is always with the **same doctor** as the original visit. The doctor
   can't be changed for a follow-up. A different doctor means a new (paid) appointment.
 
@@ -90,7 +98,7 @@ File: `supabase/migration_followup_reschedule_integrity.sql`
      visit has no doctor (old/walk-in data), refuse with `FOLLOW_UP_NO_DOCTOR`, so it's booked as a
      new appointment instead.
    - **Free or charged:**
-     - `multi_visit` clinic → every follow-up is free (unlimited).
+     - `multi_visit` clinic → follow-ups are unlimited and every one is free.
      - any other clinic type → free if no earlier follow-up exists for this original visit
        (`count(*) where follow_up_of_appointment_id = source and not cancelled = 0`).
        Otherwise it's charged the doctor's normal consultation fee, still `visit_type='follow_up'`
@@ -99,8 +107,8 @@ File: `supabase/migration_followup_reschedule_integrity.sql`
    - Follow-ups of follow-ups: if the original code is itself a follow-up, link to the **first**
      visit (`follow_up_of_appointment_id` = the first visit), so the free-follow-up count is per
      first visit and a chain of codes can't be used to get more free follow-ups.
-   - Diagnostic labs: follow-ups don't apply (no doctor). The function refuses for lab clinics and
-     the lab screens hide the follow-up option.
+   - **Diagnostic labs:** always refused with `LAB_NO_FOLLOW_UP` (one-time visit). The lab screens hide
+     the follow-up option completely.
    - Creates a **new row** with a **new code** from `generate_unique_tracking_code_10()`,
      `visit_type='follow_up'`, the link to the original, the original's doctor, the fee/payment
      fields from the free-or-charged rule (free → fee 0, `payment_mode='FREE'`,
@@ -112,6 +120,15 @@ File: `supabase/migration_followup_reschedule_integrity.sql`
    - **Refuse** if the visit is completed (step 5 rule), cancelled, or a no-show. Return a clear
      error code such as `VISIT_COMPLETED_USE_FOLLOW_UP`.
    - Remove the "completed → reset in place" branch.
+   - **Diagnostic lab rule:** refuse with `LAB_SAMPLE_ALREADY_COLLECTED` once the sample is collected,
+     meaning any of:
+     - the appointment's `checkin_status` is `sample_collected`, `processing`, `report_prepared` or `done`
+     - the queue entry status is `sample_collected`, `processing`, `report_prepared` or `done`
+     - a `lab_reports` row exists for the appointment (`sample_collected_at` set)
+
+     If the report is published (`lab_reports.prepared_at IS NOT NULL` or `stage = 'report_prepared'`),
+     refuse with `LAB_REPORT_PUBLISHED`. Before sample collection, the lab reschedule works normally
+     (date/collection slot only, no doctor).
    - Store `rescheduled_from_date`. Leave fee, payment and the bill untouched (same visit, new time).
 5. **One "is completed" rule** (SQL function `is_visit_completed(appointment_id)`): true if
    `consultation_completed_at IS NOT NULL`, or `checkin_status` is in
@@ -134,6 +151,8 @@ File: `supabase/migration_followup_reschedule_integrity.sql`
 | Patient Detail "Reschedule past appointment" (`editingPastApptDate`) | Remove for completed visits. Show **"Book follow-up"**, which opens the follow-up dialog with this visit preselected. Keep Reschedule only for upcoming or not-yet-seen visits. |
 | `rescheduleAppointment` fallback | Remove the direct table update fallback (B2) and the queue-timestamp reset for completed entries (B4). If the server refuses with `VISIT_COMPLETED_USE_FOLLOW_UP`, show that message. |
 | Future Appointments / No-Show Manager reschedule | Keep (these are not-yet-seen visits). The server function now enforces the rule. |
+| Diagnostic lab screens (Live Queue, Lab Workflow, Patient Directory/Detail, Walk-in) | No follow-up option anywhere for labs (the walk-in "New / Follow-up" toggle is already hidden for labs; check the rest). Show **Reschedule** only while the sample isn't collected. After that, the button is hidden and the visit shows "Sample collected" / "Report published". |
+| `type.contains("multi")` checks (`PatientDirectoryScreen.kt` ~156, `DashboardScreen.kt` ~1738) | Compare to `multi_visit` exactly. These checks also match "poly", "hospital" and "center" in the type text. Check whether those screens should use the 3 enum values only. |
 | `AppointmentInsertDto` | Add `payment_mode`, `status`, `total_amount`, `visit_type` so what the screen sets is actually saved (C4). |
 
 ### Phase 3: Patient app
@@ -141,7 +160,8 @@ File: `supabase/migration_followup_reschedule_integrity.sql`
 |---|---|
 | `bookFollowUpAppointment` | Replace the `existing.copy(...)` insert and the reschedule branch with one `create_follow_up_appointment` call. If the original visit isn't completed, show "Your visit hasn't happened yet. Use Reschedule" instead of moving it. **Never return an unsaved object.** On failure, return null and show the error (fixes A6). |
 | `getAppointmentByTrackingCode` | Keep handling duplicates until the Phase 1 cleanup has run. After that, one row per code. |
-| Booking form follow-up code check | After the code is entered, lock the doctor to the original visit's doctor and show only that doctor's slots. Show "Free" or the fee from the rule. Show the server's error messages (wrong clinic, not completed, no doctor on the original visit). |
+| Lab bookings (tracker, Active Appointments, history) | No "Book follow-up" for lab visits. "Reschedule" only before sample collection. After the report is published, only "View / download report". |
+| Booking form follow-up code check | A code from a lab visit is refused ("Lab tests are one-time visits. Please book a new test"). After the code is entered, lock the doctor to the original visit's doctor and show only that doctor's slots. Show "Free" or the fee from the rule. Show the server's error messages (wrong clinic, not completed, no doctor on the original visit). |
 | Tracker / history | Show "Follow-up of #<original code>" using `follow_up_of_appointment_id`. Each visit has its own code. |
 
 ### Phase 4: Bills
@@ -160,7 +180,10 @@ File: `supabase/migration_followup_reschedule_integrity.sql`
    "Follow-up of #…" with the **same doctor** (the doctor can't be changed).
    - **Single-visit clinic:** the 1st follow-up is free; the 2nd follow-up on the same visit
      (including using the 1st follow-up's code) is charged the doctor's fee.
-   - **Multi-visit clinic:** the 2nd, 3rd, … follow-ups are all free.
+   - **Multi-visit clinic:** the 2nd, 3rd, 4th, … follow-ups are all allowed and free.
+   - **Diagnostic lab:** using a lab code for a follow-up is refused in both apps.
+   - **Lab reschedule:** works before sample collection. Refused after sample collection.
+     Refused after the report is published.
    - A follow-up booked a long time after the visit (e.g. 1 year) is still allowed.
 2. **Follow-up by code, patient app:** same as 1. Check the row actually exists in the database (no fake success).
 3. **Code of an upcoming (not done) visit used for a follow-up:** you get the "use Reschedule" message, and nothing changes.
@@ -188,5 +211,3 @@ File: `supabase/migration_followup_reschedule_integrity.sql`
 ## Open questions
 - If the original doctor **is no longer affiliated** with the clinic, the plan refuses the follow-up
   (book a new appointment). Say if it should be allowed with another doctor in that case.
-- Clinics whose type is just `"multi"` (seen in a few places in the apps): treat them as multi-visit
-  (unlimited free), or fix their type to `multi_visit` in the migration?
