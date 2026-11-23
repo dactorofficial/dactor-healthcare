@@ -3405,14 +3405,30 @@ export async function saveOrUpdateInvoicePayment(params: {
 
     // Also update the appointment fee_amount and payment_status safely
     try {
-      await supabase
+      const { data: apptRow } = await supabase
         .from('appointments')
-        .update({
-          fee_amount: totalAmount,
-          payment_status: dbPaymentStatus,
-          updated_at: nowIso,
-        })
+        .select('payment_mode')
         .eq('id', appointmentId)
+        .maybeSingle()
+
+      if (String(apptRow?.payment_mode || '').toUpperCase() === 'PAY_AT_DESK') {
+        // Pay at Desk: the bill total already includes the 5% platform charge, so it must not be written
+        // back as the base fee (the DB trigger would add 5% again). Settle through the authoritative RPC so
+        // the appointment is marked paid and the collection reaches the Super Admin settlement pages.
+        if (dbPaymentStatus === 'paid') {
+          const res = await markPayAtDeskCollected(appointmentId, clinicId)
+          if (!res.success) console.warn('Could not mark Pay at Desk appointment collected:', res.error)
+        }
+      } else {
+        await supabase
+          .from('appointments')
+          .update({
+            fee_amount: totalAmount,
+            payment_status: dbPaymentStatus,
+            updated_at: nowIso,
+          })
+          .eq('id', appointmentId)
+      }
     } catch (apptErr) {
       console.warn('Could not sync fee_amount to appointments table:', apptErr)
     }

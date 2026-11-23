@@ -183,16 +183,29 @@ export default function PaymentLogs({ onNavigate: _onNavigate }: PaymentLogsProp
         setSubscriptions(mappedSubs)
       }
 
-      // Fetch appointments (for doctor analytics AND live Pay-at-Desk 5% commission accrual calculation)
-      const { data: apptsData, error: apptsErr } = await supabase
-        .from('appointments')
-        .select(`
-          id, clinic_id, doctor_id, patient_name, patient_mobile, user_id, appointment_date, appointment_time, status, checkin_status, payment_mode, payment_status, fee_amount, service_charge_amount, total_amount, created_at,
-          clinic:clinics(name),
-          doctor:doctors(full_name, specialty, consultation_fee)
-        `)
-        .order('appointment_date', { ascending: true })
-        .limit(2500)
+      // Fetch appointments (for doctor analytics AND live Pay-at-Desk 5% commission accrual calculation).
+      // Page through every row: Supabase returns at most 1000 rows per request, so a single oldest-first
+      // query silently dropped the newest Pay-at-Desk collections from the commission totals.
+      const apptsData: any[] = []
+      let apptsErr: { message: string } | null = null
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase
+          .from('appointments')
+          .select(`
+            id, clinic_id, doctor_id, patient_name, patient_mobile, user_id, appointment_date, appointment_time, status, checkin_status, payment_mode, payment_status, fee_amount, service_charge_amount, total_amount, created_at,
+            clinic:clinics(name),
+            doctor:doctors(full_name, specialty, consultation_fee)
+          `)
+          .order('appointment_date', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + 999)
+        if (error) {
+          apptsErr = error
+          break
+        }
+        apptsData.push(...(data || []))
+        if (!data || data.length < 1000) break
+      }
 
       const mappedAppts = ((apptsData as any[]) || []).map((a: any) => ({
         ...a,

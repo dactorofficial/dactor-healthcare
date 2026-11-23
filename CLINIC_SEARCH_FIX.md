@@ -1,3 +1,12 @@
+# Changes from 2026-11-23 Session
+
+This file covers two fixes:
+
+1. [Clinic search in the Patient Portal](#clinic-search-fix-patient-portal-website--android-app)
+2. [Pay at Desk collections not reaching Super Admin](#pay-at-desk-collections-not-reaching-super-admin)
+
+---
+
 # Clinic Search Fix: Patient Portal (Website + Android App)
 
 **Date:** 2026-11-23
@@ -93,3 +102,66 @@ cd patient-app && ./gradlew testDebugUnitTest --tests "com.dactor.patient.util.M
 2. **Homepage search (`web-app/src/pages/Home.tsx`) doesn't sort by score.** It now gets cleaner results from the fixed search logic, but the order is still not "best match first". Add a sort by `match.score`, the same as `FindClinics.tsx`.
 3. **The doctor list in the web Patient Portal isn't sorted by score.** It uses its own simple matching and keeps the original order.
 4. **Clinic names in Nepali script** don't get the "Matched Clinic Name" boost, because name matching uses English letters and numbers only. This is no worse than before.
+
+---
+
+# Pay at Desk Collections Not Reaching Super Admin
+
+## The problem
+
+When a clinic collected a Pay-at-Desk payment, the money (and Dactor's 5% commission) did not show up correctly on the Super Admin **Pay at Desk Settlements** and **Payment Logs** pages.
+
+## Root causes
+
+1. **"Push Bill / Settle Payment" bypassed the Pay-at-Desk logic** (clinic portal website and clinic Android app).
+   For a Pay-at-Desk patient, the bill total already includes the 5% (e.g. 500 + 25 = **525**). Saving the bill wrote 525 straight into the appointment's base fee. Two things could then go wrong:
+   - **The database rejected the direct write.** This happens when the clinic login doesn't match the database's clinic-staff identity checks. The write changes **0 rows with no error**, so the bill looks saved, but the appointment stays `unpaid`. Super Admin never counts it.
+   - **The write went through.** The 5% trigger then charged 5% again on 525: commission **26.25** instead of 25, and total **551.25** instead of 525.
+2. **The clinic app's "Collect at desk" button sent no clinic ID** to `mark_pay_at_desk_collected`. When the login wasn't matched as clinic staff, the database answered **"Access denied"**. The app then fell back to a direct write that could also silently do nothing, and still showed "✓ Collected". The website already sent the clinic ID.
+3. **Super Admin pages only loaded part of the data.** Supabase returns at most 1,000 rows per request. **Payment Logs** loaded appointments *oldest first*, so once there were more than 1,000 appointments, new desk collections were never loaded or added. **Pay at Desk Settlements** had the same 1,000-row ceiling.
+
+## Changes made
+
+| File | Change |
+|---|---|
+| `web-app/src/services/db.ts` (`saveOrUpdateInvoicePayment`) | For Pay-at-Desk appointments, no longer overwrites `fee_amount` with the 5%-inclusive total. When the bill is fully paid, it calls `mark_pay_at_desk_collected` with the clinic ID. Other appointments behave as before. |
+| `clinic-app/.../data/repository/BillingRepository.kt` (`saveInvoice`) | Same change for the clinic Android app's billing. |
+| `clinic-app/.../data/repository/AppointmentRepository.kt` (`markPaymentCollectedAtDesk`) | Accepts the clinic ID and sends it to `mark_pay_at_desk_collected`. |
+| `clinic-app/.../ui/queue/QueueBoardScreen.kt` | The "Collect at desk" button passes the current clinic ID. |
+| `admin-panel/src/pages/PaymentLogs.tsx` | Loads **all** appointments in pages of 1,000 instead of only the oldest 2,500 (which Supabase cut to 1,000). |
+| `admin-panel/src/pages/PayAtDeskSettlements.tsx` | Loads **all** Pay-at-Desk appointments in pages of 1,000. |
+
+No database migration is needed. The fix uses the existing `mark_pay_at_desk_collected` RPC, which marks the appointment paid, keeps the correct 5% commission, keeps the clinic's own bill items, and writes the `PAY_AT_DESK` ledger entry.
+
+## Verification
+
+- ✅ Ran the repo's **real** 5% trigger and `mark_pay_at_desk_collected` SQL in a Postgres engine (PGlite), with a clinic login the database doesn't recognize as staff:
+
+  | Path | Paid? | Commission | Counted by Super Admin |
+  |---|---|---|---|
+  | Old "Settle Payment", write goes through | paid | 26.25 ❌ | yes, wrong amount |
+  | Old "Settle Payment", write blocked | unpaid ❌ | 25 | **no** ❌ |
+  | Old clinic app "Collect" (no clinic ID) | "Access denied" ❌ | — | **no** ❌ |
+  | **New** | paid ✅ | 25 ✅ | **yes** ✅ |
+
+- ✅ Admin panel and web app type-check (`tsc --noEmit`) with no errors. The admin panel production build succeeds.
+- ⚠️ **Not tested:** the clinic Android app was not compiled (no Android SDK here), and nothing was tested against the live database.
+
+## Still needed
+
+1. **Deploy:** redeploy the website (clinic portal) and the admin panel, then build and release a new **Clinic App** version.
+2. **Old bookings are not repaired automatically.** Desk payments saved before this fix may still be `unpaid` or carry a double 5%. Check with this query in the Supabase SQL editor:
+
+   ```sql
+   -- Pay-at-Desk bookings with a fully paid bill but an unpaid appointment, or a double 5% charge
+   SELECT a.id, a.clinic_id, a.status, a.payment_status, a.fee_amount, a.service_charge_amount, a.total_amount,
+          b.total_amount AS bill_total, b.payment_status AS bill_status
+   FROM appointments a
+   JOIN billing_invoices b ON b.appointment_id = a.id
+   WHERE UPPER(a.payment_mode) = 'PAY_AT_DESK'
+     AND b.payment_status = 'paid'
+     AND (a.payment_status <> 'paid' OR a.total_amount > b.total_amount);
+   ```
+
+   Rows with an unpaid appointment can be fixed by running `SELECT mark_pay_at_desk_collected('<appointment id>', '<clinic id>');`. Rows with a double 5% also need `fee_amount` set back to the doctor's real fee first. Review these before changing anything.
+3. **Security follow-up (existing behavior, not changed):** `mark_pay_at_desk_collected` accepts any caller who supplies the matching clinic ID, even if their login isn't verified as clinic staff. That is why passing the clinic ID makes it work. It would be safer to fix the clinic-staff identity checks so they recognize every real clinic login, and then remove that shortcut from the RPC.

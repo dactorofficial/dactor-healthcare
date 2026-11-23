@@ -1959,14 +1959,14 @@ open class AppointmentRepository @Inject constructor(
         }
     }
 
-    suspend fun markPaymentCollectedAtDesk(appointmentId: String): Result<Boolean> = withContext(Dispatchers.IO) {
+    suspend fun markPaymentCollectedAtDesk(appointmentId: String, clinicId: String? = null): Result<Boolean> = withContext(Dispatchers.IO) {
         if (!isValidUuid(appointmentId)) return@withContext Result.failure(IllegalArgumentException("Invalid appointment ID"))
         try {
             var rpcSucceeded = false
             try {
                 val resp = supabaseClient.postgrest.rpc(
                     "mark_pay_at_desk_collected",
-                    ApproveRpcParams(appointmentId, null)
+                    ApproveRpcParams(appointmentId, clinicId?.takeIf { isValidUuid(it) })
                 )
                 val body = resp.data?.trim()
                 if (body.isNullOrBlank() || body.contains("\"success\":true") || body.contains("\"success\": true")) {
