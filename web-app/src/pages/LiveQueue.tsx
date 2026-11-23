@@ -44,7 +44,6 @@ import {
 import {
   getAppointmentByTrackingCode,
   getAppointmentByTrackingCodeOrContact,
-  getAppointmentsByClinic,
   getFastDoctorLiveQueue,
   getFastClinicLiveQueue,
   getClinicById,
@@ -78,6 +77,7 @@ import { printAppointmentBill, printPrescription } from '../utils/medicalDocPrin
 import { supabase } from '../lib/supabase'
 import { playChimeSound } from '../utils/audioChime'
 import { updatePageSEO } from '../utils/seo'
+import { getStaticOnce, saveStatic } from '../utils/staticEntityCache'
 import {
   buildReportFileName,
   downloadAndCacheReport,
@@ -239,13 +239,6 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         return
       }
 
-      // Ultra-fast authoritative live queue delta fetch (<50ms)
-      const delta = await fetchLiveQueueDelta(clean)
-      if (seq !== requestSeqRef.current) return
-      if (delta) {
-        setLiveDelta(delta)
-      }
-
       // Fast delta path for silent 10s polls when today's appointment is already hydrated:
       // Avoids heavy unbundled queries across the database unless on every 6th poll (60s)
       const isExistingToday = Boolean(
@@ -255,6 +248,17 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         appointment.appointmentDate?.trim().slice(0, 10) === new Date().toISOString().slice(0, 10) &&
         (requestSeqRef.current % 6 !== 0)
       )
+
+      // Live status (one indexed server call: token, patients ahead, now serving, doctor in clinic).
+      // On a full load the booking lookup starts at the same time instead of after it.
+      const [delta, apptLookup] = await Promise.all([
+        fetchLiveQueueDelta(clean),
+        isExistingToday ? Promise.resolve(null) : getAppointmentByTrackingCodeOrContact(clean),
+      ])
+      if (seq !== requestSeqRef.current) return
+      if (delta) {
+        setLiveDelta(delta)
+      }
 
       if (isExistingToday && delta) {
         if (delta.token_number > 0) {
@@ -302,9 +306,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         return
       }
 
-      // Full fetch path: query appointment record
-      const appt = await getAppointmentByTrackingCodeOrContact(clean)
-      if (seq !== requestSeqRef.current) return
+      // Full fetch path: appointment record (already requested in parallel above)
+      const appt = apptLookup
       if (appt && delta && delta.token_number > 0) {
         appt.queueNumber = delta.token_number
         const st = delta.queue_status || delta.checkin_status || delta.status
@@ -374,15 +377,18 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         return
       }
 
-      // Authenticated appointment discovered
-      const linked = (!silent || !linkedConsultations)
-        ? await getLinkedConsultations(clean)
-        : linkedConsultations
-      if (seq !== requestSeqRef.current) return
+      // Authenticated appointment discovered. Linked visits (history) load in the background so they
+      // do not hold up the tracker.
+      if (!silent || !linkedConsultations) {
+        getLinkedConsultations(clean)
+          .then((linked) => {
+            if (seq === requestSeqRef.current && linked) setLinkedConsultations(linked)
+          })
+          .catch(() => {})
+      }
 
-      const effectiveAppt = appt || linked?.targetAppointment || null
+      const effectiveAppt = appt
       setAppointment(effectiveAppt)
-      if (linked) setLinkedConsultations(linked)
       setPublicQueueStatus(null)
 
       if (effectiveAppt) {
@@ -392,32 +398,40 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         const nowStr = new Date().toISOString().slice(0, 10)
         const isToday = apptDate === nowStr
 
-        // Doctor's running average and current consultation start, for the on-device estimate
-        if (/^[0-9]{10}$/.test(effectiveCode)) {
-          const { data: timingRows } = await supabase.rpc('get_public_queue_status', { p_tracking_code: effectiveCode })
+        if (targetAppt.clinicId) {
+          // Clinic and doctor are fixed for an appointment: saved copy (fetched once), never re-queried
+          // per refresh. Doctor "in clinic" and the queue numbers come from the live status. The clinic
+          // is re-read only on the once-a-minute full refresh, for its break / open flags.
+          const sameClinic = clinic && clinic.id === targetAppt.clinicId ? clinic : null
+          const clinicPromise = silent
+            ? getClinicById(targetAppt.clinicId).then((c) => { saveStatic('clinic', c); return c })
+            : (sameClinic ? Promise.resolve(sameClinic) : getStaticOnce('clinic', targetAppt.clinicId, getClinicById))
+          const docPromise = !targetAppt.doctorId
+            ? Promise.resolve(doctor)
+            : (doctor && doctor.id === targetAppt.doctorId
+                ? Promise.resolve(doctor)
+                : getStaticOnce('doctor', targetAppt.doctorId, getDoctorById))
+          const shouldFetchReports = !silent || labReports.length === 0
+          // The clinic's day list is only a fallback for counting patients ahead when the live
+          // status is unavailable; the server already counts them.
+          const queuePromise = isToday && !delta
+            ? getFastClinicLiveQueue(targetAppt.clinicId, targetAppt.appointmentDate)
+            : Promise.resolve([])
+          // Doctor's running average and current consultation start, for the on-device estimate
+          const timingPromise = /^[0-9]{10}$/.test(effectiveCode)
+            ? supabase.rpc('get_public_queue_status', { p_tracking_code: effectiveCode }).then((r) => r.data)
+            : Promise.resolve(null)
+
+          const [clinicData, queueList, reportsData, docData, timingRows] = await Promise.all([
+            clinicPromise,
+            queuePromise,
+            shouldFetchReports ? getLabReportsByTrackingCode(effectiveCode) : Promise.resolve(labReports),
+            docPromise,
+            timingPromise,
+          ])
           if (seq !== requestSeqRef.current) return
           const timing = Array.isArray(timingRows) ? timingRows[0] : null
           setQueueTiming(timing ? { insideSince: timing.current_inside_since ?? null, avgSeconds: timing.avg_consultation_seconds ?? null } : null)
-        }
-
-        // Fetch clinic details - avoid re-fetching static clinic master data during silent 2s poll,
-        // but always fetch doctor to track dynamic cabin status changes (e.g. waiting -> inside).
-        if (targetAppt.clinicId) {
-          const shouldFetchClinic = (!silent && (!clinic || clinic.id !== targetAppt.clinicId)) || (requestSeqRef.current % 4 === 0)
-          const shouldFetchDoc = Boolean(targetAppt.doctorId)
-          const shouldFetchReports = !silent || labReports.length === 0
-
-          const [clinicData, queueList, reportsData, docData] = await Promise.all([
-            shouldFetchClinic ? getClinicById(targetAppt.clinicId) : Promise.resolve(clinic),
-            isToday
-              ? (silent
-                  ? getFastClinicLiveQueue(targetAppt.clinicId, targetAppt.appointmentDate)
-                  : getAppointmentsByClinic(targetAppt.clinicId, targetAppt.appointmentDate))
-              : Promise.resolve([]),
-            shouldFetchReports ? getLabReportsByTrackingCode(effectiveCode) : Promise.resolve(labReports),
-            shouldFetchDoc ? getDoctorById(targetAppt.doctorId!) : Promise.resolve(doctor),
-          ])
-          if (seq !== requestSeqRef.current) return
 
           if (clinicData && (!clinic || clinic.id !== clinicData.id)) setClinic(clinicData)
           if (queueList && queueList.length > 0) setClinicQueue(queueList as any)
@@ -436,7 +450,9 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           }
 
           let multiSlot = multiSlotResult
-          if (isToday || (apptDate && apptDate > nowStr)) {
+          // Today the live status already gives token and patients ahead; the multi-slot calculation
+          // (which downloads the clinic's day) is only needed for future dates.
+          if ((isToday && !delta) || (apptDate && apptDate > nowStr)) {
             if (!silent || !multiSlot) {
               const avgMins = clinicData?.avgConsultationTimeMinutes || clinic?.avgConsultationTimeMinutes || 10
               try {
