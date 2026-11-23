@@ -3,6 +3,14 @@
 **Status:** plan only. No code has been changed for this yet. Problems were found by reading the
 code (clinic app, patient app, Supabase migrations), not by running the apps.
 
+**Decisions (agreed):**
+- **No time limit.** A follow-up can be booked any time after the original visit.
+- **Free follow-ups:** **unlimited** only for **multi-visit clinics** (`clinics.type = 'multi_visit'`).
+  For all other clinics (`single_visit`, etc.) **one free follow-up per original visit**. Further
+  follow-ups on the same visit are charged the normal consultation fee.
+- **Doctor-specific.** A follow-up is always with the **same doctor** as the original visit. The doctor
+  can't be changed for a follow-up. A different doctor means a new (paid) appointment.
+
 **Target rules:**
 1. A **follow-up** is always a **new appointment** with its **own new code** and a link to the
    original visit. The original visit and its bill are never changed.
@@ -75,11 +83,28 @@ File: `supabase/migration_followup_reschedule_integrity.sql`
    - Input: `p_source_tracking_code` or `p_source_appointment_id`, `p_clinic_id`, `p_slot_id`,
      `p_doctor_id`, `p_date`, `p_time`, `p_is_free boolean`, `p_remarks`.
    - Checks: the original visit exists, is in **the same clinic**, is **completed** (one shared rule, see step 5),
-     and is not cancelled. Optional: within the clinic's follow-up window, and a free
-     follow-up only once per original visit.
+     and is not cancelled. **No date limit.**
+   - **Doctor:** the follow-up's `doctor_id` is always taken from the original visit. `p_doctor_id`
+     is ignored, or rejected with `FOLLOW_UP_DOCTOR_MISMATCH` if it's different. The slot must
+     belong to that doctor (or be a general slot of the clinic) for the chosen date. If the original
+     visit has no doctor (old/walk-in data), refuse with `FOLLOW_UP_NO_DOCTOR`, so it's booked as a
+     new appointment instead.
+   - **Free or charged:**
+     - `multi_visit` clinic → every follow-up is free (unlimited).
+     - any other clinic type → free if no earlier follow-up exists for this original visit
+       (`count(*) where follow_up_of_appointment_id = source and not cancelled = 0`).
+       Otherwise it's charged the doctor's normal consultation fee, still `visit_type='follow_up'`
+       and still linked to the original visit.
+     - The server decides this. The app's `p_is_free` is only a display hint, never trusted.
+   - Follow-ups of follow-ups: if the original code is itself a follow-up, link to the **first**
+     visit (`follow_up_of_appointment_id` = the first visit), so the free-follow-up count is per
+     first visit and a chain of codes can't be used to get more free follow-ups.
+   - Diagnostic labs: follow-ups don't apply (no doctor). The function refuses for lab clinics and
+     the lab screens hide the follow-up option.
    - Creates a **new row** with a **new code** from `generate_unique_tracking_code_10()`,
-     `visit_type='follow_up'`, the link to the original, the correct fee/payment fields
-     (free → fee 0, `payment_mode='FREE'`, `payment_status='paid'`), and `status='APPROVED'`.
+     `visit_type='follow_up'`, the link to the original, the original's doctor, the fee/payment
+     fields from the free-or-charged rule (free → fee 0, `payment_mode='FREE'`,
+     `payment_status='paid'`; charged → doctor's fee, `payment_status='pending'`), and `status='APPROVED'`.
    - Adds a queue entry if the date is today, and updates the slot's booked count.
    - **Never updates the original visit or its bill.**
    - Returns the new appointment.
@@ -101,10 +126,11 @@ File: `supabase/migration_followup_reschedule_integrity.sql`
 |---|---|
 | Code lookup (`AppointmentRepository.getAppointmentByTrackingCode`) | Use `decodeList`, limit to the current clinic, and pick the visit by the shared completed rule. Once codes are unique there will be just one. |
 | Code generation | Stop making codes locally with `TrackingCodeGenerator.generate()` for new bookings. Use the server's `generate_unique_tracking_code_10()` (or let the server functions assign the code). Remove idempotency guard 2's "return the existing appointment with this code". |
-| Walk-in follow-up (`WalkinBookingScreen`) | Call `create_follow_up_appointment` instead of `createWalkinAppointment`. Show clear errors: "code not found in this clinic", "visit not completed yet: use Reschedule", "free follow-up already used". |
+| Walk-in follow-up (`WalkinBookingScreen`) | Call `create_follow_up_appointment` instead of `createWalkinAppointment`. After the code lookup, **lock the doctor** to the original visit's doctor (doctor picker disabled, showing "Follow-up with Dr. X") and show only that doctor's slots. Show the fee from the rule: "Free follow-up", or for non-multi-visit clinics once the free one is used, "Free follow-up already used: Rs. <fee>". The fee/label on the button follows. Clear errors: "code not found in this clinic", "visit not completed yet: use Reschedule", "original visit has no doctor: book a new appointment". |
 | Patient Directory "Schedule" (follow-up mode) | Use `create_follow_up_appointment` with the patient's **latest completed visit** as the original. Remove the `"9841000000"` phone fallback (ask for a phone if it's missing). |
 | Patient Directory codes | Stop showing fake codes (`getDeterministicAppointmentId`) as appointment codes. Show the latest real visit code, or "No visit yet". |
-| Patient Detail "Schedule follow-up" | Use `create_follow_up_appointment` (fixes C4's "pending" payment). |
+| Patient Detail "Schedule follow-up" | Use `create_follow_up_appointment` (fixes C4's "pending" payment). Remove the `followUpDoctorId` picker. The doctor is fixed to the original visit's doctor. |
+| Patient Directory "Schedule" doctor picker | In follow-up mode, lock the doctor to the original visit's doctor. Free mode uses the same free-or-charged rule. |
 | Patient Detail "Reschedule past appointment" (`editingPastApptDate`) | Remove for completed visits. Show **"Book follow-up"**, which opens the follow-up dialog with this visit preselected. Keep Reschedule only for upcoming or not-yet-seen visits. |
 | `rescheduleAppointment` fallback | Remove the direct table update fallback (B2) and the queue-timestamp reset for completed entries (B4). If the server refuses with `VISIT_COMPLETED_USE_FOLLOW_UP`, show that message. |
 | Future Appointments / No-Show Manager reschedule | Keep (these are not-yet-seen visits). The server function now enforces the rule. |
@@ -115,7 +141,7 @@ File: `supabase/migration_followup_reschedule_integrity.sql`
 |---|---|
 | `bookFollowUpAppointment` | Replace the `existing.copy(...)` insert and the reschedule branch with one `create_follow_up_appointment` call. If the original visit isn't completed, show "Your visit hasn't happened yet. Use Reschedule" instead of moving it. **Never return an unsaved object.** On failure, return null and show the error (fixes A6). |
 | `getAppointmentByTrackingCode` | Keep handling duplicates until the Phase 1 cleanup has run. After that, one row per code. |
-| Booking form follow-up code check | Show the server's error messages (wrong clinic, not completed, already used). |
+| Booking form follow-up code check | After the code is entered, lock the doctor to the original visit's doctor and show only that doctor's slots. Show "Free" or the fee from the rule. Show the server's error messages (wrong clinic, not completed, no doctor on the original visit). |
 | Tracker / history | Show "Follow-up of #<original code>" using `follow_up_of_appointment_id`. Each visit has its own code. |
 
 ### Phase 4: Bills
@@ -131,7 +157,11 @@ File: `supabase/migration_followup_reschedule_integrity.sql`
 ### Phase 5: Testing
 1. **Follow-up by code, clinic walk-in:** complete a visit, then book a follow-up with its code. You get a
    **new code**, the original visit and its bill are unchanged, and the new visit shows
-   "Follow-up of #…". Repeat a second time: still works, and the "already used" rule applies if enabled.
+   "Follow-up of #…" with the **same doctor** (the doctor can't be changed).
+   - **Single-visit clinic:** the 1st follow-up is free; the 2nd follow-up on the same visit
+     (including using the 1st follow-up's code) is charged the doctor's fee.
+   - **Multi-visit clinic:** the 2nd, 3rd, … follow-ups are all free.
+   - A follow-up booked a long time after the visit (e.g. 1 year) is still allowed.
 2. **Follow-up by code, patient app:** same as 1. Check the row actually exists in the database (no fake success).
 3. **Code of an upcoming (not done) visit used for a follow-up:** you get the "use Reschedule" message, and nothing changes.
 4. **Code from another clinic:** you get "not found in this clinic".
@@ -155,7 +185,8 @@ File: `supabase/migration_followup_reschedule_integrity.sql`
 | 6 | Payment history → transactions; profile/user_id overwrite fixes (D1–D3) | Medium |
 | 7 | Testing | Medium |
 
-## Decisions needed
-1. **Follow-up window:** how many days after a visit is a follow-up allowed (e.g. 7 / 15 / 30), or no limit?
-2. **Free follow-ups:** one free follow-up per visit, or unlimited?
-3. **Follow-up with a different doctor** in the same clinic: allowed (and still free?) or same doctor only?
+## Open questions
+- If the original doctor **is no longer affiliated** with the clinic, the plan refuses the follow-up
+  (book a new appointment). Say if it should be allowed with another doctor in that case.
+- Clinics whose type is just `"multi"` (seen in a few places in the apps): treat them as multi-visit
+  (unlimited free), or fix their type to `multi_visit` in the migration?
