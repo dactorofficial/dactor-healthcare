@@ -9,6 +9,46 @@ disappeared from history.
 appointment or overwriting bill as 0"). It routed every follow-up through the in-place reschedule
 path, and it removed the database guard that stopped completed visits from being rescheduled.
 
+## Status at a glance
+
+| Item | Status |
+|---|---|
+| Code fix (patient app + web) | ✅ Done, on branch `claude/bold-cori-dii36x` (commit `d86e665`), **not merged to `main`** |
+| Static tests | ✅ 11/11 pass (`node tests/test_reschedule_in_place_and_bill_preservation.cjs`) |
+| Web type-check | ✅ `tsc --noEmit` passes |
+| Patient app build | ⚠️ Not compiled here (no Android SDK in this environment) |
+| Backend database guard | ❌ Written (`supabase/migration_block_completed_reschedule.sql`), **not applied** |
+| Repair of already-overwritten visits | ❌ Not done (query in section 2.4) |
+
+## How the bug was found
+
+Investigated on `main` at commit `c41c522`:
+
+1. **Clinic app follow-ups were fine.** Patient Directory, Patient Detail and Walk-in all insert a new
+   appointment with a new UUID through `createWalkinAppointment`.
+2. **Patient app "Book Follow-Up" was the main cause.** On a completed visit, the button
+   (`PatientMainScreen.kt`) uses the same `onConfirmReschedule` handler as "Reschedule". It opened
+   `BookingScreen` in reschedule mode with the **old appointment's ID**, and `BookingScreen` then called
+   `rescheduleAppointment` on that old row.
+3. **`git show 88ba173`** showed that this commit deleted the `isCompleted → bookFollowUpAppointment`
+   branch in `BookingScreen.kt`. It also deleted the line in the database function that returned
+   `'Completed appointments cannot be rescheduled'`.
+4. **The database function `reschedule_patient_appointment`** then rewrote the completed row: new
+   date, slot and doctor, `checkin_status = 'not_checked_in'`, `consultation_completed_at = NULL`,
+   and its queue entries deleted.
+5. **Other paths overwrote too:**
+   - On the web patient portal, the free follow-up shifted the old appointment in place and then
+     recorded a Rs. 0 transaction on it.
+   - The web clinic booking page did the same for any visit not marked completed.
+   - The web tracker popup's "Reschedule Visit" button also appeared on completed visits.
+6. **The patient app's follow-up-by-code function copied the old tracking code.** That column is
+   `UNIQUE`, so the insert failed and the function returned the unsaved object as if it had succeeded.
+7. **An existing test enforced the bug.** `tests/test_reschedule_in_place_and_bill_preservation.cjs`
+   required that completed visits could be rescheduled.
+
+**Decision taken (owner):** if the old visit is not completed yet and the patient chooses
+follow-up, create a **new follow-up anyway**. Do not block it or redirect to Reschedule.
+
 ## The rule now
 
 | Previous visit is... | "Follow-up" does | "Reschedule" does |
@@ -133,3 +173,18 @@ or by hand. If the patient really wanted the new date, insert that as a separate
   the patient re-enters their code.
 - A follow-up has a **new** tracking code. Patients track it with the new code shown on the
   confirmation screen; the patient app also saves it to their saved codes automatically.
+
+---
+
+## 4. To-do checklist (in order)
+
+1. [ ] Review the branch `claude/bold-cori-dii36x` and merge it into `main` (open a pull request).
+2. [ ] **Backend:** run `supabase/migration_block_completed_reschedule.sql` on production Supabase (section 2.1).
+3. [ ] **Backend:** check for and guard/drop the legacy `reschedule_patient_appointment` signature (section 2.2).
+4. [ ] **Backend:** confirm a patient can insert a Rs. 0 follow-up row (RLS / trigger, section 2.3).
+5. [ ] Build the Patient App (`patient-app/gradlew assembleDebug`), bump its version, and test:
+   - Complete a visit, then use Book Follow-Up. The old visit stays completed, and a new appointment appears with a new code.
+   - Book a follow-up by code on an active visit. The old visit stays unchanged, and a new appointment is created.
+   - Reschedule an active visit. It moves in place, as before.
+6. [ ] Build and deploy the web app (`npm run build` in `web-app/`, then the usual deploy script).
+7. [ ] **Backend:** run the repair query (section 2.4) and restore any completed visits overwritten since 2026-11-21.
