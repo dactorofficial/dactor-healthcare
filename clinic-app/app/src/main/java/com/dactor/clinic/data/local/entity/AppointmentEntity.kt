@@ -134,6 +134,7 @@ data class AppointmentEntity(
             expiresAt = expiresAt,
             approvedAt = approvedAt,
             rejectedAt = rejectedAt,
+            updatedAt = if (updatedAt > 0) java.time.Instant.ofEpochMilli(updatedAt).toString() else null,
             createdAt = createdAt
         )
     }

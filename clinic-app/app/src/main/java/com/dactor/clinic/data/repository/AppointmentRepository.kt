@@ -1183,15 +1183,14 @@ open class AppointmentRepository @Inject constructor(
             if (!inMem.isNullOrEmpty()) {
                 return@withContext inMem
             }
-            if (date == null) {
-                try {
-                    val local = appointmentDao?.getAppointmentsForDoctorList(doctorId)?.map { it.toDomainModel() }
-                    if (!local.isNullOrEmpty()) {
-                        doctorAppointmentsCache[cacheKey] = local
-                        return@withContext local
-                    }
-                } catch (_: Exception) {}
-            }
+            try {
+                val local = appointmentDao?.getAppointmentsForDoctorList(doctorId)?.map { it.toDomainModel() }
+                val filtered = if (date != null) local?.filter { it.appointmentDate == date } else local
+                if (!filtered.isNullOrEmpty()) {
+                    doctorAppointmentsCache[cacheKey] = filtered
+                    return@withContext filtered
+                }
+            } catch (_: Exception) {}
         }
         try {
             val appts = if (date != null) {
@@ -1983,6 +1982,15 @@ open class AppointmentRepository @Inject constructor(
                 }) {
                     filter { eq("id", appointmentId) }
                 }
+                try {
+                    supabaseClient.postgrest["billing_invoices"].update({
+                        set("payment_status", "paid")
+                        set("paid_at", nowIso)
+                        set("updated_at", nowIso)
+                    }) {
+                        filter { eq("appointment_id", appointmentId) }
+                    }
+                } catch (_: Exception) {}
             }
             try {
                 appointmentDao?.getAppointmentById(appointmentId)?.let { local ->

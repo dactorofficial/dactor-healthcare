@@ -3219,7 +3219,7 @@ private fun PatientHomeClinicCard(
             } else 2.3
             String.format(java.util.Locale.US, "%.1f km", distKm)
         }
-    val queueCount = item.availableSlots.sumOf { it.bookedCount }
+    val queueCount = item.availableSlots.sumOf { it.waitingCount }
     val estWaitMin = queueCount * 10
     val queueText = if (queueCount == 0) "No wait \u2022 Direct Entry" else "👥 $queueCount in queue (~${estWaitMin}m wait)"
     val queueBg = when {
@@ -4926,7 +4926,12 @@ fun RecordsTab(
                                             ) {
                                                 Icon(Icons.Default.CalendarMonth, contentDescription = null, modifier = Modifier.size(16.dp))
                                                 Spacer(Modifier.width(6.dp))
-                                                Text("Reschedule Missed Slot", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                                Text(
+                                                    text = if (appt.checkinStatus.lowercase() == "cancelled" || appt.status.equals("CANCELLED", ignoreCase = true)) "Reschedule Cancelled Slot" else "Reschedule Missed Slot",
+                                                    fontSize = 11.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1
+                                                )
                                             }
                                         } else {
                                             OutlinedButton(
@@ -5109,9 +5114,17 @@ fun RecordsTab(
                         )
                         OutlinedTextField(
                             value = linkCodeInput,
-                            onValueChange = { if (it.length <= 10 && it.all { c -> c.isDigit() }) linkCodeInput = it },
-                            label = { Text("10-Digit Appointment Code") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            onValueChange = { input ->
+                                val cleanChars = input.filter { it.isLetterOrDigit() }.uppercase()
+                                if (cleanChars.length <= 10) {
+                                    linkCodeInput = cleanChars
+                                } else if (input.length <= 36) {
+                                    linkCodeInput = input.trim()
+                                }
+                            },
+                            label = { Text("10-Digit Code or ID") },
+                            placeholder = { Text("e.g. 9841203841 or 982DCE95B6") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -5226,22 +5239,38 @@ fun RecordsTab(
                         coroutineScope.launch {
                             try {
                                 if (addMode == "code") {
-                                    val code = linkCodeInput.trim()
-                                    val found = appointmentRepository.getAppointmentByTrackingCode(code)
-                                        ?: appointmentRepository.getAppointmentById(code)
+                                    val rawCode = linkCodeInput.trim()
+                                    val clean10 = rawCode.filter { it.isLetterOrDigit() }.uppercase().take(10)
+                                    val found = appointmentRepository.getAppointmentByTrackingCodeOrContact(rawCode)
+                                        ?: (if (clean10.length == 10) appointmentRepository.getAppointmentByTrackingCode(clean10) else null)
+                                        ?: appointmentRepository.getAppointmentById(rawCode)
                                     if (found != null) {
-                                        sessionManager?.unhideRecord(found.trackingCode10Digit)
-                                        sessionManager?.unhideRecord(found.id)
-                                        sessionManager?.saveTrackingCode(found.trackingCode10Digit, "${found.patientName} \u2022 ${found.appointmentDate}", explicitUnhide = true)
-                                        val pid = sessionManager?.getSavedPatientId()
-                                        if (!pid.isNullOrBlank()) {
-                                            appointmentRepository.claimAppointment(found.id, pid)
+                                        val finalCode = if (found.trackingCode10Digit.isNotBlank()) found.trackingCode10Digit else clean10
+                                        if (finalCode.isNotBlank()) {
+                                            sessionManager?.unhideRecord(finalCode)
+                                            sessionManager?.saveTrackingCode(
+                                                finalCode,
+                                                "${found.patientName} \u2022 ${found.appointmentDate}",
+                                                explicitUnhide = true
+                                            )
                                         }
-                                        Toast.makeText(context, "Linked #${found.trackingCode10Digit} to Directory!", Toast.LENGTH_SHORT).show()
+                                        sessionManager?.unhideRecord(found.id)
+                                        val pid = sessionManager?.getSavedPatientId()
+                                        val pEmail = sessionManager?.getSavedEmail()
+                                        if (!pid.isNullOrBlank() || !pEmail.isNullOrBlank()) {
+                                            appointmentRepository.claimAppointment(
+                                                appointmentId = found.id,
+                                                userId = pid,
+                                                patientEmail = pEmail,
+                                                trackingCode = finalCode
+                                            )
+                                        }
+                                        Toast.makeText(context, "Linked #${finalCode.ifBlank { found.id }} to Directory!", Toast.LENGTH_SHORT).show()
                                         showAddPatientRecordDialog = false
+                                        linkCodeInput = ""
                                         loadDirectoryRecords()
                                     } else {
-                                        Toast.makeText(context, "No appointment found for code or ID $code", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "No appointment found for code or ID $rawCode", Toast.LENGTH_SHORT).show()
                                     }
                                 } else {
                                     if (newPatientName.isBlank()) {
@@ -5934,20 +5963,38 @@ fun AppointmentsTab(
                             Button(
                                 onClick = {
                                     val input = trackingInput.trim()
+                                    val clean10 = input.filter { it.isLetterOrDigit() }.uppercase().take(10)
                                     if (input.isNotBlank() && appointmentRepository != null) {
                                         coroutineScope.launch {
                                             isAddingCode = true
-                                            val appt = appointmentRepository.getAppointmentByTrackingCode(input)
+                                            val appt = appointmentRepository.getAppointmentByTrackingCodeOrContact(input)
+                                                ?: (if (clean10.length == 10) appointmentRepository.getAppointmentByTrackingCode(clean10) else null)
                                                 ?: appointmentRepository.getAppointmentById(input)
                                             if (appt != null) {
-                                                sessionManager?.unhideRecord(appt.trackingCode10Digit)
+                                                val targetCode = if (appt.trackingCode10Digit.isNotBlank()) appt.trackingCode10Digit else clean10
+                                                if (targetCode.isNotBlank()) {
+                                                    sessionManager?.unhideRecord(targetCode)
+                                                    sessionManager?.saveTrackingCode(
+                                                        targetCode,
+                                                        "${appt.patientName} \u2022 ${appt.appointmentDate}",
+                                                        explicitUnhide = true
+                                                    )
+                                                }
                                                 sessionManager?.unhideRecord(appt.id)
-                                                sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} \u2022 ${appt.appointmentDate}", explicitUnhide = true)
-                                                addCodeMessage = "✓ Code #${appt.trackingCode10Digit} verified!"
-                                                val targetCode = appt.trackingCode10Digit
+                                                val pid = sessionManager?.getSavedPatientId()
+                                                val pEmail = sessionManager?.getSavedEmail()
+                                                if (!pid.isNullOrBlank() || !pEmail.isNullOrBlank()) {
+                                                    appointmentRepository.claimAppointment(
+                                                        appointmentId = appt.id,
+                                                        userId = pid,
+                                                        patientEmail = pEmail,
+                                                        trackingCode = targetCode
+                                                    )
+                                                }
+                                                addCodeMessage = "✓ Code #${targetCode.ifBlank { appt.id }} verified!"
                                                 trackingInput = ""
                                                 loadActiveAppointments()
-                                                navController.navigate(NavRoutes.QueueStatus.createRoute(targetCode))
+                                                navController.navigate(NavRoutes.QueueStatus.createRoute(targetCode.ifBlank { appt.id }))
                                             } else {
                                                 addCodeMessage = "No booking found for $input."
                                             }
@@ -10146,20 +10193,35 @@ fun ProfileTab(
                 Button(
                     onClick = {
                         val input = claimCodeInput.trim()
+                        val clean10 = input.filter { it.isLetterOrDigit() }.uppercase().take(10)
                         if (input.isNotEmpty()) {
                             coroutineScope.launch {
-                                val appt = appointmentRepository?.getAppointmentByTrackingCode(input)
+                                val appt = appointmentRepository?.getAppointmentByTrackingCodeOrContact(input)
+                                    ?: (if (clean10.length == 10) appointmentRepository?.getAppointmentByTrackingCode(clean10) else null)
                                     ?: appointmentRepository?.getAppointmentById(input)
                                 if (appt != null) {
-                                    sessionManager?.unhideRecord(appt.trackingCode10Digit)
+                                    val finalCode = if (appt.trackingCode10Digit.isNotBlank()) appt.trackingCode10Digit else clean10
+                                    if (finalCode.isNotBlank()) {
+                                        sessionManager?.unhideRecord(finalCode)
+                                        sessionManager?.saveTrackingCode(
+                                            finalCode,
+                                            "${appt.patientName} \u2022 ${appt.appointmentDate}",
+                                            explicitUnhide = true
+                                        )
+                                    }
                                     sessionManager?.unhideRecord(appt.id)
                                     sessionManager?.unhideRecord(input)
-                                    sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} \u2022 ${appt.appointmentDate}", explicitUnhide = true)
                                     val pid = sessionManager?.getSavedPatientId()
-                                    if (!pid.isNullOrBlank()) {
-                                        appointmentRepository?.claimAppointment(appt.id, pid)
+                                    val pEmail = sessionManager?.getSavedEmail()
+                                    if (!pid.isNullOrBlank() || !pEmail.isNullOrBlank()) {
+                                        appointmentRepository?.claimAppointment(
+                                            appointmentId = appt.id,
+                                            userId = pid,
+                                            patientEmail = pEmail,
+                                            trackingCode = finalCode
+                                        )
                                     }
-                                    claimMessage = "✓ Record #${appt.trackingCode10Digit} linked & restored successfully!"
+                                    claimMessage = "✓ Record #${finalCode.ifBlank { appt.id }} linked & restored successfully!"
                                     loadProfileBillsAndHistory()
                                     delay(600)
                                     showClaimDialog = false

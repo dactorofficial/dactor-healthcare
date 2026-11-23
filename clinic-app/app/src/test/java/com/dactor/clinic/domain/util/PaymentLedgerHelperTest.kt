@@ -320,4 +320,89 @@ class PaymentLedgerHelperTest {
         // Revenue should include the 1300.0 from appt2, not be wiped to 0!
         assertEquals(1300.0, docStat.totalOpdRevenue, 0.001)
     }
+
+    @Test
+    fun testBuildUnifiedPaymentLogs_updatedBillOnThatDayReflectsIncomingForThatDay() {
+        val doctor = Doctor(
+            id = "doc-1",
+            fullName = "Dr. Test Doctor",
+            email = "doc@example.com",
+            consultationFee = 500.0
+        )
+        // Appointment was scheduled for 2026-11-20 with pending payment
+        val appt = Appointment(
+            id = "appt-100",
+            clinicId = "clinic-1",
+            doctorId = "doc-1",
+            patientName = "Sita Sharma",
+            patientMobile = "9841234567",
+            appointmentDate = "2026-11-20",
+            appointmentTime = "10:00 AM",
+            paymentMode = "PAY_AT_DESK",
+            paymentStatus = "paid",
+            approvedAt = "2026-11-23T11:30:00Z",
+            feeAmount = 500.0,
+            serviceChargeAmount = 25.0,
+            totalAmount = 525.0
+        )
+        // Invoice updated as paid on 2026-11-23
+        val inv = BillingInvoice(
+            id = "inv-100",
+            appointmentId = "appt-100",
+            clinicId = "clinic-1",
+            totalAmount = 525.0,
+            paidAmount = 525.0,
+            paymentStatus = "paid",
+            paidAt = "2026-11-23T11:30:00Z",
+            createdAt = "2026-11-20T09:00:00Z"
+        )
+
+        val logs = PaymentLedgerHelper.buildUnifiedPaymentLogs(
+            appointments = listOf(appt),
+            invoices = listOf(inv),
+            doctors = listOf(doctor),
+            transactions = emptyList()
+        )
+
+        assertEquals(1, logs.size)
+        val log = logs[0]
+        // Must reflect 2026-11-23 as the incoming payment date, NOT 2026-11-20
+        assertTrue("Log date must reflect the day payment was updated", log.dateTime.startsWith("2026-11-23"))
+        assertEquals(525.0, log.amount, 0.001)
+    }
+
+    @Test
+    fun testBuildUnifiedPaymentLogs_pendingAppointmentExcludedFromPaidIncoming() {
+        val doctor = Doctor(
+            id = "doc-1",
+            fullName = "Dr. Test Doctor",
+            email = "doc@example.com",
+            consultationFee = 500.0
+        )
+        // Appointment is scheduled but pending payment
+        val apptPending = Appointment(
+            id = "appt-pending",
+            clinicId = "clinic-1",
+            doctorId = "doc-1",
+            patientName = "Hari Kumar",
+            patientMobile = "9841000000",
+            appointmentDate = "2026-11-23",
+            appointmentTime = "10:00 AM",
+            paymentMode = "PAY_AT_DESK",
+            paymentStatus = "pending",
+            feeAmount = 500.0,
+            serviceChargeAmount = 25.0,
+            totalAmount = 525.0
+        )
+
+        val logs = PaymentLedgerHelper.buildUnifiedPaymentLogs(
+            appointments = listOf(apptPending),
+            invoices = emptyList(),
+            doctors = listOf(doctor),
+            transactions = emptyList()
+        )
+
+        // Pending appointment without payment must not be in incoming payment log
+        assertTrue("Pending appointment without payment must not produce paid log entry", logs.isEmpty())
+    }
 }

@@ -78,6 +78,38 @@ class DiagnosticLabPolicyTest {
     }
 
     @Test
+    fun uncollectedCancelledAppointment_canBeRescheduled() {
+        val appt = Appointment(
+            id = "appt-5-cancelled",
+            status = "CANCELLED",
+            checkinStatus = "cancelled"
+        )
+        val canReschedule = DiagnosticLabPolicy.canRescheduleDiagnosticLab(
+            appointment = appt,
+            queueStatus = "cancelled",
+            requireNoShow = true
+        )
+        assertTrue("Cancelled diagnostic appointment before sample collection must allow rescheduling since visit never completed", canReschedule)
+    }
+
+    @Test
+    fun sampleCollectedCancelledAppointment_cannotBeRescheduled() {
+        val appt = Appointment(
+            id = "appt-5-sample-done",
+            status = "CANCELLED",
+            checkinStatus = "cancelled"
+        )
+        val reports = listOf(LabReport(id = "r1", appointmentId = "appt-5-sample-done", stage = "sample_collected"))
+        val canReschedule = DiagnosticLabPolicy.canRescheduleDiagnosticLab(
+            appointment = appt,
+            queueStatus = "cancelled",
+            labReports = reports,
+            requireNoShow = true
+        )
+        assertFalse("Diagnostic appointment with sample collected cannot be rescheduled even if marked cancelled", canReschedule)
+    }
+
+    @Test
     fun liveTrackerNoShowEvaluation_excludesSampleCollectedAppointments() {
         val appt = Appointment(
             id = "appt-6",

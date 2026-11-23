@@ -61,6 +61,7 @@ import java.time.format.DateTimeFormatter
 fun PatientDirectoryScreen(
     navController: NavController,
     clinicId: String = "",
+    initialTab: Int = 1,
     authRepository: AuthRepository? = null,
     appointmentRepository: AppointmentRepository? = null,
     doctorRepository: DoctorRepository? = null,
@@ -84,13 +85,14 @@ fun PatientDirectoryScreen(
         effectiveSessionManager.getSavedName()?.takeIf { it.isNotBlank() } ?: "Solecito Ve"
     }
 
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: Live OPD Queue, 1: Patient Directory, 2: Datewise Visits
+    var selectedTab by remember { mutableIntStateOf(initialTab) } // 0: Live OPD Queue, 1: Patient Directory, 2: Datewise Visits
     var selectedVisitDate by remember { mutableStateOf(LocalDate.now()) }
     var datewiseSearchQuery by remember { mutableStateOf("") }
     var showDatePickerDialog by remember { mutableStateOf(false) }
     var localPatients by remember(effectiveClinicId) { mutableStateOf<List<com.dactor.clinic.data.local.entity.PatientEntity>>(emptyList()) }
     var remoteDatewiseAppts by remember(selectedVisitDate) { mutableStateOf<List<Appointment>>(emptyList()) }
     var isLoadingDatewise by remember { mutableStateOf(false) }
+    var isLoadingDirectory by remember { mutableStateOf(false) }
     val directoryPrefs = remember(context) {
         context.getSharedPreferences("clinic_patient_directory", android.content.Context.MODE_PRIVATE)
     }
@@ -102,12 +104,10 @@ fun PatientDirectoryScreen(
             appointmentRepository?.getCachedClinicAppointments(effectiveClinicId)
         } else null
         raw?.filter {
-            it.status.equals("APPROVED", ignoreCase = true) &&
             it.status != "WAITING_FOR_APPROVAL" &&
             it.status != "pending_payment" &&
             it.status != "UNAPPROVED" &&
-            it.status != "EXPIRED" &&
-            it.checkinStatus != "cancelled"
+            it.status != "EXPIRED"
         } ?: emptyList()
     }
     var appointments by remember(effectiveClinicId) { mutableStateOf<List<Appointment>>(cachedInitialAppts) }
@@ -150,6 +150,11 @@ fun PatientDirectoryScreen(
         )
     }
     var remarksMap by remember(effectiveClinicId) { mutableStateOf<Map<String, String>>(emptyMap()) }
+    val isMultiTypeClinic = remember(currentClinic) {
+        val type = currentClinic?.type?.lowercase() ?: ""
+        val specCount = currentClinic?.specialties?.size ?: 0
+        type.contains("multi") || type.contains("poly") || type.contains("hospital") || type.contains("center") || specCount > 1
+    }
 
     var actionMessage by remember { mutableStateOf<String?>(null) }
     var isOperating by remember { mutableStateOf(false) }
@@ -204,6 +209,48 @@ fun PatientDirectoryScreen(
     var isLoadingScheduleSlots by remember { mutableStateOf(false) }
     var scheduleRemarksInput by remember { mutableStateOf("") }
     var isScheduling by remember { mutableStateOf(false) }
+    var isFollowUpVisit by remember { mutableStateOf(true) }
+
+    fun normalizePhoneDigits(phone: String?): String {
+        return phone?.filter { it.isDigit() }?.takeLast(10) ?: ""
+    }
+
+    // Historical appointments for the patient currently in the dialog
+    val dialogPatientAppointments = remember(showScheduleDialogForPatient, appointments) {
+        val pat = showScheduleDialogForPatient ?: return@remember emptyList<Appointment>()
+        val cleanPatPhone = normalizePhoneDigits(pat.phone)
+        val patUserId = pat.userId?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        val patTracking = pat.trackingCode.trim().uppercase().takeIf { it.isNotBlank() }
+
+        appointments.filter { appt ->
+            val cleanApptPhone = normalizePhoneDigits(appt.patientMobile)
+            val apptUserId = appt.userId?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+            val apptTracking = appt.trackingCode10Digit.trim().uppercase().takeIf { it.isNotBlank() }
+
+            (cleanPatPhone.length >= 7 && cleanApptPhone == cleanPatPhone) ||
+            (patUserId != null && apptUserId == patUserId) ||
+            (patTracking != null && apptTracking == patTracking) ||
+            (pat.patientName.isNotBlank() && appt.patientName.equals(pat.patientName, ignoreCase = true) && cleanPatPhone.isNotBlank() && cleanApptPhone == cleanPatPhone)
+        }
+    }
+
+    // Check prior consultations with the selected doctor
+    val priorVisitsWithSelectedDoctor = remember(dialogPatientAppointments, scheduleDoctorId) {
+        if (scheduleDoctorId.isBlank()) emptyList()
+        else dialogPatientAppointments.filter { it.doctorId == scheduleDoctorId }
+    }
+
+    // When the dialog opens or selected doctor changes, intelligently determine default visit type
+    LaunchedEffect(showScheduleDialogForPatient, scheduleDoctorId) {
+        if (showScheduleDialogForPatient != null) {
+            if (isMultiTypeClinic && affiliatedDoctors.size > 1) {
+                val hasDoctorVisit = dialogPatientAppointments.any { it.doctorId == scheduleDoctorId }
+                isFollowUpVisit = hasDoctorVisit
+            } else {
+                isFollowUpVisit = true
+            }
+        }
+    }
 
     LaunchedEffect(scheduleDateInput, scheduleDoctorId, showScheduleDialogForPatient) {
         if (showScheduleDialogForPatient != null && slotRepository != null && effectiveClinicId.isNotBlank() && scheduleDateInput.isNotBlank()) {
@@ -265,7 +312,7 @@ fun PatientDirectoryScreen(
         return num.toString()
     }
 
-    suspend fun loadData() {
+    suspend fun loadData(forceRefresh: Boolean = false) {
         try {
             val savedRaw = directoryPrefs.getString("records_${effectiveClinicId.ifBlank { "default" }}", "") ?: ""
             val loaded = savedRaw.split("\n").mapNotNull { line ->
@@ -309,11 +356,10 @@ fun PatientDirectoryScreen(
 
         // Patient directory is strictly clinic-scoped: only patients with confirmed/approved clinic appointments or local desk registrations are included
         if (effectiveClinicId.isNotBlank() && patientRepository != null) {
-            if (localPatients.isEmpty()) {
-                localPatients = patientRepository.getLocalPatients(effectiveClinicId)
-            }
+            localPatients = patientRepository.getLocalPatients(effectiveClinicId)
             if (locallyAddedProfiles.isNotEmpty()) {
                 patientRepository.migrateLegacyProfiles(effectiveClinicId, locallyAddedProfiles)
+                localPatients = patientRepository.getLocalPatients(effectiveClinicId)
             }
         }
 
@@ -323,8 +369,10 @@ fun PatientDirectoryScreen(
                 val docIdToUse = savedDoctorId
 
                 val fetched = if (isDocMode && docIdToUse.isNotBlank()) {
-                    val docAll = appointmentRepository.getAppointmentsByDoctor(docIdToUse)
-                    docAll.filter { it.appointmentDate == today }
+                    if (forceRefresh) {
+                        appointmentRepository.invalidateDoctorAppointments(docIdToUse)
+                    }
+                    appointmentRepository.getAppointmentsByDoctor(docIdToUse)
                 } else {
                     val cId = if (effectiveClinicId.isNotBlank()) effectiveClinicId
                     else effectiveSessionManager.getSavedClinicId() ?: ""
@@ -332,12 +380,11 @@ fun PatientDirectoryScreen(
                         if (doctorRepository != null && affiliatedDoctors.isEmpty()) {
                             affiliatedDoctors = doctorRepository.getDoctorsByClinic(cId)
                         }
-                        // Daily Active Sync: today's bookings once, then only new or newly approved ones.
-                        // Cancellations/reschedules do not change who is in the directory.
-                        val since = newBookingsSince
+                        // Daily Active Sync with forceRefresh fallback
+                        val since = if (forceRefresh) null else newBookingsSince
                         val result = if (since == null || bookingsLoadedForDate != today) {
                             bookingsLoadedForDate = today
-                            appointmentRepository.getAppointmentsByDate(cId, today)
+                            appointmentRepository.getAppointmentsByClinic(cId, forceRefresh = forceRefresh)
                         } else {
                             val fresh = appointmentRepository.getNewOrApprovedAppointmentsForDate(cId, today, since)
                             (appointments.associateBy { it.id } + fresh.associateBy { it.id }).values.toList()
@@ -348,26 +395,24 @@ fun PatientDirectoryScreen(
                         result
                     } else emptyList()
                 }
-                // Strict Clinic Directory Guard: Only APPROVED appointments belong in the Clinic Directory & Live OPD Queue
+                // Strict Clinic Directory Guard: Retain active, completed, and cancelled appointments (excluding unapproved/pending payment/expired)
                 val approvedOnly = fetched.filter {
-                    it.status.equals("APPROVED", ignoreCase = true) &&
                     it.status != "WAITING_FOR_APPROVAL" &&
                     it.status != "pending_payment" &&
                     it.status != "UNAPPROVED" &&
-                    it.status != "EXPIRED" &&
-                    it.checkinStatus != "cancelled"
+                    it.status != "EXPIRED"
                 }
-                if (approvedOnly.isNotEmpty() || appointments.isEmpty()) {
+                if (approvedOnly.isNotEmpty() || appointments.isEmpty() || forceRefresh) {
                     appointments = approvedOnly
                 }
 
-                // Sync patients who have appointments on the day into the persistent local patient directory
+                // Sync patients from all approved clinic appointments into the persistent local patient directory
                 if (patientRepository != null && approvedOnly.isNotEmpty()) {
                     patientRepository.upsertFromAppointments(effectiveClinicId, approvedOnly)
                     localPatients = patientRepository.getLocalPatients(effectiveClinicId)
                 }
 
-                // Load remarks in batch ONLY for today's active appointments
+                // Load remarks in batch for active/approved appointments
                 if (billingRepository != null && approvedOnly.isNotEmpty()) {
                     val apptIds = approvedOnly.map { it.id }
                     val hasMissingRemarks = apptIds.any { it !in remarksMap }
@@ -380,14 +425,21 @@ fun PatientDirectoryScreen(
                 }
             } catch (e: Exception) {
                 android.util.Log.e("PatientDirectoryScreen", "Error loading appointments", e)
+            } finally {
+                isLoadingDirectory = false
             }
+        } else {
+            isLoadingDirectory = false
         }
     }
 
     LaunchedEffect(effectiveClinicId, savedDoctorId, userRole, clinicId) {
+        if (appointments.isEmpty() && localPatients.isEmpty()) {
+            isLoadingDirectory = true
+        }
         while (isActive) {
             try {
-                loadData()
+                loadData(forceRefresh = false)
             } catch (e: Exception) {
                 android.util.Log.e("PatientDirectoryScreen", "Loop error", e)
             }
@@ -404,14 +456,10 @@ fun PatientDirectoryScreen(
         ))
     }
 
-    val isMultiTypeClinic = remember(currentClinic) {
-        val type = currentClinic?.type?.lowercase() ?: ""
-        type.contains("multi") || type.contains("poly") || type.contains("hospital") || type.contains("center") || currentClinic?.specialties?.size ?: 0 > 1
-    }
-
-    // Queue / in-consultation appointments for Tab 0 (Only APPROVED appointments enter live queue)
-    val inConsultationAppts = remember(appointments) {
+    // Queue / in-consultation appointments for Tab 0 (Only today's APPROVED appointments enter live queue)
+    val inConsultationAppts = remember(appointments, today) {
         appointments.filter {
+            (it.appointmentDate.isBlank() || it.appointmentDate == today) &&
             it.checkinStatus != "completed" &&
             it.checkinStatus != "cancelled" &&
             it.status.equals("APPROVED", ignoreCase = true) &&
@@ -483,12 +531,10 @@ fun PatientDirectoryScreen(
 
         // 2. Add today's appointments if not already in local patients
         appointments.filter {
-            it.status.equals("APPROVED", ignoreCase = true) &&
             it.status != "WAITING_FOR_APPROVAL" &&
             it.status != "pending_payment" &&
             it.status != "UNAPPROVED" &&
-            it.status != "EXPIRED" &&
-            it.checkinStatus != "cancelled"
+            it.status != "EXPIRED"
         }.forEach { appt ->
             val keys = extractKeys(appt.id, appt.patientMobile, appt.patientEmail, appt.trackingCode10Digit, appt.userId)
             if (keys.none { it in seenKeys }) {
@@ -572,12 +618,10 @@ fun PatientDirectoryScreen(
             try {
                 val fetchedDate = appointmentRepository.getAppointmentsByDate(effectiveClinicId, selectedVisitDateStr)
                     .filter {
-                        it.status.equals("APPROVED", ignoreCase = true) &&
                         it.status != "WAITING_FOR_APPROVAL" &&
                         it.status != "pending_payment" &&
                         it.status != "UNAPPROVED" &&
-                        it.status != "EXPIRED" &&
-                        it.checkinStatus != "cancelled"
+                        it.status != "EXPIRED"
                     }
                 remoteDatewiseAppts = fetchedDate
                 if (billingRepository != null && fetchedDate.isNotEmpty()) {
@@ -594,12 +638,10 @@ fun PatientDirectoryScreen(
         if (selectedVisitDateStr == today) {
             appointments.filter {
                 it.appointmentDate == today &&
-                it.status.equals("APPROVED", ignoreCase = true) &&
                 it.status != "WAITING_FOR_APPROVAL" &&
                 it.status != "pending_payment" &&
                 it.status != "UNAPPROVED" &&
-                it.status != "EXPIRED" &&
-                it.checkinStatus != "cancelled"
+                it.status != "EXPIRED"
             }
         } else {
             remoteDatewiseAppts
@@ -789,7 +831,13 @@ fun PatientDirectoryScreen(
                             }
 
                             IconButton(
-                                onClick = { coroutineScope.launch { newBookingsSince = null; loadData() } },
+                                onClick = {
+                                    coroutineScope.launch {
+                                        newBookingsSince = null
+                                        isLoadingDirectory = true
+                                        loadData(forceRefresh = true)
+                                    }
+                                },
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color(0xFF475569))
@@ -1033,8 +1081,8 @@ fun PatientDirectoryScreen(
                                     }
                                 }
                             },
-                            singleLine = false,
-                            maxLines = 2,
+                            singleLine = true,
+                            maxLines = 1,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = Color.Transparent,
                                 unfocusedBorderColor = Color.Transparent,
@@ -1048,7 +1096,31 @@ fun PatientDirectoryScreen(
                 // ── Content Area: Tab 0 (Live Queue), Tab 1 (Directory), or Tab 2 (Datewise Visits) ──
                 if (selectedTab == 0) {
                     // TAB 0: LIVE OPD QUEUE
-                    if (filteredLiveQueue.isEmpty()) {
+                    if (isLoadingDirectory && filteredLiveQueue.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .padding(vertical = 40.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    color = Color(0xFF0097A7),
+                                    modifier = Modifier.size(36.dp),
+                                    strokeWidth = 3.dp
+                                )
+                                Text(
+                                    "Loading live queue...",
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF64748B)
+                                )
+                            }
+                        }
+                    } else if (filteredLiveQueue.isEmpty()) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1113,17 +1185,24 @@ fun PatientDirectoryScreen(
                                     },
                                     onCallPatient = { phone ->
                                         try {
-                                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
-                                            context.startActivity(intent)
+                                             val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
+                                             context.startActivity(intent)
                                         } catch (ignored: Exception) {}
                                     },
                                     onScheduleNextVisit = {
                                         if (!isLabClinic) {
                                             showScheduleDialogForPatient = detailItem
-                                            scheduleDoctorId = appt.doctorId ?: affiliatedDoctors.firstOrNull()?.id ?: ""
+                                            val priorDocId = appt.doctorId?.takeIf { it.isNotBlank() }
+                                                ?: localPatients.find {
+                                                    val cleanLocal = normalizePhoneDigits(it.phone)
+                                                    cleanLocal.isNotBlank() && cleanLocal == normalizePhoneDigits(detailItem.phone)
+                                                }?.lastDoctorId
+                                                ?: affiliatedDoctors.firstOrNull()?.id ?: ""
+                                            scheduleDoctorId = priorDocId
                                             scheduleDateInput = LocalDate.now().toString()
                                             selectedScheduleSlotId = null
                                             scheduleRemarksInput = ""
+                                            isFollowUpVisit = true
                                         }
                                     },
                                     onOpenBilling = {
@@ -1135,7 +1214,31 @@ fun PatientDirectoryScreen(
                     }
                 } else if (selectedTab == 1) {
                     // TAB 1: ALL PATIENTS DIRECTORY
-                    if (filteredProfiles.isEmpty()) {
+                    if (isLoadingDirectory && filteredProfiles.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .padding(vertical = 40.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    color = Color(0xFF0097A7),
+                                    modifier = Modifier.size(36.dp),
+                                    strokeWidth = 3.dp
+                                )
+                                Text(
+                                    "Loading patient directory...",
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF64748B)
+                                )
+                            }
+                        }
+                    } else if (filteredProfiles.isEmpty()) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1245,10 +1348,14 @@ fun PatientDirectoryScreen(
                                     onScheduleNextVisit = {
                                         if (!isLabClinic) {
                                             showScheduleDialogForPatient = detailItem
-                                            scheduleDoctorId = thisAppt?.doctorId ?: affiliatedDoctors.firstOrNull()?.id ?: ""
+                                            val priorDocId = thisAppt?.doctorId?.takeIf { it.isNotBlank() }
+                                                ?: patEntity?.lastDoctorId?.takeIf { it.isNotBlank() }
+                                                ?: affiliatedDoctors.firstOrNull()?.id ?: ""
+                                            scheduleDoctorId = priorDocId
                                             scheduleDateInput = LocalDate.now().toString()
                                             selectedScheduleSlotId = null
                                             scheduleRemarksInput = ""
+                                            isFollowUpVisit = true
                                         }
                                     },
                                     onOpenBilling = {
@@ -1834,7 +1941,17 @@ fun PatientDirectoryScreen(
                 onScheduleNewVisit = {
                     if (!isLabClinic) {
                         showScheduleDialogForPatient = patientItem
-                        scheduleDoctorId = affiliatedDoctors.firstOrNull()?.id ?: ""
+                        val priorDocId = patientFullHistoryAppts.firstOrNull { !it.doctorId.isNullOrBlank() }?.doctorId
+                            ?: localPatients.find {
+                                val cleanLocal = normalizePhoneDigits(it.phone)
+                                cleanLocal.isNotBlank() && cleanLocal == normalizePhoneDigits(patientItem.phone)
+                            }?.lastDoctorId
+                            ?: affiliatedDoctors.firstOrNull()?.id ?: ""
+                        scheduleDoctorId = priorDocId
+                        scheduleDateInput = LocalDate.now().toString()
+                        selectedScheduleSlotId = null
+                        scheduleRemarksInput = ""
+                        isFollowUpVisit = true
                     }
                 }
             )
@@ -2239,7 +2356,7 @@ fun PatientDirectoryScreen(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = Color(0xFF0097A7))
-                        Text("Book Appointment", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Color(0xFF0F172A))
+                        Text("Schedule Follow-Up / Next Visit", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Color(0xFF0F172A))
                     }
                 },
                 text = {
@@ -2511,17 +2628,44 @@ fun PatientDirectoryScreen(
                             shape = RoundedCornerShape(10.dp)
                         )
 
-                        // 6. Fee & Type Notice
-                        val isPriorPatient = appointments.any {
-                            (it.patientMobile.isNotBlank() && it.patientMobile == pItem.phone) ||
-                            (!it.userId.isNullOrBlank() && it.userId == pItem.userId)
-                        }
+                        // 6. Visit Type Selection & Fee Notice
                         val chosenDoctor = affiliatedDoctors.find { it.id == scheduleDoctorId } ?: affiliatedDoctors.firstOrNull()
-                        val calculatedFee = if (isPriorPatient) 0.0 else (chosenDoctor?.consultationFee ?: 500.0)
+                        val standardDoctorFee = chosenDoctor?.consultationFee ?: 500.0
+                        val calculatedFee = if (isFollowUpVisit) 0.0 else standardDoctorFee
 
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Visit Type *", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF334155))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilterChip(
+                                    selected = isFollowUpVisit,
+                                    onClick = { isFollowUpVisit = true },
+                                    label = { Text("Follow-Up Visit (Free Rs. 0)", fontSize = 11.5.sp, fontWeight = if (isFollowUpVisit) FontWeight.Bold else FontWeight.Normal) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFF16A34A),
+                                        selectedLabelColor = Color.White
+                                    ),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                FilterChip(
+                                    selected = !isFollowUpVisit,
+                                    onClick = { isFollowUpVisit = false },
+                                    label = { Text("New Consultation (Rs. ${standardDoctorFee.toInt()})", fontSize = 11.5.sp, fontWeight = if (!isFollowUpVisit) FontWeight.Bold else FontWeight.Normal) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFF0097A7),
+                                        selectedLabelColor = Color.White
+                                    ),
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+
+                        // Contextual status banner
                         Surface(
-                            color = if (isPriorPatient) Color(0xFFF0FDF4) else Color(0xFFF8FAFC),
-                            border = BorderStroke(1.dp, if (isPriorPatient) Color(0xFFBBF7D0) else Color(0xFFE2E8F0)),
+                            color = if (isFollowUpVisit) Color(0xFFF0FDF4) else Color(0xFFF8FAFC),
+                            border = BorderStroke(1.dp, if (isFollowUpVisit) Color(0xFFBBF7D0) else Color(0xFFE2E8F0)),
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -2531,16 +2675,27 @@ fun PatientDirectoryScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Icon(
-                                    if (isPriorPatient) Icons.Default.CheckCircle else Icons.Default.Receipt,
+                                    if (isFollowUpVisit) Icons.Default.CheckCircle else Icons.Default.Receipt,
                                     contentDescription = null,
-                                    tint = if (isPriorPatient) Color(0xFF16A34A) else Color(0xFF64748B),
+                                    tint = if (isFollowUpVisit) Color(0xFF16A34A) else Color(0xFF64748B),
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Text(
-                                    text = if (isPriorPatient) "✓ Returning patient: Follow-up visit free of charge (0 NPR)."
-                                           else "Standard consultation fee of Rs. ${calculatedFee.toInt()} will be recorded.",
+                                    text = if (isFollowUpVisit) {
+                                        if (isMultiTypeClinic && affiliatedDoctors.size > 1 && priorVisitsWithSelectedDoctor.isNotEmpty()) {
+                                            "✓ Prior consultation found with Dr. ${(chosenDoctor?.fullName ?: "").removePrefix("Dr. ").removePrefix("Dr.")} (${priorVisitsWithSelectedDoctor.size} previous visit(s)). Free follow-up applied."
+                                        } else {
+                                            "✓ Follow-up visit: Consult fee is 0 NPR (Free Visit)."
+                                        }
+                                    } else {
+                                        if (isMultiTypeClinic && affiliatedDoctors.size > 1 && priorVisitsWithSelectedDoctor.isEmpty()) {
+                                            "ℹ New doctor consultation in multi-doctor clinic. Standard consultation fee of Rs. ${standardDoctorFee.toInt()} will be recorded."
+                                        } else {
+                                            "Standard consultation fee of Rs. ${standardDoctorFee.toInt()} will be recorded."
+                                        }
+                                    },
                                     fontSize = 11.5.sp,
-                                    color = if (isPriorPatient) Color(0xFF166534) else Color(0xFF475569)
+                                    color = if (isFollowUpVisit) Color(0xFF166534) else Color(0xFF475569)
                                 )
                             }
                         }
@@ -2561,11 +2716,7 @@ fun PatientDirectoryScreen(
                                     if (appointmentRepository != null && effectiveClinicId.isNotBlank()) {
                                         val isToday = cleanDate == LocalDate.now().toString()
                                         val chosenDoctor = affiliatedDoctors.find { it.id == scheduleDoctorId } ?: affiliatedDoctors.firstOrNull()
-                                        val isPriorPatient = appointments.any {
-                                            (it.patientMobile.isNotBlank() && it.patientMobile == pItem.phone) ||
-                                            (!it.userId.isNullOrBlank() && it.userId == pItem.userId)
-                                        }
-                                        val calculatedFee = if (isPriorPatient) 0.0 else (chosenDoctor?.consultationFee ?: 500.0)
+                                        val calculatedFee = if (isFollowUpVisit) 0.0 else (chosenDoctor?.consultationFee ?: 500.0)
 
                                         val newAppt = Appointment(
                                             id = java.util.UUID.randomUUID().toString(),
@@ -2579,8 +2730,8 @@ fun PatientDirectoryScreen(
                                             patientGender = pItem.gender.ifBlank { "Male" },
                                             patientMobile = pItem.phone.ifBlank { "9841000000" },
                                             patientEmail = pItem.email,
-                                            paymentStatus = if (calculatedFee == 0.0) "paid" else "pending",
-                                            paymentMode = if (calculatedFee == 0.0) "FREE" else "PAY_AT_DESK",
+                                            paymentStatus = if (isFollowUpVisit) "paid" else "pending",
+                                            paymentMode = if (isFollowUpVisit) "FREE" else "PAY_AT_DESK",
                                             checkinStatus = if (isToday) "checked_in" else "waiting",
                                             status = "APPROVED",
                                             appointmentDate = cleanDate,
@@ -2591,10 +2742,19 @@ fun PatientDirectoryScreen(
                                         )
                                         val created = appointmentRepository.createWalkinAppointment(newAppt, allowOverbooking = true)
                                         if (created != null) {
-                                            if (scheduleRemarksInput.isNotBlank() && billingRepository != null) {
-                                                billingRepository.saveRemarkForAppointment(created.id, effectiveClinicId, scheduleRemarksInput.trim())
+                                            val followUpPrefix = if (isFollowUpVisit) {
+                                                if (pItem.trackingCode.isNotBlank()) "Follow-Up Consultation (Ref: #${pItem.trackingCode})"
+                                                else "Follow-Up Consultation"
+                                            } else ""
+                                            val finalRemark = listOf(followUpPrefix, scheduleRemarksInput.trim()).filter { it.isNotBlank() }.joinToString(" - ")
+                                            if (finalRemark.isNotBlank() && billingRepository != null) {
+                                                billingRepository.saveRemarkForAppointment(created.id, effectiveClinicId, finalRemark)
                                             }
-                                            actionMessage = "✓ Appointment scheduled for ${pItem.patientName} on $cleanDate ($cleanTime)!"
+                                            actionMessage = if (isFollowUpVisit) {
+                                                "✓ Follow-up scheduled for ${pItem.patientName} on $cleanDate ($cleanTime) [Free Visit]!"
+                                            } else {
+                                                "✓ Appointment scheduled for ${pItem.patientName} on $cleanDate ($cleanTime) [Rs. ${calculatedFee.toInt()}]!"
+                                            }
                                             loadData()
                                             showScheduleDialogForPatient = null
                                         } else {
@@ -3118,7 +3278,7 @@ private fun PatientRecordCardItem(
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Color(0xFF065F46),
-                            maxLines = 1,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
@@ -3173,7 +3333,7 @@ private fun PatientRecordCardItem(
                             )
                             Spacer(Modifier.width(5.dp))
                             Text(
-                                text = "Book Appointment",
+                                text = "Book Follow-Up",
                                 color = Color(0xFF0097A7),
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold
@@ -3366,7 +3526,7 @@ private fun PatientFullHistoryModalDialog(
                     ) {
                         Icon(Icons.Default.AddCircleOutline, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("+ Book Appointment / Slot", fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Color.White)
+                        Text("+ Schedule Follow-Up / Next Visit", fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Color.White)
                     }
                     Spacer(Modifier.height(10.dp))
                 }
@@ -3407,7 +3567,7 @@ private fun PatientFullHistoryModalDialog(
                             Icon(Icons.Default.FolderOpen, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(40.dp))
                             Text("No Past Consultations on File", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF0F172A))
                             if (!isLabClinic) {
-                                Text("Tap '+ Schedule Next Visit' to book a consultation slot.", fontSize = 12.sp, color = Color(0xFF64748B))
+                                Text("Tap '+ Schedule Follow-Up / Next Visit' to book a consultation slot.", fontSize = 12.sp, color = Color(0xFF64748B))
                             } else {
                                 Text("No diagnostic or laboratory records on file.", fontSize = 12.sp, color = Color(0xFF64748B))
                             }

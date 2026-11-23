@@ -54,6 +54,64 @@ data class NotificationInsertDto(
     @SerialName("is_read") val isRead: Boolean = false
 )
 
+@Serializable
+data class FastLiveQueueItemDto(
+    @SerialName("id") val id: String = "",
+    @SerialName("appointment_id") val appointmentId: String = "",
+    @SerialName("clinic_id") val clinicId: String = "",
+    @SerialName("doctor_id") val doctorId: String? = null,
+    @SerialName("doctor_name") val doctorName: String? = null,
+    @SerialName("queue_position") val queuePosition: Int = 0,
+    @SerialName("status") val status: String = "waiting",
+    @SerialName("called_at") val calledAt: String? = null,
+    @SerialName("inside_at") val insideAt: String? = null,
+    @SerialName("completed_at") val completedAt: String? = null,
+    @SerialName("consultation_duration_seconds") val consultationDurationSeconds: Long? = null,
+    @SerialName("patient_name") val patientName: String = "",
+    @SerialName("patient_age") val patientAge: Int = 0,
+    @SerialName("patient_gender") val patientGender: String = "",
+    @SerialName("patient_mobile") val patientMobile: String = "",
+    @SerialName("tracking_code") val trackingCode: String = "",
+    @SerialName("appointment_date") val appointmentDate: String = "",
+    @SerialName("appointment_time") val appointmentTime: String = "",
+    @SerialName("payment_mode") val paymentMode: String? = null,
+    @SerialName("payment_status") val paymentStatus: String? = null,
+    @SerialName("total_amount") val totalAmount: Double = 0.0,
+    @SerialName("user_id") val userId: String? = null,
+    @SerialName("is_walkin") val isWalkin: Boolean = false,
+    @SerialName("selected_lab_tests") val selectedLabTests: String? = null,
+    @SerialName("opt_in_early_call") val optInEarlyCall: Boolean = false,
+    @SerialName("created_at") val createdAt: String? = null
+) {
+    fun toQueueItemUi(): com.dactor.clinic.ui.queue.QueueItemUi = com.dactor.clinic.ui.queue.QueueItemUi(
+        id = id,
+        appointmentId = appointmentId,
+        patientName = if (patientName.isNotBlank()) patientName else "Patient #$queuePosition",
+        patientAge = patientAge,
+        patientGender = if (patientGender.isNotBlank()) patientGender else "Registered",
+        patientMobile = patientMobile,
+        trackingCode = if (trackingCode.isNotBlank()) trackingCode else appointmentId.take(8),
+        queuePosition = queuePosition,
+        status = status,
+        appointmentDate = appointmentDate,
+        appointmentTime = appointmentTime,
+        insideAt = insideAt,
+        calledAt = calledAt,
+        completedAt = completedAt,
+        consultationDurationSeconds = consultationDurationSeconds,
+        selectedLabTests = selectedLabTests,
+        optInEarlyCall = optInEarlyCall,
+        doctorId = doctorId,
+        doctorName = doctorName,
+        paymentMode = paymentMode,
+        paymentStatus = paymentStatus,
+        totalAmount = totalAmount,
+        userId = userId,
+        isWalkin = isWalkin,
+        createdAt = createdAt
+    )
+}
+
 data class LiveQueueTimingEstimate(
     val estimatedTimeLeftText: String,
     val expectedExactTimeText: String,
@@ -77,6 +135,7 @@ open class QueueRepository @Inject constructor(
     private val supabaseClient: SupabaseClient,
     private val clinicRepository: ClinicRepository,
     private val queueDao: com.dactor.clinic.data.local.dao.QueueDao? = null,
+    private val appointmentDao: com.dactor.clinic.data.local.dao.AppointmentDao? = null,
     private val devicePrefixManager: com.dactor.clinic.data.local.DevicePrefixManager? = null
 ) {
     private val clinicQueueCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<QueueEntry>>>()
@@ -88,6 +147,175 @@ open class QueueRepository @Inject constructor(
     private fun parseServerInstant(raw: String): Instant? =
         runCatching { java.time.OffsetDateTime.parse(raw.trim()).toInstant() }.getOrNull()
             ?: runCatching { Instant.parse(raw.trim()) }.getOrNull()
+
+    open suspend fun getFastDoctorLiveQueue(
+        doctorId: String,
+        clinicId: String,
+        date: String = java.time.LocalDate.now().toString()
+    ): List<FastLiveQueueItemDto> = withContext(Dispatchers.IO) {
+        if (clinicId.isBlank()) return@withContext emptyList()
+        try {
+            val isLab = isDiagnosticLab(clinicId)
+            val cleanDocId = if (isLab) null else doctorId.takeIf { com.dactor.clinic.domain.util.PatientIdentitySync.isValidUuid(it) }
+            val params = buildJsonObject {
+                if (cleanDocId != null) {
+                    put("p_doctor_id", cleanDocId)
+                }
+                put("p_clinic_id", clinicId)
+                put("p_date", date)
+            }
+            val response = supabaseClient.postgrest.rpc("get_doctor_live_queue", params)
+            val items = response.decodeList<FastLiveQueueItemDto>()
+            if (items.isNotEmpty()) {
+                val uiItems = items.map { it.toQueueItemUi() }
+                saveEnrichedQueueItems(uiItems, clinicId)
+            }
+            items
+        } catch (e: Exception) {
+            Log.w("QueueRepo", "getFastDoctorLiveQueue RPC failed: ${e.message}")
+            emptyList()
+        }
+    }
+
+    open suspend fun getFastClinicLiveQueue(
+        clinicId: String,
+        date: String = java.time.LocalDate.now().toString()
+    ): List<FastLiveQueueItemDto> = withContext(Dispatchers.IO) {
+        if (clinicId.isBlank()) return@withContext emptyList()
+        try {
+            val params = buildJsonObject {
+                put("p_clinic_id", clinicId)
+                put("p_date", date)
+            }
+            val response = supabaseClient.postgrest.rpc("get_clinic_live_queue", params)
+            val items = response.decodeList<FastLiveQueueItemDto>()
+            if (items.isNotEmpty()) {
+                val uiItems = items.map { it.toQueueItemUi() }
+                saveEnrichedQueueItems(uiItems, clinicId)
+            }
+            items
+        } catch (e: Exception) {
+            Log.w("QueueRepo", "getFastClinicLiveQueue RPC failed: ${e.message}")
+            emptyList()
+        }
+    }
+
+    suspend fun getLocalCachedQueueForDoctor(
+        doctorId: String,
+        clinicId: String,
+        date: String
+    ): List<com.dactor.clinic.ui.queue.QueueItemUi> = withContext(Dispatchers.IO) {
+        if (doctorId.isBlank() || clinicId.isBlank()) return@withContext emptyList()
+        try {
+            val local = queueDao?.getQueueForClinicAndDoctorAndDate(clinicId, doctorId, date)
+            if (!local.isNullOrEmpty()) {
+                return@withContext local.map { it.toQueueItemUi() }
+            }
+        } catch (_: Exception) {}
+        emptyList()
+    }
+
+    suspend fun getLocalCachedQueueForClinic(
+        clinicId: String,
+        date: String? = null
+    ): List<com.dactor.clinic.ui.queue.QueueItemUi> = withContext(Dispatchers.IO) {
+        if (clinicId.isBlank()) return@withContext emptyList()
+        try {
+            val local = if (!date.isNullOrBlank()) {
+                queueDao?.getQueueForClinicAndDateList(clinicId, date)
+            } else {
+                queueDao?.getQueueForClinicList(clinicId)
+            }
+            if (!local.isNullOrEmpty()) {
+                return@withContext local.map { it.toQueueItemUi() }
+            }
+        } catch (_: Exception) {}
+        emptyList()
+    }
+
+    suspend fun saveEnrichedQueueItems(
+        items: List<com.dactor.clinic.ui.queue.QueueItemUi>,
+        clinicId: String
+    ) = withContext(Dispatchers.IO) {
+        if (queueDao == null || items.isEmpty()) return@withContext
+        try {
+            val entities = items.map { item ->
+                com.dactor.clinic.data.local.entity.QueueEntryEntity(
+                    id = item.id,
+                    appointmentId = item.appointmentId,
+                    clinicId = clinicId,
+                    doctorId = item.doctorId,
+                    queuePosition = item.queuePosition,
+                    status = item.status,
+                    calledAt = item.calledAt,
+                    insideAt = item.insideAt,
+                    completedAt = item.completedAt,
+                    consultationDurationSeconds = item.consultationDurationSeconds,
+                    patientName = item.patientName,
+                    patientAge = item.patientAge,
+                    patientGender = item.patientGender,
+                    patientMobile = item.patientMobile,
+                    trackingCode = item.trackingCode,
+                    appointmentDate = item.appointmentDate,
+                    appointmentTime = item.appointmentTime,
+                    doctorName = item.doctorName,
+                    paymentMode = item.paymentMode,
+                    paymentStatus = item.paymentStatus,
+                    totalAmount = item.totalAmount,
+                    userId = item.userId,
+                    isWalkin = item.isWalkin,
+                    selectedLabTests = item.selectedLabTests,
+                    optInEarlyCall = item.optInEarlyCall,
+                    createdAt = item.createdAt,
+                    syncStatus = "synced"
+                )
+            }
+            queueDao.upsertAll(entities)
+        } catch (_: Exception) {}
+    }
+
+    private suspend fun mapToEnrichedEntities(entries: List<QueueEntry>): List<com.dactor.clinic.data.local.entity.QueueEntryEntity> {
+        if (queueDao == null) return emptyList()
+        return entries.map { entry ->
+            val existing = queueDao.getQueueEntryById(entry.id) ?: queueDao.getQueueEntryByAppointmentId(entry.appointmentId)
+            val appt = if (existing == null || existing.patientName.isBlank()) {
+                appointmentDao?.getAppointmentById(entry.appointmentId)?.toDomainModel()
+            } else null
+
+            if (existing != null) {
+                existing.copy(
+                    queuePosition = entry.queuePosition,
+                    status = entry.status,
+                    calledAt = entry.calledAt ?: existing.calledAt,
+                    insideAt = entry.insideAt ?: existing.insideAt,
+                    completedAt = entry.completedAt ?: existing.completedAt,
+                    consultationDurationSeconds = entry.consultationDurationSeconds ?: existing.consultationDurationSeconds,
+                    doctorId = entry.doctorId ?: existing.doctorId,
+                    syncStatus = "synced",
+                    patientName = if (existing.patientName.isNotBlank()) existing.patientName else appt?.patientName.orEmpty(),
+                    patientAge = if (existing.patientAge > 0) existing.patientAge else (appt?.patientAge ?: 0),
+                    patientGender = if (existing.patientGender.isNotBlank()) existing.patientGender else appt?.patientGender.orEmpty(),
+                    patientMobile = if (existing.patientMobile.isNotBlank()) existing.patientMobile else appt?.patientMobile.orEmpty(),
+                    trackingCode = if (existing.trackingCode.isNotBlank()) existing.trackingCode else (appt?.trackingCode10Digit ?: entry.appointmentId.take(8)),
+                    appointmentDate = if (existing.appointmentDate.isNotBlank()) existing.appointmentDate else appt?.appointmentDate.orEmpty(),
+                    appointmentTime = if (existing.appointmentTime.isNotBlank()) existing.appointmentTime else appt?.appointmentTime.orEmpty(),
+                    paymentMode = existing.paymentMode ?: appt?.paymentMode,
+                    paymentStatus = existing.paymentStatus ?: appt?.paymentStatus,
+                    totalAmount = if (existing.totalAmount > 0.0) existing.totalAmount else (appt?.let { if (it.totalAmount > 0.0) it.totalAmount else it.feeAmount } ?: 0.0),
+                    isWalkin = existing.isWalkin || (appt?.isWalkin ?: false),
+                    selectedLabTests = existing.selectedLabTests ?: appt?.selectedLabTests,
+                    optInEarlyCall = existing.optInEarlyCall || (appt?.optInEarlyCall ?: false),
+                    userId = existing.userId ?: appt?.userId
+                )
+            } else {
+                com.dactor.clinic.data.local.entity.QueueEntryEntity.fromDomainModel(
+                    model = entry,
+                    appointment = appt,
+                    syncStatus = "synced"
+                )
+            }
+        }
+    }
 
     fun getCachedQueueForClinic(clinicId: String): List<QueueEntry> {
         if (clinicId.isBlank()) return emptyList()
@@ -184,9 +412,7 @@ open class QueueRepository @Inject constructor(
             val sorted = entries.sortedBy { it.queuePosition }
             clinicQueueCache[clinicId] = Pair(System.currentTimeMillis(), sorted)
             try {
-                queueDao?.upsertAll(
-                    sorted.map { com.dactor.clinic.data.local.entity.QueueEntryEntity.fromDomainModel(it, syncStatus = "synced") }
-                )
+                queueDao?.upsertAll(mapToEnrichedEntities(sorted))
             } catch (_: Exception) {}
             sorted
         } catch (e: Exception) {
@@ -215,9 +441,7 @@ open class QueueRepository @Inject constructor(
             val sorted = entries.sortedBy { it.queuePosition }
             doctorQueueCache[cacheKey] = Pair(System.currentTimeMillis(), sorted)
             try {
-                queueDao?.upsertAll(
-                    sorted.map { com.dactor.clinic.data.local.entity.QueueEntryEntity.fromDomainModel(it, syncStatus = "synced") }
-                )
+                queueDao?.upsertAll(mapToEnrichedEntities(sorted))
             } catch (_: Exception) {}
             sorted
         } catch (e: Exception) {
@@ -470,9 +694,7 @@ open class QueueRepository @Inject constructor(
             )
             clinicQueueCache[clinicId] = Pair(System.currentTimeMillis(), sorted)
             try {
-                queueDao?.upsertAll(
-                    sorted.map { com.dactor.clinic.data.local.entity.QueueEntryEntity.fromDomainModel(it, syncStatus = "synced") }
-                )
+                queueDao?.upsertAll(mapToEnrichedEntities(sorted))
             } catch (_: Exception) {}
             sorted
         } catch (e: Exception) {
@@ -654,9 +876,7 @@ open class QueueRepository @Inject constructor(
             val sorted = currentEntries.sortedBy { it.queuePosition }
             doctorQueueCache[cacheKey] = Pair(System.currentTimeMillis(), sorted)
             try {
-                queueDao?.upsertAll(
-                    sorted.map { com.dactor.clinic.data.local.entity.QueueEntryEntity.fromDomainModel(it, syncStatus = "synced") }
-                )
+                queueDao?.upsertAll(mapToEnrichedEntities(sorted))
             } catch (_: Exception) {}
             sorted
         } catch (e: Exception) {
@@ -1489,6 +1709,12 @@ open class QueueRepository @Inject constructor(
                             eq("id", entry.id)
                         }
                     }
+                try {
+                    val existing = queueDao?.getQueueEntryById(entry.id) ?: queueDao?.getQueueEntryByAppointmentId(entry.appointmentId)
+                    if (existing != null) {
+                        queueDao?.upsert(existing.copy(queuePosition = index + 1, syncStatus = "synced"))
+                    }
+                } catch (_: Exception) {}
             }
             true
         } catch (e: Exception) {

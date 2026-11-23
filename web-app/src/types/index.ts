@@ -124,6 +124,7 @@ export interface Slot {
   endTime: string
   maxCapacity: number
   bookedCount: number
+  waitingCount?: number
   isAvailable?: boolean
   isBreak?: boolean
   isPublished?: boolean

@@ -103,6 +103,11 @@ async function generateSEOArtifacts() {
 
   console.log(`Fetched ${clinics.length} clinics, ${doctors.length} doctors, and ${services.length} services from Supabase.`)
 
+  if (clinics.length === 0) {
+    console.warn('[SEO] ⚠️ No clinics fetched from Supabase (possible missing auth key or network issue). Aborting SEO file overwrite to prevent wiping production artifacts.')
+    return
+  }
+
   // ==========================================
   // 1. GENERATE SITEMAP.XML
   // ==========================================

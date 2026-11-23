@@ -139,14 +139,17 @@ function createStoresAndIndexes(db: IDBDatabase, transaction: IDBTransaction | n
     { name: 'updated_at', keyPath: 'updated_at', unique: false },
   ]);
 
-  // 4. opd_queue (indexes: id, clinic_id, appointment_id, status, token_number)
+  // 4. opd_queue (indexes: id, clinic_id, appointment_id, status, token_number, doctor_id, appointment_date, patient_mobile)
   setupStore(db, transaction, 'opd_queue', 'id', [
     { name: 'id', keyPath: 'id', unique: false },
     { name: 'clinic_id', keyPath: 'clinic_id', unique: false },
+    { name: 'doctor_id', keyPath: 'doctor_id', unique: false },
     { name: 'appointment_id', keyPath: 'appointment_id', unique: false },
+    { name: 'appointment_date', keyPath: 'appointment_date', unique: false },
     { name: 'status', keyPath: 'status', unique: false },
     { name: 'token_number', keyPath: 'token_number', unique: false },
     { name: 'queue_position', keyPath: 'queue_position', unique: false },
+    { name: 'patient_mobile', keyPath: 'patient_mobile', unique: false },
     { name: 'updated_at', keyPath: 'updated_at', unique: false },
   ]);
 

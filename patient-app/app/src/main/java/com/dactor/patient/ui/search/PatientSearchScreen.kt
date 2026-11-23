@@ -2546,7 +2546,7 @@ private fun SearchClinicResultCard(
 ) {
     val clinic = item.clinic
     val primaryDoctor = matchResult.matchedDoctors.firstOrNull() ?: item.doctors.firstOrNull()
-    val queueCount = item.availableSlots.sumOf { it.bookedCount }
+    val queueCount = item.availableSlots.sumOf { it.waitingCount }
 
     Card(
         shape = RoundedCornerShape(18.dp),

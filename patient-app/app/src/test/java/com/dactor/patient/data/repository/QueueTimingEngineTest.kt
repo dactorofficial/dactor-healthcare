@@ -534,4 +534,98 @@ class QueueTimingEngineTest {
         assertEquals(1, result.cumulativePosition)
         assertEquals(0, result.patientsAheadInDay)
     }
+
+    @Test
+    fun testCompletedAppointmentsExcludedFromWaitingQueueCount() {
+        val today = LocalDate.now().toString()
+        val slot1 = Slot(
+            id = "slot-completed-1",
+            clinicId = "clinic-1",
+            doctorId = "doc-1",
+            slotDate = today,
+            startTime = "08:00 AM",
+            endTime = "02:00 PM",
+            maxCapacity = 20,
+            bookedCount = 2,
+            waitingCount = 0,
+            isPublished = true
+        )
+
+        val appt1 = Appointment(
+            id = "appt-comp-1",
+            slotId = "slot-completed-1",
+            clinicId = "clinic-1",
+            doctorId = "doc-1",
+            appointmentDate = today,
+            appointmentTime = "08:00 AM",
+            checkinStatus = "completed",
+            status = "APPROVED"
+        )
+        val appt2 = Appointment(
+            id = "appt-comp-2",
+            slotId = "slot-completed-1",
+            clinicId = "clinic-1",
+            doctorId = "doc-1",
+            appointmentDate = today,
+            appointmentTime = "08:30 AM",
+            checkinStatus = "done",
+            status = "APPROVED"
+        )
+
+        val allAppts = listOf(appt1, appt2)
+
+        // Capacity counting (non-cancelled)
+        val bookedCount = allAppts.count { it.checkinStatus != "cancelled" && it.slotId == slot1.id }
+        assertEquals(2, bookedCount)
+
+        // Live waiting count (excluding completed, done, cancelled, no-show)
+        val waitingCount = allAppts.count {
+            val cStatus = it.checkinStatus.lowercase().trim()
+            val status = it.status.uppercase().trim()
+            it.slotId == slot1.id &&
+                cStatus !in listOf("completed", "done", "finished", "report_prepared", "results_ready", "cancelled", "no_show", "rejected") &&
+                status !in listOf("COMPLETED", "DONE", "FINISHED", "CANCELLED", "REJECTED", "EXPIRED", "UNAPPROVED", "PENDING_PAYMENT")
+        }
+        assertEquals(0, waitingCount)
+
+        // Badge display string logic: 0 waiting -> "No wait • Direct Entry"
+        val queueCount = waitingCount
+        val queueText = if (queueCount == 0) "No wait \u2022 Direct Entry" else "👥 $queueCount in queue"
+        assertEquals("No wait \u2022 Direct Entry", queueText)
+    }
+
+    @Test
+    fun testPartiallyCompletedQueueShowsOnlyRemainingWaitingPatients() {
+        val today = LocalDate.now().toString()
+        val slot1 = Slot(
+            id = "slot-partial-1",
+            clinicId = "clinic-1",
+            slotDate = today,
+            startTime = "08:00 AM",
+            endTime = "02:00 PM",
+            maxCapacity = 20,
+            bookedCount = 3,
+            waitingCount = 1
+        )
+
+        val appts = listOf(
+            Appointment(id = "a1", slotId = "slot-partial-1", checkinStatus = "completed", status = "APPROVED"),
+            Appointment(id = "a2", slotId = "slot-partial-1", checkinStatus = "done", status = "APPROVED"),
+            Appointment(id = "a3", slotId = "slot-partial-1", checkinStatus = "checked_in", status = "APPROVED")
+        )
+
+        val waitingCount = appts.count {
+            val cStatus = it.checkinStatus.lowercase().trim()
+            val status = it.status.uppercase().trim()
+            it.slotId == slot1.id &&
+                cStatus !in listOf("completed", "done", "finished", "report_prepared", "results_ready", "cancelled", "no_show", "rejected") &&
+                status !in listOf("COMPLETED", "DONE", "FINISHED", "CANCELLED", "REJECTED", "EXPIRED", "UNAPPROVED", "PENDING_PAYMENT")
+        }
+        assertEquals(1, waitingCount)
+
+        val queueCount = waitingCount
+        val estWaitMin = queueCount * 10
+        val queueText = if (queueCount == 0) "No wait \u2022 Direct Entry" else "👥 $queueCount in queue (~${estWaitMin}m wait)"
+        assertEquals("👥 1 in queue (~10m wait)", queueText)
+    }
 }

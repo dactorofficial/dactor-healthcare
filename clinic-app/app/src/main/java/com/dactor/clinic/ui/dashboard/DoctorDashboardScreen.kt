@@ -1621,9 +1621,9 @@ fun DoctorDashboardScreen(
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     onClick = {
-                        val docId = doctor?.id ?: doctorId ?: com.dactor.clinic.data.local.UserSessionManager(context).getSavedDoctorId() ?: ""
-                        if (docId.isNotBlank()) {
-                            navController.navigate("${NavRoutes.PatientDirectory}/$docId")
+                        val targetCid = doctor?.clinicId ?: com.dactor.clinic.data.local.UserSessionManager(context).getSavedClinicId().orEmpty()
+                        if (targetCid.isNotBlank()) {
+                            navController.navigate("${NavRoutes.PatientDirectory}/$targetCid")
                         } else {
                             navController.navigate(NavRoutes.PatientDirectory)
                         }

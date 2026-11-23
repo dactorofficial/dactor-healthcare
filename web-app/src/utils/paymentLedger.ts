@@ -377,8 +377,8 @@ export function buildUnifiedClinicPaymentLogs(
 
     if (parsedRecords.length > 0) {
       for (const pr of parsedRecords) {
-        const rawTime = pr.dateTime.includes('T') ? pr.dateTime : `${inv.paidAt || inv.updatedAt || new Date().toISOString()}`
-        const dStr = pr.dateTime.slice(0, 10) || (inv.paidAt ? inv.paidAt.slice(0, 10) : '')
+        const rawTime = pr.dateTime || inv.paidAt || inv.updatedAt || new Date().toISOString()
+        const dStr = (pr.dateTime ? pr.dateTime.slice(0, 10) : '') || (inv.paidAt ? inv.paidAt.slice(0, 10) : '') || new Date().toISOString().slice(0, 10)
         const uniqueKey = `inv_${inv.id}_${pr.id || pr.amount}_${dStr}`
         if (recordedTxnKeys.has(uniqueKey)) continue
         recordedTxnKeys.add(uniqueKey)
@@ -480,6 +480,60 @@ export function buildUnifiedClinicPaymentLogs(
         })
       }
     }
+  }
+
+  // 4. Fallback for appointments marked paid not covered by invoices or transactions
+  const processedApptIds = new Set<string>()
+  for (const e of entries) {
+    if (e.appointmentId) processedApptIds.add(e.appointmentId)
+  }
+  for (const appt of sortedAppts) {
+    if (!appt.id || processedApptIds.has(appt.id)) continue
+    const isPaid = String(appt.paymentStatus || '').toLowerCase() === 'paid'
+    if (!isPaid) continue
+
+    const doc = docMap.get(appt.doctorId || '') || {}
+    const pKey = derivePatientKey(appt)
+    const isNew = Boolean(appt.doctorId && earliestVisitsByDoctor.get(`${appt.doctorId}::${pKey}`) === appt.id)
+    const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
+    const isFollowUp = Number(appt.feeAmount || 0) <= 0
+    const rawTime = appt.approvedAt || appt.updatedAt || `${appt.appointmentDate || new Date().toISOString().slice(0, 10)} ${appt.appointmentTime || '10:00'}`
+    const dStr = rawTime.slice(0, 10)
+    const effTotal = isPad ? getEffectiveAppointmentTotal(appt) : Number(appt.totalAmount || appt.feeAmount || 0)
+
+    const rawApptServiceCharge = Number(appt.serviceChargeAmount || 0)
+    const serviceCharge =
+      isPad && !isFollowUp && appt.id && !assignedCommissionApptIds.has(appt.id)
+        ? (rawApptServiceCharge > 0 ? rawApptServiceCharge : Math.round(Number(appt.feeAmount || 0) * 0.05))
+        : 0
+    if (serviceCharge > 0 && appt.id) {
+      assignedCommissionApptIds.add(appt.id)
+    }
+
+    entries.push({
+      id: `appt_${appt.id}`,
+      appointmentId: appt.id,
+      clinicId: appt.clinicId,
+      dateTime: rawTime,
+      date: dStr,
+      time: rawTime.slice(11, 16) || '10:00',
+      patientName: appt.patientName || 'Patient',
+      patientPhone: appt.patientMobile || '',
+      trackingCode: appt.trackingCode10Digit || '',
+      doctorId: appt.doctorId,
+      doctorName: doc.fullName || (doc.name ? `Dr. ${doc.name}` : undefined),
+      specialty: doc.specialty,
+      isNewPatientForDoctor: isNew,
+      type: 'PAYMENT',
+      amount: effTotal,
+      paymentMethod: (isPad ? 'PAY_AT_DESK' : (appt.paymentMethod || 'CASH')).toUpperCase(),
+      category: isFollowUp ? 'FREE_FOLLOWUP' : 'CONSULTATION',
+      note: isFollowUp ? 'Follow-up Consultation (Free)' : 'OPD Consultation',
+      invoiceTotal: effTotal,
+      balanceDue: 0,
+      paymentStatus: 'paid',
+      serviceChargeAmount: serviceCharge,
+    })
   }
 
   // Sort descending by date & time

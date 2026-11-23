@@ -195,10 +195,16 @@ fun BillingScreen(
                 lineItems = defaultOpdItems
                 val existingApptFee = effectiveBillTotal
                 if (!isFollowUp && appt.paymentStatus.equals("paid", ignoreCase = true) && existingApptFee > 0.0) {
+                    val rawStamp = appt.approvedAt?.takeIf { it.isNotBlank() } ?: appt.createdAt?.takeIf { it.isNotBlank() }
+                    val payStamp = if (!rawStamp.isNullOrBlank()) {
+                        if (rawStamp.length >= 16) rawStamp.substring(0, 16).replace("T", " ") else rawStamp.replace("T", " ")
+                    } else {
+                        "${appt.appointmentDate} ${appt.appointmentTime.ifBlank { "10:00 AM" }}"
+                    }
                     paymentRecords = listOf(
                         PaymentRecord(
                             amount = existingApptFee,
-                            dateTime = "${appt.appointmentDate} ${appt.appointmentTime ?: "10:00 AM"}",
+                            dateTime = payStamp,
                             note = if (appt.isPayAtDesk) "Pay at Desk Collection (incl. 5% charge)" else "OPD Consultation Fee"
                         )
                     )

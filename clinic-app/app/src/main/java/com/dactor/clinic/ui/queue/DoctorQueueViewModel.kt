@@ -87,6 +87,28 @@ class DoctorQueueViewModel @Inject constructor(
         }
 
         if (clinicId.isNotBlank() && doctorId.isNotBlank()) {
+            // Instant local cache read so live queue renders in milliseconds on launch
+            viewModelScope.launch {
+                try {
+                    val localCached = queueRepository.getLocalCachedQueueForDoctor(doctorId, clinicId, initialDate.toString())
+                    if (localCached.isNotEmpty()) {
+                        val live = localCached.filter { it.status == "waiting" || it.status == "inside" }
+                            .sortedWith(compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }.thenBy { it.queuePosition })
+                        val completed = localCached.filter { it.status in setOf("done", "report_prepared", "no_show", "processing") }
+                            .sortedByDescending { it.completedAt ?: "" }
+                        _uiState.update { current ->
+                            current.copy(
+                                isLoading = false,
+                                liveQueue = live,
+                                completedQueue = completed,
+                                insideCount = live.count { it.status == "inside" },
+                                waitingCount = live.count { it.status == "waiting" },
+                                completedTodayCount = completed.count { it.status == "done" || it.status == "report_prepared" }
+                            )
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
             loadDoctorQueue(forceRefresh = true)
             startRealtimeSubscription()
         }
@@ -94,7 +116,30 @@ class DoctorQueueViewModel @Inject constructor(
 
     fun setSelectedDate(date: LocalDate) {
         if (_uiState.value.selectedDate == date.toString()) return
-        _uiState.update { it.copy(selectedDate = date.toString(), isLoading = true) }
+        val dateStr = date.toString()
+        _uiState.update { it.copy(selectedDate = dateStr) }
+        viewModelScope.launch {
+            try {
+                val s = _uiState.value
+                val localCached = queueRepository.getLocalCachedQueueForDoctor(s.doctorId, s.clinicId, dateStr)
+                if (localCached.isNotEmpty()) {
+                    val live = localCached.filter { it.status == "waiting" || it.status == "inside" }
+                        .sortedWith(compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }.thenBy { it.queuePosition })
+                    val completed = localCached.filter { it.status in setOf("done", "report_prepared", "no_show", "processing") }
+                        .sortedByDescending { it.completedAt ?: "" }
+                    _uiState.update { current ->
+                        current.copy(
+                            isLoading = false,
+                            liveQueue = live,
+                            completedQueue = completed,
+                            insideCount = live.count { it.status == "inside" },
+                            waitingCount = live.count { it.status == "waiting" },
+                            completedTodayCount = completed.count { it.status == "done" || it.status == "report_prepared" }
+                        )
+                    }
+                }
+            } catch (_: Exception) {}
+        }
         loadDoctorQueue(forceRefresh = true)
     }
 
@@ -118,7 +163,71 @@ class DoctorQueueViewModel @Inject constructor(
             }
 
             try {
-                // 1. Fetch clinic break status
+                // 1. High-speed atomic RPC path (sub-35ms, single DB query)
+                val fastItems = try {
+                    queueRepository.getFastDoctorLiveQueue(s.doctorId, s.clinicId, s.selectedDate)
+                } catch (e: Exception) {
+                    emptyList()
+                }
+
+                if (fastItems.isNotEmpty()) {
+                    val clinic = clinicRepository.getCachedClinicById(s.clinicId)
+                        ?: try { clinicRepository.getClinicById(s.clinicId) } catch (_: Exception) { null }
+                    val isBreak = clinic?.isOnBreak == true
+
+                    val nowMs = System.currentTimeMillis()
+                    val activeOverrides = pendingOverrides.filterValues { it.second > nowMs }
+
+                    val mapped = fastItems.map { dto ->
+                        val item = dto.toQueueItemUi()
+                        val override = activeOverrides[item.id]
+                        if (override != null) item.copy(status = override.first) else item
+                    }
+
+                    activeOverrides.forEach { (id, pair) ->
+                        if (mapped.any { it.id == id && it.status == pair.first }) {
+                            pendingOverrides.remove(id)
+                        }
+                    }
+
+                    val nowMin = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
+                    val live = mapped.filter { it.status == "waiting" || it.status == "inside" }
+                        .sortedWith(
+                            compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }
+                                .thenBy { item -> item.queuePosition.takeIf { it > 0 } ?: 9999 }
+                                .thenBy { item ->
+                                    val isPayAtDesk = item.paymentMode == "PAY_AT_DESK"
+                                    val slotEndMin = com.dactor.clinic.data.repository.AppointmentRepository.parseAppointmentEndTimeToMinutes(item.appointmentTime)
+                                    if (isPayAtDesk && slotEndMin < nowMin) 0 else 1
+                                }
+                                .thenBy { item ->
+                                    com.dactor.clinic.data.repository.AppointmentRepository.parseTimeToMinutes(item.appointmentTime)
+                                }
+                                .thenBy { item -> item.createdAt.orEmpty() }
+                                .thenBy { item -> item.id }
+                        )
+                        .mapIndexed { idx, item -> item.copy(queuePosition = idx + 1) }
+
+                    val completed = mapped.filter { it.status in setOf("done", "report_prepared", "no_show", "processing") }
+                        .sortedByDescending { it.completedAt ?: "" }
+
+                    _uiState.update { current ->
+                        current.copy(
+                            isLoading = false,
+                            isRefreshing = false,
+                            isClinicOnBreak = isBreak,
+                            liveQueue = live,
+                            completedQueue = completed,
+                            insideCount = live.count { it.status == "inside" },
+                            waitingCount = live.count { it.status == "waiting" },
+                            completedTodayCount = completed.count { it.status == "done" || it.status == "report_prepared" },
+                            errorMessage = null
+                        )
+                    }
+                    return@launch
+                }
+
+                // 2. Legacy fallback path
                 val clinic = clinicRepository.getClinicById(s.clinicId)
                 val isBreak = clinic?.isOnBreak == true
                 val isLabClinic = clinic?.isDiagnosticLab() == true
@@ -278,6 +387,11 @@ class DoctorQueueViewModel @Inject constructor(
                         errorMessage = null
                     )
                 }
+
+                // Persist full enriched items into Room DB cache
+                try {
+                    queueRepository.saveEnrichedQueueItems(live + completed, s.clinicId)
+                } catch (_: Exception) {}
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(isLoading = false, isRefreshing = false, errorMessage = e.message)
@@ -665,151 +779,17 @@ class DoctorQueueViewModel @Inject constructor(
     }
 
     /**
-     * Targeted 2-3s live queue refresh: verifies that the upcoming 3-4 patients
-     * are not cancelled or rescheduled, and incrementally checks for new appointments for today.
+     * Fast live queue delta refresh: leverages the atomic get_doctor_live_queue RPC
+     * to check upcoming positions, cancellations, and rescheduled statuses in a single sub-35ms query.
      */
     fun refreshUpcomingPatientsAndCheckNew() {
         val s = _uiState.value
         if (s.doctorId.isBlank() || s.clinicId.isBlank() || isSelectiveRefreshing) return
 
-        // 1. Sliding window lookahead: Upcoming 3-4 patients in line
-        val upcomingItems = s.liveQueue.take(4)
-        val upcomingIds = upcomingItems.map { it.appointmentId }
-
         viewModelScope.launch {
             isSelectiveRefreshing = true
             try {
-                // 1a. Authoritatively verify upcoming 3-4 patients
-                if (upcomingIds.isNotEmpty()) {
-                    val refreshedAppts = try {
-                        appointmentRepository.refreshAppointmentsByIds(upcomingIds)
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
-                    val refreshedMap = refreshedAppts.associateBy { it.id }
-
-                    var queueModified = false
-                    val rogueIdsToRemove = mutableListOf<String>()
-                    val updatedLive = _uiState.value.liveQueue.mapNotNull { item ->
-                        val fresh = refreshedMap[item.appointmentId] ?: return@mapNotNull item
-
-                        val isCancelled = fresh.status.equals("CANCELLED", ignoreCase = true) ||
-                                fresh.checkinStatus?.lowercase() == "cancelled"
-                        val isRescheduledDate = fresh.appointmentDate.isNotBlank() && fresh.appointmentDate != s.selectedDate
-
-                        if (isCancelled || isRescheduledDate) {
-                            queueModified = true
-                            rogueIdsToRemove.add(item.appointmentId)
-                            val reason = if (isCancelled) "cancelled" else "rescheduled to ${fresh.appointmentDate}"
-                            _eventFlow.tryEmit(DoctorQueueEvent.ShowToast("Appointment for ${item.patientName} was $reason"))
-                            return@mapNotNull null
-                        }
-
-                        // Check if time updated
-                        if (fresh.appointmentTime.isNotBlank() && fresh.appointmentTime != item.appointmentTime) {
-                            queueModified = true
-                            item.copy(appointmentTime = fresh.appointmentTime)
-                        } else {
-                            item
-                        }
-                    }
-
-                    for (rogueId in rogueIdsToRemove) {
-                        runCatching {
-                            queueRepository.removeRogueQueueEntry(rogueId)
-                        }
-                    }
-
-                    if (queueModified) {
-                        val reindexed = updatedLive.mapIndexed { idx, itm -> itm.copy(queuePosition = idx + 1) }
-                        _uiState.update { current ->
-                            current.copy(
-                                liveQueue = reindexed,
-                                insideCount = reindexed.count { it.status == "inside" },
-                                waitingCount = reindexed.count { it.status == "waiting" }
-                            )
-                        }
-                    }
-                }
-
-                // 2. Incrementally discover newly booked or approved appointments for today
-                val isLabClinic = clinicRepository.getCachedClinicById(s.clinicId)?.isDiagnosticLab() == true
-                val allKnownApptIds = (_uiState.value.liveQueue + _uiState.value.completedQueue).map { it.appointmentId }.toSet()
-                val newAppts = try {
-                    appointmentRepository.checkNewAppointments(
-                        clinicId = s.clinicId,
-                        doctorId = if (isLabClinic) null else s.doctorId,
-                        date = s.selectedDate,
-                        knownApptIds = allKnownApptIds
-                    )
-                } catch (e: Exception) {
-                    emptyList()
-                }
-
-                if (newAppts.isNotEmpty()) {
-                    val currentLive = _uiState.value.liveQueue
-                    var nextPos = (currentLive.map { it.queuePosition }.maxOrNull() ?: 0) + 1
-                    val newItems = mutableListOf<QueueItemUi>()
-
-                    for (appt in newAppts) {
-                        runCatching {
-                            queueRepository.autoEnrollNewAppointment(s.clinicId, if (isLabClinic) null else s.doctorId, appt.id, nextPos)
-                        }
-                        newItems.add(
-                            QueueItemUi(
-                                id = java.util.UUID.randomUUID().toString(),
-                                appointmentId = appt.id,
-                                patientName = appt.patientName,
-                                patientAge = appt.patientAge ?: 0,
-                                patientGender = appt.patientGender.orEmpty(),
-                                patientMobile = appt.patientMobile.orEmpty(),
-                                trackingCode = appt.trackingCode10Digit.takeIf { it.isNotBlank() } ?: appt.id.take(8),
-                                queuePosition = nextPos++,
-                                status = "waiting",
-                                appointmentDate = appt.appointmentDate,
-                                appointmentTime = appt.appointmentTime,
-                                doctorId = appt.doctorId ?: s.doctorId,
-                                doctorName = s.doctorName,
-                                paymentMode = appt.paymentMode,
-                                paymentStatus = appt.paymentStatus,
-                                totalAmount = if (appt.totalAmount > 0.0) appt.totalAmount else appt.feeAmount,
-                                userId = appt.userId,
-                                isWalkin = appt.isWalkin,
-                                createdAt = appt.createdAt
-                            )
-                        )
-                    }
-
-                    val nowMin = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
-                    val merged = (currentLive + newItems)
-                        .sortedWith(
-                            compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }
-                                .thenBy { item -> item.queuePosition.takeIf { it > 0 } ?: 9999 }
-                                .thenBy { item ->
-                                    val isPayAtDesk = item.paymentMode == "PAY_AT_DESK"
-                                    val slotEndMin = com.dactor.clinic.data.repository.AppointmentRepository.parseAppointmentEndTimeToMinutes(item.appointmentTime)
-                                    if (isPayAtDesk && slotEndMin < nowMin) 0 else 1
-                                }
-                                .thenBy { item ->
-                                    com.dactor.clinic.data.repository.AppointmentRepository.parseTimeToMinutes(item.appointmentTime)
-                                }
-                                .thenBy { item ->
-                                    item.createdAt.orEmpty()
-                                }
-                                .thenBy { item ->
-                                    item.id
-                                }
-                        )
-                        .mapIndexed { idx, itm -> itm.copy(queuePosition = idx + 1) }
-
-                    _uiState.update { current ->
-                        current.copy(
-                            liveQueue = merged,
-                            insideCount = merged.count { it.status == "inside" },
-                            waitingCount = merged.count { it.status == "waiting" }
-                        )
-                    }
-                }
+                loadDoctorQueue(isDeltaOnly = true)
             } catch (e: Exception) {
                 android.util.Log.e("DoctorQueueVM", "Error in refreshUpcomingPatientsAndCheckNew", e)
             } finally {

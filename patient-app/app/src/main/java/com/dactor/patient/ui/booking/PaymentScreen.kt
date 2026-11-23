@@ -62,6 +62,7 @@ fun PaymentScreen(
     val scrollState = rememberScrollState()
 
     var appointment by remember { mutableStateOf<Appointment?>(null) }
+    var resolvedSlotWindow by remember { mutableStateOf<String?>(null) }
     var clinic by remember { mutableStateOf<Clinic?>(null) }
     var clinicGatewaysConfig by remember { mutableStateOf(PaymentGatewaysConfig()) }
     var serverPaymentMethods by remember { mutableStateOf<List<PublicPaymentMethod>>(emptyList()) }
@@ -136,6 +137,19 @@ fun PaymentScreen(
                     }
                 }
             }
+        }
+    }
+
+    LaunchedEffect(appointment?.slotId, appointment?.appointmentTime) {
+        val appt = appointment ?: return@LaunchedEffect
+        val sId = appt.slotId
+        if (!sId.isNullOrBlank() && slotRepository != null) {
+            try {
+                val s = slotRepository.getSlotById(sId)
+                if (s != null && s.startTime.isNotBlank() && s.endTime.isNotBlank()) {
+                    resolvedSlotWindow = "${s.startTime} \u2013 ${s.endTime}"
+                }
+            } catch (_: Exception) {}
         }
     }
 
@@ -678,6 +692,56 @@ fun PaymentScreen(
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
+                        }
+                        // ── Appointment Slot & Date patient wants to book ──
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.CalendarToday,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Text("Appointment Date:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        appointment?.appointmentDate?.ifBlank { "Booking Date" } ?: "Booking Date",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Schedule,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Text("Appointment Slot:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    val displaySlot = resolvedSlotWindow ?: appointment?.appointmentTime?.ifBlank { "Selected Slot" } ?: "Selected Slot"
+                                    Text(
+                                        displaySlot,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
                         }
                         HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

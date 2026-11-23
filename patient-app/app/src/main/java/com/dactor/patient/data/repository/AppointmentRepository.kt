@@ -239,15 +239,26 @@ class AppointmentRepository @Inject constructor(
         refreshOnlinePayment(appointmentId)
     suspend fun getAppointmentByTrackingCode(code: String): Appointment? = withContext(Dispatchers.IO) {
         try {
-            val clean = code.trim()
-            var appts = supabaseClient.postgrest["appointments"]
-                .select { filter { eq("tracking_code_10_digit", clean) } }
-                .decodeList<Appointment>()
-            if (appts.isEmpty() && clean != clean.uppercase()) {
-                appts = supabaseClient.postgrest["appointments"]
-                    .select { filter { eq("tracking_code_10_digit", clean.uppercase()) } }
-                    .decodeList<Appointment>()
+            val trimmed = code.trim()
+            if (trimmed.isBlank()) return@withContext null
+            val cleanAlpha = trimmed.replace(Regex("[^a-zA-Z0-9]"), "").uppercase()
+            val clean10 = if (cleanAlpha.length > 10) cleanAlpha.takeLast(10) else cleanAlpha
+
+            val candidates = linkedSetOf(clean10, cleanAlpha, trimmed, trimmed.uppercase()).filter { it.isNotBlank() }
+
+            var appts: List<Appointment> = emptyList()
+            for (candidate in candidates) {
+                try {
+                    val res = supabaseClient.postgrest["appointments"]
+                        .select { filter { eq("tracking_code_10_digit", candidate) } }
+                        .decodeList<Appointment>()
+                    if (res.isNotEmpty()) {
+                        appts = res
+                        break
+                    }
+                } catch (_: Exception) {}
             }
+
             if (appts.isEmpty()) return@withContext null
 
             val todayStr = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kathmandu")).toString()
@@ -283,17 +294,22 @@ class AppointmentRepository @Inject constructor(
 
     suspend fun getAllAppointmentsByTrackingCode(code: String): List<Appointment> = withContext(Dispatchers.IO) {
         try {
-            val clean = code.trim()
-            if (clean.isBlank()) return@withContext emptyList()
-            var list = supabaseClient.postgrest["appointments"]
-                .select { filter { eq("tracking_code_10_digit", clean) } }
-                .decodeList<Appointment>()
-            if (list.isEmpty() && clean != clean.uppercase()) {
-                list = supabaseClient.postgrest["appointments"]
-                    .select { filter { eq("tracking_code_10_digit", clean.uppercase()) } }
-                    .decodeList<Appointment>()
+            val trimmed = code.trim()
+            if (trimmed.isBlank()) return@withContext emptyList()
+            val cleanAlpha = trimmed.replace(Regex("[^a-zA-Z0-9]"), "").uppercase()
+            val clean10 = if (cleanAlpha.length > 10) cleanAlpha.takeLast(10) else cleanAlpha
+
+            val candidates = linkedSetOf(clean10, cleanAlpha, trimmed, trimmed.uppercase()).filter { it.isNotBlank() }
+
+            for (candidate in candidates) {
+                try {
+                    val list = supabaseClient.postgrest["appointments"]
+                        .select { filter { eq("tracking_code_10_digit", candidate) } }
+                        .decodeList<Appointment>()
+                    if (list.isNotEmpty()) return@withContext list
+                } catch (_: Exception) {}
             }
-            list
+            emptyList()
         } catch (e: Exception) {
             emptyList()
         }
@@ -453,8 +469,11 @@ class AppointmentRepository @Inject constructor(
 
     suspend fun getAppointmentById(id: String): Appointment? = withContext(Dispatchers.IO) {
         try {
+            val cleanId = id.trim()
+            if (!isValidUuid(cleanId)) return@withContext null
+
             val appts = supabaseClient.postgrest["appointments"]
-                .select { filter { eq("id", id) } }
+                .select { filter { eq("id", cleanId) } }
                 .decodeList<Appointment>()
             val appt = appts.firstOrNull()
             if (appt != null) {
@@ -470,6 +489,72 @@ class AppointmentRepository @Inject constructor(
             e.printStackTrace()
             null
         }
+    }
+
+    /**
+     * Unified appointment lookup supporting:
+     * - UUID appointment ID
+     * - 10-digit / alphanumeric tracking code (with or without #, spaces, hyphens)
+     * - Email address
+     * - Phone number
+     */
+    suspend fun getAppointmentByTrackingCodeOrContact(identifier: String): Appointment? = withContext(Dispatchers.IO) {
+        val clean = identifier.trim()
+        if (clean.isBlank()) return@withContext null
+
+        // 0. UUID lookup
+        if (isValidUuid(clean)) {
+            val byId = getAppointmentById(clean)
+            if (byId != null) return@withContext byId
+        }
+
+        // 1. 10-digit or alphanumeric tracking code lookup
+        val cleanAlpha = clean.replace(Regex("[^a-zA-Z0-9]"), "").uppercase()
+        val clean10 = if (cleanAlpha.length > 10) cleanAlpha.takeLast(10) else cleanAlpha
+        if (clean10.length == 10) {
+            val byCode = getAppointmentByTrackingCode(clean10)
+            if (byCode != null) return@withContext byCode
+        }
+
+        // 2. Try raw code lookup
+        val byRawCode = getAppointmentByTrackingCode(clean)
+        if (byRawCode != null) return@withContext byRawCode
+
+        // 3. Email lookup
+        if (clean.contains("@") && clean.contains(".")) {
+            try {
+                val byEmail = supabaseClient.postgrest["appointments"]
+                    .select { filter { ilike("patient_email", clean.lowercase()) } }
+                    .decodeList<Appointment>()
+                if (byEmail.isNotEmpty()) {
+                    val todayStr = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kathmandu")).toString()
+                    return@withContext byEmail.firstOrNull { it.appointmentDate == todayStr && it.checkinStatus.lowercase() != "cancelled" }
+                        ?: byEmail.filter { it.appointmentDate > todayStr && it.checkinStatus.lowercase() != "cancelled" }.minByOrNull { it.appointmentDate }
+                        ?: byEmail.maxByOrNull { it.appointmentDate }
+                        ?: byEmail.first()
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 4. Phone lookup
+        val digitsOnly = clean.filter { it.isDigit() }
+        if (digitsOnly.length in 7..15) {
+            val phone10 = if (digitsOnly.length >= 10) digitsOnly.takeLast(10) else digitsOnly
+            try {
+                val byPhone = supabaseClient.postgrest["appointments"]
+                    .select { filter { eq("patient_mobile", phone10) } }
+                    .decodeList<Appointment>()
+                if (byPhone.isNotEmpty()) {
+                    val todayStr = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kathmandu")).toString()
+                    return@withContext byPhone.firstOrNull { it.appointmentDate == todayStr && it.checkinStatus.lowercase() != "cancelled" }
+                        ?: byPhone.filter { it.appointmentDate > todayStr && it.checkinStatus.lowercase() != "cancelled" }.minByOrNull { it.appointmentDate }
+                        ?: byPhone.maxByOrNull { it.appointmentDate }
+                        ?: byPhone.first()
+                }
+            } catch (_: Exception) {}
+        }
+
+        null
     }
 
     suspend fun getUserAppointments(userId: String): List<Appointment> = withContext(Dispatchers.IO) {
@@ -606,7 +691,13 @@ class AppointmentRepository @Inject constructor(
 
                 // 4. Match by saved 10-digit tracking codes
                 val jobCodes = async {
-                    val cleanCodes = trackingCodes.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+                    val cleanCodes = trackingCodes.flatMap { code ->
+                        val trimmed = code.trim()
+                        val cleanAlpha = trimmed.replace(Regex("[^a-zA-Z0-9]"), "").uppercase()
+                        val clean10 = if (cleanAlpha.length > 10) cleanAlpha.takeLast(10) else cleanAlpha
+                        listOf(clean10, cleanAlpha, trimmed, trimmed.uppercase())
+                    }.filter { it.isNotBlank() }.distinct()
+
                     if (cleanCodes.isNotEmpty()) {
                         try {
                             val byCodes = supabaseClient.postgrest["appointments"]
@@ -1071,80 +1162,13 @@ class AppointmentRepository @Inject constructor(
         if (created.paymentStatus != "pending") {
             if (isAppointmentToday) {
                 try {
-                    val existingQ = supabaseClient.postgrest["queue_entries"]
-                        .select { filter { eq("appointment_id", created.id) } }
-                        .decodeList<QueueEntry>()
-                        .firstOrNull()
-                    if (existingQ == null) {
-                        val activeQueue = supabaseClient.postgrest["queue_entries"]
-                            .select {
-                                filter {
-                                    eq("clinic_id", created.clinicId)
-                                    or {
-                                        eq("status", "waiting")
-                                        eq("status", "inside")
-                                    }
-                                }
-                            }
-                            .decodeList<QueueEntry>()
-
-                        val targetSlotMinutes = parseTimeToMinutes(created.appointmentTime)
-                        val activeAppts = try {
-                            supabaseClient.postgrest["appointments"]
-                                .select {
-                                    filter {
-                                        eq("clinic_id", created.clinicId)
-                                    }
-                                }
-                                .decodeList<Appointment>()
-                        } catch (e: Exception) {
-                            emptyList()
+                    // Authoritative server-side atomic assignment with SECURITY DEFINER
+                    supabaseClient.postgrest.rpc(
+                        function = "assign_or_get_queue_token",
+                        parameters = buildJsonObject {
+                            put("p_appointment_id", created.id)
                         }
-                        val apptMap = activeAppts.associateBy { it.id }
-
-                        // Preceding entries: patient inside cabin OR patients in earlier or same time slot
-                        val precedingEntries = activeQueue.filter { entry ->
-                            if (entry.status == "inside") return@filter true
-                            val appt = apptMap[entry.appointmentId]
-                            val slotMins = parseTimeToMinutes(appt?.appointmentTime)
-                            slotMins <= targetSlotMinutes
-                        }
-
-                        val insertPos = (precedingEntries.maxOfOrNull { it.queuePosition } ?: precedingEntries.size) + 1
-
-                        // Shift all entries with queuePosition >= insertPos down by 1 in descending order
-                        val laterEntries = activeQueue
-                            .filter { it.queuePosition >= insertPos }
-                            .sortedByDescending { it.queuePosition }
-
-                        for (later in laterEntries) {
-                            val shiftedPos = later.queuePosition + 1
-                            try {
-                                supabaseClient.postgrest["queue_entries"]
-                                    .update({ set("queue_position", shiftedPos) }) {
-                                        filter { eq("id", later.id) }
-                                    }
-                            } catch (shiftErr: Exception) {
-                                shiftErr.printStackTrace()
-                            }
-                        }
-
-                        val queueEntryDto = QueueEntryInsertDto(
-                            id = UUID.randomUUID().toString(),
-                            appointmentId = created.id,
-                            clinicId = created.clinicId,
-                            doctorId = created.doctorId,
-                            queuePosition = insertPos,
-                            status = "waiting"
-                        )
-                        supabaseClient.postgrest["queue_entries"].insert(queueEntryDto)
-                        supabaseClient.postgrest["appointments"]
-                            .update({ set("checkin_status", "checked_in") }) {
-                                filter { eq("id", created.id) }
-                            }
-
-                        reindexActiveQueueChronologically(created.clinicId)
-                    }
+                    )
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
@@ -1496,14 +1520,46 @@ class AppointmentRepository @Inject constructor(
         }
     }
 
-    suspend fun claimAppointment(appointmentId: String, userId: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun claimAppointment(
+        appointmentId: String,
+        userId: String? = null,
+        patientEmail: String? = null,
+        trackingCode: String? = null,
+        email: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
         try {
-            supabaseClient.postgrest["appointments"]
-                .update({
-                    set("user_id", userId)
-                }) {
-                    filter { eq("id", appointmentId) }
-                }
+            val cleanUid = userId?.trim()
+            val cleanEmail = (patientEmail ?: email)?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+
+            if (cleanUid.isNullOrBlank() && cleanEmail.isNullOrBlank()) {
+                return@withContext false
+            }
+
+            if (isValidUuid(appointmentId)) {
+                try {
+                    supabaseClient.postgrest["appointments"]
+                        .update({
+                            if (!cleanUid.isNullOrBlank()) set("user_id", cleanUid)
+                            if (cleanEmail != null) set("patient_email", cleanEmail)
+                        }) {
+                            filter { eq("id", appointmentId) }
+                        }
+                } catch (ignored: Exception) {}
+            }
+
+            if (!trackingCode.isNullOrBlank()) {
+                val cleanAlpha = trackingCode.replace(Regex("[^a-zA-Z0-9]"), "").uppercase()
+                val clean10 = if (cleanAlpha.length > 10) cleanAlpha.takeLast(10) else cleanAlpha
+                try {
+                    supabaseClient.postgrest["appointments"]
+                        .update({
+                            if (!cleanUid.isNullOrBlank()) set("user_id", cleanUid)
+                            if (cleanEmail != null) set("patient_email", cleanEmail)
+                        }) {
+                            filter { eq("tracking_code_10_digit", clean10) }
+                        }
+                } catch (ignored: Exception) {}
+            }
             true
         } catch (e: Exception) {
             e.printStackTrace()

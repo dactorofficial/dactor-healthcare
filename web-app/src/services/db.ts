@@ -1660,13 +1660,20 @@ export async function getSlots(clinicId: string, date: string): Promise<Slot[]> 
         a.checkin_status !== 'cancelled' &&
         !(a.payment_mode === 'PAY_AT_DESK' && a.status === 'WAITING_FOR_APPROVAL')
     )
+    const waitingAppts = activeAppts.filter(
+      (a: any) =>
+        !['completed', 'done', 'finished', 'report_prepared', 'results_ready', 'no_show', 'cancelled', 'rejected'].includes((a.checkin_status || '').toLowerCase()) &&
+        !['COMPLETED', 'DONE', 'FINISHED', 'CANCELLED', 'REJECTED', 'EXPIRED', 'UNAPPROVED', 'PENDING_PAYMENT'].includes((a.status || '').toUpperCase())
+    )
 
     return (slotsRes.data || []).map((raw) => {
       const slot = mapSlot(raw)
       const actualCount = activeAppts.filter((a: any) => a.slot_id === slot.id).length
+      const waitingCount = waitingAppts.filter((a: any) => a.slot_id === slot.id).length
       return {
         ...slot,
         bookedCount: actualCount,
+        waitingCount,
       }
     })
   } catch (err) {
@@ -3410,6 +3417,28 @@ export async function saveOrUpdateInvoicePayment(params: {
       console.warn('Could not sync fee_amount to appointments table:', apptErr)
     }
 
+    // Sync invoice_transactions audit log idempotently
+    if (calculatedTotalPaid > 0 && savedData?.id) {
+      try {
+        await supabase
+          .from('invoice_transactions')
+          .insert({
+            id: crypto.randomUUID(),
+            invoice_id: savedData.id,
+            clinic_id: clinicId,
+            appointment_id: appointmentId,
+            amount: calculatedTotalPaid,
+            payment_method: dbPaymentStatus === 'paid' ? 'CASH' : 'PARTIAL',
+            category: 'CONSULTATION',
+            notes: `Bill Payment Saved (${nowIso})`,
+            transaction_time: nowIso,
+            created_at: nowIso,
+          })
+      } catch (txErr) {
+        console.warn('Could not insert invoice_transactions audit record:', txErr)
+      }
+    }
+
     return savedData ? mapBillingInvoice(savedData) : null
   } catch (err) {
     console.error('Error saving billing invoice:', err)
@@ -5096,6 +5125,71 @@ export async function calculateMultiSlotDailyPosition(
   })
 }
 
+export interface FastLiveQueueItem {
+  id: string
+  appointment_id: string
+  clinic_id: string
+  doctor_id: string | null
+  doctor_name: string | null
+  queue_position: number
+  status: string
+  called_at: string | null
+  inside_at: string | null
+  completed_at: string | null
+  consultation_duration_seconds: number | null
+  patient_name: string
+  patient_age: number
+  patient_gender: string
+  patient_mobile: string
+  tracking_code: string
+  appointment_date: string
+  appointment_time: string
+  payment_mode: string | null
+  payment_status: string | null
+  total_amount: number
+  user_id: string | null
+  is_walkin: boolean
+  selected_lab_tests: string | null
+  opt_in_early_call: boolean
+  created_at: string | null
+}
+
+export async function getFastDoctorLiveQueue(
+  doctorId: string | null | undefined,
+  clinicId: string,
+  date?: string
+): Promise<FastLiveQueueItem[]> {
+  try {
+    const { data, error } = await supabase.rpc('get_doctor_live_queue', {
+      p_doctor_id: doctorId || null,
+      p_clinic_id: clinicId,
+      p_date: date || new Date().toISOString().slice(0, 10),
+    })
+    if (error) throw error
+    return data || []
+  } catch (err) {
+    console.warn('getFastDoctorLiveQueue RPC failed:', err)
+    return []
+  }
+}
+
+export async function getFastClinicLiveQueue(
+  clinicId: string,
+  date?: string
+): Promise<FastLiveQueueItem[]> {
+  try {
+    const { data, error } = await supabase.rpc('get_clinic_live_queue', {
+      p_clinic_id: clinicId,
+      p_date: date || new Date().toISOString().slice(0, 10),
+    })
+    if (error) throw error
+    return data || []
+  } catch (err) {
+    console.warn('getFastClinicLiveQueue RPC failed:', err)
+    return []
+  }
+}
+
 export async function getPatientProfileByEmail(email: string): Promise<PatientProfile | null> {
   try {
     const cleanEmail = email.trim().toLowerCase()
@@ -6251,6 +6345,7 @@ export interface PatientDirectoryConsultation {
   id: string
   appointmentDate: string
   appointmentTime: string
+  doctorId?: string
   doctorName?: string
   doctorSpecialty?: string
   trackingCode: string
@@ -6282,16 +6377,13 @@ export interface ClinicPatientDirectoryEntry {
 export function buildClinicPatientDirectory(appointments: Appointment[]): ClinicPatientDirectoryEntry[] {
   const patientMap = new Map<string, ClinicPatientDirectoryEntry>()
 
-  // Strict Clinic Directory Guard: Only APPROVED appointments belong in the Patient Directory
+  // Strict Clinic Directory Guard: Retain approved and cancelled appointments in directory (data retention parity)
   const approvedOnly = (appointments || []).filter((a) => {
-    const st = (a.status || '').toUpperCase()
     return (
-      st === 'APPROVED' &&
       a.status !== 'WAITING_FOR_APPROVAL' &&
       a.status !== 'pending_payment' &&
       a.status !== 'UNAPPROVED' &&
-      a.status !== 'EXPIRED' &&
-      a.checkinStatus !== 'cancelled'
+      a.status !== 'EXPIRED'
     )
   })
 
@@ -6311,14 +6403,16 @@ export function buildClinicPatientDirectory(appointments: Appointment[]): Clinic
       : (a.userId || (cleanName ? cleanName.toLowerCase() : a.id))
 
     const isFollowup = Number(a.feeAmount) === 0
+    const isCancelled = (a.checkinStatus || '').toLowerCase() === 'cancelled' || (a.status || '').toUpperCase() === 'CANCELLED'
     const consultItem: PatientDirectoryConsultation = {
       id: a.id,
       appointmentDate: a.appointmentDate || new Date().toISOString().slice(0, 10),
       appointmentTime: a.appointmentTime || 'OPD',
+      doctorId: a.doctorId || a.doctor?.id || undefined,
       doctorName: a.doctor?.fullName || undefined,
       doctorSpecialty: a.doctor?.specialty || undefined,
       trackingCode: a.trackingCode10Digit || '',
-      checkinStatus: a.checkinStatus || 'booked',
+      checkinStatus: isCancelled ? 'cancelled' : (a.checkinStatus || 'booked'),
       paymentStatus: a.paymentStatus || 'unpaid',
       feeAmount: Number(a.feeAmount) || 0,
       notes: a.notes || undefined,
@@ -7775,14 +7869,28 @@ export async function markPayAtDeskCollected(appointmentId: string, clinicId?: s
   } catch {}
 
   try {
+    const nowIso = new Date().toISOString()
     const { error } = await supabase
       .from('appointments')
       .update({
         payment_status: 'paid',
-        updated_at: new Date().toISOString(),
+        updated_at: nowIso,
       })
       .eq('id', appointmentId)
     if (error) return { success: false, error: error.message }
+
+    // Also sync billing_invoices on fallback
+    try {
+      await supabase
+        .from('billing_invoices')
+        .update({
+          payment_status: 'paid',
+          paid_at: nowIso,
+          updated_at: nowIso,
+        })
+        .eq('appointment_id', appointmentId)
+    } catch {}
+
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to mark payment collected' }
@@ -7848,4 +7956,46 @@ export async function checkAppClosureStatus(appName: string = 'web_app'): Promis
   } catch {}
 
   return { isTemporarilyClosed, title, message }
+}
+
+export interface LiveQueueDelta {
+  tracking_code_10_digit: string
+  appointment_id: string
+  clinic_id: string
+  clinic_name: string
+  doctor_id: string | null
+  doctor_name: string
+  doctor_specialty: string
+  appointment_date: string
+  appointment_time: string
+  checkin_status: string
+  queue_status: string
+  status?: string
+  token_number: number
+  queue_position: number
+  patients_ahead: number
+  current_serving_token: number
+  doctor_is_in_clinic: boolean
+  is_anyone_inside: boolean
+  estimated_wait_minutes: number
+  slot_notice: string
+}
+
+export async function fetchLiveQueueDelta(codeOrId: string): Promise<LiveQueueDelta | null> {
+  const clean = (codeOrId || '').trim()
+  if (!clean) return null
+  try {
+    const { data, error } = await supabase.rpc('get_live_queue_status', {
+      p_code_or_id: clean,
+    })
+    if (error || !Array.isArray(data) || data.length === 0) return null
+    const row = data[0]
+    return {
+      ...row,
+      status: row.queue_status || row.checkin_status || row.status || 'waiting',
+    } as LiveQueueDelta
+  } catch (err) {
+    console.error('Error fetching live queue delta:', err)
+    return null
+  }
 }

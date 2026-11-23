@@ -2049,21 +2049,32 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                         </div>
                       )}
 
-                      {retainedAppointment && (
-                        <div className="p-3 rounded-xl liquid-glass-subtle text-xs flex items-center justify-between border-emerald-500/30">
-                          <div>
-                            <span className="font-bold text-sm block text-emerald-900 dark:text-emerald-300">
-                              ✓ Patient Retained: {retainedAppointment.patientName}
-                            </span>
-                            <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
-                              {retainedAppointment.patientAge} yrs • {retainedAppointment.patientGender} • {retainedAppointment.patientMobile}
+                      {retainedAppointment && (() => {
+                        const isRetainedCancelled =
+                          (retainedAppointment.checkinStatus || '').toLowerCase() === 'cancelled' ||
+                          (retainedAppointment.status || '').toUpperCase() === 'CANCELLED'
+                        return (
+                          <div className={`p-3 rounded-xl liquid-glass-subtle text-xs flex items-center justify-between ${isRetainedCancelled ? 'border-rose-500/30' : 'border-emerald-500/30'}`}>
+                            <div>
+                              <span className={`font-bold text-sm block ${isRetainedCancelled ? 'text-rose-900 dark:text-rose-300' : 'text-emerald-900 dark:text-emerald-300'}`}>
+                                {isRetainedCancelled
+                                  ? `✓ Cancelled Visit Found • Rescheduling: ${retainedAppointment.patientName}`
+                                  : `✓ Patient Retained: ${retainedAppointment.patientName}`}
+                              </span>
+                              <span className={`text-[11px] font-medium ${isRetainedCancelled ? 'text-rose-700 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
+                                {retainedAppointment.patientAge} yrs • {retainedAppointment.patientGender} • {retainedAppointment.patientMobile}
+                              </span>
+                            </div>
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
+                              isRetainedCancelled
+                                ? 'bg-rose-500/10 text-rose-800 dark:text-rose-300 border border-rose-500/20'
+                                : 'bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20'
+                            }`}>
+                              {isRetainedCancelled ? 'Cancelled Slot' : 'Verified'}
                             </span>
                           </div>
-                          <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20">
-                            Verified
-                          </span>
-                        </div>
-                      )}
+                        )
+                      })()}
 
                       {followupLookupError && (
                         <p className="text-xs text-rose-600 font-bold">{followupLookupError}</p>
@@ -3427,21 +3438,29 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
                 {totalBookingFee === 0 ? (
                   <div className="space-y-4">
-                    <div className={`p-4 rounded-2xl border text-xs space-y-1.5 backdrop-blur-sm ${
-                      isReschedule ? 'bg-cyan-500/10 border-cyan-500/20' : 'bg-emerald-500/10 border-emerald-500/20'
-                    }`}>
-                      <div className={`flex items-center space-x-2 font-black text-sm ${
-                        isReschedule ? 'text-cyan-900 dark:text-cyan-300' : 'text-emerald-900 dark:text-emerald-300'
-                      }`}>
-                        <CheckCircle2 className={`w-4 h-4 shrink-0 ${isReschedule ? 'text-cyan-600 dark:text-cyan-400' : 'text-emerald-600 dark:text-emerald-400'}`} />
-                        <span>{isReschedule ? 'Reschedule Appointment' : '100% Free Follow-Up Visit'}</span>
-                      </div>
-                      <p className={`leading-relaxed ${isReschedule ? 'text-cyan-800 dark:text-cyan-300/90' : 'text-emerald-700 dark:text-emerald-400/90'}`}>
-                        {isReschedule
-                          ? `Your consultation with Dr. ${selectedDoctor?.fullName || 'the specialist'} is shifted to ${selectedDate} at ${selectedSlotTime} under existing Token #${retainedAppointment?.trackingCode10Digit || followupCodeInput || initialTrackingCode}. No payment is charged.`
-                          : `This follow-up consultation is retained under previous Appointment ID #${retainedAppointment?.trackingCode10Digit || followupCodeInput}. No payment is charged.`}
-                      </p>
-                    </div>
+                    {(() => {
+                      const isRetainedCancelled =
+                        (retainedAppointment?.checkinStatus || '').toLowerCase() === 'cancelled' ||
+                        (retainedAppointment?.status || '').toUpperCase() === 'CANCELLED'
+                      const isRescheduleMode = isReschedule || isRetainedCancelled
+                      return (
+                        <div className={`p-4 rounded-2xl border text-xs space-y-1.5 backdrop-blur-sm ${
+                          isRescheduleMode ? 'bg-cyan-500/10 border-cyan-500/20' : 'bg-emerald-500/10 border-emerald-500/20'
+                        }`}>
+                          <div className={`flex items-center space-x-2 font-black text-sm ${
+                            isRescheduleMode ? 'text-cyan-900 dark:text-cyan-300' : 'text-emerald-900 dark:text-emerald-300'
+                          }`}>
+                            <CheckCircle2 className={`w-4 h-4 shrink-0 ${isRescheduleMode ? 'text-cyan-600 dark:text-cyan-400' : 'text-emerald-600 dark:text-emerald-400'}`} />
+                            <span>{isRescheduleMode ? (isRetainedCancelled ? 'Reschedule Cancelled Appointment' : 'Reschedule Appointment') : '100% Free Follow-Up Visit'}</span>
+                          </div>
+                          <p className={`leading-relaxed ${isRescheduleMode ? 'text-cyan-800 dark:text-cyan-300/90' : 'text-emerald-700 dark:text-emerald-400/90'}`}>
+                            {isRescheduleMode
+                              ? `Your consultation with Dr. ${selectedDoctor?.fullName || 'the specialist'} is shifted to ${selectedDate} at ${selectedSlotTime} under existing Token #${retainedAppointment?.trackingCode10Digit || followupCodeInput || initialTrackingCode}. No payment is charged.`
+                              : `This follow-up consultation is retained under previous Appointment ID #${retainedAppointment?.trackingCode10Digit || followupCodeInput}. No payment is charged.`}
+                          </p>
+                        </div>
+                      )
+                    })()}
 
                     <div className="flex items-center space-x-3 pt-2">
                       <button
@@ -3603,6 +3622,17 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                         <div className="flex items-start space-x-2 text-amber-900 dark:text-amber-200 font-bold">
                           <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                           <span>A {PAY_AT_DESK_SERVICE_CHARGE_PERCENT}% service charge will be added to your bill when paying at the desk</span>
+                        </div>
+                        {/* Appointment Slot & Date patient wants to book */}
+                        <div className="p-3 bg-white/80 dark:bg-slate-900/80 rounded-xl border border-amber-500/30 space-y-1.5 text-xs">
+                          <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-200">
+                            <Calendar className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                            <span><strong>Appointment Date:</strong> {selectedDate}</span>
+                          </div>
+                          <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-200">
+                            <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                            <span><strong>Appointment Slot:</strong> {selectedSlotTime || 'Selected Slot'}</span>
+                          </div>
                         </div>
                         <div className="p-3 liquid-glass-subtle rounded-xl space-y-1.5 border border-amber-500/20 text-xs">
                           <div className="flex justify-between text-slate-600 dark:text-slate-300">

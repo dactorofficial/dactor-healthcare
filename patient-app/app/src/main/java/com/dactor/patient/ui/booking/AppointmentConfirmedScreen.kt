@@ -84,8 +84,8 @@ fun AppointmentConfirmedScreen(
     }
     val displayCode = appt?.trackingCode10Digit?.takeIf { it.isNotBlank() }
         ?: cachedSummary?.trackingCode?.takeIf { it.isNotBlank() }
-        ?: generatedTrackingCode.takeIf { it.length == 10 && it.all { c -> c.isDigit() } }
-        ?: appointmentId.takeIf { it.length == 10 && it.all { c -> c.isDigit() } }
+        ?: generatedTrackingCode.takeIf { it.filter { c -> c.isLetterOrDigit() }.length == 10 }
+        ?: appointmentId.takeIf { it.filter { c -> c.isLetterOrDigit() }.length == 10 }
         ?: savedLatestCode?.takeIf { it.isNotBlank() }
         ?: "5888368144"
     val scrollState = rememberScrollState()
@@ -105,13 +105,10 @@ fun AppointmentConfirmedScreen(
 
     LaunchedEffect(appointmentId) {
         if (appointmentId.isNotBlank() && appointmentRepository != null) {
-            val remote = if (appointmentId.length == 10 && appointmentId.all { it.isDigit() }) {
-                appointmentRepository.getAppointmentByTrackingCode(appointmentId)
-                    ?: appointmentRepository.getAppointmentById(appointmentId)
-            } else {
-                appointmentRepository.getAppointmentById(appointmentId)
-                    ?: appointmentRepository.getAppointmentByTrackingCode(appointmentId)
-            }
+            val clean10 = appointmentId.filter { it.isLetterOrDigit() }.uppercase().take(10)
+            val remote = appointmentRepository.getAppointmentByTrackingCodeOrContact(appointmentId)
+                ?: (if (clean10.length == 10) appointmentRepository.getAppointmentByTrackingCode(clean10) else null)
+                ?: appointmentRepository.getAppointmentById(appointmentId)
             if (remote != null) {
                 appt = remote
                 if (remote.patientName.isNotBlank()) {
@@ -121,8 +118,14 @@ fun AppointmentConfirmedScreen(
                     resolvedDate = remote.appointmentDate
                 }
                 if (remote.trackingCode10Digit.isNotBlank()) {
-                    sessionManager?.saveTrackingCode(remote.trackingCode10Digit, "${remote.patientName} \u2022 ${remote.appointmentDate}")
+                    sessionManager?.unhideRecord(remote.trackingCode10Digit)
+                    sessionManager?.saveTrackingCode(
+                        remote.trackingCode10Digit,
+                        "${remote.patientName} \u2022 ${remote.appointmentDate}",
+                        explicitUnhide = true
+                    )
                 }
+                sessionManager?.unhideRecord(remote.id)
 
                 // Resolve Clinic details
                 if (remote.clinicId.isNotBlank() && clinicRepository != null) {

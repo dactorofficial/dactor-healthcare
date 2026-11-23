@@ -27,6 +27,7 @@ import {
   getSupportTicketByCodeOrContact,
   getLinkedConsultations,
   LinkedConsultationsResult,
+  fetchLiveQueueDelta,
 } from '../services/db'
 import { printAppointmentBill, printPrescription } from '../utils/medicalDocPrinter'
 import { Appointment, SupportTicket } from '../types'
@@ -113,12 +114,19 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
       } else {
         const clean = query.trim().replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase()
         if (clean.length >= 5) {
-          const [data, linked] = await Promise.all([
+          const [data, linked, delta] = await Promise.all([
             getAppointmentByTrackingCode(clean),
             getLinkedConsultations(clean),
+            clean.length === 10 ? fetchLiveQueueDelta(clean) : Promise.resolve(null),
           ])
           const effective = data || linked?.targetAppointment || null
           if (effective) {
+            if (delta && delta.token_number > 0) {
+              effective.queueNumber = delta.token_number
+              if (delta.status) {
+                effective.checkinStatus = delta.status as any
+              }
+            }
             setAppointment(effective)
             setLinkedConsultations(linked)
             return
@@ -130,20 +138,23 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
               p_tracking_code: clean,
             })
             const publicStatus = Array.isArray(publicRows) && publicRows.length > 0 ? publicRows[0] : null
-            if (publicStatus) {
+            if (publicStatus || delta) {
+              const tokenNum = delta?.token_number || publicStatus?.token_number || 1
+              const st = delta?.status || publicStatus?.status || 'waiting'
               setAppointment({
                 id: '',
-                trackingCode10Digit: publicStatus.tracking_code_10_digit,
+                trackingCode10Digit: publicStatus?.tracking_code_10_digit || clean,
                 patientName: 'Confidential Patient',
-                queueNumber: publicStatus.token_number,
-                status: publicStatus.status,
-                appointmentDate: publicStatus.appointment_date,
-                appointmentTime: publicStatus.appointment_time,
+                queueNumber: tokenNum,
+                status: st,
+                checkinStatus: st,
+                appointmentDate: publicStatus?.appointment_date || new Date().toISOString().slice(0, 10),
+                appointmentTime: publicStatus?.appointment_time || '',
                 clinic: {
-                  id: publicStatus.clinic_id,
-                  name: publicStatus.clinic_name,
+                  id: publicStatus?.clinic_id,
+                  name: publicStatus?.clinic_name || 'Clinic',
                 } as any,
-                doctor: publicStatus.doctor_name
+                doctor: publicStatus?.doctor_name
                   ? ({
                       id: publicStatus.doctor_id,
                       fullName: publicStatus.doctor_name,
@@ -392,7 +403,7 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
                   {isCompleted ? 'VISIT' : isPast ? 'PAST' : isFuture ? 'SCHEDULED' : 'TOKEN'}
                 </span>
                 <span className="text-xl sm:text-2xl font-black">
-                  {isCompleted ? '✓' : isPast ? '—' : `#${(appointment as any).queuePosition || appointment.queueNumber || 1}`}
+                  {isCompleted ? '✓' : isPast ? '—' : `#${appointment.queueNumber || (appointment as any).queuePosition || 1}`}
                 </span>
               </div>
               <h4 className={`text-xs sm:text-sm font-bold ${

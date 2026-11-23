@@ -293,7 +293,12 @@ fun QueueStatusScreen(
 
                 // Automatically save tracking code so this device receives alerts even when app is not open
                 if (appt.trackingCode10Digit.isNotBlank()) {
-                    sessionManager?.saveTrackingCode(appt.trackingCode10Digit, "${appt.patientName} \u2022 ${appt.appointmentDate}")
+                    sessionManager?.unhideRecord(appt.trackingCode10Digit)
+                    sessionManager?.saveTrackingCode(
+                        appt.trackingCode10Digit,
+                        "${appt.patientName} \u2022 ${appt.appointmentDate}",
+                        explicitUnhide = true
+                    )
                 }
 
                 // Load confidential details and lab reports only on initial full load or manual refresh
@@ -312,9 +317,9 @@ fun QueueStatusScreen(
                     isSavedToProfile = true
                 }
 
-                // Fetch clinic info (only when missing, on full refresh, or periodically during delta poll)
+                // Fetch clinic info (only when missing or on initial full refresh; cached on device)
                 if (appt.clinicId.isNotBlank()) {
-                    val shouldRefreshClinic = !isDeltaOnly || clinicObj == null || (System.currentTimeMillis() % 12_000L < 4_500L)
+                    val shouldRefreshClinic = (!isDeltaOnly || clinicObj == null)
                     if (shouldRefreshClinic) {
                         val clinic = clinicRepository?.getClinicById(appt.clinicId, forceRefresh = (clinicObj == null))
                         if (clinic != null) {
@@ -467,42 +472,67 @@ fun QueueStatusScreen(
                     tokenNumber = slotResult?.cumulativePosition ?: (if (tokenNumber > 0) tokenNumber else 1)
                     liveTimingEstimate = null // Silence live countdown for advance dates
                 } else if (appt.clinicId.isNotBlank() && isAppointmentToday) {
-                    val doctorDateEntries = queueRepository?.getQueueEntriesForDoctorAndDate(
-                        clinicId = appt.clinicId,
-                        doctorId = if (isLabClinic) null else appt.doctorId,
-                        appointmentDate = appt.appointmentDate,
-                        forceRefresh = isDeltaOnly
-                    ) ?: emptyList()
-                    val myPos = qEntry?.queuePosition ?: tokenNumber
-                    val sortedActive = doctorDateEntries
-                        .filter { it.status == "waiting" || it.status == "inside" || it.status == "in_consultation" }
-                        .sortedWith(
-                            compareBy<com.dactor.patient.data.model.QueueEntry> { if (it.status == "inside" || it.status == "in_consultation") 0 else 1 }
-                                .thenBy { it.queuePosition }
+                    val liveDelta = queueRepository?.fetchLiveQueueDelta(queryCode)
+                    if (liveDelta != null && liveDelta.tokenNumber > 0) {
+                        tokenNumber = liveDelta.tokenNumber
+                        patientsAhead = liveDelta.patientsAhead.coerceAtLeast(0)
+                        queueStatus = liveDelta.queueStatus
+                        isDoctorInClinic = liveDelta.doctorIsInClinic
+                        isAnyoneInsideDoctorCabin = liveDelta.isAnyoneInside
+                        val timing = QueueRepository.calculateLiveQueueTimingEstimate(
+                            clinic = clinicObj,
+                            isDoctorInClinic = if (isLabClinic) true else isDoctorInClinic,
+                            allClinicQueueEntries = if (qEntry != null) listOf(qEntry.copy(queuePosition = tokenNumber, status = queueStatus)) else emptyList(),
+                            targetEntry = qEntry?.copy(queuePosition = tokenNumber, status = queueStatus),
+                            fallbackPatientsAhead = patientsAhead,
+                            appointmentTime = appt.appointmentTime,
+                            optInEarlyCall = appt.optInEarlyCall,
+                            appointmentDate = appt.appointmentDate
                         )
-                    val myIdx = sortedActive.indexOfFirst { it.appointmentId == appt.id || it.id == qEntry?.id }
-                    val liveAhead = when {
-                        qEntry?.status in listOf("inside", "in_consultation") -> 0
-                        myIdx >= 0 -> myIdx
-                        else -> doctorDateEntries.count { (it.status == "waiting" || it.status == "inside") && it.queuePosition < myPos }
-                    }
-                    patientsAhead = liveAhead.coerceAtLeast(0)
-                    tokenNumber = if (myPos > 0) myPos else (slotResult?.cumulativePosition ?: 1)
-                    isAnyoneInsideDoctorCabin = doctorDateEntries.any { it.status == "inside" || it.status == "in_consultation" }
+                        liveTimingEstimate = if (liveDelta.slotNotice.isNotBlank()) {
+                            timing.copy(slotNoticeText = liveDelta.slotNotice)
+                        } else timing
+                    } else {
+                        val doctorDateEntries = queueRepository?.getQueueEntriesForDoctorAndDate(
+                            clinicId = appt.clinicId,
+                            doctorId = if (isLabClinic) null else appt.doctorId,
+                            appointmentDate = appt.appointmentDate,
+                            forceRefresh = isDeltaOnly
+                        ) ?: emptyList()
+                        val myPos = qEntry?.queuePosition ?: tokenNumber
+                        val sortedActive = doctorDateEntries
+                            .filter { it.status == "waiting" || it.status == "inside" || it.status == "in_consultation" }
+                            .sortedWith(
+                                compareBy<com.dactor.patient.data.model.QueueEntry> { if (it.status == "inside" || it.status == "in_consultation") 0 else 1 }
+                                    .thenBy { it.queuePosition }
+                            )
+                        val myIdx = sortedActive.indexOfFirst { it.appointmentId == appt.id || it.id == qEntry?.id }
+                        val liveAhead = when {
+                            qEntry?.status in listOf("inside", "in_consultation") -> 0
+                            myIdx >= 0 -> myIdx
+                            else -> doctorDateEntries.count { (it.status == "waiting" || it.status == "inside") && it.queuePosition < myPos }
+                        }
+                        patientsAhead = liveAhead.coerceAtLeast(0)
+                        tokenNumber = if (myPos > 0) myPos else (slotResult?.cumulativePosition ?: 1)
+                        isAnyoneInsideDoctorCabin = doctorDateEntries.any { it.status == "inside" || it.status == "in_consultation" }
 
-                    // Real estimated timing calculation using QueueRepository engine scoped strictly to specific doctor and date
-                    val timing = QueueRepository.calculateLiveQueueTimingEstimate(
-                        clinic = clinicObj,
-                        isDoctorInClinic = if (isLabClinic) true else isDoctorInClinic,
-                        allClinicQueueEntries = doctorDateEntries,
-                        targetEntry = qEntry,
-                        fallbackPatientsAhead = liveAhead,
-                        appointmentTime = appt.appointmentTime,
-                        optInEarlyCall = appt.optInEarlyCall,
-                        appointmentDate = appt.appointmentDate,
-                        avgMinutesOverride = doctorAvgMinutes
-                    )
-                    liveTimingEstimate = timing
+                        // Real estimated timing calculation using QueueRepository engine scoped strictly to specific doctor and date
+                        val timing = QueueRepository.calculateLiveQueueTimingEstimate(
+                            clinic = clinicObj,
+                            isDoctorInClinic = if (isLabClinic) true else isDoctorInClinic,
+                            allClinicQueueEntries = doctorDateEntries,
+                            targetEntry = qEntry,
+                            fallbackPatientsAhead = liveAhead,
+                            appointmentTime = appt.appointmentTime,
+                            optInEarlyCall = appt.optInEarlyCall,
+                            appointmentDate = appt.appointmentDate,
+                            avgMinutesOverride = doctorAvgMinutes
+                        )
+                        liveTimingEstimate = timing
+                    }
+
+                    val liveAhead = patientsAhead
+                    val timing = liveTimingEstimate
 
                     // Expected wait time calculation for legacy formatting
                     val estWaitMinutes = if (liveAhead > 0) liveAhead * clinicAvgTimeMinutes else 0
@@ -510,95 +540,97 @@ fun QueueStatusScreen(
                     val todayStr = java.time.LocalDate.now().toString()
                     val isAppointmentForToday = appt.appointmentDate.trim().take(10) == todayStr
 
-                    // ── Late Patient Notification Trigger (Fires once when patient turn is bypassed) ──
-                    if (isAppointmentForToday && timing.isPatientLate && queueStatus == "waiting") {
-                        val alreadySentLate = sessionManager?.isLateAlertTriggered(appt.id) == true
-                        if (!alreadySentLate) {
-                            sessionManager?.markLateAlertTriggered(appt.id)
+                    if (timing != null) {
+                        // ── Late Patient Notification Trigger (Fires once when patient turn is bypassed) ──
+                        if (isAppointmentForToday && timing.isPatientLate && queueStatus == "waiting") {
+                            val alreadySentLate = sessionManager?.isLateAlertTriggered(appt.id) == true
+                            if (!alreadySentLate) {
+                                sessionManager?.markLateAlertTriggered(appt.id)
+                                try {
+                                    val lateTitle = "⚠️ Arrive Soon, You Are Late!"
+                                    val lateMsg = "Dear ${appt.patientName}, your turn was reached at ${clinicName.ifBlank { "the clinic" }}, but you haven't arrived. Another patient has been called inside. Please proceed to the clinic immediately."
+                                    com.dactor.patient.service.NotificationHelper.showSystemNotification(
+                                        context = context,
+                                        id = (appt.id.hashCode() and 0x7FFFFFFF) % 100000,
+                                        title = lateTitle,
+                                        message = lateMsg,
+                                        appointmentId = appt.id,
+                                        type = com.dactor.patient.data.model.NotificationType.ARRIVE_SOON.key
+                                    )
+                                    queueRepository?.insertAutoAlert(
+                                        appointmentId = appt.id,
+                                        userId = appt.userId,
+                                        title = lateTitle,
+                                        message = lateMsg,
+                                        estimatedTimeLeft = "Arrive Soon",
+                                        expectedTime = "Arrive soon, you are late",
+                                        trackingCode = appt.trackingCode10Digit
+                                    )
+                                } catch (_: Exception) {}
+                            }
+                        }
+
+                        // ── 1-Hour Reminder Trigger (Fires once at most when turn is within ≤ 1 hour ONLY FOR TODAY) ──
+                        val isWithinOneHour = (timing.estimatedTimeLeftText.contains("min") && !timing.estimatedTimeLeftText.contains("60")) || (liveAhead in 0..1)
+                        if (isAppointmentForToday && !timing.isPatientLate && isWithinOneHour && queueStatus == "waiting") {
+                            val alreadySent = sessionManager?.isOneHourReminderTriggered(appt.id) == true
+                            if (!alreadySent) {
+                                sessionManager?.markOneHourReminderTriggered(appt.id)
+                                try {
+                                    val notifTitle = "⏰ Queue Turn Approaching!"
+                                    val notifMsg = "Dear ${appt.patientName}, your turn at ${clinicName.ifBlank { "the clinic" }} is expected at ${timing.expectedExactTimeText} (${timing.estimatedTimeLeftText}). Please be nearby in the waiting area."
+                                    
+                                    com.dactor.patient.service.NotificationHelper.showSystemNotification(
+                                        context = context,
+                                        id = (appt.id.hashCode() and 0x7FFFFFFF) % 100000,
+                                        title = notifTitle,
+                                        message = notifMsg,
+                                        appointmentId = appt.id
+                                    )
+                                    queueRepository?.insertAutoAlert(
+                                        appointmentId = appt.id,
+                                        userId = appt.userId,
+                                        title = notifTitle,
+                                        message = notifMsg,
+                                        estimatedTimeLeft = timing.estimatedTimeLeftText,
+                                        expectedTime = timing.expectedExactTimeText,
+                                        trackingCode = appt.trackingCode10Digit
+                                    )
+                                } catch (ignored: Exception) {}
+                            }
+                        }
+
+                        // ── Automatic Alert: fire once when ≤2 people ahead in live queue ONLY FOR TODAY ──
+                        val alreadyTriggeredTwoAhead = sessionManager?.isTwoAheadAlertTriggered(appt.id) == true || hasTriggeredTwoAheadAlert
+                        if (isAppointmentForToday && !timing.isPatientLate && liveAhead in 0..2 && queueStatus == "waiting" && !alreadyTriggeredTwoAhead) {
+                            hasTriggeredTwoAheadAlert = true
+                            sessionManager?.markTwoAheadAlertTriggered(appt.id)
                             try {
-                                val lateTitle = "⚠️ Arrive Soon, You Are Late!"
-                                val lateMsg = "Dear ${appt.patientName}, your turn was reached at ${clinicName.ifBlank { "the clinic" }}, but you haven't arrived. Another patient has been called inside. Please proceed to the clinic immediately."
+                                val alertTitle = if (liveAhead == 0) "You're Next!" else "Almost Your Turn!"
+                                val alertMsg = if (liveAhead == 0) {
+                                    "Dear ${appt.patientName}, you are next in line at ${clinicName.ifBlank { "the clinic" }}. Expected time: ${timing.expectedExactTimeText}. Please proceed to the consultation area."
+                                } else {
+                                    "Dear ${appt.patientName}, only $liveAhead patient${if (liveAhead > 1) "s" else ""} ahead of you at ${clinicName.ifBlank { "the clinic" }}. Expected time: ${timing.expectedExactTimeText}. Please be ready."
+                                }
                                 com.dactor.patient.service.NotificationHelper.showSystemNotification(
                                     context = context,
                                     id = (appt.id.hashCode() and 0x7FFFFFFF) % 100000,
-                                    title = lateTitle,
-                                    message = lateMsg,
+                                    title = alertTitle,
+                                    message = alertMsg,
                                     appointmentId = appt.id,
                                     type = com.dactor.patient.data.model.NotificationType.ARRIVE_SOON.key
                                 )
                                 queueRepository?.insertAutoAlert(
                                     appointmentId = appt.id,
                                     userId = appt.userId,
-                                    title = lateTitle,
-                                    message = lateMsg,
-                                    estimatedTimeLeft = "Arrive Soon",
-                                    expectedTime = "Arrive soon, you are late",
-                                    trackingCode = appt.trackingCode10Digit
-                                )
-                            } catch (_: Exception) {}
-                        }
-                    }
-
-                    // ── 1-Hour Reminder Trigger (Fires once at most when turn is within ≤ 1 hour ONLY FOR TODAY) ──
-                    val isWithinOneHour = (timing.estimatedTimeLeftText.contains("min") && !timing.estimatedTimeLeftText.contains("60")) || (liveAhead in 0..1)
-                    if (isAppointmentForToday && !timing.isPatientLate && isWithinOneHour && queueStatus == "waiting") {
-                        val alreadySent = sessionManager?.isOneHourReminderTriggered(appt.id) == true
-                        if (!alreadySent) {
-                            sessionManager?.markOneHourReminderTriggered(appt.id)
-                            try {
-                                val notifTitle = "⏰ Queue Turn Approaching!"
-                                val notifMsg = "Dear ${appt.patientName}, your turn at ${clinicName.ifBlank { "the clinic" }} is expected at ${timing.expectedExactTimeText} (${timing.estimatedTimeLeftText}). Please be nearby in the waiting area."
-                                
-                                com.dactor.patient.service.NotificationHelper.showSystemNotification(
-                                    context = context,
-                                    id = (appt.id.hashCode() and 0x7FFFFFFF) % 100000,
-                                    title = notifTitle,
-                                    message = notifMsg,
-                                    appointmentId = appt.id
-                                )
-                                queueRepository?.insertAutoAlert(
-                                    appointmentId = appt.id,
-                                    userId = appt.userId,
-                                    title = notifTitle,
-                                    message = notifMsg,
+                                    title = alertTitle,
+                                    message = alertMsg,
                                     estimatedTimeLeft = timing.estimatedTimeLeftText,
                                     expectedTime = timing.expectedExactTimeText,
                                     trackingCode = appt.trackingCode10Digit
                                 )
                             } catch (ignored: Exception) {}
                         }
-                    }
-
-                    // ── Automatic Alert: fire once when ≤2 people ahead in live queue ONLY FOR TODAY ──
-                    val alreadyTriggeredTwoAhead = sessionManager?.isTwoAheadAlertTriggered(appt.id) == true || hasTriggeredTwoAheadAlert
-                    if (isAppointmentForToday && !timing.isPatientLate && liveAhead in 0..2 && queueStatus == "waiting" && !alreadyTriggeredTwoAhead) {
-                        hasTriggeredTwoAheadAlert = true
-                        sessionManager?.markTwoAheadAlertTriggered(appt.id)
-                        try {
-                            val alertTitle = if (liveAhead == 0) "You're Next!" else "Almost Your Turn!"
-                            val alertMsg = if (liveAhead == 0) {
-                                "Dear ${appt.patientName}, you are next in line at ${clinicName.ifBlank { "the clinic" }}. Expected time: ${timing.expectedExactTimeText}. Please proceed to the consultation area."
-                            } else {
-                                "Dear ${appt.patientName}, only $liveAhead patient${if (liveAhead > 1) "s" else ""} ahead of you at ${clinicName.ifBlank { "the clinic" }}. Expected time: ${timing.expectedExactTimeText}. Please be ready."
-                            }
-                            com.dactor.patient.service.NotificationHelper.showSystemNotification(
-                                context = context,
-                                id = (appt.id.hashCode() and 0x7FFFFFFF) % 100000,
-                                title = alertTitle,
-                                message = alertMsg,
-                                appointmentId = appt.id,
-                                type = com.dactor.patient.data.model.NotificationType.ARRIVE_SOON.key
-                            )
-                            queueRepository?.insertAutoAlert(
-                                appointmentId = appt.id,
-                                userId = appt.userId,
-                                title = alertTitle,
-                                message = alertMsg,
-                                estimatedTimeLeft = timing.estimatedTimeLeftText,
-                                expectedTime = timing.expectedExactTimeText,
-                                trackingCode = appt.trackingCode10Digit
-                            )
-                        } catch (ignored: Exception) {}
                     }
 
                     // ── Instant Live Alert Check: Query latest unread alerts for this appointment (<4s latency) ──
@@ -752,18 +784,25 @@ fun QueueStatusScreen(
         appointment?.status?.lowercase() in listOf("no_show", "missed", "noshow")
     )
 
-    // Reschedule option available for diagnostic labs ONLY when no-show AND before sample collection; for doctor clinics when active
+    val isCancelled = !isConsultancyCompleted && !isSampleCollectedOrFurther && (
+        queueStatus == "cancelled" ||
+        appointment?.checkinStatus?.lowercase() == "cancelled" ||
+        appointment?.status?.lowercase() == "cancelled"
+    )
+
+    // Reschedule option available for diagnostic labs when never completed (before sample collection); for doctor clinics when active or in multi-visit clinics
     val canReschedule = if (isLabClinic) {
         DiagnosticLabPolicy.canRescheduleDiagnosticLab(
             appointment = appointment,
             queueStatus = queueStatus,
             labReports = labReports,
-            requireNoShow = true
+            requireNoShow = false
         )
     } else {
         !isConsultancyCompleted &&
         queueStatus != "inside" &&
-        appointment?.checkinStatus?.lowercase() !in listOf("inside", "in_consultation", "cancelled")
+        appointment?.checkinStatus?.lowercase() !in listOf("inside", "in_consultation") &&
+        (isMultiVisitClinic || appointment?.checkinStatus?.lowercase() != "cancelled" || isCancelled)
     }
 
     // Reschedule flow handler: saves PendingRescheduleData and navigates directly to interactive calendar
@@ -778,17 +817,18 @@ fun QueueStatusScreen(
             queueStatus = targetQStatus,
             labReports = targetReports
         )
-        val isTargetActive = target.checkinStatus.lowercase() !in listOf("done", "completed", "inside", "in_consultation", "cancelled")
+        val isTargetActive = target.checkinStatus.lowercase() !in listOf("done", "completed", "inside", "in_consultation")
+        val isTargetCancelled = target.checkinStatus.lowercase() == "cancelled" || target.status.lowercase() == "cancelled"
         val isAllowed = if (targetAppt != null) {
             if (isTargetLab) {
                 DiagnosticLabPolicy.canRescheduleDiagnosticLab(
                     appointment = target,
                     queueStatus = targetQStatus,
                     labReports = targetReports,
-                    requireNoShow = true
+                    requireNoShow = false
                 )
             } else {
-                isTargetActive
+                isTargetActive && (isMultiVisitClinic || !isTargetCancelled || isCancelled)
             }
         } else {
             canReschedule
@@ -798,7 +838,7 @@ fun QueueStatusScreen(
                 if (DiagnosticLabPolicy.isSampleCollectedOrFurther(target, targetQStatus, targetReports)) {
                     "Sample already collected for this lab appointment. It cannot be rescheduled."
                 } else {
-                    "Only missed (no-show) lab appointments before sample collection can be rescheduled."
+                    "This lab appointment cannot be rescheduled."
                 }
             } else {
                 "Consultation is completed or in progress. Cannot be rescheduled."
@@ -1028,26 +1068,72 @@ fun QueueStatusScreen(
                             }
                         }
 
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color.White,
-                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clickable {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val clip = ClipData.newPlainText("Booking Code", displayTrackingCode)
-                                    clipboard.setPrimaryClip(clip)
-                                    Toast.makeText(context, "Booking code copied to clipboard!", Toast.LENGTH_SHORT).show()
-                                }
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    Icons.Default.ContentCopy,
-                                    contentDescription = "Copy code",
-                                    tint = Color(0xFF334155),
-                                    modifier = Modifier.size(17.dp)
-                                )
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSavedToProfile) Color(0xFFECFDF5) else Color.White,
+                                border = BorderStroke(1.dp, if (isSavedToProfile) Color(0xFF10B981) else Color(0xFFE2E8F0)),
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clickable {
+                                        if (displayTrackingCode.isNotBlank()) {
+                                            sessionManager?.unhideRecord(displayTrackingCode)
+                                            appointment?.id?.let { sessionManager?.unhideRecord(it) }
+                                            val label = "${rawPatientName.ifBlank { "Appointment" }} \u2022 ${appointment?.appointmentDate ?: ""}".trim()
+                                            sessionManager?.saveTrackingCode(displayTrackingCode, label, explicitUnhide = true)
+                                            val pid = sessionManager?.getSavedPatientId()
+                                            val pEmail = sessionManager?.getSavedEmail()
+                                            if (!pid.isNullOrBlank() || !pEmail.isNullOrBlank()) {
+                                                appointment?.id?.let { aId ->
+                                                    coroutineScope.launch {
+                                                        appointmentRepository?.claimAppointment(
+                                                            appointmentId = aId,
+                                                            userId = pid,
+                                                            patientEmail = pEmail,
+                                                            trackingCode = displayTrackingCode
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            isSavedToProfile = true
+                                            Toast.makeText(context, "Saved #$displayTrackingCode to saved records!", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        if (isSavedToProfile) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                        contentDescription = if (isSavedToProfile) "Saved to records" else "Save code to records",
+                                        tint = if (isSavedToProfile) Color(0xFF059669) else Color(0xFF334155),
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color.White,
+                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clickable {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val clip = ClipData.newPlainText("Booking Code", displayTrackingCode)
+                                        clipboard.setPrimaryClip(clip)
+                                        Toast.makeText(context, "Booking code copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                    }
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Default.ContentCopy,
+                                        contentDescription = "Copy code",
+                                        tint = Color(0xFF334155),
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -1684,7 +1770,7 @@ fun QueueStatusScreen(
                                 Surface(
                                     shape = CircleShape,
                                     color = when {
-                                        showClinicClosedUI || isNoShow -> Color(0xFFFFE4E6)
+                                        showClinicClosedUI || isNoShow || isCancelled -> Color(0xFFFFE4E6)
                                         isLate -> Color(0xFFFFE4E6)
                                         isLabClinic && isReportReady -> Color(0xFFDCFCE7)
                                         isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> Color(0xFFFEF3C7)
@@ -1701,7 +1787,7 @@ fun QueueStatusScreen(
                                 Surface(
                                     shape = CircleShape,
                                     color = when {
-                                        showClinicClosedUI || isNoShow -> Color(0xFFE11D48)
+                                        showClinicClosedUI || isNoShow || isCancelled -> Color(0xFFE11D48)
                                         isLate -> Color(0xFFE11D48)
                                         isLabClinic && isReportReady -> Color(0xFF059669)
                                         isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> Color(0xFFD97706)
@@ -1722,6 +1808,7 @@ fun QueueStatusScreen(
                                         val topBadgeLabel = when {
                                             showClinicClosedUI -> "CLOSED"
                                             isNoShow -> "NO SHOW"
+                                            isCancelled -> "CANCELLED"
                                             isLate -> "LATE"
                                             isLabClinic && isReportReady -> "REPORT"
                                             isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> "IN LAB"
@@ -1734,7 +1821,7 @@ fun QueueStatusScreen(
                                             else -> "POSITION"
                                         }
                                         val mainBadgeText = when {
-                                            showClinicClosedUI || isNoShow -> "\u2715"
+                                            showClinicClosedUI || isNoShow || isCancelled -> "\u2715"
                                             isLate -> "!"
                                             isLabClinic && isReportReady -> "READY"
                                             isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> "LAB"
@@ -1776,6 +1863,7 @@ fun QueueStatusScreen(
                                         text = when {
                                             showClinicClosedUI -> "Clinic is Closed for Today"
                                             isNoShow -> "Visit Concluded as No-Show"
+                                            isCancelled -> "Appointment Cancelled in Live Queue"
                                             isLate -> "Arrive soon, you are late"
                                             !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow && !isPastDate) -> "Loading queue status..."
                                             isLabClinic && isReportReady -> "Status: Prepared"
@@ -1796,7 +1884,7 @@ fun QueueStatusScreen(
                                         fontSize = 17.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = when {
-                                            showClinicClosedUI || isNoShow -> Color(0xFFDC2626)
+                                            showClinicClosedUI || isNoShow || isCancelled -> Color(0xFFDC2626)
                                             isLate -> Color(0xFFDC2626)
                                             isLabClinic && isReportReady -> Color(0xFF059669)
                                             isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> Color(0xFFD97706)
@@ -1833,6 +1921,7 @@ fun QueueStatusScreen(
                                     text = when {
                                         showClinicClosedUI -> "The clinic has closed for today. Live queue consultations have concluded."
                                         isNoShow -> "Token was not attended before clinic closed and has been moved to No-Show."
+                                        isCancelled -> if (isLabClinic) "This diagnostic lab visit was cancelled. Sample was not collected. You can book a new slot below." else "This appointment was cancelled in the live queue. Patient records and medical history remain securely saved."
                                         isLate -> "Another patient was called inside \u2022 Please arrive now"
                                         !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow && !isPastDate) -> "Syncing queue details with clinic..."
                                         isLabClinic && isReportReady -> "Report Prepared \u2022 Verify Name/Phone to View"
@@ -3637,10 +3726,10 @@ fun QueueStatusScreen(
                                         appointment = apptItem,
                                         queueStatus = itemQStatus,
                                         labReports = itemReports,
-                                        requireNoShow = true
+                                        requireNoShow = false
                                     )
                                 } else {
-                                    !isItemCompleted && itemStatus != "cancelled"
+                                    !isItemCompleted
                                 }
                                 val isItemActive = itemStatus == "waiting" || itemStatus == "inside" || (isItemSampleDoneOrFurther && !isItemCompleted)
 

@@ -3707,7 +3707,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                           </button>
                         )}
 
-                        {!isCancelled && appt.checkinStatus !== 'completed' && (
+                        {appt.checkinStatus !== 'completed' && (
                           <div className="flex items-center space-x-1.5">
                             <button
                               onClick={() => {
@@ -3730,17 +3730,23 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                                   setRescheduleReason('')
                                 }
                               }}
-                              className="px-3 py-2 text-xs font-bold text-sky-700 dark:text-sky-300 liquid-glass-card hover:bg-sky-500/20 rounded-xl transition border border-sky-500/30 cursor-pointer active:scale-[0.98]"
+                              className={`px-3 py-2 text-xs font-bold rounded-xl transition cursor-pointer active:scale-[0.98] ${
+                                isCancelled
+                                  ? 'text-teal-700 dark:text-teal-300 bg-teal-500/10 border border-teal-500/20 hover:bg-teal-500/20'
+                                  : 'text-sky-700 dark:text-sky-300 liquid-glass-card hover:bg-sky-500/20 border border-sky-500/30'
+                              }`}
                             >
-                              Reschedule
+                              {isCancelled ? 'Reschedule Slot' : 'Reschedule'}
                             </button>
-                            <button
-                              onClick={() => handleOpenCancelModal(appt)}
-                              disabled={cancellingApptId === appt.id}
-                              className="px-3 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 liquid-glass-card hover:bg-rose-500/20 rounded-xl transition border border-rose-500/30 cursor-pointer disabled:opacity-50 active:scale-[0.98]"
-                            >
-                              Cancel
-                            </button>
+                            {!isCancelled && (
+                              <button
+                                onClick={() => handleOpenCancelModal(appt)}
+                                disabled={cancellingApptId === appt.id}
+                                className="px-3 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 liquid-glass-card hover:bg-rose-500/20 rounded-xl transition border border-rose-500/30 cursor-pointer disabled:opacity-50 active:scale-[0.98]"
+                              >
+                                Cancel
+                              </button>
+                            )}
                           </div>
                         )}
 
@@ -5487,6 +5493,17 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                               <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-2 text-xs text-amber-900">
                                 <div className="font-bold">
                                   A {PAY_AT_DESK_SERVICE_CHARGE_PERCENT}% service charge applies when paying at the clinic desk
+                                </div>
+                                {/* Appointment Slot & Date patient wants to book */}
+                                <div className="p-3 bg-white/80 dark:bg-slate-900/80 rounded-xl border border-amber-300/60 space-y-1.5 text-xs">
+                                  <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-200">
+                                    <Calendar className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                                    <span><strong>Appointment Date:</strong> {bookingDate}</span>
+                                  </div>
+                                  <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-200">
+                                    <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                                    <span><strong>Appointment Slot:</strong> {selectedSlot ? `${selectedSlot.startTime} – ${selectedSlot.endTime}` : 'Selected Slot'}</span>
+                                  </div>
                                 </div>
                                 <div className="flex justify-between text-slate-700">
                                   <span>Consultation / Lab Fee:</span>
@@ -7572,7 +7589,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={isClaimingCode || claimCodeInput.length !== 10}
+                  disabled={isClaimingCode || !claimCodeInput.trim()}
                   className="flex-1 py-3 bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-glass-brand border border-white/25 active:scale-[0.98] cursor-pointer"
                 >
                   {isClaimingCode ? 'Verifying...' : 'Claim & Link Token'}

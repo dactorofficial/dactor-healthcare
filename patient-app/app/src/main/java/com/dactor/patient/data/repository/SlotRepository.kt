@@ -200,10 +200,23 @@ class SlotRepository @Inject constructor(
             .groupingBy { it.slotId!! }
             .eachCount()
 
+        val activeWaitingCountBySlotId = allAppts
+            .filter {
+                val cStatus = it.checkinStatus.lowercase().trim()
+                val status = it.status.uppercase().trim()
+                cStatus !in listOf("completed", "done", "finished", "report_prepared", "results_ready", "cancelled", "no_show", "rejected") &&
+                    status !in listOf("COMPLETED", "DONE", "FINISHED", "CANCELLED", "REJECTED", "EXPIRED", "UNAPPROVED", "PENDING_PAYMENT") &&
+                    !it.slotId.isNullOrBlank() &&
+                    !(it.paymentMode.equals("PAY_AT_DESK", ignoreCase = true) && status == "WAITING_FOR_APPROVAL")
+            }
+            .groupingBy { it.slotId!! }
+            .eachCount()
+
         val enrichedSlots = filterActiveSlotsForDate(
             allSlots.map { slot ->
                 val registeredCount = activeCountBySlotId[slot.id] ?: slot.bookedCount
-                slot.copy(bookedCount = registeredCount)
+                val waitingCount = activeWaitingCountBySlotId[slot.id] ?: 0
+                slot.copy(bookedCount = registeredCount, waitingCount = waitingCount)
             },
             date
         )

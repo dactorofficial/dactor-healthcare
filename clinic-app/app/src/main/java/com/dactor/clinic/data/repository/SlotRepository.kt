@@ -137,6 +137,14 @@ open class SlotRepository @Inject constructor(
                         it.checkinStatus != "cancelled" &&
                         !(it.paymentMode.equals("PAY_AT_DESK", ignoreCase = true) && it.status.equals("WAITING_FOR_APPROVAL", ignoreCase = true))
                 }
+                val waitingCount = appointments.count {
+                    val cStatus = it.checkinStatus?.lowercase()?.trim().orEmpty()
+                    val status = it.status.uppercase().trim()
+                    it.slotId == slot.id &&
+                        cStatus !in listOf("completed", "done", "finished", "report_prepared", "results_ready", "cancelled", "no_show", "rejected") &&
+                        status !in listOf("COMPLETED", "DONE", "FINISHED", "CANCELLED", "REJECTED", "EXPIRED", "UNAPPROVED", "PENDING_PAYMENT") &&
+                        !(it.paymentMode.equals("PAY_AT_DESK", ignoreCase = true) && status == "WAITING_FOR_APPROVAL")
+                }
                 if (slot.bookedCount != registeredCount) {
                     try {
                         supabaseClient.postgrest["slots"].update({
@@ -146,7 +154,7 @@ open class SlotRepository @Inject constructor(
                         }
                     } catch (ignored: Exception) {}
                 }
-                slot.copy(bookedCount = registeredCount)
+                slot.copy(bookedCount = registeredCount, waitingCount = waitingCount)
             }
         } catch (e: Exception) {
             e.printStackTrace()
