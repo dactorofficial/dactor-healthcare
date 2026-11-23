@@ -19,7 +19,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dactor.clinic.ui.queue.QueueItemUi
-import java.time.Instant
 
 @Composable
 fun DoctorQueueItemCard(
@@ -204,7 +203,7 @@ fun DoctorQueueItemCard(
                         if (item.status == "inside") {
                             val elapsedSec = remember(item.insideAt, currentEpochSecond) {
                                 try {
-                                    val startEpoch = Instant.parse(item.insideAt).epochSecond
+                                    val startEpoch = java.time.OffsetDateTime.parse(item.insideAt.orEmpty().trim()).toEpochSecond()
                                     (currentEpochSecond - startEpoch).coerceAtLeast(0L)
                                 } catch (_: Exception) {
                                     0L
