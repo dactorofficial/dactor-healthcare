@@ -1017,16 +1017,18 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
       // 2. Returning Patient Follow-Up handling (Only when NOT in reschedule mode)
       if (isReturningPatient && retainedAppointment) {
-        const isRetainedCompleted = ['done', 'completed'].includes((retainedAppointment.checkinStatus || '').toLowerCase())
+        const isRetainedCancelled =
+          (retainedAppointment.checkinStatus || '').toLowerCase() === 'cancelled' ||
+          (retainedAppointment.status || '').toUpperCase() === 'CANCELLED'
 
-        if (isRetainedCompleted) {
-          // COMPLETED VISIT -> Issue a NEW follow-up appointment record, preserving past medical history!
+        if (!isRetainedCancelled) {
+          // COMPLETED or ACTIVE VISIT -> Issue a NEW follow-up appointment record (own tracking code),
+          // so the previous visit is never overwritten.
           const newFollowUpAppt = await createAppointment({
             clinicId,
             doctorId: activeTab === 'opd' ? (selectedDoctor?.id || retainedAppointment.doctorId) : undefined,
             userId: retainedAppointment.userId || patientUserId,
             slotId: selectedSlotId,
-            trackingCode10Digit: retainedAppointment.trackingCode10Digit,
             patientName: retainedAppointment.patientName,
             patientAge: retainedAppointment.patientAge || Number(patientAge),
             patientGender: retainedAppointment.patientGender || 'Male',
@@ -1045,7 +1047,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
           if (newFollowUpAppt) {
             setConfirmedAppt(newFollowUpAppt)
             setConfirmedTxnId(`FOLLOWUP-${newFollowUpAppt.trackingCode10Digit}`)
-            setConfirmedPayMethod('Free Follow-Up (Retained 10-Digit ID)')
+            setConfirmedPayMethod('Free Follow-Up')
             setShowBookingModal(false)
             setSubmitting(false)
             return
@@ -1055,7 +1057,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
             return
           }
         } else {
-          // ACTIVE / UPCOMING VISIT -> Reschedule existing appointment in-place
+          // CANCELLED VISIT -> Restore the cancelled booking in-place (keeps its bill)
           const ok = await shiftAppointmentDate(
             retainedAppointment.id,
             selectedDate,
@@ -3448,7 +3450,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                           <p className={`leading-relaxed ${isRescheduleMode ? 'text-cyan-800 dark:text-cyan-300/90' : 'text-emerald-700 dark:text-emerald-400/90'}`}>
                             {isRescheduleMode
                               ? `Your consultation with Dr. ${selectedDoctor?.fullName || 'the specialist'} is shifted to ${selectedDate} at ${selectedSlotTime} under existing Token #${retainedAppointment?.trackingCode10Digit || followupCodeInput || initialTrackingCode}. No payment is charged.`
-                              : `This follow-up consultation is retained under previous Appointment ID #${retainedAppointment?.trackingCode10Digit || followupCodeInput}. No payment is charged.`}
+                              : `This follow-up is linked to previous Appointment ID #${retainedAppointment?.trackingCode10Digit || followupCodeInput} and gets its own new Appointment ID. Your previous visit stays unchanged. No payment is charged.`}
                           </p>
                         </div>
                       )

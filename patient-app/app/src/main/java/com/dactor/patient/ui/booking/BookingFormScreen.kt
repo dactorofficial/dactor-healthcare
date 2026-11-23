@@ -418,8 +418,9 @@ fun BookingFormScreen(
                 }
 
                 if (isReturningPatient) {
-                    // If active or cancelled uncompleted appointment, reschedule in-place (never create new appointment or overwrite bill)
-                    val effectiveAppt: Appointment? = if ((isRetainedActive || isRetainedCancelled) && retainedAppointment != null) {
+                    // Cancelled booking: restore it in-place (keeps its bill). Any other retained visit
+                    // (completed or still active) gets a NEW follow-up appointment so it is never overwritten.
+                    val effectiveAppt: Appointment? = if (isRetainedCancelled && retainedAppointment != null) {
                         val ok = appointmentRepository?.rescheduleAppointment(
                             id = retainedAppointment!!.id,
                             newDate = resolvedDate,
@@ -615,7 +616,7 @@ fun BookingFormScreen(
                         Text(
                             text = when {
                                 isLabClinic -> "Lab Tests (${selectedLabTests.size} selected)"
-                                isReturningPatient && isRetainedActive -> "Reschedule Visit"
+                                isReturningPatient && isRetainedCancelled -> "Reschedule Visit"
                                 isReturningPatient -> "Follow-Up Visit"
                                 else -> "Consultation Fee"
                             },
@@ -725,7 +726,7 @@ fun BookingFormScreen(
                             ) {
                                 Text(
                                     text = when {
-                                        isReturningPatient && isRetainedActive -> "Confirm Reschedule"
+                                        isReturningPatient && isRetainedCancelled -> "Confirm Reschedule"
                                         isReturningPatient -> "Confirm Follow-Up"
                                         else -> "Proceed to Payment"
                                     },
@@ -1243,7 +1244,7 @@ fun BookingFormScreen(
                                             )
                                             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                                 Text(
-                                                    text = if (isRetainedCancelled) "Cancelled Visit Found \u2022 Rescheduling to New Slot" else if (isRetainedActive) "Active Appointment Found \u2022 Rescheduling" else "Completed Visit Found \u2022 Free Follow-Up",
+                                                    text = if (isRetainedCancelled) "Cancelled Visit Found \u2022 Rescheduling to New Slot" else if (isRetainedActive) "Active Appointment Found \u2022 New Follow-Up" else "Completed Visit Found \u2022 Free Follow-Up",
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 12.5.sp,
                                                     color = if (isRetainedCancelled) Color(0xFF9F1239) else if (isRetainedActive) Color(0xFF1E3A8A) else Color(0xFF065F46)
@@ -1258,7 +1259,7 @@ fun BookingFormScreen(
                                                     text = if (isRetainedCancelled) {
                                                         "Previously cancelled visit (#${retained.trackingCode10Digit}). Confirming below will reschedule this uncompleted visit to your newly selected slot."
                                                     } else if (isRetainedActive) {
-                                                        "Currently scheduled: ${retained.appointmentDate} at ${retained.appointmentTime}. Confirming below will shift this visit to your newly selected slot."
+                                                        "Currently scheduled: ${retained.appointmentDate} at ${retained.appointmentTime}. Confirming below will book a separate follow-up; this visit stays unchanged."
                                                     } else {
                                                         "Eligible for free follow-up consultation. Completed visit medical history is safely preserved in records."
                                                     },

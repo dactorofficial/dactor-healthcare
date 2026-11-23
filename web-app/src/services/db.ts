@@ -2002,6 +2002,11 @@ export async function shiftAppointmentDate(
       .eq('id', appointmentId)
       .maybeSingle()
 
+    // A completed visit is medical history: never move it in place (book a separate follow-up instead)
+    if (['done', 'completed', 'finished'].includes(String(oldAppt?.checkin_status || '').toLowerCase())) {
+      return false
+    }
+
     const normalizedTime = formatTimeForPostgres(newTime || oldAppt?.appointment_time || '10:00 AM')
     const resolvedDocId = validDoctorId || (oldAppt?.doctor_id && uuidRegex.test(String(oldAppt.doctor_id)) ? String(oldAppt.doctor_id) : null)
     const cleanReason = reason?.trim() || 'Patient requested reschedule'

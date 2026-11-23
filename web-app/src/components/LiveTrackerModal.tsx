@@ -532,13 +532,14 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
                       clinicId: appointment.clinicId,
                       doctorId: appointment.doctorId,
                       trackingCode: appointment.trackingCode10Digit,
-                      isReschedule: true,
+                      // A completed visit must never be rescheduled in place: book a separate follow-up instead
+                      isReschedule: !isCompleted,
                     })
                   }}
                   className="py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-xs active:scale-95"
                 >
                   <Calendar className="w-3.5 h-3.5" />
-                  <span>Reschedule Visit</span>
+                  <span>{isCompleted ? 'Book Follow-Up' : 'Reschedule Visit'}</span>
                 </button>
               )}
               {appointment.clinic?.contactPhone && (
