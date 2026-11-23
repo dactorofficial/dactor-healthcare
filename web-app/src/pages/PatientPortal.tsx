@@ -4045,7 +4045,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                         clinicDocs,
                       }
                     })
-                    .filter(Boolean) as Array<{
+                    .filter(Boolean)
+                    .sort((a, b) => (b?.score || 0) - (a?.score || 0)) as Array<{
                     c: Clinic
                     isLab: boolean
                     isSingle: boolean
