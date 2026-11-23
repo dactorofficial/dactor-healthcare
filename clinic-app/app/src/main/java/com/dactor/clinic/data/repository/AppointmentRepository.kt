@@ -180,8 +180,11 @@ open class AppointmentRepository @Inject constructor(
                 } catch (_: Exception) {}
                 attached.forEach { appt ->
                     appt.clinicId.takeIf { it.isNotBlank() }?.let { cid ->
-                        val currentList = clinicAppointmentsCache[cid] ?: emptyList()
-                        clinicAppointmentsCache[cid] = currentList.filter { it.id != appt.id } + appt
+                        // Only merge into a fully loaded clinic list; seeding an empty cache would make
+                        // getAppointmentsByClinic() return just these few appointments as the whole clinic.
+                        clinicAppointmentsCache[cid]?.let { currentList ->
+                            clinicAppointmentsCache[cid] = currentList.filter { it.id != appt.id } + appt
+                        }
                     }
                     appt.doctorId?.takeIf { it.isNotBlank() }?.let { did ->
                         val dateKey = "${did}_${appt.appointmentDate}"
@@ -243,8 +246,11 @@ open class AppointmentRepository @Inject constructor(
                     appointmentDao?.upsertAll(attached.map { AppointmentEntity.fromDomainModel(it, syncStatus = "synced") })
                 } catch (_: Exception) {}
                 attached.forEach { appt ->
-                    val currentList = clinicAppointmentsCache[clinicId] ?: emptyList()
-                    clinicAppointmentsCache[clinicId] = currentList.filter { it.id != appt.id } + appt
+                    // Only merge into a fully loaded clinic list; seeding an empty cache would make
+                    // getAppointmentsByClinic() return just these few appointments as the whole clinic.
+                    clinicAppointmentsCache[clinicId]?.let { currentList ->
+                        clinicAppointmentsCache[clinicId] = currentList.filter { it.id != appt.id } + appt
+                    }
                     appt.doctorId?.takeIf { it.isNotBlank() }?.let { did ->
                         val dateKey = "${did}_${appt.appointmentDate}"
                         val currentDocList = doctorAppointmentsCache[dateKey] ?: emptyList()
@@ -339,13 +345,8 @@ open class AppointmentRepository @Inject constructor(
             if (!inMem.isNullOrEmpty()) {
                 return@withContext inMem
             }
-            try {
-                val local = appointmentDao?.getApprovedAppointmentsForClinicList(clinicId)?.map { it.toDomainModel() }
-                if (!local.isNullOrEmpty()) {
-                    clinicAppointmentsCache[clinicId] = local
-                    return@withContext local
-                }
-            } catch (_: Exception) {}
+            // Room only holds whatever subsets other screens happened to sync (e.g. today's queue),
+            // so it is not a complete clinic list; it is used below only as an offline fallback.
         }
         try {
             val appts = supabaseClient.postgrest["appointments"]
@@ -1620,8 +1621,11 @@ open class AppointmentRepository @Inject constructor(
 
                         val cid = safeClinicId ?: approvedAppt.clinicId
                         if (cid.isNotBlank()) {
-                            val curList = clinicAppointmentsCache[cid] ?: emptyList()
-                            clinicAppointmentsCache[cid] = curList.filter { it.id != approvedAppt.id } + approvedAppt
+                            // Only merge into a fully loaded clinic list; seeding an empty cache would make
+                            // getAppointmentsByClinic() return just these few appointments as the whole clinic.
+                            clinicAppointmentsCache[cid]?.let { curList ->
+                                clinicAppointmentsCache[cid] = curList.filter { it.id != approvedAppt.id } + approvedAppt
+                            }
                         }
                         approvedAppt.doctorId?.let { docId ->
                             val curDocList = doctorAppointmentsCache[docId] ?: emptyList()
@@ -1925,8 +1929,11 @@ open class AppointmentRepository @Inject constructor(
 
                     val cid = effectiveCid?.takeIf { it.isNotBlank() } ?: approvedAppt.clinicId
                     if (cid.isNotBlank()) {
-                        val curList = clinicAppointmentsCache[cid] ?: emptyList()
-                        clinicAppointmentsCache[cid] = curList.filter { it.id != approvedAppt.id } + approvedAppt
+                        // Only merge into a fully loaded clinic list; seeding an empty cache would make
+                        // getAppointmentsByClinic() return just these few appointments as the whole clinic.
+                        clinicAppointmentsCache[cid]?.let { curList ->
+                            clinicAppointmentsCache[cid] = curList.filter { it.id != approvedAppt.id } + approvedAppt
+                        }
                     }
                     approvedAppt.doctorId?.let { docId ->
                         val curDocList = doctorAppointmentsCache[docId] ?: emptyList()
