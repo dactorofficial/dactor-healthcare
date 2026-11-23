@@ -95,8 +95,8 @@ File: `supabase/migration_followup_reschedule_integrity.sql`
    - **Doctor:** the follow-up's `doctor_id` is always taken from the original visit. `p_doctor_id`
      is ignored, or rejected with `FOLLOW_UP_DOCTOR_MISMATCH` if it's different. The slot must
      belong to that doctor (or be a general slot of the clinic) for the chosen date. If the original
-     visit has no doctor (old/walk-in data), refuse with `FOLLOW_UP_NO_DOCTOR`, so it's booked as a
-     new appointment instead.
+     visit has no doctor (old/walk-in data), or the original doctor is no longer affiliated with the
+     clinic, allow choosing another doctor of the same clinic (see "Agreed: original doctor no longer at the clinic" below).
    - **Free or charged:**
      - `multi_visit` clinic → follow-ups are unlimited and every one is free.
      - any other clinic type → free if no earlier follow-up exists for this original visit
@@ -208,6 +208,13 @@ File: `supabase/migration_followup_reschedule_integrity.sql`
 | 6 | Payment history → transactions; profile/user_id overwrite fixes (D1–D3) | Medium |
 | 7 | Testing | Medium |
 
-## Open questions
-- If the original doctor **is no longer affiliated** with the clinic, the plan refuses the follow-up
-  (book a new appointment). Say if it should be allowed with another doctor in that case.
+## Agreed: original doctor no longer at the clinic (Option B)
+If the original visit's doctor is no longer affiliated with the clinic, the follow-up is **allowed
+with another doctor of the same clinic**. It still counts as a follow-up, stays linked to the
+original visit, and uses the normal free/charged rules for the clinic type.
+- `create_follow_up_appointment` accepts `p_doctor_id` **only in this case** (original doctor not
+  affiliated). Otherwise the original doctor is forced, as above.
+- Screens: when the original doctor has left, unlock the doctor picker and show the note
+  "Dr. X is no longer at this clinic. Choose another doctor for this follow-up."
+- Test: remove the doctor from the clinic, then book a follow-up with the old code → the picker
+  unlocks, the follow-up is created with the new doctor, and it's still free (first one / multi-visit).
