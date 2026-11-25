@@ -7,6 +7,30 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-24
 
 ### Prompt:
+> "Pay-at-Desk Super Admin Settlement continue with this plan"
+
+#### Changes Applied:
+1. **Automated Pay-at-Desk Historical Repair Migration ([`supabase/migration_repair_pay_at_desk_settlements.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_repair_pay_at_desk_settlements.sql))**:
+   - Created authoritative PostgreSQL RPC `public.repair_pay_at_desk_historical_bookings()`:
+     - Automatically scans and fixes historical `PAY_AT_DESK` bookings where counter invoices in `billing_invoices` were paid but `appointments.payment_status` remained `unpaid`.
+     - Detects and resolves double 5% charges by restoring the base doctor consultation fee and recalculating `service_charge_amount` and `total_amount`.
+     - Synchronizes `billing_invoices` and `invoice_transactions` audit logs.
+     - Returns a detailed JSON payload with counts of repaired rows, unpaid statuses resolved, double-charge calculations fixed, and total recovered platform commission in NPR.
+   - Included immediate automated execution block via `DO $$ ... $$;` ensuring existing records are repaired upon migration application in Supabase.
+2. **Security Hardening & Anti-Double-5% Guard**:
+   - Hardened `public.is_authorized_clinic_staff(UUID)` to evaluate caller credentials against `clinics.contact_email`, accepted `clinic_invitations`, `doctors` entries, user profile metadata (`raw_user_meta_data ->> 'clinic_id'`), and `is_admin_portal_user()`.
+   - Updated `public.mark_pay_at_desk_collected(UUID, UUID)` with base fee normalization to prevent double 5% charges on manual collections.
+   - Created automated unit verification test [`supabase/test_repair_pay_at_desk_settlements.cjs`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/test_repair_pay_at_desk_settlements.cjs).
+3. **Super Admin Pay-at-Desk Settlements Portal Overhaul ([`admin-panel/src/pages/PayAtDeskSettlements.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/admin-panel/src/pages/PayAtDeskSettlements.tsx))**:
+   - Added **"Sync & Repair Data"** action button in top toolbar with progress feedback and an executive repair summary toast banner showing repaired booking counts and recovered commission.
+   - Enhanced Clinic Drilldown Modal: added `Payment Status` badge (`PAID` vs `UNPAID`), one-click **"Mark Paid"** collection button calling `mark_pay_at_desk_collected`, and double 5% fee audit alerts.
+   - Enhanced All Desk Bookings Master List (Tab 3): added payment status filters (`All`, `Paid`, `Unpaid`), `Payment Status` badge, and one-click `Mark Paid` resolution.
+4. **Master Documentation & Tracking**:
+   - Updated [`CLINIC_SEARCH_FIX.md`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/CLINIC_SEARCH_FIX.md) and [`HANDOFF.md`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/HANDOFF.md) detailing the resolution of historical bookings repair, security follow-up, and Super Admin settlement workflows.
+
+---
+
+### Prompt:
 > "Walk-in Follow-Up Fix continue with it"
 
 #### Changes Applied:

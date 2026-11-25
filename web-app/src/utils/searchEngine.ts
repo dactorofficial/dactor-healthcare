@@ -740,18 +740,18 @@ export function matchDoctor(
   let highlightReason: string | undefined = undefined
 
   // 1. Specialty or symptom keywords ("skin", "heart", "child")
-  if (allDocSpecs.includes(q)) {
+  if (matchesWordStart(allDocSpecs, q)) {
     score += 150
     highlightReason = `Specialist: ${doctor.specialty || doctor.specialties?.[0] || 'Specialist'}`
   } else {
     for (const stem of stemsArray) {
-      if (allDocSpecs.includes(stem)) {
+      if (matchesWordStart(allDocSpecs, stem)) {
         score += 140
         const matchedSug = suggestedSpecs[0] || doctor.specialty || 'Specialist'
         highlightReason = `Suggested for '${query}': ${matchedSug}`
         break
       }
-      if (docBioLower.includes(stem) || docEduLower.includes(stem)) {
+      if (matchesWordStart(docBioLower, stem) || matchesWordStart(docEduLower, stem)) {
         score += 125
         highlightReason = `Recommended ${doctor.specialty || 'Specialist'} for '${query}'`
         break
@@ -762,21 +762,21 @@ export function matchDoctor(
   // 2. Doctor Name (direct, title-stripped, or token-level)
   const qClean = q.replace(/^dr\.?\s*/i, '').replace(/^doctor\s*/i, '').trim()
   const docNameClean = docNameLower.replace(/^dr\.?\s*/i, '').replace(/^doctor\s*/i, '').trim()
-  const qCleanTokens = qClean.split(/\s+/).filter((t) => t.length >= 2)
-  const docTokens = docNameClean.split(/\s+/).filter((t) => t.length >= 2)
+  const qCleanTokens = tokenizeWords(qClean).filter((t) => t.length >= 2)
+  const docTokens = tokenizeWords(docNameClean).filter((t) => t.length >= 2)
 
   const isDirectDocMatch =
-    docNameLower.includes(q) ||
-    `dr. ${docNameLower}`.includes(q) ||
-    docNameClean.includes(qClean) ||
-    (qClean.length >= 3 && qClean.includes(docNameClean))
+    matchesWordStart(docNameLower, q) ||
+    matchesWordStart(`dr. ${docNameLower}`, q) ||
+    matchesWordStart(docNameClean, qClean) ||
+    (qClean.length >= 3 && matchesWordStart(qClean, docNameClean))
   const isTokenDocMatch =
     qCleanTokens.length > 0 &&
     docTokens.some((dTok) =>
       qCleanTokens.some((qTok) => dTok === qTok || (qTok.length >= 3 && (dTok.startsWith(qTok) || qTok.startsWith(dTok))))
     )
   const isStemDocMatch = stemsArray.some(
-    (stem) => stem.length >= 3 && (docNameClean.includes(stem) || docTokens.includes(stem))
+    (stem) => stem.length >= 3 && (matchesWordStart(docNameClean, stem) || docTokens.includes(stem))
   )
 
   if (isDirectDocMatch || isTokenDocMatch || isStemDocMatch) {
@@ -787,21 +787,21 @@ export function matchDoctor(
   }
 
   // 3. Practicing Clinics & Area (Bidirectional Affiliation Match)
-  const qTokens = significantTokens(q.split(/\s+/).filter((t) => t.length >= 2))
+  const qTokens = significantTokens(tokenizeWords(q).filter((t) => t.length >= 2))
   for (const clinic of clinics) {
     const cName = (clinic.name || '').toLowerCase()
     const cAddr = (clinic.addressText || '').toLowerCase()
-    const cNameTokens = cName.split(/\s+/).filter((t) => t.length >= 2)
+    const cNameTokens = tokenizeWords(cName).filter((t) => t.length >= 2)
 
     // Clinic name match (direct, stem, or token overlap)
-    const isDirectClinicMatch = cName.includes(q) || (q.length >= 3 && q.includes(cName))
+    const isDirectClinicMatch = matchesWordStart(cName, q) || (q.length >= 3 && matchesWordStart(q, cName))
     const isStemClinicMatch = stemsArray.some(
-      (stem) => stem.length >= 3 && (cName.includes(stem) || stem.includes(cName))
+      (stem) => stem.length >= 3 && (matchesWordStart(cName, stem) || matchesWordStart(stem, cName))
     )
     const isTokenClinicMatch = qTokens.some(
       (tok) =>
         tok.length >= 3 &&
-        (cName.includes(tok) ||
+        (matchesWordStart(cName, tok) ||
           cNameTokens.some((it) => it === tok || it.startsWith(tok) || tok.startsWith(it)))
     )
 
@@ -812,7 +812,7 @@ export function matchDoctor(
       }
     }
 
-    if (cAddr.includes(q) || (q.length >= 3 && q.includes(cAddr)) || stemsArray.some((stem) => stem.length >= 3 && cAddr.includes(stem))) {
+    if (matchesWordStart(cAddr, q) || stemsArray.some((stem) => stem.length >= 3 && matchesWordStart(cAddr, stem))) {
       score += 75
       if (!highlightReason) highlightReason = `Area: ${clinic.addressText || clinic.name}`
     }
