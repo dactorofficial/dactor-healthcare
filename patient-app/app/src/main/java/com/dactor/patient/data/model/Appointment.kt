@@ -28,6 +28,7 @@ data class Appointment(
     @SerialName("payment_mode") val paymentMode: String = "ONLINE",
     @SerialName("status") val status: String = "APPROVED",
     @SerialName("attempt_number") val attemptNumber: Int = 1,
+    @SerialName("token_number") val tokenNumber: Int? = null,
     @SerialName("service_charge_amount") val serviceChargeAmount: Double = 0.0,
     @SerialName("total_amount") val totalAmount: Double = 0.0,
     @SerialName("expires_at") val expiresAt: String? = null,
@@ -35,6 +36,9 @@ data class Appointment(
     @SerialName("rejected_at") val rejectedAt: String? = null,
     @SerialName("created_at") val createdAt: String? = null
 ) {
+    val effectiveTokenNumber: Int
+        get() = tokenNumber ?: 1
+
     val isPayAtDesk: Boolean
         get() = paymentMode.equals("PAY_AT_DESK", ignoreCase = true)
 
