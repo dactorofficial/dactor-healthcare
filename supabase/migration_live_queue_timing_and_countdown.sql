@@ -36,6 +36,7 @@ VOLATILE
 SECURITY DEFINER
 SET search_path = public, private, pg_temp
 AS $$
+#variable_conflict use_column
 DECLARE
     v_clean TEXT := trim(COALESCE(p_code_or_id, ''));
     v_appt public.appointments%ROWTYPE;
@@ -61,20 +62,20 @@ BEGIN
 
     -- Lookup appointment by 10-digit tracking code or UUID
     IF v_clean ~ '^[0-9]{10}$' THEN
-        SELECT * INTO v_appt FROM public.appointments WHERE tracking_code_10_digit = v_clean LIMIT 1;
+        SELECT * INTO v_appt FROM public.appointments a WHERE a.tracking_code_10_digit = v_clean LIMIT 1;
     ELSIF v_clean ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
-        SELECT * INTO v_appt FROM public.appointments WHERE id = v_clean::UUID LIMIT 1;
+        SELECT * INTO v_appt FROM public.appointments a WHERE a.id = v_clean::UUID LIMIT 1;
     ELSE
-        SELECT * INTO v_appt FROM public.appointments WHERE tracking_code_10_digit = v_clean LIMIT 1;
+        SELECT * INTO v_appt FROM public.appointments a WHERE a.tracking_code_10_digit = v_clean LIMIT 1;
     END IF;
 
     IF v_appt.id IS NULL THEN
         RETURN;
     END IF;
 
-    SELECT * INTO v_clinic FROM public.clinics WHERE id = v_appt.clinic_id LIMIT 1;
+    SELECT * INTO v_clinic FROM public.clinics c WHERE c.id = v_appt.clinic_id LIMIT 1;
     IF v_appt.doctor_id IS NOT NULL THEN
-        SELECT * INTO v_doctor FROM public.doctors WHERE id = v_appt.doctor_id LIMIT 1;
+        SELECT * INTO v_doctor FROM public.doctors d WHERE d.id = v_appt.doctor_id LIMIT 1;
         v_doc_in_clinic := COALESCE(v_doctor.is_in_clinic, FALSE);
     END IF;
 
