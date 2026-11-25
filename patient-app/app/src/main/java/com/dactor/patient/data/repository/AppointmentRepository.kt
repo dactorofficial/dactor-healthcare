@@ -337,8 +337,9 @@ class AppointmentRepository @Inject constructor(
     /**
      * Books a follow-up appointment reusing the patient's existing demographic profile
      * (name, age, gender, mobile, email) identified by their 10-digit Appointment ID.
-     * If the appointment is already completed, creates a NEW appointment row to preserve medical history.
-     * If active/upcoming, reschedules the existing appointment row to the new slot.
+     * A follow-up ALWAYS creates a NEW appointment row with its own tracking code, so the
+     * previous visit (date, slot, doctor, status, notes, bill) is never overwritten.
+     * Returns null if the new appointment could not be persisted.
      */
     suspend fun bookFollowUpAppointment(
         trackingCode: String,
@@ -362,109 +363,98 @@ class AppointmentRepository @Inject constructor(
         val normalizedTime = normalizeTimeForPostgres(appointmentTime)
 
         val isToday = (appointmentDate == java.time.LocalDate.now().toString())
-        val isCompleted = existing.checkinStatus.lowercase() in listOf("done", "completed")
 
-        if (isCompleted) {
-            // COMPLETED VISIT -> CREATE NEW FOLLOW-UP APPOINTMENT RECORD (Preserves past consultation history)
-            val newApptId = UUID.randomUUID().toString()
-            val newAppointment = existing.copy(
-                id = newApptId,
-                slotId = validSlotId,
-                clinicId = clinicId,
-                doctorId = validDoctorId,
-                userId = retainedUserId,
-                patientEmail = retainedEmail,
-                appointmentDate = appointmentDate,
-                appointmentTime = normalizedTime,
-                paymentStatus = "paid",
-                checkinStatus = "not_checked_in",
-                status = "APPROVED",
-                feeAmount = 0.0,
-                totalAmount = 0.0,
-                serviceChargeAmount = 0.0,
-                paymentMode = "ONLINE",
-                createdAt = java.time.Instant.now().toString()
-            )
+        // tracking_code_10_digit is UNIQUE: the follow-up needs its own code
+        val newTrackingCode = generateUnusedTrackingCode() ?: return@withContext null
+        val newAppointment = existing.copy(
+            id = UUID.randomUUID().toString(),
+            trackingCode10Digit = newTrackingCode,
+            slotId = validSlotId,
+            clinicId = clinicId,
+            doctorId = validDoctorId,
+            userId = retainedUserId,
+            patientEmail = retainedEmail,
+            appointmentDate = appointmentDate,
+            appointmentTime = normalizedTime,
+            paymentStatus = "paid",
+            checkinStatus = "not_checked_in",
+            status = "APPROVED",
+            feeAmount = 0.0,
+            totalAmount = 0.0,
+            serviceChargeAmount = 0.0,
+            paymentMode = "ONLINE",
+            isWalkin = false,
+            optInEarlyCall = false,
+            selectedLabTests = null,
+            notes = "Follow-Up Consultation (Ref: #${existing.trackingCode10Digit})",
+            attemptNumber = 1,
+            expiresAt = null,
+            approvedAt = null,
+            rejectedAt = null,
+            createdAt = java.time.Instant.now().toString()
+        )
 
-            val created = try {
+        val created = try {
+            supabaseClient.postgrest["appointments"]
+                .insert(newAppointment) { select() }
+                .decodeSingle<Appointment>()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            try {
+                val withoutUser = newAppointment.copy(userId = null)
                 supabaseClient.postgrest["appointments"]
-                    .insert(newAppointment) { select() }
+                    .insert(withoutUser) { select() }
                     .decodeSingle<Appointment>()
-            } catch (e: Exception) {
-                e.printStackTrace()
-                try {
-                    val withoutUser = newAppointment.copy(userId = null)
-                    supabaseClient.postgrest["appointments"]
-                        .insert(withoutUser) { select() }
-                        .decodeSingle<Appointment>()
-                } catch (retryEx: Exception) {
-                    newAppointment
-                }
-            }
-
-            if (!validSlotId.isNullOrBlank()) {
-                reconcileSlotBookedCount(validSlotId)
-            }
-
-            if (isToday) {
-                try {
-                    val existingEntries = supabaseClient.postgrest["queue_entries"]
-                        .select { filter { eq("clinic_id", clinicId) } }
-                        .decodeList<com.dactor.patient.data.model.QueueEntry>()
-                    val nextPos = (existingEntries
-                        .filter { it.status == "waiting" || it.status == "inside" }
-                        .maxOfOrNull { it.queuePosition } ?: 0) + 1
-                    val queueEntryDto = QueueEntryInsertDto(
-                        id = UUID.randomUUID().toString(),
-                        appointmentId = created.id,
-                        clinicId = clinicId,
-                        doctorId = validDoctorId,
-                        queuePosition = nextPos,
-                        status = "waiting"
-                    )
-                    supabaseClient.postgrest["queue_entries"].insert(queueEntryDto)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-
-            return@withContext created
-        } else {
-            // ACTIVE / UPCOMING VISIT -> RESCHEDULE EXISTING APPOINTMENT AUTHORITATIVELY
-            val ok = rescheduleAppointment(
-                id = existing.id,
-                newDate = appointmentDate,
-                newTime = normalizedTime,
-                slotId = validSlotId,
-                newDoctorId = validDoctorId,
-                reason = "Follow-Up Consultation (Ref: ${existing.trackingCode10Digit})"
-            )
-            if (!ok) {
+            } catch (retryEx: Exception) {
+                retryEx.printStackTrace()
+                // Never report an unsaved follow-up as booked
                 return@withContext null
             }
-
-            val updated = getAppointmentById(existing.id)
-            if (updated != null) {
-                return@withContext updated
-            }
-
-            val preservedStatus = if (existing.status.equals("WAITING_FOR_APPROVAL", ignoreCase = true)) {
-                "WAITING_FOR_APPROVAL"
-            } else {
-                "APPROVED"
-            }
-            return@withContext existing.copy(
-                slotId = validSlotId,
-                clinicId = clinicId,
-                doctorId = validDoctorId ?: existing.doctorId,
-                userId = retainedUserId,
-                patientEmail = retainedEmail,
-                appointmentDate = appointmentDate,
-                appointmentTime = normalizedTime,
-                checkinStatus = "not_checked_in",
-                status = preservedStatus
-            )
         }
+
+        if (!validSlotId.isNullOrBlank()) {
+            reconcileSlotBookedCount(validSlotId)
+        }
+
+        if (isToday) {
+            try {
+                val existingEntries = supabaseClient.postgrest["queue_entries"]
+                    .select { filter { eq("clinic_id", clinicId) } }
+                    .decodeList<com.dactor.patient.data.model.QueueEntry>()
+                val nextPos = (existingEntries
+                    .filter { it.status == "waiting" || it.status == "inside" }
+                    .maxOfOrNull { it.queuePosition } ?: 0) + 1
+                val queueEntryDto = QueueEntryInsertDto(
+                    id = UUID.randomUUID().toString(),
+                    appointmentId = created.id,
+                    clinicId = clinicId,
+                    doctorId = validDoctorId,
+                    queuePosition = nextPos,
+                    status = "waiting"
+                )
+                supabaseClient.postgrest["queue_entries"].insert(queueEntryDto)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        created
+    }
+
+    private suspend fun generateUnusedTrackingCode(): String? {
+        repeat(5) {
+            val candidate = com.dactor.patient.domain.util.TrackingCodeGenerator.generate()
+            val taken = try {
+                supabaseClient.postgrest["appointments"]
+                    .select { filter { eq("tracking_code_10_digit", candidate) } }
+                    .decodeList<Appointment>()
+                    .isNotEmpty()
+            } catch (e: Exception) {
+                false
+            }
+            if (!taken) return candidate
+        }
+        return null
     }
 
     suspend fun getAppointmentById(id: String): Appointment? = withContext(Dispatchers.IO) {
@@ -1284,6 +1274,10 @@ class AppointmentRepository @Inject constructor(
     ): Boolean = withContext(Dispatchers.IO) {
         val existing = getAppointmentById(id)
         if (isDiagnosticLabSampleCollectedOrFurther(id, existing)) {
+            return@withContext false
+        }
+        // A completed visit is medical history: never move it. Use bookFollowUpAppointment instead.
+        if (existing?.checkinStatus?.lowercase() in listOf("done", "completed", "finished")) {
             return@withContext false
         }
         val oldSlotId = existing?.slotId

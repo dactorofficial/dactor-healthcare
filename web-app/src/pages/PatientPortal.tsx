@@ -1876,36 +1876,68 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       const targetPatientGender = isFreeFollowup && retainedAppointment ? (retainedAppointment.patientGender || bookPatientGender) : bookPatientGender
       const targetPatientMobile = isFreeFollowup && retainedAppointment ? (retainedAppointment.patientMobile || bookPatientPhone.trim()) : bookPatientPhone.trim()
 
-      // 2. Follow-Up: Update/Shift existing appointment in-place for free follow-up
+      // 2. Follow-Up: a cancelled booking is restored in-place; any other retained visit
+      //    (completed or active) gets a NEW appointment so the previous visit is never overwritten.
       if (isFreeFollowup && retainedAppointment) {
-        code10 = retainedAppointment.trackingCode10Digit
         const targetDoctorId = selectedDoctor?.id || retainedAppointment.doctorId
-        const shiftReason = `Follow-Up Consultation (Ref: ${retainedAppointment.trackingCode10Digit})`
-        const ok = await shiftAppointmentDate(
-          retainedAppointment.id,
-          bookingDate,
-          slotTimeStr,
-          shiftReason,
-          selectedSlot?.id,
-          targetDoctorId,
-          retainedAppointment.trackingCode10Digit
-        )
-        if (!ok) {
-          throw new Error('Could not reschedule appointment for this slot. Please try another slot.')
-        }
-        const preservedStatus =
-          retainedAppointment.status?.toUpperCase() === 'WAITING_FOR_APPROVAL'
-            ? 'WAITING_FOR_APPROVAL'
-            : 'APPROVED'
-        finalAppt = {
-          ...retainedAppointment,
-          appointmentDate: bookingDate,
-          appointmentTime: slotTimeStr,
-          slotId: selectedSlot?.id,
-          doctorId: targetDoctorId,
-          doctor: selectedDoctor || retainedAppointment.doctor,
-          status: preservedStatus,
-          checkinStatus: 'not_checked_in',
+        const isRetainedCancelled =
+          (retainedAppointment.checkinStatus || '').toLowerCase() === 'cancelled' ||
+          (retainedAppointment.status || '').toUpperCase() === 'CANCELLED'
+
+        if (isRetainedCancelled) {
+          code10 = retainedAppointment.trackingCode10Digit
+          const shiftReason = `Follow-Up Consultation (Ref: ${retainedAppointment.trackingCode10Digit})`
+          const ok = await shiftAppointmentDate(
+            retainedAppointment.id,
+            bookingDate,
+            slotTimeStr,
+            shiftReason,
+            selectedSlot?.id,
+            targetDoctorId,
+            retainedAppointment.trackingCode10Digit
+          )
+          if (!ok) {
+            throw new Error('Could not reschedule appointment for this slot. Please try another slot.')
+          }
+          const preservedStatus =
+            retainedAppointment.status?.toUpperCase() === 'WAITING_FOR_APPROVAL'
+              ? 'WAITING_FOR_APPROVAL'
+              : 'APPROVED'
+          finalAppt = {
+            ...retainedAppointment,
+            appointmentDate: bookingDate,
+            appointmentTime: slotTimeStr,
+            slotId: selectedSlot?.id,
+            doctorId: targetDoctorId,
+            doctor: selectedDoctor || retainedAppointment.doctor,
+            status: preservedStatus,
+            checkinStatus: 'not_checked_in',
+          }
+        } else {
+          const followUpAppt = await createAppointment({
+            userId: retainedAppointment.userId || patientUser?.id,
+            clinicId: selectedClinic!.id,
+            doctorId: targetDoctorId,
+            slotId: selectedSlot?.id,
+            patientName: targetPatientName,
+            patientAge: targetPatientAge,
+            patientGender: targetPatientGender,
+            patientMobile: targetPatientMobile,
+            patientEmail: retainedAppointment.patientEmail || patientUser?.email,
+            appointmentDate: bookingDate,
+            appointmentTime: slotTimeStr,
+            checkinStatus: 'not_checked_in',
+            paymentStatus: 'paid',
+            paymentMode: 'ONLINE',
+            status: 'APPROVED',
+            feeAmount: 0,
+            notes: `Free Follow-Up Consultation (Ref: #${retainedAppointment.trackingCode10Digit})`,
+          })
+          if (!followUpAppt) {
+            throw new Error('Could not schedule follow-up appointment for this slot. Please try another slot.')
+          }
+          code10 = followUpAppt.trackingCode10Digit
+          finalAppt = followUpAppt
         }
       } else if (
         (['esewa', 'khalti', 'fonepay', 'connectips'] as const).includes(selectedPaymentMethod as any) &&

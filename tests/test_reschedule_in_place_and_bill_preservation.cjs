@@ -8,6 +8,7 @@
  * 3. Invoices in billing_invoices are never wiped out or set to 0 on reschedule.
  * 4. recordPaymentTransaction safeguards against 0-amount overwrites.
  * 5. Frontend reschedule flows never route into createAppointment or recordPaymentTransaction(0).
+ * 6. Follow-ups always create a NEW appointment; completed visits are never rescheduled in place.
  */
 
 const assert = require('assert');
@@ -35,42 +36,92 @@ function it(name, fn) {
 // SUITE 1: Static Code Invariant Checks (Web App & Mobile)
 // ---------------------------------------------------------
 
-it('BookingScreen.kt must never call bookFollowUpAppointment in isRescheduleMode and must call rescheduleAppointment', () => {
+it('BookingScreen.kt books a NEW follow-up for completed visits and reschedules in-place otherwise', () => {
   const file = fs.readFileSync(
     path.join(__dirname, '../patient-app/app/src/main/java/com/dactor/patient/ui/booking/BookingScreen.kt'),
     'utf8'
   );
-  
+
   const startIdx = file.indexOf('if (isRescheduleMode && pendingReschedule != null)');
   assert(startIdx !== -1, 'Could not find isRescheduleMode block in BookingScreen.kt');
   const endIdx = file.indexOf('val isUserLoggedIn =', startIdx);
   assert(endIdx !== -1, 'Could not find end of isRescheduleMode block');
   const rescheduleBlock = file.slice(startIdx, endIdx);
-  
-  assert(
-    !rescheduleBlock.includes('bookFollowUpAppointment'),
-    'BookingScreen.kt MUST NOT invoke bookFollowUpAppointment in isRescheduleMode!'
-  );
-  assert(
-    rescheduleBlock.includes('appointmentRepository?.rescheduleAppointment'),
-    'BookingScreen.kt must invoke rescheduleAppointment in isRescheduleMode!'
-  );
+
+  const completedIdx = rescheduleBlock.indexOf('if (isCompletedVisit && !isLabClinic)');
+  const followUpIdx = rescheduleBlock.indexOf('appointmentRepository?.bookFollowUpAppointment(');
+  const rescheduleIdx = rescheduleBlock.indexOf('appointmentRepository?.rescheduleAppointment(');
+  assert(completedIdx !== -1, 'BookingScreen.kt must branch on completed visits before rescheduling');
+  assert(followUpIdx > completedIdx, 'Completed visits must call bookFollowUpAppointment (never overwrite the visit)');
+  assert(rescheduleIdx > followUpIdx, 'Non-completed visits must still reschedule in-place');
 });
 
-it('BookingFormScreen.kt must reschedule in-place when isRetainedActive is true', () => {
+it('BookingFormScreen.kt reschedules in-place only for cancelled visits; others get a new follow-up', () => {
   const file = fs.readFileSync(
     path.join(__dirname, '../patient-app/app/src/main/java/com/dactor/patient/ui/booking/BookingFormScreen.kt'),
     'utf8'
   );
-  
+
   assert(
-    file.includes('isRetainedActive && retainedAppointment != null'),
-    'BookingFormScreen.kt must explicitly branch for isRetainedActive'
+    file.includes('if (isRetainedCancelled && retainedAppointment != null)'),
+    'BookingFormScreen.kt must reschedule in-place only for cancelled retained visits'
   );
   assert(
-    file.includes('appointmentRepository?.rescheduleAppointment('),
-    'BookingFormScreen.kt must invoke rescheduleAppointment for active retained visits'
+    !file.includes('(isRetainedActive || isRetainedCancelled) && retainedAppointment != null'),
+    'Active retained visits must NOT be rescheduled in-place (they get a new follow-up)'
   );
+  assert(
+    file.includes('appointmentRepository?.bookFollowUpAppointment('),
+    'BookingFormScreen.kt must invoke bookFollowUpAppointment for non-cancelled retained visits'
+  );
+});
+
+it('AppointmentRepository.bookFollowUpAppointment always inserts a new row with a new tracking code', () => {
+  const file = fs.readFileSync(
+    path.join(__dirname, '../patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt'),
+    'utf8'
+  );
+  const startIdx = file.indexOf('suspend fun bookFollowUpAppointment(');
+  const endIdx = file.indexOf('suspend fun getAppointmentById(', startIdx);
+  assert(startIdx !== -1 && endIdx !== -1, 'Could not find bookFollowUpAppointment');
+  const fn = file.slice(startIdx, endIdx);
+
+  assert(!fn.includes('rescheduleAppointment('), 'bookFollowUpAppointment must never reschedule (overwrite) the previous visit');
+  assert(fn.includes('trackingCode10Digit = newTrackingCode'), 'Follow-up must get its own tracking code (column is UNIQUE)');
+  assert(fn.includes('return@withContext null'), 'Follow-up must return null when the insert fails, not an unsaved object');
+});
+
+it('Client reschedule helpers refuse to move a completed visit', () => {
+  const repo = fs.readFileSync(
+    path.join(__dirname, '../patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt'),
+    'utf8'
+  );
+  const rStart = repo.indexOf('suspend fun rescheduleAppointment(');
+  const rBlock = repo.slice(rStart, repo.indexOf('val oldSlotId = existing?.slotId', rStart));
+  assert(rBlock.includes('"done", "completed", "finished"'), 'patient-app rescheduleAppointment must refuse completed visits');
+
+  const db = fs.readFileSync(path.join(__dirname, '../web-app/src/services/db.ts'), 'utf8');
+  const sStart = db.indexOf('export async function shiftAppointmentDate(');
+  const sBlock = db.slice(sStart, db.indexOf('const normalizedTime', sStart));
+  assert(sBlock.includes("['done', 'completed', 'finished']"), 'web shiftAppointmentDate must refuse completed visits');
+});
+
+it('Web follow-up flows create a new appointment instead of shifting the previous one', () => {
+  const clinicDetail = fs.readFileSync(path.join(__dirname, '../web-app/src/pages/ClinicDetail.tsx'), 'utf8');
+  const cdStart = clinicDetail.indexOf('// 2. Returning Patient Follow-Up handling');
+  const cdBlock = clinicDetail.slice(cdStart, clinicDetail.indexOf('const newFollowUpAppt', cdStart));
+  assert(cdBlock.includes('if (!isRetainedCancelled)'), 'ClinicDetail.tsx must create a new follow-up for any non-cancelled visit');
+  const cdCreate = clinicDetail.slice(cdStart, clinicDetail.indexOf('if (newFollowUpAppt)', cdStart));
+  assert(!cdCreate.includes('trackingCode10Digit: retainedAppointment.trackingCode10Digit'), 'ClinicDetail.tsx follow-up must not reuse the previous tracking code');
+
+  const portal = fs.readFileSync(path.join(__dirname, '../web-app/src/pages/PatientPortal.tsx'), 'utf8');
+  const pStart = portal.indexOf('if (isFreeFollowup && retainedAppointment) {');
+  const pBlock = portal.slice(pStart, portal.indexOf("(['esewa', 'khalti', 'fonepay', 'connectips']", pStart));
+  assert(pBlock.includes('if (isRetainedCancelled)'), 'PatientPortal.tsx may only shift a cancelled visit in-place');
+  assert(pBlock.includes('await createAppointment('), 'PatientPortal.tsx follow-up must create a new appointment');
+
+  const tracker = fs.readFileSync(path.join(__dirname, '../web-app/src/components/LiveTrackerModal.tsx'), 'utf8');
+  assert(tracker.includes('isReschedule: !isCompleted'), 'LiveTrackerModal must not open reschedule mode for completed visits');
 });
 
 it('ClinicDetail.tsx must never call createAppointment when isReschedule is true', () => {
@@ -144,23 +195,24 @@ it('db.ts recordPaymentTransaction must preserve appointment fee & invoice total
   );
 });
 
-it('Supabase RPC reschedule_patient_appointment allows in-place reschedule without completed visit block', () => {
+it('Supabase RPC reschedule_patient_appointment blocks completed visits (backend migration)', () => {
   const sql = fs.readFileSync(
-    path.join(__dirname, '../supabase/migration_reschedule_appointment_rpc.sql'),
+    path.join(__dirname, '../supabase/migration_block_completed_reschedule.sql'),
     'utf8'
   );
 
   assert(
-    !sql.includes("RETURN jsonb_build_object('success', false, 'error', 'Completed appointments cannot be rescheduled');"),
-    'Supabase RPC must not block completed appointments from in-place rescheduling'
+    sql.includes("IN ('completed', 'done', 'finished')") &&
+      sql.includes("'Completed appointments cannot be rescheduled. Book a follow-up instead.'"),
+    'Supabase RPC must refuse to reschedule completed appointments'
   );
   assert(
-    sql.includes("consultation_completed_at = NULL"),
-    'Supabase RPC must clear consultation_completed_at on reschedule'
+    sql.indexOf("'Completed appointments cannot be rescheduled") < sql.indexOf('UPDATE public.appointments'),
+    'Completed-visit guard must run before the appointment row is updated'
   );
   assert(
     sql.includes("checkin_status = 'not_checked_in'"),
-    'Supabase RPC must reset checkin_status to not_checked_in'
+    'Supabase RPC must still reset checkin_status to not_checked_in for normal reschedules'
   );
 });
 

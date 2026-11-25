@@ -460,6 +460,33 @@ fun BookingScreen(
                                             navController.popBackStack()
                                             return@launch
                                         }
+                                        // "Book Follow-Up" on a completed visit: create a NEW appointment so the
+                                        // completed visit (notes, prescription, bill) is never overwritten.
+                                        val isCompletedVisit = existingAppt?.checkinStatus?.lowercase() in listOf("done", "completed", "finished")
+                                        if (isCompletedVisit && !isLabClinic) {
+                                            val created = appointmentRepository?.bookFollowUpAppointment(
+                                                trackingCode = pendingReschedule.trackingCode,
+                                                slotId = selectedSlot.id,
+                                                clinicId = pendingReschedule.clinicId,
+                                                doctorId = targetDoctorId,
+                                                appointmentDate = selectedDate,
+                                                appointmentTime = selectedSlot.startTime
+                                            )
+                                            if (created != null) {
+                                                sessionManager?.saveTrackingCode(
+                                                    created.trackingCode10Digit,
+                                                    "${created.patientName} • $selectedDate"
+                                                )
+                                                sessionManager?.clearPendingReschedule()
+                                                Toast.makeText(context, "Follow-Up booked for $selectedDate at ${selectedSlot.startTime}!", Toast.LENGTH_LONG).show()
+                                                navController.navigate(NavRoutes.QueueStatus.createRoute(created.trackingCode10Digit)) {
+                                                    popUpTo(NavRoutes.PatientMain.route) { inclusive = false }
+                                                }
+                                            } else {
+                                                Toast.makeText(context, "Failed to book follow-up. Please try again.", Toast.LENGTH_SHORT).show()
+                                            }
+                                            return@launch
+                                        }
                                         // Reschedule existing appointment strictly in-place (never create new appointment or overwrite bill)
                                         val ok = appointmentRepository?.rescheduleAppointment(
                                             id = pendingReschedule.appointmentId,
