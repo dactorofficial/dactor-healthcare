@@ -542,14 +542,14 @@ object MedicalSearchEngine {
 
         // Ranked strictly in order:
         // 1. Specialty or symptom keywords ("skin", "child", "eye")
-        if (allDocSpecText.contains(q)) {
+        if (matchesWordStart(allDocSpecText, q)) {
             score += 150
             if (highlightReason == null) {
                 highlightReason = "Specialist: ${doctor.specialty ?: doctor.specialties.firstOrNull() ?: "Specialist"}"
             }
         }
         for (stem in expandedStems) {
-            if (allDocSpecText.contains(stem)) {
+            if (matchesWordStart(allDocSpecText, stem)) {
                 score += 140
                 if (highlightReason == null) {
                     val matchedSug = suggestedSpecs.firstOrNull() ?: doctor.specialty ?: "Specialist"
@@ -557,7 +557,7 @@ object MedicalSearchEngine {
                 }
                 break
             }
-            if (docBioLower.contains(stem) || docEduLower.contains(stem)) {
+            if (matchesWordStart(docBioLower, stem) || matchesWordStart(docEduLower, stem)) {
                 score += 125
                 if (highlightReason == null) {
                     highlightReason = "Recommended ${doctor.specialty ?: "Specialist"} for '$query'"
@@ -569,16 +569,16 @@ object MedicalSearchEngine {
         // 2. Doctor name (supports titles: "Dr.", "Doctor", "Prof." & token permutations)
         val qClean = q.removePrefix("dr.").removePrefix("dr ").removePrefix("doctor ").trim()
         val docNameClean = docNameLower.removePrefix("dr.").removePrefix("dr ").removePrefix("doctor ").trim()
-        val qCleanTokens = qClean.split("\\s+".toRegex()).filter { it.length >= 2 }
-        val docTokens = docNameClean.split("\\s+".toRegex()).filter { it.length >= 2 }
+        val qCleanTokens = tokenizeWords(qClean).filter { it.length >= 2 }
+        val docTokens = tokenizeWords(docNameClean).filter { it.length >= 2 }
 
-        val isDirectDocMatch = docNameLower.contains(q) || "dr. $docNameLower".contains(q) ||
-            docNameClean.contains(qClean) || (qClean.length >= 3 && qClean.contains(docNameClean))
+        val isDirectDocMatch = matchesWordStart(docNameLower, q) || matchesWordStart("dr. $docNameLower", q) ||
+            matchesWordStart(docNameClean, qClean) || (qClean.length >= 3 && matchesWordStart(qClean, docNameClean))
         val isTokenDocMatch = qCleanTokens.isNotEmpty() && docTokens.any { dTok ->
             qCleanTokens.any { qTok -> dTok == qTok || (qTok.length >= 3 && (dTok.startsWith(qTok) || qTok.startsWith(dTok))) }
         }
         val isStemDocMatch = expandedStems.any { stem ->
-            stem.length >= 3 && (docNameClean.contains(stem) || docTokens.any { it == stem })
+            stem.length >= 3 && (matchesWordStart(docNameClean, stem) || docTokens.any { it == stem })
         }
 
         if (isDirectDocMatch || isTokenDocMatch || isStemDocMatch) {
@@ -593,11 +593,11 @@ object MedicalSearchEngine {
             val cName = clinic.name.lowercase(Locale.ROOT)
             val cAddr = (clinic.addressText ?: "").lowercase(Locale.ROOT)
             val cSpecs = clinic.specialties.joinToString(" ").lowercase(Locale.ROOT)
-            val cNameTokens = cName.split("\\s+".toRegex()).filter { it.length >= 2 }
+            val cNameTokens = tokenizeWords(cName).filter { it.length >= 2 }
 
             // Clinic Specialty match
             for (stem in expandedStems) {
-                if (cSpecs.contains(stem)) {
+                if (matchesWordStart(cSpecs, stem)) {
                     score += 130
                     if (highlightReason == null) {
                         highlightReason = "${doctor.specialty ?: "Doctor"} at ${clinic.name}"
@@ -607,12 +607,12 @@ object MedicalSearchEngine {
             }
 
             // Clinic Name match (direct, stem, or token-level)
-            val isDirectClinicMatch = cName.contains(q) || (q.length >= 3 && q.contains(cName))
+            val isDirectClinicMatch = matchesWordStart(cName, q) || (q.length >= 3 && matchesWordStart(q, cName))
             val isStemClinicMatch = expandedStems.any { stem ->
-                stem.length >= 3 && (cName.contains(stem) || stem.contains(cName))
+                stem.length >= 3 && (matchesWordStart(cName, stem) || matchesWordStart(stem, cName))
             }
             val isTokenClinicMatch = qTokens.any { tok ->
-                tok.length >= 3 && (cName.contains(tok) || cNameTokens.any { it == tok || it.startsWith(tok) || tok.startsWith(it) })
+                tok.length >= 3 && (matchesWordStart(cName, tok) || cNameTokens.any { it == tok || it.startsWith(tok) || tok.startsWith(it) })
             }
 
             if (isDirectClinicMatch || isStemClinicMatch || isTokenClinicMatch) {
@@ -623,7 +623,7 @@ object MedicalSearchEngine {
             }
 
             // Area / Address match
-            if (cAddr.contains(q) || (q.length >= 3 && q.contains(cAddr)) || expandedStems.any { stem -> stem.length >= 3 && cAddr.contains(stem) }) {
+            if (matchesWordStart(cAddr, q) || (q.length >= 3 && matchesWordStart(q, cAddr)) || expandedStems.any { stem -> stem.length >= 3 && matchesWordStart(cAddr, stem) }) {
                 score += 75
                 if (highlightReason == null) {
                     highlightReason = "Area: ${clinic.addressText ?: clinic.name}"

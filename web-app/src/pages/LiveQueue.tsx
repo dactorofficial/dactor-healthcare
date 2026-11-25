@@ -1416,7 +1416,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         approxTimeText: `around ${fmt(finalExpected)}`,
         suggestedArrivalText: arrivalAdvice,
         slotNoticeText: notice,
-        displayWaitText: waitText
+        displayWaitText: waitText,
+        isArriveSoon: false,
       }
     }
 
@@ -1461,7 +1462,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       approxTimeText: isArriveSoon ? 'Your turn, arrive soon' : `Expected at ${fmt(finalExpected)}`,
       suggestedArrivalText: arrivalAdvice,
       slotNoticeText: isArriveSoon ? 'You are at position 1! You are next in line — arrive soon.' : notice,
-      displayWaitText: waitText
+      displayWaitText: waitText,
+      isArriveSoon,
     }
   }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, clinic?.isOpen, isNoShow, showClinicClosedUI, isLabClinic, effectiveLabStatus, isSampleCollectedOrFurther, clinic?.weeklyScheduleJson, clinicAvgMinutes, patientsAhead, estimatedWaitMinutes, isFutureOrTomorrow, multiSlotResult, dateLabel, slotStartTimeStr, isAppointmentToday, currentEpochSecond])
 
