@@ -7,6 +7,26 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-24
 
 ### Prompt:
+> "run yourself and verify the changes and run untill it is resolved"
+
+#### Changes Applied:
+1. **Live Consolidated Database Migration Execution**:
+   - Created consolidated migration script [`supabase/migration_live_queue_and_cumulative_billing.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_live_queue_and_cumulative_billing.sql):
+     - Dynamically dropped standalone unique constraint on `appointments(tracking_code_10_digit)` to allow multi-visit journey follow-ups to share tracking codes.
+     - Added `attempt_number INT NOT NULL DEFAULT 1` to `appointments` and backfilled sequential attempt counts.
+     - Added composite unique index `idx_appointments_tracking_code_attempt` on `(tracking_code_10_digit, attempt_number)`.
+     - Added `tracking_code_10_digit VARCHAR(10)` to `billing_invoices` and backfilled from appointments.
+     - Added `avg_consultation_time_minutes INT DEFAULT 10` to `clinics`.
+     - Deployed hardened `public.get_live_queue_status(TEXT)` with `#variable_conflict use_column`, enum-safe text casting, and JSON fallback for consultation metrics.
+   - Deployed migration directly via browser subagent to Supabase project `ojfoofojcpabqegxmsab` (`dactorclaude`).
+2. **Live Backend Verification**:
+   - Tested `billing_invoices` with `tracking_code_10_digit`: Returned HTTP 200 with backfilled tracking codes.
+   - Tested `get_live_queue_status` with real appointment record `5856281645`: Returned HTTP 200 with complete queue status payload (`token_number: 1`, `queue_position: 1`, `avg_consultation_seconds: 600`), verifying error `42703` was completely eliminated.
+   - Tested `repair_pay_at_desk_historical_bookings`: Returned HTTP 200 OK (`success: true`).
+
+---
+
+### Prompt:
 > "ensure the sql code run"
 
 #### Changes Applied:
