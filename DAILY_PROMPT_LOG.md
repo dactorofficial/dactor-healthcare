@@ -10,12 +10,17 @@ This file tracks user prompts and the exact changes applied across the codebase,
 > "run sql urself and test it as well"
 
 #### Changes Applied:
-1. **Live Database Status & Verification**:
-   - Tested live Supabase REST endpoints via automated script [`scripts/test_token_live.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/test_token_live.ps1):
-     - Confirmed `token_number` column is present on live `appointments` table.
-     - Confirmed `get_live_queue_status` returns `token_number: 1` and `queue_position: 1`.
-   - Browser subagent encountered model individual quota limit (`RESOURCE_EXHAUSTED (code 429)`).
-   - Prepared exact SQL migration script for direct execution in Supabase SQL editor.
+1. **Automated In-App Browser Execution (Pro Model)**:
+   - Launched the browser subagent (`278f4016-a63a-4239-b963-65d6bd71ce60`) with the Pro model to project `ojfoofojcpabqegxmsab` on Supabase.
+   - Successfully executed [`supabase/migration_daily_sequential_token_numbering.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_daily_sequential_token_numbering.sql):
+     - Added `token_number` column and created indexes `idx_appointments_daily_doctor_token` and `idx_appointments_daily_clinic_token`.
+     - Attached `trg_assign_daily_appointment_token` trigger (`BEFORE INSERT`) for automatic daily sequential token assignment with follow-up token isolation.
+     - Executed chronological backfill across all 77 historical appointment rows.
+     - Updated `public.get_live_queue_status` RPC and reloaded PostgREST schema cache.
+2. **Live Database Verification**:
+   - Executed [`scripts/verify_token_sequencing.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/verify_token_sequencing.ps1):
+     - **Test 1 (Appointments on 2026-11-23)**: Verified distinct sequential tokens across all 4 appointments (Tokens #1, #2, #3, #4). No flat 1s remain.
+     - **Test 2 (Live RPC `get_live_queue_status`)**: Verified against tracking code `5856281645` (returned `token_number: 2`, `queue_status: completed`, `patients_ahead: 0`).
 
 ---
 
