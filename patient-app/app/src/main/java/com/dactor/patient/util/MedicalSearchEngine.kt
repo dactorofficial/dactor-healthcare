@@ -680,12 +680,12 @@ object MedicalSearchEngine {
         // 1. Specialty or symptom keywords (Clinic & Doctor Specialties) — Highest rank
         for (cSpec in clinic.specialties) {
             val cSpecLower = cSpec.lowercase(Locale.ROOT)
-            if (cSpecLower.contains(q)) {
+            if (matchesWordStart(cSpecLower, q)) {
                 score += 150
                 if (highlightReason == null) highlightReason = "Specialty: $cSpec"
             } else {
                 for (stem in expandedStems) {
-                    if (cSpecLower.contains(stem)) {
+                    if (matchesWordStart(cSpecLower, stem)) {
                         score += 140
                         if (highlightReason == null) {
                             val sug = suggestedSpecs.firstOrNull() ?: cSpec
@@ -699,7 +699,7 @@ object MedicalSearchEngine {
 
         // 1b & 2. Doctor Specialty/Symptom Keywords (Rank 1) & Doctor Name (Rank 2) (Bidirectional Affiliation Match)
         val qClean = q.removePrefix("dr.").removePrefix("dr ").removePrefix("doctor ").trim()
-        val qCleanTokens = qClean.split("\\s+".toRegex()).filter { it.length >= 2 }
+        val qCleanTokens = tokenizeWords(qClean).filter { it.length >= 2 }
 
         for (doc in doctors) {
             val docNameLower = doc.fullName.lowercase(Locale.ROOT)
@@ -711,13 +711,13 @@ object MedicalSearchEngine {
             var docMatched = false
 
             // Rank 1: Doctor Specialty exact or symptom stem match
-            if (allDocSpecs.contains(q)) {
+            if (matchesWordStart(allDocSpecs, q)) {
                 score += 145
                 docMatched = true
                 if (highlightReason == null) highlightReason = "Specialist: ${doc.specialty ?: doc.specialties.firstOrNull()} (Dr. ${doc.fullName})"
             } else {
                 for (stem in expandedStems) {
-                    if (allDocSpecs.contains(stem) || docBioLower.contains(stem)) {
+                    if (matchesWordStart(allDocSpecs, stem) || matchesWordStart(docBioLower, stem)) {
                         score += 135
                         docMatched = true
                         if (highlightReason == null) {
@@ -733,15 +733,15 @@ object MedicalSearchEngine {
 
             // Rank 2: Doctor Name match (direct, title stripped, or token-level)
             val docNameClean = docNameLower.removePrefix("dr.").removePrefix("dr ").removePrefix("doctor ").trim()
-            val docTokens = docNameClean.split("\\s+".toRegex()).filter { it.length >= 2 }
+            val docTokens = tokenizeWords(docNameClean).filter { it.length >= 2 }
 
-            val isDirectDocMatch = docNameLower.contains(q) || "dr. $docNameLower".contains(q) ||
-                docNameClean.contains(qClean) || (qClean.length >= 3 && qClean.contains(docNameClean))
+            val isDirectDocMatch = matchesWordStart(docNameLower, q) || matchesWordStart("dr. $docNameLower", q) ||
+                matchesWordStart(docNameClean, qClean) || (qClean.length >= 3 && matchesWordStart(qClean, docNameClean))
             val isTokenDocMatch = qCleanTokens.isNotEmpty() && docTokens.any { dTok ->
                 qCleanTokens.any { qTok -> dTok == qTok || (qTok.length >= 3 && (dTok.startsWith(qTok) || qTok.startsWith(dTok))) }
             }
             val isStemDocMatch = expandedStems.any { stem ->
-                stem.length >= 3 && (docNameClean.contains(stem) || docTokens.any { it == stem })
+                stem.length >= 3 && (matchesWordStart(docNameClean, stem) || docTokens.any { it == stem })
             }
 
             if (isDirectDocMatch || isTokenDocMatch || isStemDocMatch) {
@@ -756,12 +756,12 @@ object MedicalSearchEngine {
         }
 
         // 3. Clinic Name (Rank 3)
-        if (clinicNameLower.contains(q)) {
+        if (matchesWordStart(clinicNameLower, q)) {
             score += 95
             if (highlightReason == null) highlightReason = "Matched Clinic Name: ${clinic.name}"
         } else {
             for (stem in expandedStems) {
-                if (clinicNameLower.contains(stem)) {
+                if (matchesWordStart(clinicNameLower, stem)) {
                     score += 85
                     if (highlightReason == null) highlightReason = "Clinic Name Match: ${clinic.name}"
                     break
@@ -776,12 +776,12 @@ object MedicalSearchEngine {
         }
 
         // 4. Location or Area (Rank 4)
-        if (clinicAddrLower.contains(q)) {
+        if (matchesWordStart(clinicAddrLower, q)) {
             score += 75
             if (highlightReason == null) highlightReason = "Matched Location: ${clinic.addressText}"
         } else {
             for (stem in expandedStems) {
-                if (clinicAddrLower.contains(stem)) {
+                if (matchesWordStart(clinicAddrLower, stem)) {
                     score += 65
                     if (highlightReason == null) highlightReason = "Location Match: ${clinic.addressText}"
                     break
@@ -804,14 +804,14 @@ object MedicalSearchEngine {
         for (srv in testServices) {
             val srvLower = srv.serviceName.lowercase(Locale.ROOT)
             val srvDescLower = (srv.description ?: "").lowercase(Locale.ROOT)
-            if (srvLower.contains(q) || (q.length >= 3 && srvDescLower.contains(q))) {
+            if (matchesWordStart(srvLower, q) || (q.length >= 3 && matchesWordStart(srvDescLower, q))) {
                 score += if (isLabClinic) 115 else 60
                 if (highlightReason == null) {
                     highlightReason = if (isLabClinic) "Offers Lab Test: ${srv.serviceName} (Rs. ${srv.price.toInt()})" else "Service Offered: ${srv.serviceName}"
                 }
             } else {
                 for (stem in expandedStems) {
-                    if (srvLower.contains(stem) || (stem.length >= 3 && srvDescLower.contains(stem))) {
+                    if (matchesWordStart(srvLower, stem) || (stem.length >= 3 && matchesWordStart(srvDescLower, stem))) {
                         score += if (isLabClinic) 95 else 50
                         if (highlightReason == null) {
                             highlightReason = if (isLabClinic) "Offers Lab Test: ${srv.serviceName} (Rs. ${srv.price.toInt()})" else "Service Offered: ${srv.serviceName}"
@@ -824,11 +824,11 @@ object MedicalSearchEngine {
 
         // 6. Fallback: description or type
         for (stem in expandedStems) {
-            if (clinicDescLower.contains(stem)) {
+            if (matchesWordStart(clinicDescLower, stem)) {
                 score += 35
                 if (highlightReason == null) highlightReason = "Clinic Specialty Match: ${clinic.name}"
             }
-            if (clinicTypeLower.contains(stem)) {
+            if (matchesWordStart(clinicTypeLower, stem)) {
                 score += 20
             }
         }

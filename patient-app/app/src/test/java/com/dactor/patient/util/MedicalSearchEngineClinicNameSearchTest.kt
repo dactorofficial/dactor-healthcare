@@ -79,12 +79,21 @@ class MedicalSearchEngineClinicNameSearchTest {
 
     @Test
     fun symptomAndSpecialtySearchStillWork() {
-        assertEquals("citycare", rank("ent").first())
+        assertEquals(listOf("citycare"), rank("ent"))
+        assertFalse(rank("ent").contains("kantipur"))
+        assertFalse(rank("ent").contains("patan"))
         assertTrue(rank("ear pain").contains("citycare"))
         assertTrue(rank("dentist").contains("patan"))
         assertTrue(rank("chest pain").containsAll(listOf("citycare", "heartcare")))
         assertTrue(rank("child").contains("citycare"))
         assertTrue(rank("blood test").contains("everest"))
+    }
+
+    @Test
+    fun nepaliUnicodeScriptClinicNameMatching() {
+        assertTrue(MedicalSearchEngine.matchesWordStart("पाटन डेन्टल क्लिनिक", "पाटन"))
+        assertTrue(MedicalSearchEngine.nameMatchesAllWords("पाटन डेन्टल क्लिनिक", "पाटन डेन्टल"))
+        assertTrue(MedicalSearchEngine.matchesWordStart("काठमाडौं पोलिक्लिनिक", "काठमाडौं"))
     }
 
     @Test
