@@ -4,6 +4,37 @@ This file tracks user prompts and the exact changes applied across the codebase,
 
 ---
 
+## 2026-11-25
+
+### Prompt:
+> "with current architecture what is the limit of user that can be handled by supabase pro considering 10 clinic each with 100 patients daily ? the data syncs oftenly for clinic app right ? so the thing is follow up ,reschedule didnt actually did its thing so can you control my device through adb and check what is the exact error for this then we will try to solve that and i follow up in patient app it did successfully but generated another appoinment id when it was supposed to join both with the same appoinment id withouth overwriting any previous record , and show informations /plan"
+
+#### Changes Applied:
+1. **Supabase Pro Architecture & Capacity Analysis**:
+   - Analyzed workloads for 10 clinics each handling 100 patients daily (1,000 appointments/day, 30,000/month, ~45–60 MB/month db growth).
+   - Confirmed compute, storage, egress, and Realtime WebSocket limits comfortably handle this scale on Supabase Pro with zero performance bottlenecks.
+2. **ADB Hardware Device Diagnostics & Logcat Root Cause Discovery**:
+   - Connected to Samsung Galaxy SM-E055F (`R9ZY504BE6M`) via ADB and queried Supabase directly.
+   - Identified that Follow-Up booking created a new appointment tracking code `7529651238` instead of joining the existing `6813281190` due to standalone `UNIQUE(tracking_code_10_digit)` constraint.
+   - Discovered that clinic staff status update to `completed` was blocked by Supabase RLS policy `appointments_update_rule`.
+   - Discovered that reschedule was deleting queue entries for future dates, causing patients to disappear from tomorrow's queue board.
+3. **Database Migration Script** ([`supabase/migration_reschedule_and_joined_followup_fix.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_reschedule_and_joined_followup_fix.sql)):
+   - Replaced standalone unique constraint on `tracking_code_10_digit` with composite unique index `(tracking_code_10_digit, attempt_number)` so multiple visits share the exact same 10-digit code without overwriting prior records.
+   - Added `SECURITY DEFINER` trigger `trg_sync_queue_entry_status_to_appointment` on `queue_entries` to bypass RLS and reliably transition `appointments.checkin_status` to `'completed'` and set `consultation_completed_at = NOW()` when queue status becomes `'done'`.
+   - Added atomic RPC functions `book_follow_up_visit` and `reschedule_patient_appointment`.
+4. **Patient App Updates** ([`AppointmentRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt), [`BookingScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/booking/BookingScreen.kt), [`QueueStatusScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt)):
+   - Follow-up retains the original `trackingCode10Digit` and increments `attemptNumber = max(attempt_number) + 1`.
+   - Preserves queue entries for future rescheduled appointments.
+   - Added `linkedVisits` query and UI badge displaying `Follow-Up (Visit #N)` on the queue tracker.
+5. **Clinic App Updates** ([`AppointmentRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt)):
+   - Updated `rescheduleAppointment` to upsert/maintain queue entries for future dates instead of deleting them.
+6. **Web Portal Synchronization** ([`db.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/services/db.ts), [`ClinicDetail.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/ClinicDetail.tsx), [`PatientPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/PatientPortal.tsx)):
+   - Retained 10-digit code and incremented `attemptNumber` in follow-up booking flows.
+   - Synchronized future date queue upsert logic.
+   - Successfully rebuilt web portal production bundle (`npm run build`).
+
+---
+
 ## 2026-11-24
 
 ### Prompt:

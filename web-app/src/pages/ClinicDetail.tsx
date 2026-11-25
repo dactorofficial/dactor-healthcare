@@ -1029,9 +1029,11 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
           (retainedAppointment.status || '').toUpperCase() === 'CANCELLED'
 
         if (!isRetainedCancelled) {
-          // COMPLETED or ACTIVE VISIT -> Issue a NEW follow-up appointment record (own tracking code),
-          // so the previous visit is never overwritten.
+          // COMPLETED or ACTIVE VISIT -> Issue a NEW follow-up appointment record sharing the SAME 10-digit code,
+          // so the previous visit is never overwritten and both visits are joined under the same Appointment ID.
           const newFollowUpAppt = await createAppointment({
+            trackingCode10Digit: retainedAppointment.trackingCode10Digit,
+            attemptNumber: (retainedAppointment.attemptNumber || 1) + 1,
             clinicId,
             doctorId: activeTab === 'opd' ? (selectedDoctor?.id || retainedAppointment.doctorId) : undefined,
             userId: retainedAppointment.userId || patientUserId,

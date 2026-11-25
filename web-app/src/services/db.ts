@@ -2222,13 +2222,36 @@ export async function shiftAppointmentDate(
             status: 'waiting',
           })
         }
-      } else {
-        // Rescheduled to a future date OR unapproved Pay-at-Desk: remove from today's active queue
+      } else if (preservedStatus === 'WAITING_FOR_APPROVAL') {
+        // Unapproved Pay-at-Desk: remove from active queue until approved
         if (existingQ) {
           await supabase
             .from('queue_entries')
             .delete()
             .eq('id', existingQ.id)
+        }
+      } else {
+        // Approved appointment on future date: maintain or create queue entry for that date
+        if (existingQ) {
+          await supabase
+            .from('queue_entries')
+            .update({
+              status: 'waiting',
+              called_at: null,
+              inside_at: null,
+              completed_at: null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existingQ.id)
+        } else {
+          await supabase.from('queue_entries').insert({
+            id: crypto.randomUUID(),
+            appointment_id: appointmentId,
+            clinic_id: updatedAppt.clinic_id,
+            doctor_id: updatedAppt.doctor_id || null,
+            queue_position: 1,
+            status: 'waiting',
+          })
         }
       }
     } catch (qErr) {

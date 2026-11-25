@@ -1081,8 +1081,8 @@ open class AppointmentRepository @Inject constructor(
             }
 
             val todayStr = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kathmandu")).toString()
-            if (newDate != todayStr || preservePendingApproval) {
-                // Remove queue entry if moved away from today or awaiting approval
+            if (preservePendingApproval) {
+                // Remove queue entry only if appointment is awaiting approval (e.g. pending Pay-at-Desk)
                 try {
                     supabaseClient.postgrest["queue_entries"]
                         .delete {
@@ -1090,7 +1090,7 @@ open class AppointmentRepository @Inject constructor(
                         }
                 } catch (_: Exception) {}
             } else {
-                // Rescheduled to TODAY: Re-inject or reset to waiting in today's active queue
+                // Approved appointment: Re-inject or reset to waiting in queue (for today or upcoming future dates)
                 try {
                     val appt = existing ?: getAppointmentById(id)
                     if (appt != null && !appt.status.equals("WAITING_FOR_APPROVAL", ignoreCase = true)) {

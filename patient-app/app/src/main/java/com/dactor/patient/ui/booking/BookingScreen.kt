@@ -462,7 +462,8 @@ fun BookingScreen(
                                         }
                                         // "Book Follow-Up" on a completed visit: create a NEW appointment so the
                                         // completed visit (notes, prescription, bill) is never overwritten.
-                                        val isCompletedVisit = existingAppt?.checkinStatus?.lowercase() in listOf("done", "completed", "finished")
+                                        val isCompletedVisit = existingAppt?.checkinStatus?.lowercase() in listOf("done", "completed", "finished") ||
+                                            !existingAppt?.consultationCompletedAt.isNullOrBlank()
                                         if (isCompletedVisit && !isLabClinic) {
                                             val created = appointmentRepository?.bookFollowUpAppointment(
                                                 trackingCode = pendingReschedule.trackingCode,
@@ -497,14 +498,12 @@ fun BookingScreen(
                                         ) ?: false
                                         if (ok) {
                                             val effectiveStatus = existingAppt?.status ?: pendingReschedule.status
-                                            if (selectedDate == today && !effectiveStatus.equals("WAITING_FOR_APPROVAL", ignoreCase = true)) {
+                                            if (!effectiveStatus.equals("WAITING_FOR_APPROVAL", ignoreCase = true)) {
                                                 queueRepository?.ensureQueueEntryForAppointment(
                                                     appointmentId = pendingReschedule.appointmentId,
                                                     clinicId = pendingReschedule.clinicId,
                                                     doctorId = targetDoctorId
                                                 )
-                                            } else {
-                                                queueRepository?.removeOrCancelQueueEntry(pendingReschedule.appointmentId)
                                             }
                                             sessionManager?.clearCachedQueueStatus(pendingReschedule.appointmentId)
                                             sessionManager?.clearCachedQueueStatus(pendingReschedule.trackingCode)

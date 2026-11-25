@@ -171,6 +171,7 @@ fun QueueStatusScreen(
 
     var isNotFound by remember { mutableStateOf(false) }
     var isSavedToProfile by remember { mutableStateOf(false) }
+    var linkedVisits by remember { mutableStateOf<List<Appointment>>(emptyList()) }
 
     // Security Verification Locking (Name or Mobile Number required for Reschedule & Lab Report Viewing/Downloading)
     var isUnlocked by remember { mutableStateOf(false) }
@@ -1189,6 +1190,14 @@ fun QueueStatusScreen(
                                     fontWeight = FontWeight.Black,
                                     color = Color(0xFF0F172A)
                                 )
+                                if ((appointment?.attemptNumber ?: 1) > 1) {
+                                    Text(
+                                        text = "Follow-Up (Visit #${appointment?.attemptNumber})",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0D9488)
+                                    )
+                                }
                             }
                         }
 

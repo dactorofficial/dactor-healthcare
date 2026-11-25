@@ -1916,6 +1916,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           }
         } else {
           const followUpAppt = await createAppointment({
+            trackingCode10Digit: retainedAppointment.trackingCode10Digit,
+            attemptNumber: (retainedAppointment.attemptNumber || 1) + 1,
             userId: retainedAppointment.userId || patientUser?.id,
             clinicId: selectedClinic!.id,
             doctorId: targetDoctorId,

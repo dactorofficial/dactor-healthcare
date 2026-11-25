@@ -352,7 +352,8 @@ class AppointmentRepository @Inject constructor(
         fallbackEmail: String? = null
     ): Appointment? = withContext(Dispatchers.IO) {
         val cleanCode = trackingCode.trim()
-        val existing = getAppointmentByTrackingCode(cleanCode) ?: return@withContext null
+        val existingList = getAllAppointmentsByTrackingCode(cleanCode)
+        val existing = existingList.maxByOrNull { it.attemptNumber ?: 1 } ?: getAppointmentByTrackingCode(cleanCode) ?: return@withContext null
 
         val retainedEmail = existing.patientEmail?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
             ?: fallbackEmail?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
@@ -362,13 +363,38 @@ class AppointmentRepository @Inject constructor(
         val validDoctorId = doctorId?.takeIf { isValidUuid(it) } ?: existing.doctorId?.takeIf { isValidUuid(it) }
         val normalizedTime = normalizeTimeForPostgres(appointmentTime)
 
-        val isToday = (appointmentDate == java.time.LocalDate.now().toString())
+        val nextAttempt = (existingList.mapNotNull { it.attemptNumber }.maxOrNull() ?: existing.attemptNumber ?: 1) + 1
 
-        // tracking_code_10_digit is UNIQUE: the follow-up needs its own code
-        val newTrackingCode = generateUnusedTrackingCode() ?: return@withContext null
+        // 1. Authoritative SECURITY DEFINER RPC (Atomic creation sharing the same tracking code)
+        try {
+            val rpcParams = buildJsonObject {
+                put("p_source_tracking_code", cleanCode)
+                put("p_new_date", appointmentDate)
+                put("p_new_time", normalizedTime)
+                if (validSlotId != null) put("p_new_slot_id", validSlotId)
+                if (validDoctorId != null) put("p_new_doctor_id", validDoctorId)
+                put("p_reason", "Follow-Up Visit #$nextAttempt (Ref: #${existing.trackingCode10Digit})")
+            }
+            val res = supabaseClient.postgrest.rpc("book_follow_up_visit", rpcParams)
+            val rpcObj = try { res.decodeSingleOrNull<JsonObject>() } catch (_: Exception) { null }
+            val newApptId = rpcObj?.get("appointment_id")?.jsonPrimitive?.contentOrNull
+            if (!newApptId.isNullOrBlank()) {
+                val createdFromRpc = getAppointmentById(newApptId)
+                if (createdFromRpc != null) {
+                    if (!validSlotId.isNullOrBlank()) {
+                        reconcileSlotBookedCount(validSlotId)
+                    }
+                    return@withContext createdFromRpc
+                }
+            }
+        } catch (rpcErr: Exception) {
+            rpcErr.printStackTrace()
+        }
+
+        // 2. Direct database insert fallback: Join visits under the exact same 10-digit Appointment ID!
         val newAppointment = existing.copy(
             id = UUID.randomUUID().toString(),
-            trackingCode10Digit = newTrackingCode,
+            trackingCode10Digit = existing.trackingCode10Digit,
             slotId = validSlotId,
             clinicId = clinicId,
             doctorId = validDoctorId,
@@ -387,7 +413,7 @@ class AppointmentRepository @Inject constructor(
             optInEarlyCall = false,
             selectedLabTests = null,
             notes = "Follow-Up Consultation (Ref: #${existing.trackingCode10Digit})",
-            attemptNumber = 1,
+            attemptNumber = nextAttempt,
             expiresAt = null,
             approvedAt = null,
             rejectedAt = null,
@@ -416,26 +442,25 @@ class AppointmentRepository @Inject constructor(
             reconcileSlotBookedCount(validSlotId)
         }
 
-        if (isToday) {
-            try {
-                val existingEntries = supabaseClient.postgrest["queue_entries"]
-                    .select { filter { eq("clinic_id", clinicId) } }
-                    .decodeList<com.dactor.patient.data.model.QueueEntry>()
-                val nextPos = (existingEntries
-                    .filter { it.status == "waiting" || it.status == "inside" }
-                    .maxOfOrNull { it.queuePosition } ?: 0) + 1
-                val queueEntryDto = QueueEntryInsertDto(
-                    id = UUID.randomUUID().toString(),
-                    appointmentId = created.id,
-                    clinicId = clinicId,
-                    doctorId = validDoctorId,
-                    queuePosition = nextPos,
-                    status = "waiting"
-                )
-                supabaseClient.postgrest["queue_entries"].insert(queueEntryDto)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+        // 3. Ensure queue entry exists for the follow-up visit (for today or upcoming future dates)
+        try {
+            val existingEntries = supabaseClient.postgrest["queue_entries"]
+                .select { filter { eq("clinic_id", clinicId) } }
+                .decodeList<com.dactor.patient.data.model.QueueEntry>()
+            val nextPos = (existingEntries
+                .filter { it.status == "waiting" || it.status == "inside" }
+                .maxOfOrNull { it.queuePosition } ?: 0) + 1
+            val queueEntryDto = QueueEntryInsertDto(
+                id = UUID.randomUUID().toString(),
+                appointmentId = created.id,
+                clinicId = clinicId,
+                doctorId = validDoctorId,
+                queuePosition = nextPos,
+                status = "waiting"
+            )
+            supabaseClient.postgrest["queue_entries"].insert(queueEntryDto)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
 
         created
@@ -1381,13 +1406,15 @@ class AppointmentRepository @Inject constructor(
             }
 
             val todayStr = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kathmandu")).toString()
-            if (newDate != todayStr || preservePendingApproval) {
+            if (preservePendingApproval) {
+                // Remove queue entry only if appointment is awaiting approval (e.g. pending Pay-at-Desk)
                 try {
                     supabaseClient.postgrest["queue_entries"].delete {
                         filter { eq("appointment_id", id) }
                     }
                 } catch (ignored: Exception) {}
             } else {
+                // Approved appointment: maintain or upsert queue entry (for today or upcoming future dates)
                 try {
                     val appt = supabaseClient.postgrest["appointments"]
                         .select { filter { eq("id", id) } }
