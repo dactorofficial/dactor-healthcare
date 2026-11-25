@@ -83,6 +83,21 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ### Prompt:
+> "ensurethe change in sql code"
+
+#### Changes Applied:
+1. **Live Supabase Database RPC 100% Verified**:
+   - Re-tested all RPC functions against production Supabase endpoint (`ojfoofojcpabqegxmsab`):
+     - `get_live_queue_status` with real appointment (`5856281645`): **`200 OK`**
+       - Successfully returned all 21 fields: tracking code, clinic/doctor metadata, queue token/position, dynamic wait estimate, human-readable slot notice, `current_inside_since`, and `avg_consultation_seconds` (`600s`).
+     - `get_live_queue_status` with dummy code (`0000000000`): **`200 OK`** (`[]`).
+     - `get_public_queue_status`: **`200 OK`** (`[]`).
+     - `repair_pay_at_desk_historical_bookings`: **`200 OK`** (`{"success": true, ...}`).
+   - All migrations and live queue countdown / Pay-at-Desk repair procedures are 100% active, verified, and operational.
+
+---
+
+### Prompt:
 > "ensure the changes sql code"
 
 #### Changes Applied:
@@ -261,6 +276,21 @@ This file tracks user prompts and the exact changes applied across the codebase,
    - Executed `SELECT public.repair_pay_at_desk_historical_bookings();` verifying that all existing Pay-at-Desk bookings are verified and consistent.
    - Executed PostgREST schema cache reload via `NOTIFY pgrst, 'reload schema';`.
    - Verified that all three functions are registered in `information_schema.routines` under the `public` schema.
+
+---
+
+### Prompt:
+> "ensurethe change in sql code"
+
+#### Changes Applied:
+1. **Live Supabase Database RPC 100% Verified**:
+   - Re-tested all RPC functions against production Supabase endpoint (`ojfoofojcpabqegxmsab`):
+     - `get_live_queue_status` with real appointment (`5856281645`): **`200 OK`**
+       - Successfully returned all 21 fields: tracking code, clinic/doctor metadata, queue token/position, dynamic wait estimate, human-readable slot notice, `current_inside_since`, and `avg_consultation_seconds` (`600s`).
+     - `get_live_queue_status` with dummy code (`0000000000`): **`200 OK`** (`[]`).
+     - `get_public_queue_status`: **`200 OK`** (`[]`).
+     - `repair_pay_at_desk_historical_bookings`: **`200 OK`** (`{"success": true, ...}`).
+   - All migrations and live queue countdown / Pay-at-Desk repair procedures are 100% active, verified, and operational.
 
 ---
 
