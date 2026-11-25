@@ -7,6 +7,44 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-25
 
 ### Prompt:
+> "the complete patient directory is not being shown in clinic app like only two patients info is shown so fix that , check the logic /plan"
+
+#### Changes Applied:
+1. **Deterministic Patient Identity & Multi-Profile Support** ([`PatientIdentitySync.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/PatientIdentitySync.kt), [`PatientRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/PatientRepository.kt)):
+   - Diagnosed root cause: Booker user account `userId` was used as primary key `id` for Room `patients` table, causing multiple distinct family members/patients booked from the same account to overwrite each other into a single row.
+   - Added `PatientIdentitySync.getDeterministicPatientId(name, phone, fallbackId)` combining normalized phone and patient first name.
+   - Refactored `PatientRepository.upsertFromAppointments` to group by deterministic patient identity, preserving distinct patient records in Room.
+2. **Directory Deduplication & Cache Short-Circuit Fix** ([`PatientDirectoryScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/patients/PatientDirectoryScreen.kt), [`AppointmentRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt)):
+   - Replaced `extractKeys()` and `seenKeys` matching by booker `email` and `userId` with patient-level matching via `isSamePatient`.
+   - In `AppointmentRepository.getAppointmentsByDoctor`: Fixed premature cache return where `date == null` returned a partial Room queue cache of 2 appointments without querying Supabase for the complete appointment list.
+   - Added comprehensive unit tests in [`PatientDirectoryDeduplicationTest.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/test/java/com/dactor/clinic/ui/patients/PatientDirectoryDeduplicationTest.kt).
+3. **App-to-Website Parity (Rule 7)** ([`db.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/services/db.ts), [`DoctorPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/DoctorPortal.tsx)):
+   - Synchronized `buildClinicPatientDirectory` and `doctorPatientsList` to key by `cleanMobile + ':' + firstName`, preventing multi-patient directory collapse on the web portal.
+
+---
+
+### Prompt:
+> "add expense never really updates the database so use adb to check the main problem"
+
+#### Changes Applied:
+1. **ADB Device Diagnostics & Root Cause Traced**:
+   - Captured exact logcat from connected Android device (`Samsung SM-E055F`, PID `6855`):
+     - Direct table insert to `clinic_expenses` failed with HTTP 401 (`42501: new row violates row-level security policy for table "clinic_expenses"`).
+     - RPC fallback failed with HTTP 404 (`NotFoundRestException: Could not find the function public.add_clinic_expense(...) in the schema cache`).
+   - Discovered `BillingRepository.kt:addExpense` caught exceptions and silently returned a fake mock copy (`expense.copy(...)`), causing the UI to show success and add the item temporarily in memory while the database was untouched.
+2. **Resilient Repository Fix** ([`BillingRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/BillingRepository.kt)):
+   - Removed silent phantom return; `addExpense` now returns `null` on insertion failure so the UI immediately surfaces failure to the user.
+3. **Supabase Migration Hardening** ([`supabase/migration_fix_clinic_expenses_complete.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_fix_clinic_expenses_complete.sql)):
+   - Hardened `public.add_clinic_expense` RPC with `gen_random_uuid()` and explicit `search_path = public, pg_catalog, extensions`.
+   - Idempotently ensures missing columns (`expense_time`, `voucher_number`, `remarks`) and bidirectional synchronization trigger `trg_sync_clinic_expenses_columns`.
+   - Rectifies RLS policies on `clinic_expenses` to allow `public` (including mobile app `anon` sessions) with validation (`clinic_id IS NOT NULL AND title IS NOT NULL AND amount >= 0`).
+4. **Live Website Deployment (Rule 5)**:
+   - Built production web assets (`web-app/dist/` via `tsc && vite build`).
+   - Deployed updated web portal live to `https://dactorofficial.github.io/` via [`scripts/deploy_ghpages.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/deploy_ghpages.ps1).
+
+---
+
+### Prompt:
 > "now implement the payment logs ui plan"
 
 #### Changes Applied:
