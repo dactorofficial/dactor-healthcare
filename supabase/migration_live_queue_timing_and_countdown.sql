@@ -63,13 +63,43 @@ BEGIN
         RETURN;
     END IF;
 
-    -- Lookup appointment by 10-digit tracking code or UUID
+    -- Lookup appointment by 10-digit tracking code or UUID with multi-appointment priority:
+    -- 1. Active queue entry today (waiting/inside)
+    -- 2. Today's appointment
+    -- 3. Upcoming future appointment
+    -- 4. Latest past or completed appointment
     IF v_clean ~ '^[0-9]{10}$' THEN
-        SELECT * INTO v_appt FROM public.appointments a WHERE a.tracking_code_10_digit = v_clean LIMIT 1;
+        SELECT * INTO v_appt 
+        FROM public.appointments a 
+        WHERE a.tracking_code_10_digit = v_clean 
+        ORDER BY 
+            EXISTS (
+                SELECT 1 FROM public.queue_entries qe 
+                WHERE qe.appointment_id = a.id AND qe.status IN ('waiting', 'inside')
+            ) DESC,
+            (a.appointment_date = (NOW() AT TIME ZONE 'Asia/Kathmandu')::DATE) DESC,
+            (a.appointment_date > (NOW() AT TIME ZONE 'Asia/Kathmandu')::DATE) DESC,
+            COALESCE(a.attempt_number, 1) DESC,
+            a.appointment_date DESC,
+            a.created_at DESC
+        LIMIT 1;
     ELSIF v_clean ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
         SELECT * INTO v_appt FROM public.appointments a WHERE a.id = v_clean::UUID LIMIT 1;
     ELSE
-        SELECT * INTO v_appt FROM public.appointments a WHERE a.tracking_code_10_digit = v_clean LIMIT 1;
+        SELECT * INTO v_appt 
+        FROM public.appointments a 
+        WHERE a.tracking_code_10_digit = v_clean 
+        ORDER BY 
+            EXISTS (
+                SELECT 1 FROM public.queue_entries qe 
+                WHERE qe.appointment_id = a.id AND qe.status IN ('waiting', 'inside')
+            ) DESC,
+            (a.appointment_date = (NOW() AT TIME ZONE 'Asia/Kathmandu')::DATE) DESC,
+            (a.appointment_date > (NOW() AT TIME ZONE 'Asia/Kathmandu')::DATE) DESC,
+            COALESCE(a.attempt_number, 1) DESC,
+            a.appointment_date DESC,
+            a.created_at DESC
+        LIMIT 1;
     END IF;
 
     IF v_appt.id IS NULL THEN
