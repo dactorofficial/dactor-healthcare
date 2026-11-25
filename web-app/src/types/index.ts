@@ -173,6 +173,7 @@ export interface Appointment {
   paymentStatus: string // unpaid, paid, partial
   paymentMethod?: string
   feeAmount: number
+  tokenNumber?: number
   queueNumber?: number
   queuePosition?: number
   notes?: string

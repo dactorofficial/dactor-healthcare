@@ -994,7 +994,8 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
       payment_status: isPayAtDesk ? 'pending' : normalizePaymentStatus(appt.paymentStatus),
       payment_mode: isPayAtDesk ? 'PAY_AT_DESK' : (appt.paymentMode || (isWalkin || appt.paymentStatus === 'paid' ? (fee > 0 ? 'CASH' : 'FREE') : 'ONLINE')),
       status: isPayAtDesk ? 'WAITING_FOR_APPROVAL' : (isWalkin || appt.paymentStatus === 'paid' ? 'APPROVED' : 'pending_payment'),
-      attempt_number: 1,
+      attempt_number: appt.attemptNumber || 1,
+      token_number: appt.tokenNumber || null,
       service_charge_amount: serviceCharge,
       total_amount: totalAmt,
       fee_amount: fee,
@@ -1287,20 +1288,21 @@ export async function updateAppointmentStatus(id: string, status: string): Promi
         if (qRetryErr) console.error('Error updating queue_entries status:', qRetryErr)
       }
     } else {
-      // Fetch appointment to get clinic_id & doctor_id
+      // Fetch appointment to get clinic_id, doctor_id & token_number
       const { data: appt } = await supabase
         .from('appointments')
-        .select('clinic_id, doctor_id')
+        .select('clinic_id, doctor_id, token_number')
         .eq('id', id)
         .maybeSingle()
 
       if (appt?.clinic_id) {
+        const fallbackPos = appt.token_number || 1
         const { error: qInsErr } = await supabase.from('queue_entries').insert({
           id: crypto.randomUUID(),
           appointment_id: id,
           clinic_id: appt.clinic_id,
           doctor_id: appt.doctor_id || null,
-          queue_position: 1,
+          queue_position: fallbackPos,
           ...qUpdate,
         })
         if (!qInsErr) {
@@ -1311,7 +1313,7 @@ export async function updateAppointmentStatus(id: string, status: string): Promi
             appointment_id: id,
             clinic_id: appt.clinic_id,
             doctor_id: appt.doctor_id || null,
-            queue_position: 1,
+            queue_position: fallbackPos,
             status: qStatus,
           })
           qOk = !qInsRetryErr
@@ -4615,7 +4617,8 @@ function mapAppointment(a: any): Appointment {
     checkinStatus: derivedStatus as any,
     paymentStatus: a.payment_status === 'pending' ? 'unpaid' : (a.payment_status || 'unpaid'),
     feeAmount: Number(a.fee_amount || 0),
-    queueNumber: qe?.queue_position || a.queue_position || a.queue_number || 1,
+    tokenNumber: a.token_number ?? (a.queue_number || qe?.queue_position || 1),
+    queueNumber: a.token_number ?? (qe?.queue_position || a.queue_position || a.queue_number || 1),
     queuePosition: qe?.queue_position || a.queue_position || a.queue_number || 1,
     notes: a.notes || (a.is_walkin ? 'Walk-In Reception Registration' : ''),
     isWalkin: Boolean(a.is_walkin),

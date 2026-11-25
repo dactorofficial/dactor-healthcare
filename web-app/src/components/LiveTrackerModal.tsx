@@ -400,10 +400,10 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
                   : 'bg-gradient-to-tr from-brand-600 via-sky-500 to-cyan-400'
               }`}>
                 <span className="text-[9px] sm:text-[10px] font-bold tracking-wider uppercase text-cyan-100">
-                  {isCompleted ? 'VISIT' : isPast ? 'PAST' : isFuture ? 'SCHEDULED' : 'TOKEN'}
+                  {isCompleted ? 'COMPLETED' : isPast ? 'PAST VISIT' : isFuture ? 'SCHEDULED' : 'TOKEN'}
                 </span>
                 <span className="text-xl sm:text-2xl font-black">
-                  {isCompleted ? '✓' : isPast ? '—' : `#${appointment.queueNumber || (appointment as any).queuePosition || 1}`}
+                  #{appointment.tokenNumber || appointment.queueNumber || (appointment as any).queuePosition || 1}
                 </span>
               </div>
               <h4 className={`text-xs sm:text-sm font-bold ${

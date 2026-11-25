@@ -7,6 +7,33 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-24
 
 ### Prompt:
+> "continue with it and for follow up appoinment it is supposed to generate other token number not its previous appoinment token number so proceed"
+
+#### Changes Applied:
+1. **Supabase Database Migration (`supabase/migration_daily_sequential_token_numbering.sql`)**:
+   - Added `token_number INT` column to `public.appointments` with composite indexes on `(clinic_id, doctor_id, appointment_date, token_number)` and `(clinic_id, appointment_date, token_number)`.
+   - Created database trigger `trg_assign_daily_appointment_token` on `public.appointments` (`BEFORE INSERT`) using `assign_daily_appointment_token()`:
+     - Atomically calculates `token_number = COALESCE(MAX(token_number), 0) + 1` partitioned by `(clinic_id, doctor_id, appointment_date)` for doctors and `(clinic_id, appointment_date)` for standalone diagnostic labs.
+     - Strictly guarantees that follow-up appointments (which share the same 10-digit tracking code with an incremented `attempt_number`) receive a completely fresh, distinct sequential daily token number for that visit date, never reusing the previous visit's token number.
+     - Historical backfill chronologically re-sequenced all past appointments per doctor/date via `ROW_NUMBER()`.
+   - Updated `get_live_queue_status` RPC to return the appointment's authoritative `token_number` and the currently serving patient's `current_serving_token`.
+2. **Clinic Mobile App (`clinic-app`)**:
+   - Added `tokenNumber` to `Appointment.kt` and `AppointmentEntity.kt`; incremented `ClinicDatabase` schema version to 5.
+   - Updated `AppointmentInsertDto` and `createWalkinAppointment` in `AppointmentRepository.kt` to preserve `attemptNumber` and pass `tokenNumber`.
+   - Updated `WalkinBookingScreen.kt` to display the newly issued `Daily Token #X` alongside the 10-digit tracking code.
+   - Updated `QueueBoardScreen.kt` to display `Token No.` and `Token #{tokenNumber}` on queue cards and tiles.
+3. **Patient Mobile App (`patient-app`)**:
+   - Added `tokenNumber` to `Appointment.kt` with `effectiveTokenNumber` helper.
+   - Updated `QueueStatusScreen.kt` to read authoritative token from `get_live_queue_status` and preserve historical token numbers for completed/past visits.
+4. **Web Portal & Parity (`web-app`)**:
+   - Added `tokenNumber?: number` to `Appointment` interface in `src/types/index.ts`.
+   - Updated `src/services/db.ts`: In `createAppointment`, mapped `token_number` and `attempt_number`; removed hardcoded `queue_position: 1` fallback; mapped `tokenNumber` in `mapAppointment`.
+   - Updated `src/components/LiveTrackerModal.tsx` to display `#${tokenNumber}` across active, scheduled, and completed visits.
+   - Successfully compiled production bundle (`tsc && vite build`) with zero errors.
+
+---
+
+### Prompt:
 > "/nepal-payment-security audit my payment workflow and security"
 
 #### Changes Applied:

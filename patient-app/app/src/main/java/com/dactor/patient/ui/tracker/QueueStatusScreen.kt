@@ -529,9 +529,14 @@ fun QueueStatusScreen(
                 // For future dates/tomorrow, use multi-slot cumulative day position.
                 // For today, count LIVE queue patients ahead (waiting + inside).
                 // For past dates or pending approval, silence live queue countdown and clear token position.
-                if (isPendingClinicApproval || isPastDate) {
+                if (isPendingClinicApproval) {
                     patientsAhead = -1
                     tokenNumber = 0
+                    liveTimingEstimate = null
+                    trackerTimingInputs = null
+                } else if (isPastDate) {
+                    patientsAhead = 0
+                    tokenNumber = appt.tokenNumber ?: (if (tokenNumber > 0) tokenNumber else 1)
                     liveTimingEstimate = null
                     trackerTimingInputs = null
                 } else if (isFutureOrTomorrow) {
