@@ -371,8 +371,8 @@ fun QueueBoardScreen(
             storedDuration
         } else if (!insideAt.isNullOrBlank() && !completedAt.isNullOrBlank()) {
             try {
-                val start = java.time.Instant.parse(insideAt).epochSecond
-                val end = java.time.Instant.parse(completedAt).epochSecond
+                val start = java.time.OffsetDateTime.parse(insideAt.trim()).toEpochSecond()
+                val end = java.time.OffsetDateTime.parse(completedAt.trim()).toEpochSecond()
                 (end - start).coerceAtLeast(0)
             } catch (e: Exception) { 0L }
         } else 0L
@@ -405,8 +405,8 @@ fun QueueBoardScreen(
                     else -> {
                         val calcDur = if (!current.insideAt.isNullOrBlank()) {
                             try {
-                                val s = java.time.Instant.parse(current.insideAt).epochSecond
-                                val e = java.time.Instant.parse(nowIso).epochSecond
+                                val s = java.time.OffsetDateTime.parse(current.insideAt.trim()).toEpochSecond()
+                                val e = java.time.OffsetDateTime.parse(nowIso.trim()).toEpochSecond()
                                 (e - s).coerceAtLeast(0)
                             } catch (e: Exception) { current.consultationDurationSeconds }
                         } else current.consultationDurationSeconds
@@ -740,8 +740,8 @@ fun QueueBoardScreen(
                         val durationSec = entry.consultationDurationSeconds ?: run {
                             if (!entry.insideAt.isNullOrBlank() && !entry.completedAt.isNullOrBlank()) {
                                 try {
-                                    val start = java.time.Instant.parse(entry.insideAt).epochSecond
-                                    val end = java.time.Instant.parse(entry.completedAt).epochSecond
+                                    val start = java.time.OffsetDateTime.parse(entry.insideAt.trim()).toEpochSecond()
+                                    val end = java.time.OffsetDateTime.parse(entry.completedAt.trim()).toEpochSecond()
                                     (end - start).coerceAtLeast(0)
                                 } catch (e: Exception) { null }
                             } else null
@@ -2487,7 +2487,7 @@ fun QueueBoardScreen(
                                 val timeDisplayText = if (item.status == "inside") {
                                     val elapsedSec = if (!item.insideAt.isNullOrBlank()) {
                                         try {
-                                            (currentEpochSecond - java.time.Instant.parse(item.insideAt).epochSecond).coerceAtLeast(0)
+                                            (currentEpochSecond - java.time.OffsetDateTime.parse(item.insideAt.trim()).toEpochSecond()).coerceAtLeast(0)
                                         } catch (e: Exception) { 0L }
                                     } else 0L
                                     "Inside: ${elapsedSec / 60}m ${elapsedSec % 60}s"

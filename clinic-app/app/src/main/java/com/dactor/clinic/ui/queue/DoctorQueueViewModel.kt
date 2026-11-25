@@ -324,7 +324,8 @@ class DoctorQueueViewModel @Inject constructor(
                         status = effectiveStatus,
                         appointmentDate = appt.appointmentDate.orEmpty(),
                         appointmentTime = appt.appointmentTime.orEmpty(),
-                        insideAt = entry.insideAt,
+                        // Keep the optimistic start time until the server reports its own inside_at
+                        insideAt = entry.insideAt ?: if (effectiveStatus == "inside") s.liveQueue.firstOrNull { it.id == entry.id }?.insideAt else null,
                         calledAt = entry.calledAt,
                         completedAt = entry.completedAt,
                         consultationDurationSeconds = entry.consultationDurationSeconds,

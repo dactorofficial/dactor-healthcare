@@ -194,7 +194,8 @@ fun WalkinBookingScreen(
                             selectedDoctor = matchingDoc
                         }
                     }
-                    selectedSlot = null // Auto-select fresh slot for doctor & date
+                    // Slot is not cleared here: the slot loader re-runs when the doctor changes and
+                    // re-selects a valid slot. Clearing it left no slot when the doctor was unchanged.
                     followupLookupError = null
                 } else {
                     returningPatientRecord = null
