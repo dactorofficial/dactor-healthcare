@@ -73,6 +73,7 @@ data class QueueItemUi(
     val patientGender: String,
     val patientMobile: String,
     val trackingCode: String,
+    val tokenNumber: Int? = null,
     var queuePosition: Int,
     var status: String, // "waiting", "inside", "done", "no_show", "processing"
     val appointmentDate: String = "",
@@ -170,6 +171,7 @@ fun QueueBoardScreen(
                     patientGender = appt?.patientGender ?: "Registered",
                     patientMobile = appt?.patientMobile ?: "",
                     trackingCode = appt?.trackingCode10Digit ?: entry.appointmentId.take(8),
+                    tokenNumber = appt?.tokenNumber ?: entry.queuePosition,
                     queuePosition = entry.queuePosition,
                     status = serverResolvedStatus,
                     appointmentDate = appt?.appointmentDate ?: "",
@@ -754,6 +756,7 @@ fun QueueBoardScreen(
                             patientGender = appt?.patientGender ?: "Registered",
                             patientMobile = appt?.patientMobile ?: "",
                             trackingCode = appt?.trackingCode10Digit ?: entry.appointmentId.take(8),
+                            tokenNumber = appt?.tokenNumber ?: entry.queuePosition,
                             queuePosition = entry.queuePosition,
                             status = effectiveStatus,
                             appointmentDate = appt?.appointmentDate ?: "",
@@ -2017,12 +2020,12 @@ fun QueueBoardScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    // 1. Turn No.
+                                    // 1. Token No.
                                     Column {
-                                        Text("Turn No.", fontSize = 11.sp, color = Color(0xFF64748B))
+                                        Text("Token No.", fontSize = 11.sp, color = Color(0xFF64748B))
                                         Spacer(Modifier.height(2.dp))
                                         Text(
-                                            text = "${item.queuePosition}",
+                                            text = "${item.tokenNumber ?: item.queuePosition}",
                                             fontSize = 14.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color(0xFF0F172A)
@@ -2736,7 +2739,7 @@ fun QueueBoardScreen(
                                                     shape = RoundedCornerShape(6.dp)
                                                 ) {
                                                     Text(
-                                                        text = "Token: #${item.trackingCode}",
+                                                        text = "Token #${item.tokenNumber ?: item.queuePosition} • #${item.trackingCode}",
                                                         fontSize = 12.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = Color(0xFF1D4ED8),

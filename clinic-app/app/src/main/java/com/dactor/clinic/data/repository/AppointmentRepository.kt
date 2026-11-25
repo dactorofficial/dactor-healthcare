@@ -49,6 +49,8 @@ data class AppointmentInsertDto(
     @SerialName("is_walkin") val isWalkin: Boolean = false,
     @SerialName("payment_mode") val paymentMode: String = "ONLINE",
     @SerialName("status") val status: String = "APPROVED",
+    @SerialName("attempt_number") val attemptNumber: Int = 1,
+    @SerialName("token_number") val tokenNumber: Int? = null,
     @SerialName("total_amount") val totalAmount: Double = 0.0,
     @SerialName("selected_lab_tests") val selectedLabTests: String? = null,
     @SerialName("notes") val notes: String? = null
@@ -828,6 +830,8 @@ open class AppointmentRepository @Inject constructor(
                 isWalkin = true,
                 paymentMode = effectivePaymentMode,
                 status = if (appointment.status.isNotBlank()) appointment.status else "APPROVED",
+                attemptNumber = if (appointment.attemptNumber > 0) appointment.attemptNumber else 1,
+                tokenNumber = appointment.tokenNumber,
                 totalAmount = effectiveTotalAmount,
                 selectedLabTests = appointment.selectedLabTests,
                 notes = appointment.notes

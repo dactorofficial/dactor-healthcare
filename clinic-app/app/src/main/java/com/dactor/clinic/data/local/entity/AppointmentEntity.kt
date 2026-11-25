@@ -74,6 +74,9 @@ data class AppointmentEntity(
     @ColumnInfo(name = "attempt_number")
     val attemptNumber: Int = 1,
 
+    @ColumnInfo(name = "token_number")
+    val tokenNumber: Int? = null,
+
     @ColumnInfo(name = "service_charge_amount")
     val serviceChargeAmount: Double = 0.0,
 
@@ -129,6 +132,7 @@ data class AppointmentEntity(
             paymentMode = paymentMode,
             status = status,
             attemptNumber = attemptNumber,
+            tokenNumber = tokenNumber,
             serviceChargeAmount = serviceChargeAmount,
             totalAmount = totalAmount,
             expiresAt = expiresAt,
@@ -170,6 +174,7 @@ data class AppointmentEntity(
                 paymentMode = model.paymentMode,
                 status = model.status,
                 attemptNumber = model.attemptNumber,
+                tokenNumber = model.tokenNumber,
                 serviceChargeAmount = model.serviceChargeAmount,
                 totalAmount = model.totalAmount,
                 expiresAt = model.expiresAt,

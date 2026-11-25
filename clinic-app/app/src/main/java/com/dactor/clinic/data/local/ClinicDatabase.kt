@@ -29,7 +29,7 @@ import net.sqlcipher.database.SupportFactory
         QueueEntryEntity::class,
         SyncMetadataEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class ClinicDatabase : RoomDatabase() {

@@ -297,6 +297,7 @@ fun WalkinBookingScreen(
 
     var isSubmitting by remember { mutableStateOf(false) }
     var confirmedCode by remember { mutableStateOf<String?>(null) }
+    var confirmedTokenNumber by remember { mutableStateOf<Int?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val coroutineScope = rememberCoroutineScope()
@@ -1317,6 +1318,7 @@ fun WalkinBookingScreen(
                             val result = appointmentRepository?.createWalkinAppointment(walkin, allowOverbooking = true)
                             if (result != null) {
                                 confirmedCode = result.trackingCode10Digit.ifBlank { generatedCode }
+                                confirmedTokenNumber = result.tokenNumber ?: result.effectiveTokenNumber
                                 // Immediately persist into clinic_patient_directory local records so it appears in Patient Directory
                                 try {
                                     val resolvedPatientId = result.userId?.takeIf { it.isNotBlank() }
@@ -1421,7 +1423,19 @@ fun WalkinBookingScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("Patient is enqueued. Provide this 10-digit tracking code to the patient:", fontSize = 13.sp)
+                        Text("Patient is enqueued. Provide this daily token & 10-digit tracking code to the patient:", fontSize = 13.sp)
+                        Surface(
+                            color = Color(0xFF0F766E).copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text(
+                                text = "Daily Token #${confirmedTokenNumber ?: 1}",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF0F766E),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                            )
+                        }
                         Surface(
                             color = MaterialTheme.colorScheme.primaryContainer,
                             shape = RoundedCornerShape(12.dp)

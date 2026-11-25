@@ -7,6 +7,26 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-24
 
 ### Prompt:
+> "/nepal-payment-security audit my payment workflow and security"
+
+#### Changes Applied:
+1. **End-to-End Nepal Payment Security Audit Completed**:
+   - Audited the entire multi-gateway checkout engine (supabase/functions/appointment-payment/index.ts, web-app, patient-app, clinic-app, and Supabase RPCs) against the authoritative [
+epal-payment-security](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/.agent/skills/nepal-payment-security/SKILL.md) skill specification.
+   - Evaluated compliance across all 4 integrated gateways: **eSewa ePay v2**, **Khalti ePayment v2 (KPG-2)**, **Fonepay PG / Dynamic QR**, and **ConnectIPS (NCHL)**.
+   - **Key Invariants Verified**:
+     - *Server-Authoritative Pricing*: Consultation and diagnostic test prices calculated exclusively on the server from active database catalogs; PostgreSQL triggers block client injection.
+     - *Strict Secret Isolation*: All credentials, RSA private keys (.pem/.pfx), and HMAC secrets isolated in clinic_payment_credentials under service_role RLS (USING (false)).
+     - *Redirect Allowlist*: Gateway callbacks bound to Edge Function; browser/app redirects validated against domain allowlist with safe deep link fallback.
+     - *Constant-Time Verification*: Bitwise XOR timing-safe comparison (sameSignature) verified on HMAC and secret tokens.
+     - *Zero-Trust Callback Rule*: 100% of checkouts require server-to-server gateway confirmation (Status API, lookup, verificationMerchant, validatetxn).
+     - *Exact Paisa Arithmetic*: Khalti and ConnectIPS convert and assert integer paisa (Math.round(NPR * 100)).
+     - *Atomic State Machine*: Unique 	ransaction_uuid, PostgreSQL row locking (FOR UPDATE), idempotency short-circuit, deduplicated financial ledger insertion, and conflict-safe queue token generation.
+   - Generated authoritative audit report artifact [
+epal_payment_security_audit.md](file:///C:/Users/dell/.gemini/antigravity/brain/bd6b5987-e57b-4ab2-b912-d04b96460d05/nepal_payment_security_audit.md).
+
+---
+### Prompt:
 > "everything changes in app also making change to website as well ?"
 
 #### Changes Applied:
