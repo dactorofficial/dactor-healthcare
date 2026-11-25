@@ -405,20 +405,23 @@ function normalizePaymentStatus(status?: string): 'pending' | 'paid' | 'refunded
   return 'pending'
 }
 
+const SLIM_APPT_SELECT =
+  '*, clinic:clinics(id,name,type,verification_status,contact_phone,contact_email,address_text,avg_consultation_time_minutes,is_open,closed_at,logo_url,specialties,is_activated,is_archived,is_direct_payment_enabled), doctor:doctors(id,full_name,specialty,specialties,is_in_clinic,active_clinic_id,primary_clinic_id,clinic_id,consultation_fee,profile_picture_url), queue_entries(id,status,queue_position,called_at,inside_at,completed_at,doctor_id,updated_at)'
+
 export async function getAppointmentByTrackingCode(code: string): Promise<Appointment | null> {
   try {
     const cleanCode = code.trim()
     if (!cleanCode) return null
     let { data, error } = await supabase
       .from('appointments')
-      .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
+      .select(SLIM_APPT_SELECT)
       .eq('tracking_code_10_digit', cleanCode)
       .order('appointment_date', { ascending: false })
 
     if ((!data || data.length === 0) && cleanCode !== cleanCode.toUpperCase()) {
       const res = await supabase
         .from('appointments')
-        .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
+        .select(SLIM_APPT_SELECT)
         .eq('tracking_code_10_digit', cleanCode.toUpperCase())
         .order('appointment_date', { ascending: false })
       data = res.data
@@ -463,14 +466,14 @@ export async function getAllAppointmentsByTrackingCode(code: string): Promise<Ap
     if (!cleanCode) return []
     let { data, error } = await supabase
       .from('appointments')
-      .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
+      .select(SLIM_APPT_SELECT)
       .eq('tracking_code_10_digit', cleanCode)
       .order('appointment_date', { ascending: false })
 
     if ((!data || data.length === 0) && cleanCode !== cleanCode.toUpperCase()) {
       const res = await supabase
         .from('appointments')
-        .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
+        .select(SLIM_APPT_SELECT)
         .eq('tracking_code_10_digit', cleanCode.toUpperCase())
         .order('appointment_date', { ascending: false })
       data = res.data
@@ -497,7 +500,7 @@ export async function getAppointmentByTrackingCodeOrContact(
     if (uuidRegex.test(clean)) {
       const { data, error } = await supabase
         .from('appointments')
-        .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
+        .select(SLIM_APPT_SELECT)
         .eq('id', clean)
         .maybeSingle()
       if (!error && data) return mapAppointment(data)
@@ -543,7 +546,7 @@ export async function getAppointmentByTrackingCodeOrContact(
     if (clean.includes('@') && clean.includes('.')) {
       const { data, error } = await supabase
         .from('appointments')
-        .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
+        .select(SLIM_APPT_SELECT)
         .ilike('patient_email', clean)
         .order('appointment_date', { ascending: false })
         .limit(10)
@@ -559,7 +562,7 @@ export async function getAppointmentByTrackingCodeOrContact(
       const phone10 = digitsOnly.slice(-10)
       const { data, error } = await supabase
         .from('appointments')
-        .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
+        .select(SLIM_APPT_SELECT)
         .ilike('patient_mobile', `%${phone10}%`)
         .order('appointment_date', { ascending: false })
         .limit(10)
@@ -655,7 +658,7 @@ export async function getLinkedConsultations(
     if (target.trackingCode10Digit) {
       const { data: siblings } = await supabase
         .from('appointments')
-        .select('*, doctor:doctors(*), clinic:clinics(*), queue_entries(*)')
+        .select(SLIM_APPT_SELECT)
         .eq('tracking_code_10_digit', target.trackingCode10Digit)
         .order('appointment_date', { ascending: true })
 
@@ -716,7 +719,7 @@ export async function getAppointmentsByClinic(clinicId: string, date?: string): 
   try {
     let query = supabase
       .from('appointments')
-      .select('*, doctor:doctors(*), clinic:clinics(*), queue_entries(*)')
+      .select(SLIM_APPT_SELECT)
       .eq('clinic_id', clinicId)
 
     if (date) {
@@ -732,11 +735,27 @@ export async function getAppointmentsByClinic(clinicId: string, date?: string): 
   }
 }
 
+export async function getAppointmentsByClinicFromDate(clinicId: string, fromDate: string): Promise<Appointment[]> {
+  try {
+    const { data, error } = await supabase
+      .from('appointments')
+      .select(SLIM_APPT_SELECT)
+      .eq('clinic_id', clinicId)
+      .gte('appointment_date', fromDate)
+      .order('created_at', { ascending: true })
+    if (error) throw error
+    return (data || []).map(mapAppointment)
+  } catch (err) {
+    console.error('Error fetching clinic appointments from date:', err)
+    return []
+  }
+}
+
 export async function getAppointmentsByDoctor(doctorId: string, date?: string): Promise<Appointment[]> {
   try {
     let query = supabase
       .from('appointments')
-      .select('*, clinic:clinics(*), doctor:doctors(*), queue_entries(*)')
+      .select(SLIM_APPT_SELECT)
       .eq('doctor_id', doctorId)
 
     if (date) {
@@ -2421,7 +2440,7 @@ export async function getLabReportsByTrackingCode(
 
     const { data, error } = await supabase
       .from('lab_reports')
-      .select('*, appointment:appointments(*)')
+      .select('*')
       .eq('appointment_id', appointmentId)
       .order('created_at', { ascending: false })
 
@@ -5219,11 +5238,11 @@ export interface FastLiveQueueItem {
   created_at: string | null
 }
 
-export async function getFastDoctorLiveQueue(
+export async function getFastDoctorLiveQueueResult(
   doctorId: string | null | undefined,
   clinicId: string,
   date?: string
-): Promise<FastLiveQueueItem[]> {
+): Promise<FastLiveQueueItem[] | null> {
   try {
     const { data, error } = await supabase.rpc('get_doctor_live_queue', {
       p_doctor_id: doctorId || null,
@@ -5234,14 +5253,22 @@ export async function getFastDoctorLiveQueue(
     return data || []
   } catch (err) {
     console.warn('getFastDoctorLiveQueue RPC failed:', err)
-    return []
+    return null
   }
 }
 
-export async function getFastClinicLiveQueue(
+export async function getFastDoctorLiveQueue(
+  doctorId: string | null | undefined,
   clinicId: string,
   date?: string
 ): Promise<FastLiveQueueItem[]> {
+  return (await getFastDoctorLiveQueueResult(doctorId, clinicId, date)) || []
+}
+
+export async function getFastClinicLiveQueueResult(
+  clinicId: string,
+  date?: string
+): Promise<FastLiveQueueItem[] | null> {
   try {
     const { data, error } = await supabase.rpc('get_clinic_live_queue', {
       p_clinic_id: clinicId,
@@ -5251,8 +5278,15 @@ export async function getFastClinicLiveQueue(
     return data || []
   } catch (err) {
     console.warn('getFastClinicLiveQueue RPC failed:', err)
-    return []
+    return null
   }
+}
+
+export async function getFastClinicLiveQueue(
+  clinicId: string,
+  date?: string
+): Promise<FastLiveQueueItem[]> {
+  return (await getFastClinicLiveQueueResult(clinicId, date)) || []
 }
 
 export async function syncClinicLiveQueue(clinicId: string, date?: string): Promise<number> {
@@ -6539,7 +6573,7 @@ export async function getDoctorAppointments(
   try {
     let query = supabase
       .from('appointments')
-      .select('*, doctor:doctors(*), clinic:clinics(*), queue_entries(*)')
+      .select(SLIM_APPT_SELECT)
       .eq('doctor_id', doctorId)
 
     if (date) {
@@ -6551,6 +6585,25 @@ export async function getDoctorAppointments(
     return (data || []).map(mapAppointment)
   } catch (err) {
     console.error('Error fetching doctor appointments:', err)
+    return []
+  }
+}
+
+export async function getDoctorAppointmentsFromDate(
+  doctorId: string,
+  fromDate: string
+): Promise<Appointment[]> {
+  try {
+    const { data, error } = await supabase
+      .from('appointments')
+      .select(SLIM_APPT_SELECT)
+      .eq('doctor_id', doctorId)
+      .gte('appointment_date', fromDate)
+      .order('appointment_time', { ascending: true })
+    if (error) throw error
+    return (data || []).map(mapAppointment)
+  } catch (err) {
+    console.error('Error fetching doctor appointments from date:', err)
     return []
   }
 }
@@ -6744,7 +6797,7 @@ export async function refreshAppointmentsByIds(ids: string[]): Promise<Appointme
   try {
     const { data, error } = await supabase
       .from('appointments')
-      .select('*, doctor:doctors(*), clinic:clinics(*), queue_entries(*)')
+      .select(SLIM_APPT_SELECT)
       .in('id', ids)
 
     if (error) throw error
@@ -6793,7 +6846,7 @@ export async function checkNewAppointments(
   try {
     let query = supabase
       .from('appointments')
-      .select('*, doctor:doctors(*), clinic:clinics(*), queue_entries(*)')
+      .select(SLIM_APPT_SELECT)
       .eq('clinic_id', clinicId)
       .eq('appointment_date', date)
       .eq('status', 'APPROVED')

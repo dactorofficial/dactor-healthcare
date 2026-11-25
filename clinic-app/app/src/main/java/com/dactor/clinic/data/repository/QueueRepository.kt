@@ -537,9 +537,13 @@ open class QueueRepository @Inject constructor(
 
     private val lastAuditRunMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
-    suspend fun getQueueForClinic(clinicId: String, forceRefresh: Boolean = false): List<QueueEntry> = withContext(Dispatchers.IO) {
+    suspend fun getQueueForClinic(
+        clinicId: String,
+        forceRefresh: Boolean = false,
+        targetDate: String? = null
+    ): List<QueueEntry> = withContext(Dispatchers.IO) {
         if (clinicId.isBlank()) return@withContext emptyList()
-        if (!forceRefresh) {
+        if (!forceRefresh && targetDate.isNullOrBlank()) {
             val cached = clinicQueueCache[clinicId]
             if (cached != null && (System.currentTimeMillis() - cached.first) < 1500L) {
                 return@withContext cached.second
@@ -562,6 +566,12 @@ open class QueueRepository @Inject constructor(
                 .select {
                     filter {
                         eq("clinic_id", clinicId)
+                        if (!targetDate.isNullOrBlank()) {
+                            or {
+                                isIn("status", listOf("waiting", "inside"))
+                                gte("updated_at", "${targetDate.take(10)}T00:00:00Z")
+                            }
+                        }
                     }
                 }.decodeList<QueueEntry>()
 

@@ -114,33 +114,36 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
       } else {
         const clean = query.trim().replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase()
         if (clean.length >= 5) {
-          const [data, linked, delta] = await Promise.all([
+          const [data, delta] = await Promise.all([
             getAppointmentByTrackingCode(clean),
-            getLinkedConsultations(clean),
             clean.length === 10 ? fetchLiveQueueDelta(clean) : Promise.resolve(null),
           ])
-          const effective = data || linked?.targetAppointment || null
-          if (effective) {
+          if (data) {
             if (delta && delta.token_number > 0) {
-              effective.queueNumber = delta.token_number
+              data.queueNumber = delta.token_number
               if (delta.status) {
-                effective.checkinStatus = delta.status as any
+                data.checkinStatus = delta.status as any
               }
             }
-            setAppointment(effective)
-            setLinkedConsultations(linked)
+            setAppointment(data)
+            getLinkedConsultations(clean, data)
+              .then((linked) => setLinkedConsultations(linked))
+              .catch(() => {})
             return
           }
 
-          // If tracking code is 10 digits, query minimal public operational queue status
+          // If tracking code is 10 digits, use already-fetched delta first; fall back to public RPC only if missing
           if (clean.length === 10) {
-            const { data: publicRows } = await supabase.rpc('get_public_queue_status', {
-              p_tracking_code: clean,
-            })
-            const publicStatus = Array.isArray(publicRows) && publicRows.length > 0 ? publicRows[0] : null
-            if (publicStatus || delta) {
+            let publicStatus: any = delta
+            if (!publicStatus) {
+              const { data: publicRows } = await supabase.rpc('get_public_queue_status', {
+                p_tracking_code: clean,
+              })
+              publicStatus = Array.isArray(publicRows) && publicRows.length > 0 ? publicRows[0] : null
+            }
+            if (publicStatus) {
               const tokenNum = delta?.token_number || publicStatus?.token_number || 1
-              const st = delta?.status || publicStatus?.status || 'waiting'
+              const st = delta?.status || publicStatus?.queue_status || publicStatus?.status || 'waiting'
               setAppointment({
                 id: '',
                 trackingCode10Digit: publicStatus?.tracking_code_10_digit || clean,

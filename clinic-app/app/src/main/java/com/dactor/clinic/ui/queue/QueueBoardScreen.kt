@@ -584,7 +584,7 @@ fun QueueBoardScreen(
                         if (isDeltaOnly) {
                             queueRepository.syncQueueDeltaForClinic(effectiveClinicId)
                         } else {
-                            queueRepository.getQueueForClinic(effectiveClinicId)
+                            queueRepository.getQueueForClinic(effectiveClinicId, targetDate = selectedQueueDate)
                         }
                     } catch (_: Exception) { emptyList() }
                 }
@@ -653,7 +653,9 @@ fun QueueBoardScreen(
                             val mergedCached = cached.map { refreshedMap[it.id] ?: it }
                             mergedCached + newAppts
                         } else {
-                            appointmentRepository?.getAppointmentsByClinic(effectiveClinicId, forceRefresh = true) ?: emptyList()
+                            appointmentRepository?.getAppointmentsByDate(effectiveClinicId, selectedQueueDate)
+                                ?: appointmentRepository?.getAppointmentsByClinic(effectiveClinicId, forceRefresh = true)
+                                ?: emptyList()
                         }
                     } catch (_: Exception) { emptyList() }
                 }

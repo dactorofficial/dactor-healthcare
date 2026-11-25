@@ -161,6 +161,7 @@ import {
   removeRogueQueueEntry,
   autoEnrollNewAppointment,
   getFastClinicLiveQueue,
+  getFastClinicLiveQueueResult,
   syncClinicLiveQueue,
   mergeFastQueueIntoAppointments,
   ClinicPatientDirectoryEntry,
@@ -1545,9 +1546,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }
           return
         }
-        const fastItems = await getFastClinicLiveQueue(clinicId, selectedQueueDate)
+        const fastItems = await getFastClinicLiveQueueResult(clinicId, selectedQueueDate)
         lastQueueSyncAtRef.current = Date.now()
-        setAppointments((prev) => mergeFastQueueIntoAppointments(prev, fastItems, selectedQueueDate))
+        if (fastItems !== null) {
+          setAppointments((prev) => mergeFastQueueIntoAppointments(prev, fastItems, selectedQueueDate))
+        } else {
+          const freshDayAppts = await getAppointmentsByClinic(clinicId, selectedQueueDate)
+          setAppointments((prev) => [...prev.filter((a) => a.appointmentDate !== selectedQueueDate), ...freshDayAppts])
+        }
       } catch (e) {
         console.error('Error auto-syncing live queue:', e)
       }
@@ -4562,9 +4568,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
       if (Date.now() - lastQueueSyncAtRef.current < 8_000) return
       isPolling = true
       try {
-        const fastItems = await getFastClinicLiveQueue(clinicId, selectedQueueDate)
+        const fastItems = await getFastClinicLiveQueueResult(clinicId, selectedQueueDate)
         lastQueueSyncAtRef.current = Date.now()
-        setAppointments((prev) => mergeFastQueueIntoAppointments(prev, fastItems, selectedQueueDate))
+        if (fastItems !== null) {
+          setAppointments((prev) => mergeFastQueueIntoAppointments(prev, fastItems, selectedQueueDate))
+        } else {
+          const freshDayAppts = await getAppointmentsByClinic(clinicId, selectedQueueDate)
+          setAppointments((prev) => [...prev.filter((a) => a.appointmentDate !== selectedQueueDate), ...freshDayAppts])
+        }
       } catch (err) {
         console.warn('Clinic fast queue refresh error:', err)
       } finally {

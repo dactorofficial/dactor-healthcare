@@ -92,7 +92,9 @@ import {
   removeRogueQueueEntry,
   autoEnrollNewAppointment,
   getFastDoctorLiveQueue,
+  getFastDoctorLiveQueueResult,
   getFastClinicLiveQueue,
+  getFastClinicLiveQueueResult,
   syncClinicLiveQueue,
   mergeFastQueueIntoAppointments,
   parseTimeToMinutes,
@@ -544,12 +546,17 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       try {
         if (clinicId) {
           const items = isLab
-            ? await getFastClinicLiveQueue(clinicId, selectedQueueDate)
-            : await getFastDoctorLiveQueue(currentDoctor.id, clinicId, selectedQueueDate)
+            ? await getFastClinicLiveQueueResult(clinicId, selectedQueueDate)
+            : await getFastDoctorLiveQueueResult(currentDoctor.id, clinicId, selectedQueueDate)
           lastDoctorSyncAtRef.current = Date.now()
-          setAppointments((prev) =>
-            mergeFastQueueIntoAppointments(prev, items, selectedQueueDate, isLab ? null : currentDoctor.id)
-          )
+          if (items !== null) {
+            setAppointments((prev) =>
+              mergeFastQueueIntoAppointments(prev, items, selectedQueueDate, isLab ? null : currentDoctor.id)
+            )
+          } else {
+            const appts = await getDoctorAppointments(currentDoctor.id, selectedQueueDate)
+            setAppointments((prev) => [...prev.filter((a) => a.appointmentDate !== selectedQueueDate), ...appts])
+          }
         } else {
           const appts = await getDoctorAppointments(currentDoctor.id, selectedQueueDate)
           lastDoctorSyncAtRef.current = Date.now()
@@ -1578,12 +1585,14 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       isPolling = true
       try {
         const items = isLab
-          ? await getFastClinicLiveQueue(clinicId, selectedQueueDate)
-          : await getFastDoctorLiveQueue(doctorId, clinicId, selectedQueueDate)
+          ? await getFastClinicLiveQueueResult(clinicId, selectedQueueDate)
+          : await getFastDoctorLiveQueueResult(doctorId, clinicId, selectedQueueDate)
         lastDoctorSyncAtRef.current = Date.now()
-        setAppointments((prev) =>
-          mergeFastQueueIntoAppointments(prev, items, selectedQueueDate, isLab ? null : doctorId)
-        )
+        if (items !== null) {
+          setAppointments((prev) =>
+            mergeFastQueueIntoAppointments(prev, items, selectedQueueDate, isLab ? null : doctorId)
+          )
+        }
       } catch (err) {
         console.warn('Doctor fast queue refresh error:', err)
       } finally {

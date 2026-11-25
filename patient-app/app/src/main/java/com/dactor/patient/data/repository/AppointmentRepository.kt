@@ -237,7 +237,10 @@ class AppointmentRepository @Inject constructor(
 
     suspend fun refreshEsewaPayment(appointmentId: String): OnlinePaymentStatus =
         refreshOnlinePayment(appointmentId)
-    suspend fun getAppointmentByTrackingCode(code: String): Appointment? = withContext(Dispatchers.IO) {
+    suspend fun getAppointmentByTrackingCode(
+        code: String,
+        includeQueueStatus: Boolean = true
+    ): Appointment? = withContext(Dispatchers.IO) {
         try {
             val trimmed = code.trim()
             if (trimmed.isBlank()) return@withContext null
@@ -273,7 +276,7 @@ class AppointmentRepository @Inject constructor(
             // Priority 3: Latest past or completed appointment
             val appt = activeToday ?: upcomingFuture ?: appts.maxByOrNull { it.appointmentDate } ?: appts.last()
 
-            if (appt != null) {
+            if (appt != null && includeQueueStatus) {
                 if (appt.checkinStatus.lowercase() in listOf("done", "completed")) {
                     return@withContext appt.copy(checkinStatus = "completed")
                 }

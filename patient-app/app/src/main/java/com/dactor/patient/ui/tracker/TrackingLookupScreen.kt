@@ -104,24 +104,12 @@ fun TrackingLookupScreen(
 
         coroutineScope.launch {
             try {
-                // 1. If 10-digit code entered, check if an appointment matches this tracking code
-                if (isTrackingCode) {
-                    val apptByCode = appointmentRepository?.getAppointmentByTrackingCodeOrContact(cleaned)
-                        ?: (if (cleanAlpha10.length == 10) appointmentRepository?.getAppointmentByTrackingCode(cleanAlpha10) else null)
-                        ?: appointmentRepository?.getAppointmentById(cleaned)
-                    if (apptByCode != null) {
-                        val finalCode = if (apptByCode.trackingCode10Digit.isNotBlank()) apptByCode.trackingCode10Digit else cleanAlpha10
-                        sessionManager?.unhideRecord(finalCode)
-                        sessionManager?.unhideRecord(apptByCode.id)
-                        sessionManager?.saveTrackingCode(
-                            finalCode,
-                            "${apptByCode.patientName} \u2022 ${apptByCode.appointmentDate}",
-                            explicitUnhide = true
-                        )
-                        isLoading = false
-                        navController.navigate(NavRoutes.QueueStatus.createRoute(finalCode))
-                        return@launch
-                    }
+                // 1. If 10-digit code entered, navigate immediately so QueueStatusScreen loads in one parallel burst
+                if (isTrackingCode && cleanAlpha10.length == 10) {
+                    sessionManager?.unhideRecord(cleanAlpha10)
+                    isLoading = false
+                    navController.navigate(NavRoutes.QueueStatus.createRoute(cleanAlpha10))
+                    return@launch
                 }
 
                 // 2. Query appointments matching email or phone or deterministic ID

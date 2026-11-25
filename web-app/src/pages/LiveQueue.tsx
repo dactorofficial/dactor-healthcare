@@ -401,6 +401,9 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         setLabReports([])
         setMultiSlotResult(null)
         setPublicQueueStatus(status || null)
+        if (!silent && seq === requestSeqRef.current && status) {
+          setLoading(false)
+        }
         if (status?.clinic_id) {
           lastClinicCheckAtRef.current = Date.now()
           const [clinicData, docData] = await Promise.all([
@@ -467,6 +470,9 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       const effectiveAppt = appt
       setAppointment(effectiveAppt)
       setPublicQueueStatus(null)
+      if (!silent && seq === requestSeqRef.current) {
+        setLoading(false)
+      }
 
       if (effectiveAppt) {
         const targetAppt = effectiveAppt

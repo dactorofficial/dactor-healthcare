@@ -33,38 +33,22 @@ class LabReportRepository @Inject constructor(
         try {
             val cleanApptId = appointmentId.trim()
             val cleanTracking = trackingCode?.trim()
-
-            // 1. Direct query by appointment_id (primary UUID)
-            if (cleanApptId.isNotBlank()) {
-                val directReports = supabaseClient.postgrest["lab_reports"]
-                    .select {
-                        filter {
-                            eq("appointment_id", cleanApptId)
-                        }
-                    }.decodeList<LabReport>()
-                if (directReports.isNotEmpty()) return@withContext directReports
-            }
-
-            // 2. Direct query by trackingCode if different
-            if (!cleanTracking.isNullOrBlank() && cleanTracking != cleanApptId) {
-                val reportsByCode = supabaseClient.postgrest["lab_reports"]
-                    .select {
-                        filter {
-                            eq("appointment_id", cleanTracking)
-                        }
-                    }.decodeList<LabReport>()
-                if (reportsByCode.isNotEmpty()) return@withContext reportsByCode
-            }
-
-            // 3. Fallback: query all reports and filter
-            val allReports = supabaseClient.postgrest["lab_reports"]
-                .select()
-                .decodeList<LabReport>()
             val targetIds = listOfNotNull(
                 cleanApptId.takeIf { it.isNotBlank() },
-                cleanTracking?.takeIf { it.isNotBlank() }
-            ).toSet()
-            allReports.filter { it.appointmentId in targetIds }
+                cleanTracking?.takeIf { it.isNotBlank() && it != cleanApptId }
+            ).distinct()
+            if (targetIds.isEmpty()) return@withContext emptyList()
+
+            supabaseClient.postgrest["lab_reports"]
+                .select {
+                    filter {
+                        if (targetIds.size == 1) {
+                            eq("appointment_id", targetIds[0])
+                        } else {
+                            isIn("appointment_id", targetIds)
+                        }
+                    }
+                }.decodeList<LabReport>()
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
