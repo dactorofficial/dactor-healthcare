@@ -5,10 +5,12 @@ export interface WebPaymentRecord {
   amount: number
   dateTime: string
   note?: string
-  paymentMethod?: 'CASH' | 'ESEWA' | 'KHALTI' | 'FONEPAY_QR' | 'CARD' | 'CONNECTIPS' | 'PAY_AT_DESK' | string
+  paymentMethod?: 'CASH' | 'ESEWA' | 'KHALTI' | 'FONEPAY_QR' | 'CARD' | 'CONNECTIPS' | 'PAY_AT_DESK' | 'FREE' | string
   referenceId?: string
   category?: string
 }
+
+export type PaymentPeriodScope = 'day' | 'month' | 'year' | 'custom'
 
 export interface UnifiedPaymentLogEntry {
   id: string
@@ -21,13 +23,20 @@ export interface UnifiedPaymentLogEntry {
   patientName: string
   patientPhone: string
   trackingCode: string
+  followUpOfAppointmentId?: string
+  followUpOfTrackingCode?: string
   doctorId?: string
   doctorName?: string
   specialty?: string
   isNewPatientForDoctor: boolean
+  visitType: 'new' | 'follow_up' | 'unknown' | ''
+  testNames: string[]
+  paymentPart?: [number, number]
+  isRefund: boolean
   type: 'PAYMENT' | 'REFUND' | 'DISCOUNT' | 'CORRECTION'
   amount: number
   paymentMethod: string
+  paymentMode?: string
   referenceId?: string
   category: string
   note?: string
@@ -36,6 +45,57 @@ export interface UnifiedPaymentLogEntry {
   paymentStatus?: string
   items?: Array<{ name: string; price: number; quantity: number }>
   serviceChargeAmount?: number
+}
+
+export interface PendingBillEntry {
+  invoiceId?: string
+  appointmentId: string
+  trackingCode: string
+  patientName: string
+  patientPhone: string
+  doctorId?: string
+  doctorName?: string
+  testNames: string[]
+  visitDate: string
+  visitTime: string
+  visitType: 'new' | 'follow_up' | 'unknown' | ''
+  paymentMode: string
+  totalAmount: number
+  paidAmount: number
+  balanceDue: number
+  isPartlyPaid: boolean
+}
+
+export interface DoctorPeriodStat {
+  doctorId: string
+  doctorName: string
+  specialty: string
+  consultationFee: number
+  totalVisits: number
+  newPatients: number
+  followupPatients: number
+  collectedAmount: number
+  sharePercent: number
+}
+
+export interface LabTestPeriodStat {
+  testName: string
+  count: number
+  unitPrice: number
+  collectedIncome: number
+  sharePercent: number
+}
+
+export interface PaymentPeriodSummary {
+  collected: number
+  collectedCount: number
+  pendingTotal: number
+  pendingCount: number
+  expenses: number
+  expensesCount: number
+  platformFees: number
+  subscriptionDue: number
+  net: number
 }
 
 export interface ClinicExpense {
@@ -85,6 +145,109 @@ export interface DoctorVisitAnalytics {
 const START_TAG = '<!--PAYMENT_LOG_START-->'
 const END_TAG = '<!--PAYMENT_LOG_END-->'
 
+/**
+ * Nepali currency formatting (`Rs. 1,25,000`, omitting decimals unless non-zero paisa,
+ * negative amounts prefixed with `− Rs. `).
+ */
+export function formatNPR(amount: number): string {
+  const safe = Number.isFinite(amount) ? amount : 0
+  const totalPaisa = Math.round(Math.abs(safe) * 100)
+  const isNeg = safe < -0.004 && totalPaisa > 0
+  const whole = Math.floor(totalPaisa / 100)
+  const paisa = totalPaisa % 100
+  const digits = String(whole)
+  let grouped = digits
+  if (digits.length > 3) {
+    const last3 = digits.slice(-3)
+    const rem = digits.slice(0, -3)
+    const chunks: string[] = []
+    for (let i = rem.length; i > 0; i -= 2) {
+      chunks.unshift(rem.slice(Math.max(0, i - 2), i))
+    }
+    grouped = `${chunks.join(',')},${last3}`
+  }
+  const numStr = paisa > 0 ? `${grouped}.${String(paisa).padStart(2, '0')}` : grouped
+  return isNeg ? `− Rs. ${numStr}` : `Rs. ${numStr}`
+}
+
+export function isDiagnosticLabClinic(clinic?: any): boolean {
+  if (!clinic) return false
+  const t = String(clinic.type || '').toLowerCase()
+  const n = String(clinic.name || '').toLowerCase()
+  const specs = Array.isArray(clinic.specialties) ? clinic.specialties : []
+  return (
+    t === 'diagnostic_lab' ||
+    t.includes('diagnostic') ||
+    t.includes('lab') ||
+    n.includes('diagnostic') ||
+    n.includes('lab') ||
+    specs.some((s: string) => {
+      const sl = String(s || '').toLowerCase()
+      return sl.includes('lab') || sl.includes('patholog') || sl.includes('diagnostic') || sl.includes('radiolog') || sl.includes('scan')
+    })
+  )
+}
+
+export function formatDoctorDisplayName(rawName?: string | null): string {
+  const clean = (rawName || '').trim()
+  if (!clean || clean.toLowerCase() === 'doctor' || clean.toLowerCase() === 'clinic doctor') return ''
+  const stripped = clean.replace(/^dr\.?\s*/i, '').trim()
+  return stripped ? `Dr. ${stripped}` : ''
+}
+
+export function extractLocalDate(raw?: string | null): string {
+  if (!raw) return ''
+  const trimmed = String(raw).trim()
+  if (trimmed.includes('T')) {
+    const d = new Date(trimmed)
+    if (!isNaN(d.getTime())) {
+      const y = d.getFullYear()
+      const m = String(d.getMonth() + 1).padStart(2, '0')
+      const day = String(d.getDate()).padStart(2, '0')
+      return `${y}-${m}-${day}`
+    }
+  }
+  return /^\d{4}-\d{2}-\d{2}/.test(trimmed) ? trimmed.slice(0, 10) : ''
+}
+
+export function formatRowTime(raw?: string | null): string {
+  if (!raw) return ''
+  const trimmed = String(raw).trim()
+  if (trimmed.includes('T')) {
+    const d = new Date(trimmed)
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+    }
+  }
+  const slice = /^\d{4}-\d{2}-\d{2}/.test(trimmed) ? trimmed.slice(10) : trimmed
+  const match = slice.match(/(\d{1,2}:\d{2})(?::\d{2})?\s*([APap][Mm])?/)
+  if (match) {
+    const [hStr, mStr] = match[1].split(':')
+    const min = Number(mStr)
+    const ampm = (match[2] || '').toUpperCase()
+    if (ampm) {
+      const h = Number(hStr) || 12
+      return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')} ${ampm}`
+    }
+    const h24 = Number(hStr)
+    if (!isNaN(h24) && h24 >= 0 && h24 <= 23) {
+      const suffix = h24 >= 12 ? 'PM' : 'AM'
+      const h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24
+      return `${String(h12).padStart(2, '0')}:${String(min).padStart(2, '0')} ${suffix}`
+    }
+  }
+  return ''
+}
+
+export function formatListDayHeader(dateStr: string, todayStr: string, yesterdayStr: string): string {
+  const clean = dateStr.slice(0, 10)
+  if (clean === todayStr) return 'TODAY'
+  if (clean === yesterdayStr) return 'YESTERDAY'
+  const d = new Date(`${clean}T00:00:00`)
+  if (isNaN(d.getTime())) return clean.toUpperCase()
+  return d.toLocaleDateString('en-US', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()
+}
+
 export function parsePaymentRecords(
   rawRemarks?: string | null,
   fallbackPaidAmount = 0,
@@ -112,7 +275,6 @@ export function parsePaymentRecords(
     }
   }
 
-  // Support [PAYMENT_LOGS]...[/PAYMENT_LOGS]
   if (rawRemarks && rawRemarks.includes('[PAYMENT_LOGS]') && rawRemarks.includes('[/PAYMENT_LOGS]')) {
     try {
       const jsonStr = rawRemarks.split('[PAYMENT_LOGS]')[1].split('[/PAYMENT_LOGS]')[0].trim()
@@ -155,37 +317,25 @@ export function extractCleanClinicalRemarks(rawRemarks?: string | null): string 
   if (!rawRemarks) return ''
   let text = rawRemarks
 
-  // 1. Strip <!--PAYMENT_LOG_START--> ... <!--PAYMENT_LOG_END-->
   if (text.includes(START_TAG)) {
     const before = text.split(START_TAG)[0].trim()
     const after = text.includes(END_TAG) ? text.split(END_TAG)[1].trim() : ''
     text = [before, after].filter(Boolean).join('\n').trim()
   }
 
-  // 1b. Strip [PAYMENT_LOGS] ... [/PAYMENT_LOGS]
   if (text.includes('[PAYMENT_LOGS]')) {
     const before = text.split('[PAYMENT_LOGS]')[0].trim()
     const after = text.includes('[/PAYMENT_LOGS]') ? text.split('[/PAYMENT_LOGS]')[1].trim() : ''
     text = [before, after].filter(Boolean).join('\n').trim()
   }
 
-  // 2. Strip any other HTML comments <!-- ... -->
   text = text.replace(/<!--[\s\S]*?-->/g, '').trim()
-
-  // 3. Strip [[META:...]] tags
   text = text.replace(/\[\[META:[\s\S]*?\]\]/g, '').trim()
-
-  // 4. Strip any generic [[...]] tags
   text = text.replace(/\[\[[\s\S]*?\]\]/g, '').trim()
-
-  // 5. Strip [CLINIC_ID:...] bracket tags
   text = text.replace(/\[[A-Z0-9_]+:[^\]]*\]/gi, '').trim()
-
-  // 6. Strip raw JSON arrays or objects
   text = text.replace(/\[\s*\{[\s\S]*?\}\s*\]/g, '').trim()
   text = text.replace(/\{\s*"[a-zA-Z0-9_]+"\s*:[\s\S]*?\}/g, '').trim()
 
-  // 7. Clean up lines
   return text
     .split('\n')
     .map((l) => l.trim())
@@ -221,11 +371,6 @@ export function buildCombinedRemarks(cleanRemarks: string, paymentRecords: WebPa
   return trimmed ? `${trimmed}\n\n${logBlock}` : logBlock
 }
 
-/**
- * Derives a canonical patient key per clinic (Nepal family-phone safe):
- * If a family shares a 10-digit phone, the patient name is combined to distinguish
- * separate family members (e.g., Parent vs Child).
- */
 export function derivePatientKey(appt?: {
   userId?: string | null
   patientEmail?: string | null
@@ -245,15 +390,107 @@ export function derivePatientKey(appt?: {
   return cleanName || 'unknown_patient'
 }
 
+export function parseLabTestItems(
+  appt: any,
+  inv: any,
+  clinicServices: any[] = []
+): Array<{ name: string; price: number }> {
+  const catalogByLower = new Map<string, { name: string; price: number }>()
+  for (const s of clinicServices || []) {
+    const sName = String(s.service_name || s.serviceName || '').trim()
+    if (sName) catalogByLower.set(sName.toLowerCase(), { name: sName, price: Number(s.price || 0) })
+  }
+
+  const results: Array<{ name: string; price: number }> = []
+  const addToken = (rawToken: string, explicitPrice?: number) => {
+    const trimmed = String(rawToken || '').trim()
+    if (!trimmed) return
+    const priceMatch = trimmed.match(/\(Rs\.?\s*([0-9.,]+)\)\s*$/i)
+    const embeddedPrice = priceMatch ? Number(priceMatch[1].replace(/,/g, '')) : undefined
+    const rawName = trimmed.replace(/\s*\(Rs\.?[^)]*\)\s*$/i, '').trim()
+    if (!rawName) return
+    const cat = catalogByLower.get(rawName.toLowerCase())
+    const canonicalName = cat?.name || rawName
+    const weight = (explicitPrice && explicitPrice > 0 ? explicitPrice : undefined) ||
+      (embeddedPrice && embeddedPrice > 0 ? embeddedPrice : undefined) ||
+      (cat && cat.price > 0 ? cat.price : 0)
+    results.push({ name: canonicalName, price: weight })
+  }
+
+  const rawSelected = appt?.selectedLabTests || appt?.selected_lab_tests || ''
+  if (String(rawSelected).trim()) {
+    String(rawSelected).split(',').forEach((t) => addToken(t))
+  }
+
+  if (results.length === 0 && inv?.items && Array.isArray(inv.items)) {
+    for (const item of inv.items) {
+      const name = String(item.itemName || item.item_name || item.name || '').trim()
+      const lower = name.toLowerCase()
+      if (
+        !name ||
+        lower.startsWith('payment received') ||
+        lower.includes('pay at desk') ||
+        lower.includes('service charge') ||
+        lower.includes('consultation') ||
+        lower.includes('opd doctor')
+      ) {
+        continue
+      }
+      const amt = Number(item.total || 0) > 0 ? Number(item.total) : Number(item.price || 0) * Number(item.quantity || 1)
+      addToken(name, amt)
+    }
+  }
+
+  if (results.length === 0 && appt?.notes && String(appt.notes).toLowerCase().includes('lab tests:')) {
+    const part = String(appt.notes).replace(/^.*lab tests:\s*/i, '').trim()
+    part.split(',').forEach((t) => addToken(t))
+  }
+
+  return results
+}
+
+function resolveVisitType(
+  appt: any,
+  earliestVisitsByDoctor: Map<string, string>,
+  isLabClinic: boolean
+): 'new' | 'follow_up' | 'unknown' | '' {
+  if (isLabClinic || !appt || !appt.id) return ''
+  const explicit = String(appt.visitType || appt.visit_type || '').trim().toLowerCase()
+  if (explicit) {
+    if (explicit.includes('follow')) return 'follow_up'
+    if (explicit === 'new') return 'new'
+    return 'unknown'
+  }
+  if (appt.followUpOfAppointmentId || appt.follow_up_of_appointment_id || Number(appt.attemptNumber || 1) > 1) {
+    return 'follow_up'
+  }
+  const notesLower = String(appt.notes || '').toLowerCase()
+  if (notesLower.includes('follow-up') || notesLower.includes('followup')) {
+    return 'follow_up'
+  }
+  if (appt.doctorId) {
+    const pKey = derivePatientKey(appt)
+    const firstId = earliestVisitsByDoctor.get(`${appt.doctorId}::${pKey}`)
+    if (firstId === appt.id) {
+      return Number(appt.feeAmount || 0) > 0 ? 'new' : 'follow_up'
+    }
+    return 'follow_up'
+  }
+  return Number(appt.feeAmount || 0) <= 0 ? 'follow_up' : 'unknown'
+}
+
 /**
- * Builds a chronological list of all payment events for a clinic,
- * merging invoice_transactions, legacy remark logs, and online payment attempts.
+ * Builds one ledger row per payment transaction (plus a Rs. 0 FREE row for zero-fee
+ * visits with no transaction). Annotates multi-part payments (`paymentPart: [k, n]`)
+ * and extracts lab tests for diagnostic labs.
  */
 export function buildUnifiedClinicPaymentLogs(
   appointments: any[] = [],
   invoices: any[] = [],
   invoiceTransactions: any[] = [],
-  doctors: any[] = []
+  doctors: any[] = [],
+  isLabClinic = false,
+  clinicServices: any[] = []
 ): UnifiedPaymentLogEntry[] {
   const safeAppts = Array.isArray(appointments) ? appointments : []
   const safeInvs = Array.isArray(invoices) ? invoices : []
@@ -265,22 +502,33 @@ export function buildUnifiedClinicPaymentLogs(
     if (a.id) apptMap.set(a.id, a)
   })
 
+  const invByApptMap = new Map<string, any>()
+  safeInvs.forEach((inv) => {
+    const aId = inv.appointmentId || inv.appointment_id
+    if (aId) invByApptMap.set(aId, inv)
+  })
+
   const docMap = new Map<string, any>()
   safeDocs.forEach((d) => {
     if (d.id) docMap.set(d.id, d)
   })
 
-  // 1. Precalculate earliest visit for each (doctor_id, patient_key)
-  const earliestVisitsByDoctor = new Map<string, string>() // `${doctorId}::${patientKey}` -> earliest appointmentId
-  const sortedAppts = [...safeAppts]
-    .filter((a) => a.doctorId && (a.status || 'APPROVED') === 'APPROVED' && (a.checkinStatus || '') !== 'cancelled')
+  const earliestVisitsByDoctor = new Map<string, string>()
+  const validAppts = [...safeAppts]
+    .filter(
+      (a) =>
+        String(a.status || '').toLowerCase() !== 'cancelled' &&
+        String(a.status || '').toLowerCase() !== 'rejected' &&
+        String(a.checkinStatus || '').toLowerCase() !== 'cancelled'
+    )
     .sort((a, b) => {
       const d1 = `${a.appointmentDate || '1970-01-01'} ${a.appointmentTime || '00:00'}`
       const d2 = `${b.appointmentDate || '1970-01-01'} ${b.appointmentTime || '00:00'}`
       return d1.localeCompare(d2)
     })
 
-  for (const a of sortedAppts) {
+  for (const a of validAppts) {
+    if (!a.doctorId) continue
     const pKey = derivePatientKey(a)
     const comboKey = `${a.doctorId}::${pKey}`
     if (!earliestVisitsByDoctor.has(comboKey)) {
@@ -290,81 +538,112 @@ export function buildUnifiedClinicPaymentLogs(
 
   const entries: UnifiedPaymentLogEntry[] = []
   const recordedTxnKeys = new Set<string>()
+  const processedInvoiceIds = new Set<string>()
+  const processedApptIdsFromTx = new Set<string>()
   const assignedCommissionApptIds = new Set<string>()
 
-  // 2. Add structured invoice_transactions
-  for (const tx of invoiceTransactions) {
+  // 1. Structured invoice_transactions (1 row per payment)
+  for (const tx of safeTxs) {
     if (tx.is_deleted) continue
     const appt = apptMap.get(tx.appointment_id) || {}
+    const inv = safeInvs.find((i) => i.id === tx.invoice_id) || invByApptMap.get(tx.appointment_id)
     const doc = docMap.get(appt.doctorId || '') || {}
-    const pKey = derivePatientKey(appt)
-    const isNew = Boolean(appt.doctorId && earliestVisitsByDoctor.get(`${appt.doctorId}::${pKey}`) === appt.id)
+    const visitType = resolveVisitType(appt, earliestVisitsByDoctor, isLabClinic)
+    const isFollowUp = visitType === 'follow_up'
+    const isConsultationTx = String(tx.category || 'CONSULTATION').toUpperCase() === 'CONSULTATION'
+    const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
+    const isFreeFollowUpConsult = isFollowUp && isConsultationTx && Number(appt.feeAmount || 0) <= 0
 
-    const rawTime = tx.transaction_time || tx.created_at || new Date().toISOString()
-    const dStr = rawTime.slice(0, 10)
-    const tStr = rawTime.slice(11, 16)
+    const rawTime = tx.transaction_time || tx.created_at || inv?.paidAt || new Date().toISOString()
+    const dStr = extractLocalDate(rawTime) || rawTime.slice(0, 10)
+    const tStr = formatRowTime(rawTime) || rawTime.slice(11, 16)
 
     const uniqueKey = `tx_${tx.id || `${tx.invoice_id}_${tx.amount}_${rawTime}`}`
     if (recordedTxnKeys.has(uniqueKey)) continue
     recordedTxnKeys.add(uniqueKey)
 
-    const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
-    const expectedPadTotal = isPad ? getEffectiveAppointmentTotal(appt) : 0
-    const isConsultationTx = String(tx.category || 'CONSULTATION').toUpperCase() === 'CONSULTATION'
-    const isFollowUp = Number(appt.feeAmount || 0) <= 0
     const rawTxAmount = Number(tx.amount || 0)
+    const isRefundTx = rawTxAmount < 0 || String(tx.transaction_type || tx.category || '').toUpperCase() === 'REFUND'
+    const expectedPadTotal = isPad && !isFreeFollowUpConsult ? getEffectiveAppointmentTotal(appt) : 0
+    const baseTxAmount = isFreeFollowUpConsult ? 0 : rawTxAmount
     const effectiveTxAmount =
-      isPad && isConsultationTx && expectedPadTotal > 0 && rawTxAmount > 0 && rawTxAmount < expectedPadTotal
+      !isRefundTx && isPad && !isFreeFollowUpConsult && isConsultationTx && expectedPadTotal > 0 && baseTxAmount > 0 && baseTxAmount < expectedPadTotal
         ? expectedPadTotal
-        : rawTxAmount
-    const effInvTotal = isPad
-      ? Math.max(Number(appt.totalAmount || 0), expectedPadTotal, effectiveTxAmount)
-      : Number(appt.totalAmount || appt.feeAmount || effectiveTxAmount || 0)
+        : baseTxAmount
+
+    const effInvTotal = isFreeFollowUpConsult
+      ? Number(inv?.totalAmount || 0)
+      : isPad
+      ? Math.max(Number(inv?.totalAmount || appt.totalAmount || 0), expectedPadTotal, effectiveTxAmount)
+      : Number(inv?.totalAmount || appt.totalAmount || appt.feeAmount || Math.abs(effectiveTxAmount) || 0)
 
     const rawApptServiceCharge = Number(appt.serviceChargeAmount || 0)
     const serviceCharge =
-      isPad && !isFollowUp && isConsultationTx && appt.id && !assignedCommissionApptIds.has(appt.id)
-        ? (rawApptServiceCharge > 0 ? rawApptServiceCharge : Math.round(Number(appt.feeAmount || 0) * 0.05))
+      !isRefundTx && isPad && !isFreeFollowUpConsult && isConsultationTx && appt.id && !assignedCommissionApptIds.has(appt.id)
+        ? rawApptServiceCharge > 0
+          ? rawApptServiceCharge
+          : Math.round(Number(appt.feeAmount || 0) * 0.05)
         : 0
-    if (serviceCharge > 0 && appt.id) {
-      assignedCommissionApptIds.add(appt.id)
-    }
+    if (serviceCharge > 0 && appt.id) assignedCommissionApptIds.add(appt.id)
+
+    const tests = isLabClinic ? parseLabTestItems(appt, inv, clinicServices).map((t) => t.name) : []
+    const followUpOrigId = appt.followUpOfAppointmentId || appt.follow_up_of_appointment_id
+    const followUpOrig = followUpOrigId ? apptMap.get(followUpOrigId) : undefined
+    const methodUpper = isRefundTx
+      ? String(tx.payment_method || 'REFUND').toUpperCase()
+      : effectiveTxAmount === 0
+      ? 'FREE'
+      : isPad && String(tx.payment_method || '').toUpperCase() === 'CASH'
+      ? 'PAY_AT_DESK'
+      : String(tx.payment_method || (isPad ? 'PAY_AT_DESK' : 'CASH')).toUpperCase()
 
     entries.push({
       id: tx.id || uniqueKey,
-      invoiceId: tx.invoice_id,
-      appointmentId: tx.appointment_id,
-      clinicId: tx.clinic_id,
+      invoiceId: tx.invoice_id || inv?.id,
+      appointmentId: tx.appointment_id || inv?.appointmentId,
+      clinicId: tx.clinic_id || appt.clinicId || '',
       dateTime: rawTime,
       date: dStr,
       time: tStr,
       patientName: appt.patientName || 'Patient',
       patientPhone: appt.patientMobile || '',
       trackingCode: appt.trackingCode10Digit || '',
-      doctorId: appt.doctorId,
-      doctorName: doc.fullName || (doc.name ? `Dr. ${doc.name}` : undefined),
-      specialty: doc.specialty,
-      isNewPatientForDoctor: isNew,
-      type: (tx.transaction_type as any) || 'PAYMENT',
+      followUpOfAppointmentId: followUpOrigId,
+      followUpOfTrackingCode: followUpOrig?.trackingCode10Digit,
+      doctorId: isLabClinic ? undefined : appt.doctorId,
+      doctorName: isLabClinic ? '' : formatDoctorDisplayName(doc.fullName || doc.name),
+      specialty: isLabClinic ? '' : doc.specialty || '',
+      isNewPatientForDoctor: visitType === 'new',
+      visitType,
+      testNames: tests,
+      isRefund: isRefundTx,
+      type: isRefundTx ? 'REFUND' : ((tx.transaction_type as any) || 'PAYMENT'),
       amount: effectiveTxAmount,
-      paymentMethod: (tx.payment_method || (isPad ? 'PAY_AT_DESK' : 'CASH')).toUpperCase(),
-      referenceId: tx.reference_id || undefined,
-      category: tx.category || 'CONSULTATION',
-      note: tx.notes || 'Payment Received',
+      paymentMethod: methodUpper,
+      paymentMode: appt.paymentMode || (effectiveTxAmount === 0 ? 'FREE' : 'ONLINE'),
+      referenceId: tx.reference_id || (effectiveTxAmount === 0 && !isRefundTx ? 'FOLLOWUP-WAIVED' : undefined),
+      category: isRefundTx ? 'REFUND' : isFreeFollowUpConsult ? 'FREE_FOLLOWUP' : tx.category || 'CONSULTATION',
+      note: tx.notes || (isFreeFollowUpConsult ? 'Follow-up Consultation (Free)' : isLabClinic ? 'Diagnostic Lab Tests' : 'OPD Consultation'),
       invoiceTotal: effInvTotal,
-      balanceDue: 0,
-      paymentStatus: 'paid',
+      balanceDue: Number(inv?.balanceDue || 0),
+      paymentStatus: inv?.paymentStatus || 'paid',
       serviceChargeAmount: serviceCharge,
     })
+
+    if (inv?.id) processedInvoiceIds.add(inv.id)
+    if (tx.appointment_id || inv?.appointmentId) processedApptIdsFromTx.add(tx.appointment_id || inv?.appointmentId)
   }
 
-  // 3. Fallback / Merge from billing_invoices & legacy remarks logs
-  for (const inv of invoices) {
+  // 2. Fallback / Merge from billing_invoices & embedded remark logs
+  for (const inv of safeInvs) {
     if (inv.is_deleted) continue
-    const appt = apptMap.get(inv.appointmentId) || {}
+    const apptId = inv.appointmentId || inv.appointment_id
+    if (processedInvoiceIds.has(inv.id) || (apptId && processedApptIdsFromTx.has(apptId))) continue
+
+    const appt = apptMap.get(apptId) || {}
     const doc = docMap.get(appt.doctorId || '') || {}
-    const pKey = derivePatientKey(appt)
-    const isNew = Boolean(appt.doctorId && earliestVisitsByDoctor.get(`${appt.doctorId}::${pKey}`) === appt.id)
+    const visitType = resolveVisitType(appt, earliestVisitsByDoctor, isLabClinic)
+    const isFollowUp = visitType === 'follow_up'
     const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
     const effInvTotal = getEffectiveInvoiceTotal(appt, inv)
     const effItems = getEffectiveInvoiceItems(appt, inv.items)
@@ -374,161 +653,140 @@ export function buildUnifiedClinicPaymentLogs(
         : Number(inv.paidAmount || 0)
 
     const parsedRecords = parsePaymentRecords(inv.remarks, effectivePaidAmt, inv.paidAt || inv.updatedAt)
+    const tests = isLabClinic ? parseLabTestItems(appt, inv, clinicServices).map((t) => t.name) : []
+    const followUpOrigId = appt.followUpOfAppointmentId || appt.follow_up_of_appointment_id
+    const followUpOrig = followUpOrigId ? apptMap.get(followUpOrigId) : undefined
 
-    if (parsedRecords.length > 0) {
-      for (const pr of parsedRecords) {
-        const rawTime = pr.dateTime || inv.paidAt || inv.updatedAt || new Date().toISOString()
-        const dStr = (pr.dateTime ? pr.dateTime.slice(0, 10) : '') || (inv.paidAt ? inv.paidAt.slice(0, 10) : '') || new Date().toISOString().slice(0, 10)
-        const uniqueKey = `inv_${inv.id}_${pr.id || pr.amount}_${dStr}`
-        if (recordedTxnKeys.has(uniqueKey)) continue
-        recordedTxnKeys.add(uniqueKey)
+    for (const pr of parsedRecords) {
+      const rawTime = pr.dateTime || inv.paidAt || inv.updatedAt || new Date().toISOString()
+      const dStr = extractLocalDate(rawTime) || rawTime.slice(0, 10)
+      const uniqueKey = `inv_${inv.id}_${pr.id || pr.amount}_${dStr}`
+      if (recordedTxnKeys.has(uniqueKey)) continue
+      recordedTxnKeys.add(uniqueKey)
 
-        const rawPrAmt = Number(pr.amount || 0)
-        const isConsultationPr = String(pr.category || 'CONSULTATION').toUpperCase() === 'CONSULTATION'
-        const isFollowUp = Number(appt.feeAmount || 0) <= 0
-        const effPrAmt =
-          isPad && isConsultationPr && parsedRecords.length === 1 && effInvTotal > 0 && rawPrAmt > 0 && rawPrAmt < effInvTotal
-            ? effInvTotal
-            : rawPrAmt
-        const effBalance =
-          inv.paymentStatus === 'paid'
-            ? 0
-            : Math.max(0, effInvTotal - effectivePaidAmt)
+      const rawPrAmt = Number(pr.amount || 0)
+      const isRefundRec = rawPrAmt < 0 || String(pr.category || '').toUpperCase() === 'REFUND'
+      const isConsultationPr = String(pr.category || 'CONSULTATION').toUpperCase() === 'CONSULTATION'
+      const effPrAmt =
+        !isRefundRec && isPad && isConsultationPr && parsedRecords.length === 1 && effInvTotal > 0 && rawPrAmt > 0 && rawPrAmt < effInvTotal
+          ? effInvTotal
+          : rawPrAmt
+      const effBalance = inv.paymentStatus === 'paid' ? 0 : Math.max(0, effInvTotal - effectivePaidAmt)
 
-        const rawApptServiceCharge = Number(appt.serviceChargeAmount || 0)
-        const serviceCharge =
-          isPad && !isFollowUp && isConsultationPr && appt.id && !assignedCommissionApptIds.has(appt.id)
-            ? (rawApptServiceCharge > 0 ? rawApptServiceCharge : Math.round(Number(appt.feeAmount || 0) * 0.05))
-            : 0
-        if (serviceCharge > 0 && appt.id) {
-          assignedCommissionApptIds.add(appt.id)
-        }
+      const rawApptServiceCharge = Number(appt.serviceChargeAmount || 0)
+      const serviceCharge =
+        !isRefundRec && isPad && !(isFollowUp && Number(appt.feeAmount || 0) <= 0) && isConsultationPr && appt.id && !assignedCommissionApptIds.has(appt.id)
+          ? rawApptServiceCharge > 0
+            ? rawApptServiceCharge
+            : Math.round(Number(appt.feeAmount || 0) * 0.05)
+          : 0
+      if (serviceCharge > 0 && appt.id) assignedCommissionApptIds.add(appt.id)
 
-        entries.push({
-          id: pr.id || uniqueKey,
-          invoiceId: inv.id,
-          appointmentId: inv.appointmentId,
-          clinicId: inv.clinicId,
-          dateTime: rawTime,
-          date: dStr || new Date().toISOString().slice(0, 10),
-          time: rawTime.slice(11, 16) || '12:00',
-          patientName: appt.patientName || 'Patient',
-          patientPhone: appt.patientMobile || '',
-          trackingCode: appt.trackingCode10Digit || '',
-          doctorId: appt.doctorId,
-          doctorName: doc.fullName || (doc.name ? `Dr. ${doc.name}` : undefined),
-          specialty: doc.specialty,
-          isNewPatientForDoctor: isNew,
-          type: 'PAYMENT',
-          amount: effPrAmt,
-          paymentMethod: (pr.paymentMethod || (isPad ? 'PAY_AT_DESK' : 'CASH')).toUpperCase(),
-          referenceId: pr.referenceId,
-          category: pr.category || 'CONSULTATION',
-          note: pr.note || 'Payment Received',
-          invoiceTotal: effInvTotal,
-          balanceDue: effBalance,
-          paymentStatus: inv.paymentStatus || 'paid',
-          items: effItems,
-          serviceChargeAmount: serviceCharge,
-        })
-      }
-    } else if (effectivePaidAmt > 0) {
-      const rawTime = inv.paidAt || inv.updatedAt || new Date().toISOString()
-      const dStr = rawTime.slice(0, 10)
-      const uniqueKey = `inv_flat_${inv.id}`
-      if (!recordedTxnKeys.has(uniqueKey)) {
-        recordedTxnKeys.add(uniqueKey)
-        const effBalance =
-          inv.paymentStatus === 'paid'
-            ? 0
-            : Math.max(0, effInvTotal - effectivePaidAmt)
-        const isFollowUp = Number(appt.feeAmount || 0) <= 0
-        const rawApptServiceCharge = Number(appt.serviceChargeAmount || 0)
-        const serviceCharge =
-          isPad && !isFollowUp && appt.id && !assignedCommissionApptIds.has(appt.id)
-            ? (rawApptServiceCharge > 0 ? rawApptServiceCharge : Math.round(Number(appt.feeAmount || 0) * 0.05))
-            : 0
-        if (serviceCharge > 0 && appt.id) {
-          assignedCommissionApptIds.add(appt.id)
-        }
-
-        entries.push({
-          id: uniqueKey,
-          invoiceId: inv.id,
-          appointmentId: inv.appointmentId,
-          clinicId: inv.clinicId,
-          dateTime: rawTime,
-          date: dStr,
-          time: rawTime.slice(11, 16),
-          patientName: appt.patientName || 'Patient',
-          patientPhone: appt.patientMobile || '',
-          trackingCode: appt.trackingCode10Digit || '',
-          doctorId: appt.doctorId,
-          doctorName: doc.fullName || (doc.name ? `Dr. ${doc.name}` : undefined),
-          specialty: doc.specialty,
-          isNewPatientForDoctor: isNew,
-          type: 'PAYMENT',
-          amount: effectivePaidAmt,
-          paymentMethod: (isPad ? 'PAY_AT_DESK' : 'CASH').toUpperCase(),
-          category: 'CONSULTATION',
-          note: 'Full Bill Payment',
-          invoiceTotal: effInvTotal,
-          balanceDue: effBalance,
-          paymentStatus: inv.paymentStatus || 'paid',
-          items: effItems,
-          serviceChargeAmount: serviceCharge,
-        })
-      }
+      entries.push({
+        id: pr.id || uniqueKey,
+        invoiceId: inv.id,
+        appointmentId: apptId,
+        clinicId: inv.clinicId || appt.clinicId || '',
+        dateTime: rawTime,
+        date: dStr,
+        time: formatRowTime(rawTime) || rawTime.slice(11, 16) || '12:00',
+        patientName: appt.patientName || 'Patient',
+        patientPhone: appt.patientMobile || '',
+        trackingCode: appt.trackingCode10Digit || '',
+        followUpOfAppointmentId: followUpOrigId,
+        followUpOfTrackingCode: followUpOrig?.trackingCode10Digit,
+        doctorId: isLabClinic ? undefined : appt.doctorId,
+        doctorName: isLabClinic ? '' : formatDoctorDisplayName(doc.fullName || doc.name),
+        specialty: isLabClinic ? '' : doc.specialty || '',
+        isNewPatientForDoctor: visitType === 'new',
+        visitType,
+        testNames: tests,
+        isRefund: isRefundRec,
+        type: isRefundRec ? 'REFUND' : 'PAYMENT',
+        amount: effPrAmt,
+        paymentMethod: isRefundRec
+          ? 'REFUND'
+          : effPrAmt === 0
+          ? 'FREE'
+          : String(pr.paymentMethod || (isPad ? 'PAY_AT_DESK' : 'CASH')).toUpperCase(),
+        paymentMode: appt.paymentMode || (effPrAmt === 0 ? 'FREE' : 'CASH'),
+        referenceId: pr.referenceId,
+        category: isRefundRec ? 'REFUND' : pr.category || 'CONSULTATION',
+        note: pr.note || (isLabClinic ? 'Diagnostic Lab Tests' : 'Payment Received'),
+        invoiceTotal: effInvTotal,
+        balanceDue: effBalance,
+        paymentStatus: inv.paymentStatus || 'paid',
+        items: effItems,
+        serviceChargeAmount: serviceCharge,
+      })
     }
   }
 
-  // 4. Fallback for appointments marked paid not covered by invoices or transactions
+  // 3. Fallback for paid or Rs. 0 free visits not covered above
   const processedApptIds = new Set<string>()
   for (const e of entries) {
     if (e.appointmentId) processedApptIds.add(e.appointmentId)
   }
-  for (const appt of sortedAppts) {
+  for (const appt of validAppts) {
     if (!appt.id || processedApptIds.has(appt.id)) continue
     const isPaid = String(appt.paymentStatus || '').toLowerCase() === 'paid'
-    if (!isPaid) continue
+    const isFree =
+      Number(appt.feeAmount || 0) <= 0 &&
+      (isPaid || String(appt.paymentMode || '').toUpperCase() === 'FREE' || String(appt.status || '').toUpperCase() === 'APPROVED')
+    if (!isPaid && !isFree) continue
 
     const doc = docMap.get(appt.doctorId || '') || {}
-    const pKey = derivePatientKey(appt)
-    const isNew = Boolean(appt.doctorId && earliestVisitsByDoctor.get(`${appt.doctorId}::${pKey}`) === appt.id)
+    const visitType = resolveVisitType(appt, earliestVisitsByDoctor, isLabClinic)
+    const isFollowUp = visitType === 'follow_up'
     const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
-    const isFollowUp = Number(appt.feeAmount || 0) <= 0
-    const rawTime = appt.approvedAt || appt.updatedAt || `${appt.appointmentDate || new Date().toISOString().slice(0, 10)} ${appt.appointmentTime || '10:00'}`
-    const dStr = rawTime.slice(0, 10)
-    const effTotal = isPad ? getEffectiveAppointmentTotal(appt) : Number(appt.totalAmount || appt.feeAmount || 0)
+    const rawTime = appt.approvedAt || appt.createdAt || `${appt.appointmentDate || new Date().toISOString().slice(0, 10)} ${appt.appointmentTime || '10:00'}`
+    const dStr = extractLocalDate(rawTime) || rawTime.slice(0, 10)
+    const effTotal =
+      Number(appt.feeAmount || 0) <= 0 && Number(appt.totalAmount || 0) <= 0
+        ? 0
+        : isPad
+        ? getEffectiveAppointmentTotal(appt)
+        : Number(appt.totalAmount || appt.feeAmount || 0)
 
     const rawApptServiceCharge = Number(appt.serviceChargeAmount || 0)
     const serviceCharge =
-      isPad && !isFollowUp && appt.id && !assignedCommissionApptIds.has(appt.id)
-        ? (rawApptServiceCharge > 0 ? rawApptServiceCharge : Math.round(Number(appt.feeAmount || 0) * 0.05))
+      isPad && effTotal > 0 && appt.id && !assignedCommissionApptIds.has(appt.id)
+        ? rawApptServiceCharge > 0
+          ? rawApptServiceCharge
+          : Math.round(Number(appt.feeAmount || 0) * 0.05)
         : 0
-    if (serviceCharge > 0 && appt.id) {
-      assignedCommissionApptIds.add(appt.id)
-    }
+    if (serviceCharge > 0 && appt.id) assignedCommissionApptIds.add(appt.id)
+
+    const tests = isLabClinic ? parseLabTestItems(appt, null, clinicServices).map((t) => t.name) : []
+    const followUpOrigId = appt.followUpOfAppointmentId || appt.follow_up_of_appointment_id
+    const followUpOrig = followUpOrigId ? apptMap.get(followUpOrigId) : undefined
 
     entries.push({
       id: `appt_${appt.id}`,
       appointmentId: appt.id,
-      clinicId: appt.clinicId,
+      clinicId: appt.clinicId || '',
       dateTime: rawTime,
       date: dStr,
-      time: rawTime.slice(11, 16) || '10:00',
+      time: formatRowTime(rawTime) || '10:00 AM',
       patientName: appt.patientName || 'Patient',
       patientPhone: appt.patientMobile || '',
       trackingCode: appt.trackingCode10Digit || '',
-      doctorId: appt.doctorId,
-      doctorName: doc.fullName || (doc.name ? `Dr. ${doc.name}` : undefined),
-      specialty: doc.specialty,
-      isNewPatientForDoctor: isNew,
+      followUpOfAppointmentId: followUpOrigId,
+      followUpOfTrackingCode: followUpOrig?.trackingCode10Digit,
+      doctorId: isLabClinic ? undefined : appt.doctorId,
+      doctorName: isLabClinic ? '' : formatDoctorDisplayName(doc.fullName || doc.name),
+      specialty: isLabClinic ? '' : doc.specialty || '',
+      isNewPatientForDoctor: visitType === 'new',
+      visitType,
+      testNames: tests,
+      isRefund: false,
       type: 'PAYMENT',
       amount: effTotal,
-      paymentMethod: (isPad ? 'PAY_AT_DESK' : (appt.paymentMethod || 'CASH')).toUpperCase(),
-      category: isFollowUp ? 'FREE_FOLLOWUP' : 'CONSULTATION',
-      note: isFollowUp ? 'Follow-up Consultation (Free)' : 'OPD Consultation',
+      paymentMethod: effTotal === 0 ? 'FREE' : String(isPad ? 'PAY_AT_DESK' : appt.paymentMethod || appt.paymentMode || 'CASH').toUpperCase(),
+      paymentMode: effTotal === 0 ? 'FREE' : appt.paymentMode || 'ONLINE',
+      referenceId: effTotal === 0 ? 'FOLLOWUP-WAIVED' : undefined,
+      category: isFollowUp && effTotal === 0 ? 'FREE_FOLLOWUP' : 'CONSULTATION',
+      note: isFollowUp && effTotal === 0 ? 'Follow-up Consultation (Free)' : isLabClinic ? 'Diagnostic Lab Tests' : 'OPD Consultation',
       invoiceTotal: effTotal,
       balanceDue: 0,
       paymentStatus: 'paid',
@@ -536,20 +794,318 @@ export function buildUnifiedClinicPaymentLogs(
     })
   }
 
-  // Sort descending by date & time
+  // Assign PART k/n for bills with > 1 positive payment
+  const groups = new Map<string, UnifiedPaymentLogEntry[]>()
+  for (const e of entries) {
+    if (e.isRefund || e.amount <= 0) continue
+    const key = e.invoiceId || e.appointmentId
+    if (!key) continue
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(e)
+  }
+  groups.forEach((group) => {
+    if (group.length > 1) {
+      const sorted = [...group].sort((a, b) => a.dateTime.localeCompare(b.dateTime) || a.id.localeCompare(b.id))
+      sorted.forEach((item, idx) => {
+        item.paymentPart = [idx + 1, sorted.length]
+      })
+    }
+  })
+
   return entries.sort((a, b) => b.dateTime.localeCompare(a.dateTime))
 }
 
-/**
- * Computes Doctor Daily and Monthly patient counts (New vs Follow-up) and revenues.
- */
+export function buildPendingBills(
+  appointments: any[] = [],
+  invoices: any[] = [],
+  doctors: any[] = [],
+  isLabClinic = false,
+  clinicServices: any[] = [],
+  periodPredicate: (dateStr: string) => boolean
+): PendingBillEntry[] {
+  const docMap = new Map<string, any>()
+  doctors.forEach((d) => {
+    if (d.id) docMap.set(d.id, d)
+  })
+  const invMap = new Map<string, any>()
+  invoices.forEach((inv) => {
+    const aId = inv.appointmentId || inv.appointment_id
+    if (aId) invMap.set(aId, inv)
+  })
+
+  const validAppts = [...appointments]
+    .filter(
+      (a) =>
+        String(a.status || '').toLowerCase() !== 'cancelled' &&
+        String(a.status || '').toLowerCase() !== 'rejected' &&
+        String(a.checkinStatus || '').toLowerCase() !== 'cancelled'
+    )
+    .sort((a, b) => `${a.appointmentDate || ''} ${a.appointmentTime || ''}`.localeCompare(`${b.appointmentDate || ''} ${b.appointmentTime || ''}`))
+
+  const earliestVisitsByDoctor = new Map<string, string>()
+  for (const a of validAppts) {
+    if (!a.doctorId) continue
+    const combo = `${a.doctorId}::${derivePatientKey(a)}`
+    if (!earliestVisitsByDoctor.has(combo)) earliestVisitsByDoctor.set(combo, a.id)
+  }
+
+  const pending: PendingBillEntry[] = []
+  const covered = new Set<string>()
+
+  for (const appt of validAppts) {
+    const visitDate = String(appt.appointmentDate || '').slice(0, 10) || extractLocalDate(appt.createdAt)
+    if (!periodPredicate(visitDate)) continue
+
+    const inv = invMap.get(appt.id)
+    const doc = docMap.get(appt.doctorId || '')
+    const visitType = resolveVisitType(appt, earliestVisitsByDoctor, isLabClinic)
+    const tests = isLabClinic ? parseLabTestItems(appt, inv, clinicServices).map((t) => t.name) : []
+    const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
+
+    let totalAmt = 0
+    let paidAmt = 0
+    let dueAmt = 0
+
+    if (inv) {
+      if (String(inv.paymentStatus || '').toLowerCase() === 'paid' && Number(inv.balanceDue || 0) <= 0.01) {
+        covered.add(appt.id)
+        continue
+      }
+      const baseTotal = Number(inv.totalAmount || 0) > 0 ? Number(inv.totalAmount) : getEffectiveAppointmentTotal(appt)
+      totalAmt = isPad ? Math.max(baseTotal, getEffectiveAppointmentTotal(appt)) : baseTotal
+      paidAmt = Number(inv.paidAmount || 0)
+      dueAmt = Number(inv.balanceDue || 0) > 0.01 ? Number(inv.balanceDue) : Math.max(0, totalAmt - paidAmt)
+    } else {
+      const apptPaid = String(appt.paymentStatus || '').toLowerCase() === 'paid'
+      const effTotal = isPad ? getEffectiveAppointmentTotal(appt) : Number(appt.totalAmount || appt.feeAmount || 0)
+      if (apptPaid || effTotal <= 0 || String(appt.paymentMode || '').toUpperCase() === 'FREE') {
+        covered.add(appt.id)
+        continue
+      }
+      totalAmt = effTotal
+      paidAmt = 0
+      dueAmt = totalAmt
+    }
+
+    if (dueAmt > 0.01) {
+      covered.add(appt.id)
+      pending.push({
+        invoiceId: inv?.id,
+        appointmentId: appt.id,
+        trackingCode: appt.trackingCode10Digit || '–',
+        patientName: appt.patientName || 'Patient',
+        patientPhone: appt.patientMobile || '',
+        doctorId: isLabClinic ? undefined : appt.doctorId,
+        doctorName: isLabClinic ? '' : formatDoctorDisplayName(doc?.fullName || doc?.name),
+        testNames: tests,
+        visitDate,
+        visitTime: formatRowTime(appt.appointmentTime),
+        visitType,
+        paymentMode: appt.paymentMode || 'ONLINE',
+        totalAmount: totalAmt,
+        paidAmount: paidAmt,
+        balanceDue: dueAmt,
+        isPartlyPaid: paidAmt > 0.01 && dueAmt > 0.01,
+      })
+    }
+  }
+
+  return pending.sort((a, b) => a.visitDate.localeCompare(b.visitDate) || a.patientName.localeCompare(b.patientName))
+}
+
+export function computePaymentPeriodSummary(
+  periodLogs: UnifiedPaymentLogEntry[],
+  periodPendingBills: PendingBillEntry[],
+  periodExpenses: ClinicExpense[],
+  subscriptionsInPeriod: any[] = []
+): PaymentPeriodSummary {
+  const collected = periodLogs.reduce((acc, l) => acc + (Number(l.amount) || 0), 0)
+  const pendingTotal = periodPendingBills.reduce((acc, b) => acc + (Number(b.balanceDue) || 0), 0)
+  const expenses = periodExpenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0)
+  const platformFees = periodLogs.reduce((acc, l) => acc + (Number(l.serviceChargeAmount) || 0), 0)
+  const subscriptionDue = subscriptionsInPeriod
+    .filter((s) => {
+      const st = String(s.status || '').toLowerCase()
+      return st.includes('due') || st.includes('unpaid')
+    })
+    .reduce((acc, s) => acc + (Number(s.amount_npr || s.amount) || 0), 0)
+  const net = collected - expenses - platformFees - subscriptionDue
+  return {
+    collected,
+    collectedCount: periodLogs.length,
+    pendingTotal,
+    pendingCount: periodPendingBills.length,
+    expenses,
+    expensesCount: periodExpenses.length,
+    platformFees,
+    subscriptionDue,
+    net,
+  }
+}
+
+export function computeDoctorPeriodStats(
+  periodLogs: UnifiedPaymentLogEntry[],
+  periodAppointments: any[],
+  allAppointments: any[],
+  doctors: any[]
+): DoctorPeriodStat[] {
+  const docMap = new Map<string, any>()
+  doctors.forEach((d) => {
+    if (d.id) docMap.set(d.id, d)
+  })
+
+  const earliestVisitsByDoctor = new Map<string, string>()
+  const validAll = [...allAppointments]
+    .filter(
+      (a) =>
+        String(a.status || '').toLowerCase() !== 'cancelled' &&
+        String(a.status || '').toLowerCase() !== 'rejected' &&
+        String(a.checkinStatus || '').toLowerCase() !== 'cancelled'
+    )
+    .sort((a, b) => `${a.appointmentDate || ''} ${a.appointmentTime || ''}`.localeCompare(`${b.appointmentDate || ''} ${b.appointmentTime || ''}`))
+
+  for (const a of validAll) {
+    if (!a.doctorId) continue
+    const combo = `${a.doctorId}::${derivePatientKey(a)}`
+    if (!earliestVisitsByDoctor.has(combo)) earliestVisitsByDoctor.set(combo, a.id)
+  }
+
+  const visitsByDoc = new Map<string, { total: number; newCount: number; followupCount: number }>()
+  for (const a of periodAppointments) {
+    if (
+      !a.doctorId ||
+      String(a.status || '').toLowerCase() === 'cancelled' ||
+      String(a.status || '').toLowerCase() === 'rejected' ||
+      String(a.checkinStatus || '').toLowerCase() === 'cancelled'
+    ) {
+      continue
+    }
+    const vType = resolveVisitType(a, earliestVisitsByDoctor, false)
+    const cur = visitsByDoc.get(a.doctorId) || { total: 0, newCount: 0, followupCount: 0 }
+    cur.total += 1
+    if (vType === 'new') cur.newCount += 1
+    else if (vType === 'follow_up') cur.followupCount += 1
+    visitsByDoc.set(a.doctorId, cur)
+  }
+
+  const collectedByDoc = new Map<string, number>()
+  for (const l of periodLogs) {
+    if (!l.doctorId) continue
+    collectedByDoc.set(l.doctorId, (collectedByDoc.get(l.doctorId) || 0) + l.amount)
+  }
+
+  const docIds = new Set([...visitsByDoc.keys(), ...collectedByDoc.keys()])
+  const totalCollected = Array.from(collectedByDoc.values()).reduce((a, b) => a + b, 0)
+
+  const results: DoctorPeriodStat[] = []
+  docIds.forEach((docId) => {
+    const doc = docMap.get(docId)
+    if (!doc) return
+    const v = visitsByDoc.get(docId) || { total: 0, newCount: 0, followupCount: 0 }
+    const collected = collectedByDoc.get(docId) || 0
+    results.push({
+      doctorId: docId,
+      doctorName: formatDoctorDisplayName(doc.fullName || doc.name) || doc.fullName || doc.name,
+      specialty: doc.specialty || 'General Practice',
+      consultationFee: Number(doc.consultationFee || 0),
+      totalVisits: v.total,
+      newPatients: v.newCount,
+      followupPatients: v.followupCount,
+      collectedAmount: collected,
+      sharePercent: totalCollected > 0 ? (collected / totalCollected) * 100 : 0,
+    })
+  })
+  return results.sort((a, b) => b.collectedAmount - a.collectedAmount)
+}
+
+export function computeTestPeriodStats(
+  periodLogs: UnifiedPaymentLogEntry[],
+  appointments: any[],
+  invoices: any[],
+  clinicServices: any[]
+): LabTestPeriodStat[] {
+  const apptMap = new Map<string, any>()
+  appointments.forEach((a) => {
+    if (a.id) apptMap.set(a.id, a)
+  })
+  const invByAppt = new Map<string, any>()
+  invoices.forEach((i) => {
+    const aid = i.appointmentId || i.appointment_id
+    if (aid) invByAppt.set(aid, i)
+  })
+  const catalogByLower = new Map<string, number>()
+  clinicServices.forEach((s) => {
+    const n = String(s.service_name || s.serviceName || '').trim().toLowerCase()
+    if (n) catalogByLower.set(n, Number(s.price || 0))
+  })
+
+  const incomeByTestPaisa = new Map<string, number>()
+  const countByTest = new Map<string, number>()
+  const unitPriceByTest = new Map<string, number>()
+  const counted = new Set<string>()
+
+  for (const log of periodLogs) {
+    const appt = log.appointmentId ? apptMap.get(log.appointmentId) : undefined
+    const inv = (log.invoiceId && invoices.find((i) => i.id === log.invoiceId)) || (log.appointmentId ? invByAppt.get(log.appointmentId) : undefined)
+    let parsed = parseLabTestItems(appt, inv, clinicServices)
+    if (parsed.length === 0 && log.testNames.length > 0) {
+      parsed = log.testNames.map((n) => ({ name: n, price: catalogByLower.get(n.toLowerCase()) || 0 }))
+    }
+    if (parsed.length === 0) parsed = [{ name: 'Lab Service', price: 1 }]
+
+    const keyPrefix = log.appointmentId || log.invoiceId || log.id
+    for (const item of parsed) {
+      if (item.price > 0 && !unitPriceByTest.has(item.name)) unitPriceByTest.set(item.name, item.price)
+      const dedupKey = `${keyPrefix}|${item.name}`
+      if (!counted.has(dedupKey)) {
+        counted.add(dedupKey)
+        countByTest.set(item.name, (countByTest.get(item.name) || 0) + 1)
+      }
+    }
+
+    const totalPaisa = Math.round(log.amount * 100)
+    const totalWeight = parsed.reduce((acc, p) => acc + p.price, 0)
+    let distributed = 0
+    parsed.forEach((item, idx) => {
+      const share =
+        idx === parsed.length - 1
+          ? totalPaisa - distributed
+          : totalWeight > 0
+          ? Math.round(log.amount * (item.price / totalWeight) * 100)
+          : Math.floor(totalPaisa / parsed.length)
+      distributed += share
+      incomeByTestPaisa.set(item.name, (incomeByTestPaisa.get(item.name) || 0) + share)
+    })
+  }
+
+  let totalIncome = 0
+  incomeByTestPaisa.forEach((p) => {
+    totalIncome += p / 100
+  })
+
+  const stats: LabTestPeriodStat[] = []
+  incomeByTestPaisa.forEach((paisa, name) => {
+    const income = paisa / 100
+    const cnt = countByTest.get(name) || 1
+    const unitPrice = unitPriceByTest.get(name) || catalogByLower.get(name.toLowerCase()) || income / cnt
+    stats.push({
+      testName: name,
+      count: cnt,
+      unitPrice,
+      collectedIncome: income,
+      sharePercent: totalIncome > 0 ? (income / totalIncome) * 100 : 0,
+    })
+  })
+  return stats.sort((a, b) => b.collectedIncome - a.collectedIncome)
+}
+
 export function computeDoctorDailyAndMonthlyStats(
   appointments: any[] = [],
   invoices: any[] = [],
   doctors: any[] = [],
   mode: 'daily' | 'monthly' = 'daily',
   selectedDoctorId?: string,
-  selectedPeriod?: string // "YYYY-MM-DD" for daily, "YYYY-MM" for monthly
+  selectedPeriod?: string
 ): DoctorVisitAnalytics[] {
   const safeAppts = Array.isArray(appointments) ? appointments : []
   const safeDocs = Array.isArray(doctors) ? doctors : []
@@ -559,75 +1115,56 @@ export function computeDoctorDailyAndMonthlyStats(
     if (d.id) docMap.set(d.id, d)
   })
 
-  // 1. Identify first visit for every patient per doctor
   const earliestVisitsByDoctor = new Map<string, string>()
   const validAppts = [...safeAppts]
     .filter((a) => a.doctorId && (a.status || 'APPROVED') === 'APPROVED' && (a.checkinStatus || '') !== 'cancelled')
-    .sort((a, b) => {
-      const d1 = `${a.appointmentDate || '1970-01-01'} ${a.appointmentTime || '00:00'}`
-      const d2 = `${b.appointmentDate || '1970-01-01'} ${b.appointmentTime || '00:00'}`
-      return d1.localeCompare(d2)
-    })
+    .sort((a, b) => `${a.appointmentDate || '1970-01-01'} ${a.appointmentTime || '00:00'}`.localeCompare(`${b.appointmentDate || '1970-01-01'} ${b.appointmentTime || '00:00'}`))
 
   for (const a of validAppts) {
-    const pKey = derivePatientKey(a)
-    const comboKey = `${a.doctorId}::${pKey}`
-    if (!earliestVisitsByDoctor.has(comboKey)) {
-      earliestVisitsByDoctor.set(comboKey, a.id)
-    }
+    const comboKey = `${a.doctorId}::${derivePatientKey(a)}`
+    if (!earliestVisitsByDoctor.has(comboKey)) earliestVisitsByDoctor.set(comboKey, a.id)
   }
 
-  // 2. Filter by doctor and period
   const filteredAppts = validAppts.filter((a) => {
     if (selectedDoctorId && a.doctorId !== selectedDoctorId) return false
     const dateStr = a.appointmentDate || ''
     if (selectedPeriod) {
-      if (mode === 'daily') {
-        if (dateStr !== selectedPeriod) return false
-      } else {
-        if (!dateStr.startsWith(selectedPeriod)) return false
-      }
+      if (mode === 'daily' && dateStr !== selectedPeriod) return false
+      if (mode === 'monthly' && !dateStr.startsWith(selectedPeriod)) return false
     }
     return true
   })
 
-  // 3. Group by Doctor + Period
   const groups = new Map<string, any[]>()
   for (const a of filteredAppts) {
     const dStr = a.appointmentDate || '1970-01-01'
     const periodKey = mode === 'daily' ? dStr : dStr.slice(0, 7)
     const groupKey = `${a.doctorId}::${periodKey}`
-    if (!groups.has(groupKey)) {
-      groups.set(groupKey, [])
-    }
+    if (!groups.has(groupKey)) groups.set(groupKey, [])
     groups.get(groupKey)!.push(a)
   }
 
-  // 4. Map to DoctorVisitAnalytics
   const safeInvs = Array.isArray(invoices) ? invoices : []
   const invMap = new Map<string, any>()
   safeInvs.forEach((inv) => {
     if (inv.appointmentId) invMap.set(inv.appointmentId, inv)
     else if (inv.appointment_id) invMap.set(inv.appointment_id, inv)
   })
-  const results: DoctorVisitAnalytics[] = []
 
+  const results: DoctorVisitAnalytics[] = []
   groups.forEach((appts, key) => {
     const [docId, periodKey] = key.split('::')
     const doc = docMap.get(docId) || {}
-
     let newCount = 0
     let followupCount = 0
     let consultationRev = 0
     let totalRev = 0
     let onlineRev = 0
     let deskRev = 0
-
     const patientList: any[] = []
 
     for (const a of appts) {
-      const pKey = derivePatientKey(a)
-      const isNew = earliestVisitsByDoctor.get(`${a.doctorId}::${pKey}`) === a.id
+      const isNew = earliestVisitsByDoctor.get(`${a.doctorId}::${derivePatientKey(a)}`) === a.id
       if (isNew) newCount++
       else followupCount++
 
@@ -644,27 +1181,22 @@ export function computeDoctorDailyAndMonthlyStats(
             return !n.includes('consultation') && !n.includes('opd doctor')
           })
           .reduce((sum: number, it: any) => sum + Number(it.price || it.total || 0), 0)
-
-        followupBillAdded = nonConsultationItemsTotal > 0
-          ? nonConsultationItemsTotal
-          : Number(inv.paidAmount || 0) > 0
-          ? Number(inv.paidAmount || 0)
-          : (inv.items && inv.items.length > 0 && Number(inv.totalAmount || 0) > 0)
-          ? Number(inv.totalAmount || 0)
-          : 0
+        followupBillAdded =
+          nonConsultationItemsTotal > 0
+            ? nonConsultationItemsTotal
+            : Number(inv.paidAmount || 0) > 0
+            ? Number(inv.paidAmount || 0)
+            : Number(inv.totalAmount || 0)
       }
 
       const apptRevenue = !isFreeFollowUp ? (Number(a.totalAmount || 0) > 0 ? Number(a.totalAmount) : fee) : followupBillAdded
-
       consultationRev += fee
       totalRev += apptRevenue
-
       if ((a.paymentMode || '').toUpperCase() === 'ONLINE' || (a.paymentStatus || '').toLowerCase() === 'paid') {
         onlineRev += apptRevenue
       } else {
         deskRev += apptRevenue
       }
-
       patientList.push({
         patientName: a.patientName || 'Patient',
         trackingCode: a.trackingCode10Digit || '',
@@ -677,7 +1209,7 @@ export function computeDoctorDailyAndMonthlyStats(
 
     results.push({
       doctorId: docId,
-      doctorName: doc.fullName || (doc.name ? `Dr. ${doc.name}` : 'Doctor'),
+      doctorName: formatDoctorDisplayName(doc.fullName || doc.name) || 'Doctor',
       specialty: doc.specialty || 'General OPD',
       periodLabel: periodKey,
       periodDate: mode === 'daily' ? periodKey : undefined,
@@ -694,22 +1226,15 @@ export function computeDoctorDailyAndMonthlyStats(
     })
   })
 
-  // Sort by period descending, then doctor name ascending
-  return results.sort((a, b) => {
-    const cmp = b.periodLabel.localeCompare(a.periodLabel)
-    if (cmp !== 0) return cmp
-    return a.doctorName.localeCompare(b.doctorName)
-  })
+  return results.sort((a, b) => b.periodLabel.localeCompare(a.periodLabel) || a.doctorName.localeCompare(b.doctorName))
 }
 
-/**
- * Generates an RFC 4180 compliant CSV string with UTF-8 BOM for Microsoft Excel.
- */
 export function exportPaymentLogsToCsv(
   logs: UnifiedPaymentLogEntry[],
   clinicName = 'Clinic',
   expenses: ClinicExpense[] = [],
-  periodLabel = 'All Time'
+  periodLabel = 'All Time',
+  isLabClinic = false
 ): string {
   const headers = [
     'Date',
@@ -718,8 +1243,8 @@ export function exportPaymentLogsToCsv(
     'Patient Name',
     'Patient Phone',
     '10-Digit Tracking Code',
-    'Doctor Name',
-    'Specialty',
+    isLabClinic ? 'Tests' : 'Doctor Name',
+    isLabClinic ? 'Type' : 'Specialty',
     'Visit Type',
     'Category',
     'Payment Method',
@@ -730,8 +1255,7 @@ export function exportPaymentLogsToCsv(
 
   const escapeCell = (val: any): string => {
     if (val === null || val === undefined) return '""'
-    const s = String(val).replace(/"/g, '""')
-    return `"${s}"`
+    return `"${String(val).replace(/"/g, '""')}"`
   }
 
   const grossCollections = logs.reduce((acc, l) => acc + (l.amount || 0), 0)
@@ -739,8 +1263,8 @@ export function exportPaymentLogsToCsv(
   const netPayout = grossCollections - platformCommission
   const totalExpenses = expenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0)
   const netProfit = netPayout - totalExpenses
-  const followupCount = logs.filter((l) => !l.isNewPatientForDoctor).length
-  const newPatientCount = logs.filter((l) => l.isNewPatientForDoctor).length
+  const followupCount = logs.filter((l) => l.visitType === 'follow_up').length
+  const newPatientCount = logs.filter((l) => l.visitType === 'new').length
 
   const rows: string[] = []
   rows.push('"DACTOR PLATFORM FINANCIAL & AUDIT STATEMENT"')
@@ -751,14 +1275,27 @@ export function exportPaymentLogsToCsv(
   rows.push(`"Net Clinic OPD Payout (NPR)","${netPayout.toFixed(2)}"`)
   rows.push(`"Total Clinic Expenses (NPR)","${totalExpenses.toFixed(2)}"`)
   rows.push(`"Net Clinic Profit / Cash Flow (NPR)","${netProfit.toFixed(2)}"`)
-  rows.push(`"Free Follow-up Consultations (0 NPR)","${followupCount} Patients (Fee Waived)"`)
-  rows.push(`"New Patients Seen","${newPatientCount} Patients"`)
+  if (!isLabClinic) {
+    rows.push(`"Free Follow-up Consultations (0 NPR)","${followupCount} Patients (Fee Waived)"`)
+    rows.push(`"New Patients Seen","${newPatientCount} Patients"`)
+  }
   rows.push(`"Total Audit Records","${logs.length}"`)
   rows.push(`"Generated On: ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Kathmandu' })}"`)
   rows.push('')
   rows.push(headers.map(escapeCell).join(','))
 
   for (const log of logs) {
+    const vType = log.isRefund
+      ? 'REFUND'
+      : isLabClinic
+      ? log.amount === 0
+        ? 'FREE'
+        : 'LAB_ORDER'
+      : log.visitType === 'follow_up'
+      ? 'FOLLOW-UP'
+      : log.visitType === 'new'
+      ? 'NEW PATIENT'
+      : 'VISIT'
     const row = [
       log.date,
       log.time,
@@ -766,9 +1303,9 @@ export function exportPaymentLogsToCsv(
       log.patientName,
       log.patientPhone,
       log.trackingCode,
-      log.doctorName || 'N/A',
-      log.specialty || 'N/A',
-      log.isNewPatientForDoctor ? 'NEW PATIENT' : 'FOLLOW-UP',
+      isLabClinic ? log.testNames.join('; ') : log.doctorName || '',
+      isLabClinic ? 'Diagnostic Lab' : log.specialty || '',
+      vType,
       log.category,
       log.paymentMethod,
       log.amount.toFixed(2),
@@ -784,20 +1321,22 @@ export function exportPaymentLogsToCsv(
     const expHeaders = ['Date', 'Time', 'Title', 'Category', 'Payment Method', 'Amount (NPR)', 'Voucher/Bill #', 'Remarks']
     rows.push(expHeaders.map(escapeCell).join(','))
     for (const exp of expenses) {
-      const expRow = [
-        exp.expense_date,
-        exp.expense_time || '',
-        exp.title,
-        exp.category,
-        exp.payment_method,
-        Number(exp.amount).toFixed(2),
-        exp.voucher_number || '',
-        exp.remarks || '',
-      ]
-      rows.push(expRow.map(escapeCell).join(','))
+      rows.push(
+        [
+          exp.expense_date,
+          exp.expense_time || '',
+          exp.title,
+          exp.category,
+          exp.payment_method,
+          Number(exp.amount).toFixed(2),
+          exp.voucher_number || '',
+          exp.remarks || '',
+        ]
+          .map(escapeCell)
+          .join(',')
+      )
     }
   }
 
-  // Prepend UTF-8 Byte Order Mark (BOM) so Excel opens UTF-8 cleanly
   return '\uFEFF' + rows.join('\r\n')
 }

@@ -64,45 +64,58 @@ class PatientRepository @Inject constructor(
         val effectiveClinicId = clinicId.trim()
 
         try {
-            val entities = appointments.mapNotNull { appt ->
-                if (appt.patientName.isBlank()) return@mapNotNull null
+            val validAppts = appointments.filter { it.patientName.isNotBlank() }
+            val groupedByPatient = validAppts.groupBy { appt ->
+                PatientIdentitySync.getDeterministicPatientId(
+                    name = appt.patientName,
+                    phone = appt.patientMobile,
+                    fallbackId = appt.trackingCode10Digit.ifBlank { appt.id }
+                )
+            }
 
-                val pId = when {
-                    !appt.userId.isNullOrBlank() && PatientIdentitySync.isValidUuid(appt.userId) -> appt.userId
-                    !appt.patientEmail.isNullOrBlank() -> PatientIdentitySync.getDeterministicPatientIdForEmail(appt.patientEmail)
-                    appt.patientMobile.isNotBlank() -> PatientIdentitySync.getDeterministicPatientIdForPhone(appt.patientMobile)
-                    appt.trackingCode10Digit.isNotBlank() -> appt.trackingCode10Digit
-                    else -> appt.id
-                }
-
+            val entities = groupedByPatient.map { (pId, appts) ->
                 val existing = patientDao.getPatientById(pId)
-                val isCompletedAppt = appt.checkinStatus?.lowercase() in listOf("completed", "done", "visited")
+                val sortedAppts = appts.sortedByDescending { it.appointmentDate }
+                val latestAppt = sortedAppts.first()
+
+                val completedAppts = appts.filter { it.checkinStatus?.lowercase() in listOf("completed", "done", "visited") }
                 val latestCompletedDate = when {
-                    isCompletedAppt && existing?.lastVisitDate != null -> if (existing.lastVisitDate > appt.appointmentDate) existing.lastVisitDate else appt.appointmentDate
-                    isCompletedAppt -> appt.appointmentDate
+                    completedAppts.isNotEmpty() && existing?.lastVisitDate != null -> {
+                        val maxNew = completedAppts.maxOf { it.appointmentDate }
+                        if (maxNew > existing.lastVisitDate) maxNew else existing.lastVisitDate
+                    }
+                    completedAppts.isNotEmpty() -> completedAppts.maxOf { it.appointmentDate }
                     else -> existing?.lastVisitDate
                 }
+
                 val totalVisitsCount = when {
-                    isCompletedAppt && existing != null && existing.lastVisitDate != appt.appointmentDate -> existing.totalVisits + 1
+                    completedAppts.isNotEmpty() && existing != null -> {
+                        val newDates = completedAppts.map { it.appointmentDate }.distinct().filter { it != existing.lastVisitDate }
+                        maxOf(existing.totalVisits + newDates.size, completedAppts.size)
+                    }
+                    completedAppts.isNotEmpty() -> completedAppts.map { it.appointmentDate }.distinct().size
                     existing != null -> existing.totalVisits
-                    isCompletedAppt -> 1
                     else -> 0
                 }
+
+                val bestTrackingCode = appts.firstOrNull { it.trackingCode10Digit.isNotBlank() }?.trackingCode10Digit
+                    ?: existing?.trackingCode10Digit
+                    ?: PatientIdentitySync.getDeterministicAppointmentId(pId)
 
                 PatientEntity(
                     id = pId,
                     clinicId = effectiveClinicId,
-                    fullName = appt.patientName.trim(),
-                    phone = appt.patientMobile.ifBlank { existing?.phone },
-                    gender = appt.patientGender ?: existing?.gender ?: "Male",
-                    age = appt.patientAge ?: existing?.age,
-                    email = appt.patientEmail ?: existing?.email,
-                    trackingCode10Digit = appt.trackingCode10Digit.ifBlank { existing?.trackingCode10Digit },
+                    fullName = latestAppt.patientName.trim(),
+                    phone = latestAppt.patientMobile.ifBlank { existing?.phone },
+                    gender = latestAppt.patientGender ?: existing?.gender ?: "Male",
+                    age = latestAppt.patientAge ?: existing?.age,
+                    email = latestAppt.patientEmail ?: existing?.email,
+                    trackingCode10Digit = bestTrackingCode,
                     lastVisitDate = latestCompletedDate,
-                    lastDoctorId = appt.doctorId ?: existing?.lastDoctorId,
+                    lastDoctorId = latestAppt.doctorId ?: existing?.lastDoctorId,
                     lastDoctorName = existing?.lastDoctorName,
                     totalVisits = totalVisitsCount,
-                    latestBillStatus = appt.paymentStatus ?: existing?.latestBillStatus,
+                    latestBillStatus = latestAppt.paymentStatus ?: existing?.latestBillStatus,
                     latestClinicalRemarks = existing?.latestClinicalRemarks,
                     syncStatus = "synced",
                     updatedAt = System.currentTimeMillis()
@@ -126,8 +139,7 @@ class PatientRepository @Inject constructor(
             val entities = profiles.mapNotNull { prof ->
                 if (prof.fullName.isNullOrBlank()) return@mapNotNull null
                 val pId = prof.id.ifBlank {
-                    if (!prof.phone.isNullOrBlank()) PatientIdentitySync.getDeterministicPatientIdForPhone(prof.phone!!)
-                    else java.util.UUID.randomUUID().toString()
+                    PatientIdentitySync.getDeterministicPatientId(prof.fullName, prof.phone)
                 }
                 val existing = patientDao.getPatientById(pId)
                 if (existing == null) {
@@ -166,7 +178,9 @@ class PatientRepository @Inject constructor(
     suspend fun fetchPatientChangeableData(
         trackingCode: String,
         patientId: String? = null,
-        clinicId: String
+        patientPhone: String? = null,
+        patientName: String? = null,
+        clinicId: String = ""
     ): PatientChangeableData = withContext(Dispatchers.IO) {
         val cleanTracking = trackingCode.trim()
         val allAppts = mutableListOf<Appointment>()
@@ -175,6 +189,18 @@ class PatientRepository @Inject constructor(
             if (cleanTracking.isNotBlank()) {
                 val byCode = appointmentRepository.getAllAppointmentsByTrackingCode(cleanTracking)
                 allAppts.addAll(byCode)
+            }
+
+            // Also search by patient phone if available to retrieve full consultation history
+            val cleanPhone = patientPhone?.filter { it.isDigit() }?.takeLast(10)?.takeIf { it.length >= 7 }
+            if (cleanPhone != null && clinicId.isNotBlank()) {
+                val byPhone = try {
+                    appointmentRepository.getAppointmentsByClinic(clinicId)
+                        .filter { it.patientMobile.filter { c -> c.isDigit() }.takeLast(10) == cleanPhone }
+                } catch (_: Exception) { emptyList() }
+                byPhone.forEach { a ->
+                    if (allAppts.none { it.id == a.id }) allAppts.add(a)
+                }
             }
 
             if (allAppts.isEmpty() && !patientId.isNullOrBlank()) {
@@ -208,13 +234,11 @@ class PatientRepository @Inject constructor(
             if (validAppts.isNotEmpty()) {
                 val sorted = validAppts.sortedByDescending { it.appointmentDate }
                 val latestAppt = sorted.first()
-                val targetId = patientId ?: when {
-                    !latestAppt.userId.isNullOrBlank() && PatientIdentitySync.isValidUuid(latestAppt.userId) -> latestAppt.userId
-                    !latestAppt.patientEmail.isNullOrBlank() -> PatientIdentitySync.getDeterministicPatientIdForEmail(latestAppt.patientEmail)
-                    latestAppt.patientMobile.isNotBlank() -> PatientIdentitySync.getDeterministicPatientIdForPhone(latestAppt.patientMobile)
-                    cleanTracking.isNotBlank() -> cleanTracking
-                    else -> latestAppt.id
-                }
+                val targetId = patientId ?: PatientIdentitySync.getDeterministicPatientId(
+                    name = latestAppt.patientName,
+                    phone = latestAppt.patientMobile,
+                    fallbackId = cleanTracking.ifBlank { latestAppt.id }
+                )
 
                 val existing = targetId?.let { patientDao.getPatientById(it) }
                 val completedAppts = validAppts.filter { it.checkinStatus?.lowercase() in listOf("completed", "done", "visited") }

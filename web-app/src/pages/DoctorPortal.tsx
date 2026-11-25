@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Stethoscope,
   Activity,
@@ -91,6 +91,10 @@ import {
   checkNewAppointments,
   removeRogueQueueEntry,
   autoEnrollNewAppointment,
+  getFastDoctorLiveQueue,
+  getFastClinicLiveQueue,
+  syncClinicLiveQueue,
+  mergeFastQueueIntoAppointments,
   parseTimeToMinutes,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
@@ -524,26 +528,63 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     }
   }
 
-  // Realtime subscription for queue updates for this doctor
+  const lastDoctorSyncAtRef = useRef(0)
+
+  // Scoped & debounced Realtime subscription for queue updates for this doctor
   useEffect(() => {
     if (!currentDoctor) return
+    const clinicId = selectedClinic?.id
+    const isLab = isDiagnosticLabClinic(selectedClinic, currentDoctor)
+    if (clinicId) {
+      void syncClinicLiveQueue(clinicId, selectedQueueDate)
+    }
 
+    let rtDebounceTimer: ReturnType<typeof setTimeout> | null = null
+    const runDebouncedDoctorSync = async () => {
+      try {
+        if (clinicId) {
+          const items = isLab
+            ? await getFastClinicLiveQueue(clinicId, selectedQueueDate)
+            : await getFastDoctorLiveQueue(currentDoctor.id, clinicId, selectedQueueDate)
+          lastDoctorSyncAtRef.current = Date.now()
+          setAppointments((prev) =>
+            mergeFastQueueIntoAppointments(prev, items, selectedQueueDate, isLab ? null : currentDoctor.id)
+          )
+        } else {
+          const appts = await getDoctorAppointments(currentDoctor.id, selectedQueueDate)
+          lastDoctorSyncAtRef.current = Date.now()
+          setAppointments((prev) => {
+            const otherDays = prev.filter((a) => a.appointmentDate !== selectedQueueDate)
+            return [...otherDays, ...appts]
+          })
+        }
+      } catch (e) {
+        console.error('Error auto-syncing doctor queue:', e)
+      }
+    }
+
+    const filterClause = isLab && clinicId ? `clinic_id=eq.${clinicId}` : `doctor_id=eq.${currentDoctor.id}`
     const channel = supabase
-      .channel(`doctor-queue-${currentDoctor.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments' }, async () => {
-        const appts = await getDoctorAppointments(currentDoctor.id)
-        setAppointments(appts)
+      .channel(`doctor-queue-${currentDoctor.id}-${clinicId || 'all'}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments', filter: filterClause }, () => {
+        if (rtDebounceTimer) clearTimeout(rtDebounceTimer)
+        rtDebounceTimer = setTimeout(() => {
+          void runDebouncedDoctorSync()
+        }, 350)
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'queue_entries' }, async () => {
-        const appts = await getDoctorAppointments(currentDoctor.id)
-        setAppointments(appts)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'queue_entries', filter: filterClause }, () => {
+        if (rtDebounceTimer) clearTimeout(rtDebounceTimer)
+        rtDebounceTimer = setTimeout(() => {
+          void runDebouncedDoctorSync()
+        }, 350)
       })
       .subscribe()
 
     return () => {
+      if (rtDebounceTimer) clearTimeout(rtDebounceTimer)
       supabase.removeChannel(channel)
     }
-  }, [currentDoctor])
+  }, [currentDoctor?.id, selectedClinic?.id, selectedQueueDate])
 
   // Save session helper
   const saveDoctorSession = (doctor: Doctor) => {
@@ -1523,84 +1564,36 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     [liveQueue]
   )
 
-  // Targeted 2.5s sliding window live queue refresh (upcoming 3-4 patients & new appointments)
+  // Fallback 10s live queue sync using single read-only RPC (coalesced with Realtime, paused when hidden)
   useEffect(() => {
     if (!currentDoctor || !selectedClinic?.id || deskTab !== 'today_queue') return
+    const clinicId = selectedClinic.id
+    const doctorId = currentDoctor.id
+    const isLab = isDiagnosticLabClinic(selectedClinic, currentDoctor)
 
     let isPolling = false
-    const interval = setInterval(async () => {
-      if (isPolling) return
+    const pollFastDoctorQueue = async () => {
+      if (document.hidden || isPolling) return
+      if (Date.now() - lastDoctorSyncAtRef.current < 8_000) return
       isPolling = true
       try {
-        // 1. Sliding window lookahead: Upcoming 3-4 patients in line
-        const upcomingItems = liveQueue.slice(0, 4)
-        const upcomingIds = upcomingItems.map((a) => a.id)
-
-        if (upcomingIds.length > 0) {
-          const refreshed = await refreshAppointmentsByIds(upcomingIds)
-          if (refreshed.length > 0) {
-            const freshMap = new Map(refreshed.map((a) => [a.id, a]))
-            let modified = false
-
-            setAppointments((prev) => {
-              const updated = prev.map((item) => {
-                const fresh = freshMap.get(item.id)
-                if (!fresh) return item
-
-                const isCancelled =
-                  (fresh.status || '').toUpperCase() === 'CANCELLED' ||
-                  (fresh.checkinStatus || '').toLowerCase() === 'cancelled'
-                const isRescheduledDate =
-                  fresh.appointmentDate && fresh.appointmentDate !== selectedQueueDate
-
-                if (isCancelled || isRescheduledDate) {
-                  modified = true
-                  removeRogueQueueEntry(item.id).catch(() => {})
-                  return { ...item, status: 'CANCELLED', checkinStatus: 'cancelled' }
-                }
-
-                if (fresh.appointmentTime && fresh.appointmentTime !== item.appointmentTime) {
-                  modified = true
-                  return { ...item, appointmentTime: fresh.appointmentTime }
-                }
-
-                return { ...item, ...fresh }
-              })
-              return modified ? updated : prev
-            })
-          }
-        }
-
-        // 2. Incrementally check newly booked or approved appointments for today
-        const knownIds = appointments.map((a) => a.id)
-        const newAppts = await checkNewAppointments(
-          selectedClinic.id,
-          isDiagnosticPortalClinic ? null : currentDoctor.id,
-          selectedQueueDate,
-          knownIds
+        const items = isLab
+          ? await getFastClinicLiveQueue(clinicId, selectedQueueDate)
+          : await getFastDoctorLiveQueue(doctorId, clinicId, selectedQueueDate)
+        lastDoctorSyncAtRef.current = Date.now()
+        setAppointments((prev) =>
+          mergeFastQueueIntoAppointments(prev, items, selectedQueueDate, isLab ? null : doctorId)
         )
-
-        if (newAppts.length > 0) {
-          let maxPos = Math.max(0, ...liveQueue.map((a) => a.queuePosition || 0))
-          for (const newAppt of newAppts) {
-            maxPos++
-            autoEnrollNewAppointment(selectedClinic.id, isDiagnosticPortalClinic ? null : currentDoctor.id, newAppt.id, maxPos).catch(() => {})
-          }
-          setAppointments((prev) => {
-            const currentIds = new Set(prev.map((a) => a.id))
-            const toAdd = newAppts.filter((a) => !currentIds.has(a.id))
-            return toAdd.length > 0 ? [...prev, ...toAdd] : prev
-          })
-        }
       } catch (err) {
-        console.warn('Targeted doctor queue refresh error:', err)
+        console.warn('Doctor fast queue refresh error:', err)
       } finally {
         isPolling = false
       }
-    }, 2500)
+    }
 
+    const interval = setInterval(pollFastDoctorQueue, 10000)
     return () => clearInterval(interval)
-  }, [currentDoctor?.id, selectedClinic?.id, selectedQueueDate, deskTab, liveQueue, appointments])
+  }, [currentDoctor?.id, selectedClinic?.id, selectedQueueDate, deskTab])
 
   const completedTodayCount = useMemo(
     () =>
@@ -1737,8 +1730,11 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
 
     approvedAppts.forEach((a) => {
       const cleanMobile = (a.patientMobile || '').replace(/\D/g, '')
-      const cleanName = (a.patientName || '').trim().toLowerCase()
-      const key = cleanMobile.length >= 7 ? cleanMobile : (cleanName || a.id)
+      const cleanName = (a.patientName || '').trim().replace(/\s+/g, ' ')
+      const firstName = cleanName.toLowerCase().split(' ')[0] || ''
+      const key = cleanMobile.length >= 7
+        ? (firstName ? `${cleanMobile}:${firstName}` : cleanMobile)
+        : (cleanName ? cleanName.toLowerCase() : a.id)
       const existing = map.get(key)
       if (existing) {
         existing.totalVisits += 1

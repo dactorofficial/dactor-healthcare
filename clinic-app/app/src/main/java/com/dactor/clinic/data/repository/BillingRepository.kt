@@ -711,15 +711,58 @@ class BillingRepository @Inject constructor(
             if (inserted != null) {
                 inserted.normalized()
             } else {
-                expense.copy(
-                    id = targetId,
-                    receiptNo = vNum,
-                    voucherNumber = vNum,
-                    notes = combinedNotes,
-                    remarks = rem,
-                    expenseTime = eTime
-                ).normalized()
+                null
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    suspend fun updateExpense(expense: ClinicExpense): ClinicExpense? = withContext(Dispatchers.IO) {
+        if (expense.id.isBlank()) return@withContext null
+        try {
+            val vNum = expense.voucherNumber ?: expense.receiptNo
+            val rem = expense.remarks ?: expense.notes
+            val eTime = expense.expenseTime
+            val combinedNotes = if (!eTime.isNullOrBlank()) {
+                "[$eTime] ${rem ?: ""}".trim()
+            } else {
+                rem
+            }
+            val updated = try {
+                supabaseClient.postgrest["clinic_expenses"]
+                    .update({
+                        set("title", expense.title)
+                        set("category", expense.category)
+                        set("amount", expense.amount)
+                        set("payment_method", expense.paymentMethod)
+                        set("expense_date", expense.expenseDate)
+                        set("receipt_no", vNum)
+                        set("voucher_number", vNum)
+                        set("notes", combinedNotes)
+                        set("remarks", rem)
+                        set("expense_time", eTime)
+                    }) {
+                        filter { eq("id", expense.id) }
+                        select()
+                    }.decodeSingleOrNull<ClinicExpense>()
+            } catch (_: Exception) {
+                supabaseClient.postgrest["clinic_expenses"]
+                    .update({
+                        set("title", expense.title)
+                        set("category", expense.category)
+                        set("amount", expense.amount)
+                        set("payment_method", expense.paymentMethod)
+                        set("expense_date", expense.expenseDate)
+                        set("receipt_no", vNum)
+                        set("notes", combinedNotes)
+                    }) {
+                        filter { eq("id", expense.id) }
+                        select()
+                    }.decodeSingleOrNull<ClinicExpense>()
+            }
+            (updated ?: expense).normalized()
         } catch (e: Exception) {
             e.printStackTrace()
             null

@@ -405,4 +405,255 @@ class PaymentLedgerHelperTest {
         // Pending appointment without payment must not be in incoming payment log
         assertTrue("Pending appointment without payment must not produce paid log entry", logs.isEmpty())
     }
+
+    @Test
+    fun testCurrencyFormatter_nepaliGroupingDecimalsAndNegatives() {
+        assertEquals("Rs. 0", CurrencyFormatter.formatNPR(0.0))
+        assertEquals("Rs. 500", CurrencyFormatter.formatNPR(500.0))
+        assertEquals("Rs. 1,250", CurrencyFormatter.formatNPR(1250.0))
+        assertEquals("Rs. 18,400", CurrencyFormatter.formatNPR(18400.0))
+        assertEquals("Rs. 1,25,000", CurrencyFormatter.formatNPR(125000.0))
+        assertEquals("Rs. 500.50", CurrencyFormatter.formatNPR(500.5))
+        assertEquals("\u2212 Rs. 500", CurrencyFormatter.formatNPR(-500.0))
+    }
+
+    @Test
+    fun testMultiPartPaymentsAcrossTwoDays_splitPartBadgesAndDailyTotals() {
+        val doctor = Doctor(id = "doc-1", fullName = "Dr. Anil Thapa", email = "a@b.com", consultationFee = 500.0)
+        val appt = Appointment(
+            id = "appt-part",
+            clinicId = "clinic-1",
+            doctorId = "doc-1",
+            trackingCode10Digit = "4821930176",
+            patientName = "Ram Sharma",
+            patientMobile = "9800000001",
+            appointmentDate = "2026-11-24",
+            appointmentTime = "10:00 AM",
+            paymentStatus = "paid",
+            visitType = "new",
+            feeAmount = 900.0,
+            totalAmount = 900.0
+        )
+        val tx1 = InvoiceTransaction(
+            id = "tx-p1",
+            invoiceId = "inv-part",
+            appointmentId = "appt-part",
+            clinicId = "clinic-1",
+            amount = 500.0,
+            paymentMethod = "CASH",
+            createdAt = "2026-11-24T05:00:00Z"
+        )
+        val tx2 = InvoiceTransaction(
+            id = "tx-p2",
+            invoiceId = "inv-part",
+            appointmentId = "appt-part",
+            clinicId = "clinic-1",
+            amount = 400.0,
+            paymentMethod = "ESEWA",
+            createdAt = "2026-11-25T05:00:00Z"
+        )
+
+        val logs = PaymentLedgerHelper.buildUnifiedPaymentLogs(
+            appointments = listOf(appt),
+            invoices = emptyList(),
+            doctors = listOf(doctor),
+            transactions = listOf(tx1, tx2)
+        )
+
+        assertEquals(2, logs.size)
+        val part1 = logs.find { it.id == "tx-p1" }!!
+        val part2 = logs.find { it.id == "tx-p2" }!!
+        assertEquals(1 to 2, part1.paymentPart)
+        assertEquals(2 to 2, part2.paymentPart)
+        assertEquals(500.0, part1.amount, 0.001)
+        assertEquals(400.0, part2.amount, 0.001)
+        assertEquals("new", part1.visitType)
+        assertEquals("new", part2.visitType)
+    }
+
+    @Test
+    fun testFollowUpWithExtraItems_preservesFollowUpVisitType() {
+        val doctor = Doctor(id = "doc-1", fullName = "Dr. Anil Thapa", email = "a@b.com", consultationFee = 500.0)
+        val appt = Appointment(
+            id = "appt-fu",
+            clinicId = "clinic-1",
+            doctorId = "doc-1",
+            patientName = "Sita KC",
+            patientMobile = "9800000002",
+            appointmentDate = "2026-11-24",
+            appointmentTime = "10:15 AM",
+            paymentStatus = "paid",
+            visitType = "follow_up",
+            feeAmount = 400.0,
+            totalAmount = 400.0
+        )
+        val tx = InvoiceTransaction(
+            id = "tx-fu",
+            appointmentId = "appt-fu",
+            clinicId = "clinic-1",
+            amount = 400.0,
+            paymentMethod = "CASH",
+            category = "LAB",
+            createdAt = "2026-11-24T10:15:00Z"
+        )
+
+        val logs = PaymentLedgerHelper.buildUnifiedPaymentLogs(
+            appointments = listOf(appt),
+            invoices = emptyList(),
+            doctors = listOf(doctor),
+            transactions = listOf(tx)
+        )
+
+        assertEquals(1, logs.size)
+        assertEquals("follow_up", logs[0].visitType)
+        assertFalse(logs[0].isNewPatientForDoctor)
+    }
+
+    @Test
+    fun testDiagnosticLabMode_proportionalTestSplitMatchesCollectedAndHidesDoctor() {
+        val services = listOf(
+            ClinicService(id = "s1", clinicId = "lab-1", serviceName = "CBC", price = 500.0),
+            ClinicService(id = "s2", clinicId = "lab-1", serviceName = "Lipid Profile", price = 1200.0)
+        )
+        val appt = Appointment(
+            id = "lab-appt-1",
+            clinicId = "lab-1",
+            doctorId = "should-ignore-doc",
+            patientName = "Hari Thapa",
+            patientMobile = "9811111111",
+            appointmentDate = "2026-11-24",
+            appointmentTime = "09:30 AM",
+            selectedLabTests = "CBC (Rs. 500), Lipid Profile (Rs. 1200)",
+            paymentStatus = "paid",
+            feeAmount = 1500.0, // discounted from 1700 -> 1500
+            totalAmount = 1500.0
+        )
+        val tx = InvoiceTransaction(
+            id = "lab-tx-1",
+            appointmentId = "lab-appt-1",
+            clinicId = "lab-1",
+            amount = 1500.0,
+            paymentMethod = "FONEPAY",
+            category = "LAB",
+            createdAt = "2026-11-24T09:30:00Z"
+        )
+
+        val logs = PaymentLedgerHelper.buildUnifiedPaymentLogs(
+            appointments = listOf(appt),
+            invoices = emptyList(),
+            doctors = emptyList(),
+            transactions = listOf(tx),
+            isLabClinic = true,
+            clinicServices = services
+        )
+
+        assertEquals(1, logs.size)
+        assertEquals("", logs[0].doctorName)
+        assertEquals("", logs[0].visitType)
+        assertEquals(listOf("CBC", "Lipid Profile"), logs[0].testNames)
+
+        val testStats = PaymentLedgerHelper.computeTestPeriodStats(
+            periodLogs = logs,
+            appointments = listOf(appt),
+            invoices = emptyList(),
+            clinicServices = services
+        )
+        assertEquals(2, testStats.size)
+        assertEquals(1500.0, testStats.sumOf { it.collectedIncome }, 0.01)
+
+        val summary = PaymentLedgerHelper.computeSummary(
+            periodLogs = logs,
+            periodPendingBills = emptyList(),
+            periodExpenses = emptyList()
+        )
+        assertEquals(summary.collected, testStats.sumOf { it.collectedIncome }, 0.01)
+    }
+
+    @Test
+    fun testPendingBillsAndSummary_separatesCollectedPendingExpensesAndRefunds() {
+        val doctor = Doctor(id = "doc-1", fullName = "Dr. Anil Thapa", email = "a@b.com", consultationFee = 500.0)
+        val paidAppt = Appointment(
+            id = "a-paid",
+            clinicId = "c-1",
+            doctorId = "doc-1",
+            patientName = "Paid Patient",
+            patientMobile = "9800000001",
+            appointmentDate = "2026-11-24",
+            appointmentTime = "09:00 AM",
+            paymentMode = "PAY_AT_DESK",
+            paymentStatus = "paid",
+            feeAmount = 500.0,
+            serviceChargeAmount = 25.0,
+            totalAmount = 525.0
+        )
+        val unpaidPadAppt = Appointment(
+            id = "a-unpaid",
+            clinicId = "c-1",
+            doctorId = "doc-1",
+            patientName = "Unpaid Desk",
+            patientMobile = "9800000002",
+            appointmentDate = "2026-11-23",
+            appointmentTime = "10:00 AM",
+            paymentMode = "PAY_AT_DESK",
+            paymentStatus = "pending",
+            feeAmount = 500.0,
+            serviceChargeAmount = 25.0,
+            totalAmount = 525.0
+        )
+        val txPaid = InvoiceTransaction(
+            id = "tx-paid",
+            appointmentId = "a-paid",
+            clinicId = "c-1",
+            amount = 525.0,
+            paymentMethod = "PAY_AT_DESK",
+            createdAt = "2026-11-24T09:05:00Z"
+        )
+        val txRefund = InvoiceTransaction(
+            id = "tx-ref",
+            appointmentId = "a-paid",
+            clinicId = "c-1",
+            amount = -100.0,
+            paymentMethod = "CASH",
+            category = "REFUND",
+            createdAt = "2026-11-24T09:10:00Z"
+        )
+        val expense = ClinicExpense(
+            id = "e-1",
+            clinicId = "c-1",
+            title = "Gloves",
+            category = "MEDICAL_SUPPLIES",
+            amount = 150.0,
+            expenseDate = "2026-11-24"
+        )
+
+        val logs = PaymentLedgerHelper.buildUnifiedPaymentLogs(
+            appointments = listOf(paidAppt, unpaidPadAppt),
+            invoices = emptyList(),
+            doctors = listOf(doctor),
+            transactions = listOf(txPaid, txRefund)
+        )
+        val pending = PaymentLedgerHelper.buildPendingBills(
+            appointments = listOf(paidAppt, unpaidPadAppt),
+            invoices = emptyList(),
+            doctors = listOf(doctor),
+            periodPredicate = { true }
+        )
+
+        assertEquals(2, logs.size)
+        assertTrue(logs.any { it.isRefund && it.amount == -100.0 })
+        assertEquals(1, pending.size)
+        assertEquals("a-unpaid", pending[0].appointmentId)
+        assertEquals(525.0, pending[0].balanceDue, 0.001)
+
+        val summary = PaymentLedgerHelper.computeSummary(
+            periodLogs = logs,
+            periodPendingBills = pending,
+            periodExpenses = listOf(expense)
+        )
+        assertEquals(425.0, summary.collected, 0.001) // 525 - 100
+        assertEquals(525.0, summary.pendingTotal, 0.001)
+        assertEquals(150.0, summary.expenses, 0.001)
+        assertEquals(25.0, summary.platformFees, 0.001)
+        assertEquals(250.0, summary.net, 0.001) // 425 - 150 - 25
+    }
 }

@@ -123,10 +123,12 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     message: string
   } | null>(null)
 
-  // 2s Server Polling Concurrency Guard & Snapshot Change Detection
+  // 10-15s Server Polling Concurrency Guard & Snapshot Change Detection
   const isPollingRef = useRef(false)
   const requestSeqRef = useRef(0)
   const activeRequestsRef = useRef(0)
+  const lastFetchAtRef = useRef(0)
+  const lastClinicCheckAtRef = useRef(0)
   const lastSnapshotRef = useRef<{
     checkinStatus?: string
     queueNumber?: string | number
@@ -239,25 +241,40 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         return
       }
 
-      // Fast delta path for silent 10s polls when today's appointment is already hydrated:
-      // Avoids heavy unbundled queries across the database unless on every 6th poll (60s)
+      const nowLocal = new Date()
+      const localTodayStr = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth() + 1).padStart(2, '0')}-${String(nowLocal.getDate()).padStart(2, '0')}`
+
+      // Fast delta path for silent polls when today's appointment OR guest public status is already hydrated:
+      // Runs only 1 indexed RPC (fetchLiveQueueDelta) instead of multi-table waterfalls.
+      const isHydratedGuestToday = Boolean(
+        silent &&
+        !appointment &&
+        publicQueueStatus &&
+        publicQueueStatus.clinic_id &&
+        String(publicQueueStatus.appointment_date || '').trim().slice(0, 10) === localTodayStr
+      )
       const isExistingToday = Boolean(
         silent &&
         appointment &&
         appointment.clinicId &&
-        appointment.appointmentDate?.trim().slice(0, 10) === new Date().toISOString().slice(0, 10) &&
-        (requestSeqRef.current % 6 !== 0)
+        appointment.appointmentDate?.trim().slice(0, 10) === localTodayStr
       )
+      const useFastDeltaOnly = isExistingToday || isHydratedGuestToday
 
-      // Live status (one indexed server call: token, patients ahead, now serving, doctor in clinic).
+      // Live status (one indexed server call: token, patients ahead, now serving, doctor in clinic, timing).
       // On a full load the booking lookup starts at the same time instead of after it.
       const [delta, apptLookup] = await Promise.all([
         fetchLiveQueueDelta(clean),
-        isExistingToday ? Promise.resolve(null) : getAppointmentByTrackingCodeOrContact(clean),
+        useFastDeltaOnly ? Promise.resolve(null) : getAppointmentByTrackingCodeOrContact(clean, true),
       ])
       if (seq !== requestSeqRef.current) return
+      lastFetchAtRef.current = Date.now()
       if (delta) {
         setLiveDelta(delta)
+        setQueueTiming({
+          insideSince: delta.current_inside_since ?? null,
+          avgSeconds: delta.avg_consultation_seconds ?? null,
+        })
       }
 
       if (isExistingToday && delta) {
@@ -267,6 +284,17 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             queueNumber: delta.token_number,
             checkinStatus: (delta.queue_status || delta.checkin_status || delta.status as any) || prev.checkinStatus,
           } : null)
+        }
+
+        // Refresh clinic break/open flags at most once every 60s without re-querying appointments/reports
+        if (appointment?.clinicId && Date.now() - lastClinicCheckAtRef.current > 60_000) {
+          lastClinicCheckAtRef.current = Date.now()
+          getClinicById(appointment.clinicId).then((c) => {
+            if (c && seq === requestSeqRef.current) {
+              saveStatic('clinic', c)
+              setClinic(c)
+            }
+          }).catch(() => {})
         }
 
         const prev = lastSnapshotRef.current
@@ -306,6 +334,45 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         return
       }
 
+      if (isHydratedGuestToday && delta) {
+        setPublicQueueStatus((prev: any) => ({ ...(prev || {}), ...delta }))
+        if (delta.clinic_id && Date.now() - lastClinicCheckAtRef.current > 60_000) {
+          lastClinicCheckAtRef.current = Date.now()
+          getClinicById(delta.clinic_id).then((c) => {
+            if (c && seq === requestSeqRef.current) {
+              saveStatic('clinic', c)
+              setClinic(c)
+            }
+          }).catch(() => {})
+        }
+
+        const prev = lastSnapshotRef.current
+        const newPubStatus = delta.queue_status || delta.checkin_status || delta.status
+        const newPubToken = delta.token_number
+        const newCabin = delta.doctor_is_in_clinic ? (delta.is_anyone_inside ? 'inside' : 'waiting') : 'away'
+        const hasChanged = Boolean(
+          (prev.publicStatus !== undefined || prev.publicToken !== undefined || prev.cabinStatus !== undefined) && (
+            prev.publicStatus !== newPubStatus ||
+            prev.publicToken !== newPubToken ||
+            prev.cabinStatus !== newCabin
+          )
+        )
+        if (hasChanged) {
+          playChimeSound()
+          setActiveAlert({
+            id: String(Date.now()),
+            title: 'Queue Updated',
+            message: `Queue status changed to ${String(newPubStatus || 'UPDATED').toUpperCase()}${newPubToken ? ` (Token #${newPubToken})` : ''}`,
+          })
+        }
+        lastSnapshotRef.current = {
+          publicStatus: newPubStatus,
+          publicToken: newPubToken,
+          cabinStatus: newCabin,
+        }
+        return
+      }
+
       // Full fetch path: appointment record (already requested in parallel above)
       const appt = apptLookup
       if (appt && delta && delta.token_number > 0) {
@@ -317,12 +384,16 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       }
 
       if (!appt) {
-        const { data: publicRows, error: publicError } = await supabase.rpc('get_public_queue_status', {
-          p_tracking_code: clean,
-        })
-        if (seq !== requestSeqRef.current) return
+        // Use delta directly when available; fall back to get_public_queue_status only if delta failed
+        let status: any = delta
+        if (!status) {
+          const { data: publicRows, error: publicError } = await supabase.rpc('get_public_queue_status', {
+            p_tracking_code: clean,
+          })
+          if (seq !== requestSeqRef.current) return
+          status = !publicError && Array.isArray(publicRows) ? publicRows[0] : null
+        }
 
-        const status = !publicError && Array.isArray(publicRows) ? publicRows[0] : null
         setQueueTiming(status ? { insideSince: status.current_inside_since ?? null, avgSeconds: status.avg_consultation_seconds ?? null } : null)
         setAppointment(null)
         setLinkedConsultations(null)
@@ -331,9 +402,16 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         setMultiSlotResult(null)
         setPublicQueueStatus(status || null)
         if (status?.clinic_id) {
+          lastClinicCheckAtRef.current = Date.now()
           const [clinicData, docData] = await Promise.all([
-            getClinicById(status.clinic_id),
-            status.doctor_id ? getDoctorById(status.doctor_id) : Promise.resolve(null),
+            clinic && clinic.id === status.clinic_id
+              ? Promise.resolve(clinic)
+              : getStaticOnce('clinic', status.clinic_id, getClinicById),
+            !status.doctor_id
+              ? Promise.resolve(null)
+              : doctor && doctor.id === status.doctor_id
+              ? Promise.resolve(doctor)
+              : getStaticOnce('doctor', status.doctor_id, getDoctorById),
           ])
           if (seq !== requestSeqRef.current) return
           setClinic(clinicData)
@@ -377,10 +455,9 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         return
       }
 
-      // Authenticated appointment discovered. Linked visits (history) load in the background so they
-      // do not hold up the tracker.
+      // Authenticated appointment discovered. Linked visits (history) load in the background using already-fetched appt.
       if (!silent || !linkedConsultations) {
-        getLinkedConsultations(clean)
+        getLinkedConsultations(clean, appt)
           .then((linked) => {
             if (seq === requestSeqRef.current && linked) setLinkedConsultations(linked)
           })
@@ -395,14 +472,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         const targetAppt = effectiveAppt
         const effectiveCode = targetAppt.trackingCode10Digit || clean
         const apptDate = targetAppt.appointmentDate?.trim().slice(0, 10)
-        const nowStr = new Date().toISOString().slice(0, 10)
-        const isToday = apptDate === nowStr
+        const isToday = apptDate === localTodayStr
 
         if (targetAppt.clinicId) {
           // Clinic and doctor are fixed for an appointment: saved copy (fetched once), never re-queried
-          // per refresh. Doctor "in clinic" and the queue numbers come from the live status. The clinic
-          // is re-read only on the once-a-minute full refresh, for its break / open flags.
+          // per refresh. Doctor "in clinic" and the queue numbers come from the live status.
           const sameClinic = clinic && clinic.id === targetAppt.clinicId ? clinic : null
+          lastClinicCheckAtRef.current = Date.now()
           const clinicPromise = silent
             ? getClinicById(targetAppt.clinicId).then((c) => { saveStatic('clinic', c); return c })
             : (sameClinic ? Promise.resolve(sameClinic) : getStaticOnce('clinic', targetAppt.clinicId, getClinicById))
@@ -417,15 +493,15 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           const queuePromise = isToday && !delta
             ? getFastClinicLiveQueue(targetAppt.clinicId, targetAppt.appointmentDate)
             : Promise.resolve([])
-          // Doctor's running average and current consultation start, for the on-device estimate
-          const timingPromise = /^[0-9]{10}$/.test(effectiveCode)
+          // Only fall back to get_public_queue_status if delta was unavailable
+          const timingPromise = !delta && /^[0-9]{10}$/.test(effectiveCode)
             ? supabase.rpc('get_public_queue_status', { p_tracking_code: effectiveCode }).then((r) => r.data)
             : Promise.resolve(null)
 
           const [clinicData, queueList, reportsData, docData, timingRows] = await Promise.all([
             clinicPromise,
             queuePromise,
-            shouldFetchReports ? getLabReportsByTrackingCode(effectiveCode) : Promise.resolve(labReports),
+            shouldFetchReports ? getLabReportsByTrackingCode(effectiveCode, targetAppt.id) : Promise.resolve(labReports),
             docPromise,
             timingPromise,
           ])
@@ -455,7 +531,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           let multiSlot = multiSlotResult
           // Today the live status already gives token and patients ahead; the multi-slot calculation
           // (which downloads the clinic's day) is only needed for future dates.
-          if ((isToday && !delta) || (apptDate && apptDate > nowStr)) {
+          if ((isToday && !delta) || (apptDate && apptDate > localTodayStr)) {
             if (!silent || !multiSlot) {
               const avgMins = clinicData?.avgConsultationTimeMinutes || clinic?.avgConsultationTimeMinutes || 10
               try {
@@ -578,8 +654,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     })
   }, [appointment, publicQueueStatus, clinic, isUnlocked])
 
-  // Live auto-refresh every 10 seconds for ongoing appointment today (matching Android QueueStatusScreen.kt)
-  // Pauses while the tab is hidden and refreshes immediately when the tab becomes visible again
+  // Live auto-refresh fallback every 15 seconds for ongoing appointment today
+  // Pauses while hidden, coalesces with Realtime, and refreshes when tab becomes visible again
   useEffect(() => {
     if (!activeCode) return
     const isFinished =
@@ -591,34 +667,56 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
     if (isFinished) return
 
-    const refreshIfVisible = () => {
-      if (!document.hidden) fetchQueueData(activeCode, true)
+    const refreshOnInterval = () => {
+      if (document.hidden) return
+      if (Date.now() - lastFetchAtRef.current < 10_000) return
+      fetchQueueData(activeCode, true)
     }
 
-    const interval = setInterval(refreshIfVisible, 10000)
-    document.addEventListener('visibilitychange', refreshIfVisible)
+    const refreshOnVisibility = () => {
+      if (!document.hidden && Date.now() - lastFetchAtRef.current > 3_000) {
+        fetchQueueData(activeCode, true)
+      }
+    }
+
+    const interval = setInterval(refreshOnInterval, 15000)
+    document.addEventListener('visibilitychange', refreshOnVisibility)
 
     return () => {
       clearInterval(interval)
-      document.removeEventListener('visibilitychange', refreshIfVisible)
+      document.removeEventListener('visibilitychange', refreshOnVisibility)
     }
   }, [activeCode, appointment?.checkinStatus, publicQueueStatus?.status])
 
-  // Active Supabase Realtime WebSocket subscription for instant alerts & queue changes
+  // Scoped & debounced Supabase Realtime subscription for instant alerts & queue changes
   useEffect(() => {
-    // Do not subscribe to private notification/appointment streams for a
-    // public tracking code. The public queue RPC is polled separately.
-    if (!appointment) return
+    const activeClinicId = appointment?.clinicId || publicQueueStatus?.clinic_id
+    if (!appointment && !activeClinicId) return
 
     const apptId = appointment?.id
     const trackingCode = appointment?.trackingCode10Digit || activeCode
     const channelTopic = `live_queue_channel_${trackingCode || apptId || 'guest'}`
 
-    const channel = supabase
-      .channel(channelTopic)
-      .on(
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null
+    const triggerDebouncedRefresh = () => {
+      if (!activeCode) return
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => {
+        fetchQueueData(activeCode, true)
+      }, 400)
+    }
+
+    const channel = supabase.channel(channelTopic)
+
+    if (appointment) {
+      channel.on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'notifications' },
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notifications',
+          filter: appointment.userId ? `user_id=eq.${appointment.userId}` : undefined,
+        },
         (payload) => {
           const newNotif = (payload.new || payload.old) as any
           if (!newNotif) return
@@ -654,51 +752,62 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
               title: title || 'Queue Alert',
               message: cleanMsg,
             })
-            if (activeCode) {
-              fetchQueueData(activeCode, true)
-            }
+            triggerDebouncedRefresh()
           }
         }
       )
-      .on(
+    }
+
+    if (trackingCode) {
+      channel.on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'appointments' },
-        (payload) => {
-          const appt = payload.new as any
-          if (appt && (appt.id === apptId || appt.tracking_code_10_digit === trackingCode)) {
-            if (activeCode) {
-              fetchQueueData(activeCode, true)
-            }
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'queue_entries' },
+        {
+          event: '*',
+          schema: 'public',
+          table: 'appointments',
+          filter: `tracking_code_10_digit=eq.${trackingCode}`,
+        },
         () => {
-          if (activeCode) {
-            fetchQueueData(activeCode, true)
-          }
+          triggerDebouncedRefresh()
         }
       )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'clinics' },
-        (payload) => {
-          const c = payload.new as any
-          if (c && appointment?.clinicId && c.id === appointment.clinicId) {
-            if (activeCode) {
-              fetchQueueData(activeCode, true)
-            }
+    }
+
+    if (activeClinicId) {
+      channel
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'queue_entries',
+            filter: `clinic_id=eq.${activeClinicId}`,
+          },
+          () => {
+            triggerDebouncedRefresh()
           }
-        }
-      )
-      .subscribe()
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'clinics',
+            filter: `id=eq.${activeClinicId}`,
+          },
+          () => {
+            triggerDebouncedRefresh()
+          }
+        )
+    }
+
+    channel.subscribe()
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
       supabase.removeChannel(channel)
     }
-  }, [activeCode, appointment?.id, appointment?.trackingCode10Digit, appointment?.userId])
+  }, [activeCode, appointment?.id, appointment?.clinicId, appointment?.trackingCode10Digit, appointment?.userId, publicQueueStatus?.clinic_id])
 
   // Auto-dismiss visual alert banner after 12 seconds
   useEffect(() => {

@@ -176,6 +176,12 @@ export interface Appointment {
   tokenNumber?: number
   queueNumber?: number
   queuePosition?: number
+  queueStatus?: string
+  calledAt?: string | null
+  insideAt?: string | null
+  completedAt?: string | null
+  consultationDurationSeconds?: number | null
+  doctorName?: string
   notes?: string
   isWalkin?: boolean
   optInEarlyCall?: boolean

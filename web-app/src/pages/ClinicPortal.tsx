@@ -160,6 +160,9 @@ import {
   checkNewAppointments,
   removeRogueQueueEntry,
   autoEnrollNewAppointment,
+  getFastClinicLiveQueue,
+  syncClinicLiveQueue,
+  mergeFastQueueIntoAppointments,
   ClinicPatientDirectoryEntry,
   PatientDirectoryConsultation,
   getSupportUrl,
@@ -1516,29 +1519,60 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     }
   }
 
+  const lastQueueSyncAtRef = useRef(0)
+
   useEffect(() => {
     if (!selectedClinic?.id) return
-    fetchPayAtDesk(selectedClinic.id)
+    const clinicId = selectedClinic.id
+    fetchPayAtDesk(clinicId)
+    void syncClinicLiveQueue(clinicId, selectedQueueDate)
 
-    // Realtime bidirectional sync for live queue, doctor cabin, and appointments
+    let rtDebounceTimer: ReturnType<typeof setTimeout> | null = null
+    let pendingFullDateSync: string | null = null
+
+    const runDebouncedQueueSync = async () => {
+      try {
+        if (pendingFullDateSync) {
+          const targetDate = pendingFullDateSync
+          pendingFullDateSync = null
+          const freshDayAppts = await getAppointmentsByClinic(clinicId, targetDate)
+          lastQueueSyncAtRef.current = Date.now()
+          if (freshDayAppts) {
+            setAppointments((prev) => {
+              const otherDays = prev.filter((a) => a.appointmentDate !== targetDate)
+              return [...otherDays, ...freshDayAppts]
+            })
+          }
+          return
+        }
+        const fastItems = await getFastClinicLiveQueue(clinicId, selectedQueueDate)
+        lastQueueSyncAtRef.current = Date.now()
+        setAppointments((prev) => mergeFastQueueIntoAppointments(prev, fastItems, selectedQueueDate))
+      } catch (e) {
+        console.error('Error auto-syncing live queue:', e)
+      }
+    }
+
+    // Scoped & debounced Realtime bidirectional sync for live queue and appointments
     const sub = supabase
-      .channel(`clinic_live_ops_${selectedClinic.id}`)
+      .channel(`clinic_live_ops_${clinicId}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'appointments',
-          filter: `clinic_id=eq.${selectedClinic.id}`,
+          filter: `clinic_id=eq.${clinicId}`,
         },
-        async () => {
-          fetchPayAtDesk(selectedClinic.id)
-          try {
-            const freshAppts = await getAppointmentsByClinic(selectedClinic.id)
-            if (freshAppts) setAppointments(freshAppts)
-          } catch (e) {
-            console.error('Error auto-syncing appointments:', e)
-          }
+        (payload) => {
+          fetchPayAtDesk(clinicId)
+          const changedDate =
+            String((payload.new as any)?.appointment_date || (payload.old as any)?.appointment_date || selectedQueueDate).slice(0, 10)
+          pendingFullDateSync = changedDate || selectedQueueDate
+          if (rtDebounceTimer) clearTimeout(rtDebounceTimer)
+          rtDebounceTimer = setTimeout(() => {
+            void runDebouncedQueueSync()
+          }, 350)
         }
       )
       .on(
@@ -1547,31 +1581,31 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           event: '*',
           schema: 'public',
           table: 'queue_entries',
+          filter: `clinic_id=eq.${clinicId}`,
         },
-        async () => {
-          try {
-            const freshAppts = await getAppointmentsByClinic(selectedClinic.id)
-            if (freshAppts) setAppointments(freshAppts)
-          } catch (e) {
-            console.error('Error auto-syncing queue entries:', e)
-          }
+        () => {
+          if (rtDebounceTimer) clearTimeout(rtDebounceTimer)
+          rtDebounceTimer = setTimeout(() => {
+            void runDebouncedQueueSync()
+          }, 350)
         }
       )
       .subscribe()
 
     // Pending pay-at-desk requests: every 30 s while the tab is visible, at once when it becomes visible
     const refreshIfVisible = () => {
-      if (!document.hidden) fetchPayAtDesk(selectedClinic.id)
+      if (!document.hidden) fetchPayAtDesk(clinicId)
     }
     const interval = setInterval(refreshIfVisible, 30000)
     document.addEventListener('visibilitychange', refreshIfVisible)
 
     return () => {
+      if (rtDebounceTimer) clearTimeout(rtDebounceTimer)
       supabase.removeChannel(sub)
       clearInterval(interval)
       document.removeEventListener('visibilitychange', refreshIfVisible)
     }
-  }, [selectedClinic?.id])
+  }, [selectedClinic?.id, selectedQueueDate])
 
   // Automatically audit & sweep uncompleted past appointments to no-show when viewing the tab
   useEffect(() => {
@@ -4517,100 +4551,30 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     })
   }, [appointments, selectedQueueDate])
 
-  // Targeted 2.5s sliding window live queue refresh (upcoming 3-4 patients & new appointments)
+  // Fallback 10s live queue sync using single read-only RPC (coalesced with Realtime, paused when hidden)
   useEffect(() => {
     if (!selectedClinic?.id || deskTab !== 'queue') return
+    const clinicId = selectedClinic.id
 
     let isPolling = false
-    const interval = setInterval(async () => {
-      if (isPolling) return
+    const pollFastQueue = async () => {
+      if (document.hidden || isPolling) return
+      if (Date.now() - lastQueueSyncAtRef.current < 8_000) return
       isPolling = true
       try {
-        // 1. Sliding window lookahead: Active inside + upcoming waiting patients (up to 4)
-        const activeQueue = todayAppointments.filter(
-          (a) =>
-            a.checkinStatus === 'waiting' ||
-            a.checkinStatus === 'in_consultation' ||
-            a.checkinStatus === 'inside'
-        )
-        const upcomingItems = activeQueue.slice(0, 4)
-        const upcomingIds = upcomingItems.map((a) => a.id)
-
-        if (upcomingIds.length > 0) {
-          const refreshed = await refreshAppointmentsByIds(upcomingIds)
-          if (refreshed.length > 0) {
-            const freshMap = new Map(refreshed.map((a) => [a.id, a]))
-            let modified = false
-
-            setAppointments((prev) => {
-              const updated = prev.map((item) => {
-                const fresh = freshMap.get(item.id)
-                if (!fresh) return item
-
-                const isCancelled =
-                  (fresh.status || '').toUpperCase() === 'CANCELLED' ||
-                  (fresh.checkinStatus || '').toLowerCase() === 'cancelled'
-                const isRescheduledDate =
-                  fresh.appointmentDate && fresh.appointmentDate !== selectedQueueDate
-
-                if (isCancelled || isRescheduledDate) {
-                  modified = true
-                  removeRogueQueueEntry(item.id).catch(() => {})
-                  return { ...item, status: 'CANCELLED', checkinStatus: 'cancelled' }
-                }
-
-                if (fresh.appointmentTime && fresh.appointmentTime !== item.appointmentTime) {
-                  modified = true
-                  return { ...item, appointmentTime: fresh.appointmentTime }
-                }
-
-                return { ...item, ...fresh }
-              })
-              return modified ? updated : prev
-            })
-          }
-        }
-
-        // 2. Incrementally check newly booked or approved appointments for today
-        const knownIds = appointments.map((a) => a.id)
-        const newAppts = await checkNewAppointments(
-          selectedClinic.id,
-          isLabClinic ? null : (selectedDoctor?.id || null),
-          selectedQueueDate,
-          knownIds
-        )
-
-        if (newAppts.length > 0) {
-          const sortedNew = [...newAppts].sort((a, b) => {
-            const aMins = parseTimeToMinutes(a.appointmentTime)
-            const bMins = parseTimeToMinutes(b.appointmentTime)
-            if (aMins !== bMins) return aMins - bMins
-            const aCreated = a.createdAt || ''
-            const bCreated = b.createdAt || ''
-            if (aCreated !== bCreated) return aCreated.localeCompare(bCreated)
-            return a.id.localeCompare(b.id)
-          })
-
-          let maxPos = Math.max(0, ...todayAppointments.map((a) => a.queuePosition || 0))
-          for (const newAppt of sortedNew) {
-            maxPos++
-            autoEnrollNewAppointment(selectedClinic.id, isLabClinic ? null : (newAppt.doctorId || null), newAppt.id, maxPos).catch(() => {})
-          }
-          setAppointments((prev) => {
-            const currentIds = new Set(prev.map((a) => a.id))
-            const toAdd = sortedNew.filter((a) => !currentIds.has(a.id))
-            return toAdd.length > 0 ? [...prev, ...toAdd] : prev
-          })
-        }
+        const fastItems = await getFastClinicLiveQueue(clinicId, selectedQueueDate)
+        lastQueueSyncAtRef.current = Date.now()
+        setAppointments((prev) => mergeFastQueueIntoAppointments(prev, fastItems, selectedQueueDate))
       } catch (err) {
-        console.warn('Targeted clinic queue refresh error:', err)
+        console.warn('Clinic fast queue refresh error:', err)
       } finally {
         isPolling = false
       }
-    }, 2500)
+    }
 
+    const interval = setInterval(pollFastQueue, 10000)
     return () => clearInterval(interval)
-  }, [selectedClinic?.id, deskTab, selectedQueueDate, selectedDoctor?.id, todayAppointments, appointments])
+  }, [selectedClinic?.id, deskTab, selectedQueueDate])
 
   const noShowAppointments = useMemo(
     () =>

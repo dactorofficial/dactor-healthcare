@@ -58,33 +58,37 @@ class PatientDirectoryDeduplicationTest {
         }
     }
 
-    private fun extractKeys(id: String?, phone: String?, email: String?, tracking: String?, userId: String?): List<String> {
-        val keys = mutableListOf<String>()
-        val cleanId = id?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
-        if (cleanId != null) keys.add("id:$cleanId")
+    private fun isSamePatient(
+        name1: String?, phone1: String?, id1: String?, track1: String?,
+        name2: String?, phone2: String?, id2: String?, track2: String?
+    ): Boolean {
+        val cleanId1 = id1?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        val cleanId2 = id2?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        if (cleanId1 != null && cleanId2 != null && cleanId1 == cleanId2) return true
 
-        val cleanPhone = phone?.replace(Regex("\\D"), "")?.takeIf { it.length >= 7 }
-        if (cleanPhone != null) {
-            keys.add("phone:$cleanPhone")
-            keys.add("detphone:${PatientIdentitySync.getDeterministicPatientIdForPhone(cleanPhone).lowercase()}")
+        val cleanTrack1 = track1?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+        val cleanTrack2 = track2?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+        if (cleanTrack1 != null && cleanTrack2 != null && cleanTrack1 == cleanTrack2) return true
+
+        val p1 = phone1?.filter { it.isDigit() }?.takeLast(10)?.takeIf { it.length >= 7 }
+        val p2 = phone2?.filter { it.isDigit() }?.takeLast(10)?.takeIf { it.length >= 7 }
+        val n1 = name1?.trim()?.lowercase()?.replace(Regex("\\s+"), " ")?.takeIf { it.isNotBlank() }
+        val n2 = name2?.trim()?.lowercase()?.replace(Regex("\\s+"), " ")?.takeIf { it.isNotBlank() }
+
+        if (p1 != null && p2 != null && p1 == p2) {
+            if (n1 == null || n2 == null) return true
+            if (n1 == n2) return true
+            val words1 = n1.split(" ").filter { it.isNotBlank() }
+            val words2 = n2.split(" ").filter { it.isNotBlank() }
+            if (words1.isNotEmpty() && words2.isNotEmpty() && words1[0] == words2[0]) return true
+            return false
         }
 
-        val cleanEmail = email?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
-        if (cleanEmail != null) {
-            keys.add("email:$cleanEmail")
-            keys.add("detemail:${PatientIdentitySync.getDeterministicPatientIdForEmail(cleanEmail).lowercase()}")
+        if (p1 == null && p2 == null && n1 != null && n2 != null && n1 == n2) {
+            return true
         }
 
-        val cleanTracking = tracking?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
-        if (cleanTracking != null) {
-            keys.add("track:$cleanTracking")
-        }
-
-        val cleanUid = userId?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
-        if (cleanUid != null) {
-            keys.add("uid:$cleanUid")
-        }
-        return keys
+        return false
     }
 
     private fun buildAllDirectoryProfiles(
@@ -93,12 +97,15 @@ class PatientDirectoryDeduplicationTest {
         appointments: List<Appointment>
     ): List<Profile> {
         val list = mutableListOf<Profile>()
-        val seenKeys = mutableSetOf<String>()
 
         localPatients.forEach { pat ->
-            val keys = extractKeys(pat.id, pat.phone, pat.email, pat.trackingCode10Digit, null)
-            if (keys.none { it in seenKeys }) {
-                seenKeys.addAll(keys)
+            val alreadyPresent = list.any { existing ->
+                isSamePatient(
+                    name1 = existing.fullName, phone1 = existing.phone, id1 = existing.id, track1 = null,
+                    name2 = pat.fullName, phone2 = pat.phone, id2 = pat.id, track2 = pat.trackingCode10Digit
+                )
+            }
+            if (!alreadyPresent) {
                 list.add(pat.toProfile())
             }
         }
@@ -111,16 +118,18 @@ class PatientDirectoryDeduplicationTest {
             it.status != "EXPIRED" &&
             it.checkinStatus != "cancelled"
         }.forEach { appt ->
-            val keys = extractKeys(appt.id, appt.patientMobile, appt.patientEmail, appt.trackingCode10Digit, appt.userId)
-            if (keys.none { it in seenKeys }) {
-                seenKeys.addAll(keys)
-                val canonicalPatientId = when {
-                    !appt.userId.isNullOrBlank() && PatientIdentitySync.isValidUuid(appt.userId) -> appt.userId
-                    !appt.patientEmail.isNullOrBlank() -> PatientIdentitySync.getDeterministicPatientIdForEmail(appt.patientEmail)
-                    appt.patientMobile.isNotBlank() -> PatientIdentitySync.getDeterministicPatientIdForPhone(appt.patientMobile)
-                    appt.trackingCode10Digit.isNotBlank() -> appt.trackingCode10Digit
-                    else -> appt.id
-                }
+            val alreadyPresent = list.any { existing ->
+                isSamePatient(
+                    name1 = existing.fullName, phone1 = existing.phone, id1 = existing.id, track1 = null,
+                    name2 = appt.patientName, phone2 = appt.patientMobile, id2 = appt.id, track2 = appt.trackingCode10Digit
+                )
+            }
+            if (!alreadyPresent) {
+                val canonicalPatientId = PatientIdentitySync.getDeterministicPatientId(
+                    name = appt.patientName,
+                    phone = appt.patientMobile,
+                    fallbackId = appt.trackingCode10Digit.ifBlank { appt.id }
+                )
                 list.add(
                     Profile(
                         id = canonicalPatientId,
@@ -137,9 +146,13 @@ class PatientDirectoryDeduplicationTest {
         }
 
         locallyAddedProfiles.forEach { p ->
-            val keys = extractKeys(p.id, p.phone, p.email, null, p.authUid)
-            if (keys.none { it in seenKeys }) {
-                seenKeys.addAll(keys)
+            val alreadyPresent = list.any { existing ->
+                isSamePatient(
+                    name1 = existing.fullName, phone1 = existing.phone, id1 = existing.id, track1 = null,
+                    name2 = p.fullName, phone2 = p.phone, id2 = p.id, track2 = null
+                )
+            }
+            if (!alreadyPresent) {
                 list.add(p)
             }
         }
@@ -663,5 +676,195 @@ class PatientDirectoryDeduplicationTest {
 
         val newConsultRemark = formatFollowUpRemark(isFollowUp = false, refCode = trackingCode, notes = userNotes)
         assertEquals("Post medication review", newConsultRemark)
+    }
+
+    @Test
+    fun testMultiplePatientsWithSameBookerUserIdAndEmailArePreservedAsDistinctProfiles() {
+        val sharedUserId = "3ef61d05-597f-4a20-b790-5f515a3fba7b"
+        val sharedEmail = "rajanpurbey98@gmail.com"
+
+        val appointments = listOf(
+            Appointment(
+                id = "appt-1",
+                clinicId = "clinic-try",
+                doctorId = "doc-1",
+                patientName = "Rajan Purbe",
+                patientMobile = "9494845457",
+                patientEmail = sharedEmail,
+                userId = sharedUserId,
+                trackingCode10Digit = "5093218476",
+                appointmentDate = "2026-11-20",
+                status = "APPROVED",
+                checkinStatus = "completed"
+            ),
+            Appointment(
+                id = "appt-2",
+                clinicId = "clinic-try",
+                doctorId = "doc-1",
+                patientName = "rajkishor",
+                patientMobile = "9794576765",
+                patientEmail = sharedEmail,
+                userId = sharedUserId,
+                trackingCode10Digit = "9763254522",
+                appointmentDate = "2026-11-21",
+                status = "APPROVED",
+                checkinStatus = "completed"
+            ),
+            Appointment(
+                id = "appt-3",
+                clinicId = "clinic-try",
+                doctorId = "doc-1",
+                patientName = "rajan",
+                patientMobile = "9464343434",
+                patientEmail = sharedEmail,
+                userId = sharedUserId,
+                trackingCode10Digit = "9113279526",
+                appointmentDate = "2026-11-22",
+                status = "APPROVED",
+                checkinStatus = "completed"
+            ),
+            Appointment(
+                id = "appt-4",
+                clinicId = "clinic-try",
+                doctorId = "doc-1",
+                patientName = "hehe",
+                patientMobile = "9787575737",
+                patientEmail = sharedEmail,
+                userId = sharedUserId,
+                trackingCode10Digit = "4813277318",
+                appointmentDate = "2026-11-23",
+                status = "APPROVED",
+                checkinStatus = "completed"
+            ),
+            Appointment(
+                id = "appt-5",
+                clinicId = "clinic-try",
+                doctorId = "doc-1",
+                patientName = "today",
+                patientMobile = "9464435353",
+                patientEmail = sharedEmail,
+                userId = sharedUserId,
+                trackingCode10Digit = "6813281190",
+                appointmentDate = "2026-11-24",
+                status = "APPROVED",
+                checkinStatus = "waiting"
+            ),
+            Appointment(
+                id = "appt-6",
+                clinicId = "clinic-try",
+                doctorId = "doc-1",
+                patientName = "jsshsb",
+                patientMobile = "9494945464",
+                patientEmail = null,
+                userId = "00819d9d-0a4d-3e4e-96b1-45254cf65afa",
+                trackingCode10Digit = "5583275176",
+                appointmentDate = "2026-11-24",
+                status = "APPROVED",
+                checkinStatus = "waiting"
+            )
+        )
+
+        val directory = buildAllDirectoryProfiles(
+            localPatients = emptyList(),
+            locallyAddedProfiles = emptyList(),
+            appointments = appointments
+        )
+
+        assertEquals("All 6 distinct patients must be preserved even if booked by same user account/email", 6, directory.size)
+        assertTrue(directory.any { it.fullName == "Rajan Purbe" && it.phone == "9494845457" })
+        assertTrue(directory.any { it.fullName == "rajkishor" && it.phone == "9794576765" })
+        assertTrue(directory.any { it.fullName == "rajan" && it.phone == "9464343434" })
+        assertTrue(directory.any { it.fullName == "hehe" && it.phone == "9787575737" })
+        assertTrue(directory.any { it.fullName == "today" && it.phone == "9464435353" })
+        assertTrue(directory.any { it.fullName == "jsshsb" && it.phone == "9494945464" })
+    }
+
+    @Test
+    fun testFamilyMembersSharingMobileNumberWithDistinctNamesArePreserved() {
+        val sharedPhone = "9841234567"
+        val appointments = listOf(
+            Appointment(
+                id = "appt-f1",
+                clinicId = "clinic-1",
+                doctorId = "doc-1",
+                patientName = "Rajan Purbe",
+                patientMobile = sharedPhone,
+                trackingCode10Digit = "1000000001",
+                appointmentDate = "2026-11-20",
+                status = "APPROVED",
+                checkinStatus = "completed"
+            ),
+            Appointment(
+                id = "appt-f2",
+                clinicId = "clinic-1",
+                doctorId = "doc-1",
+                patientName = "Aarav Purbe",
+                patientMobile = sharedPhone,
+                trackingCode10Digit = "1000000002",
+                appointmentDate = "2026-11-20",
+                status = "APPROVED",
+                checkinStatus = "completed"
+            )
+        )
+
+        val directory = buildAllDirectoryProfiles(
+            localPatients = emptyList(),
+            locallyAddedProfiles = emptyList(),
+            appointments = appointments
+        )
+
+        assertEquals("Family members sharing phone with different names must be separate profiles", 2, directory.size)
+        assertTrue(directory.any { it.fullName == "Rajan Purbe" })
+        assertTrue(directory.any { it.fullName == "Aarav Purbe" })
+    }
+
+    @Test
+    fun testSamePatientWithRepeatAppointmentsIsGroupedWithCumulativeVisits() {
+        val phone = "9494845457"
+        val appointments = listOf(
+            Appointment(
+                id = "appt-r1",
+                clinicId = "clinic-1",
+                doctorId = "doc-1",
+                patientName = "Rajan Purbe",
+                patientMobile = phone,
+                trackingCode10Digit = "74CA9D4591",
+                appointmentDate = "2026-11-15",
+                status = "APPROVED",
+                checkinStatus = "completed"
+            ),
+            Appointment(
+                id = "appt-r2",
+                clinicId = "clinic-1",
+                doctorId = "doc-1",
+                patientName = "Rajan Purbe",
+                patientMobile = phone,
+                trackingCode10Digit = "5093218476",
+                appointmentDate = "2026-11-18",
+                status = "APPROVED",
+                checkinStatus = "completed"
+            ),
+            Appointment(
+                id = "appt-r3",
+                clinicId = "clinic-1",
+                doctorId = "doc-1",
+                patientName = "Rajan",
+                patientMobile = phone,
+                trackingCode10Digit = "5856281645",
+                appointmentDate = "2026-11-22",
+                status = "APPROVED",
+                checkinStatus = "waiting"
+            )
+        )
+
+        val directory = buildAllDirectoryProfiles(
+            localPatients = emptyList(),
+            locallyAddedProfiles = emptyList(),
+            appointments = appointments
+        )
+
+        assertEquals("Same patient across 3 appointments should be unified into 1 directory profile", 1, directory.size)
+        assertEquals("Rajan Purbe", directory[0].fullName)
+        assertEquals(phone, directory[0].phone)
     }
 }

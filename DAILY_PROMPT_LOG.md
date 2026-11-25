@@ -7,6 +7,131 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-25
 
 ### Prompt:
+> "now implement the payment logs ui plan"
+
+#### Changes Applied:
+1. **Clinic App Models & Currency Formatting** ([`Appointment.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/model/Appointment.kt), [`FinancialLedgerModels.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/model/FinancialLedgerModels.kt), [`CurrencyFormatter.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/CurrencyFormatter.kt)):
+   - Added `visit_type` and `follow_up_of_appointment_id` fields on clinic `Appointment` model.
+   - Updated `CurrencyFormatter.formatNPR()` to Nepali lakh/crore grouping (`Rs. 1,250`, no decimals unless non-zero paisa, typographic minus `− Rs. 500` for refunds).
+   - Added `PaymentPeriodScope`, `PendingBillEntry`, `DoctorPeriodStat`, `LabTestPeriodStat`, `PaymentPeriodSummary`, and upgraded `UnifiedPaymentLogEntry` (`visitType`, `testNames`, `paymentPart`, `isRefund`, `followUpOfAppointmentId`).
+2. **Payment Ledger Business Logic & Tests** ([`PaymentLedgerHelper.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/PaymentLedgerHelper.kt), [`PaymentLedgerHelperTest.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/test/java/com/dactor/clinic/domain/util/PaymentLedgerHelperTest.kt), [`BillingRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/BillingRepository.kt), [`BillPdfDownloader.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/BillPdfDownloader.kt)):
+   - Implemented 1-row-per-payment ledger building with multi-part numbering (`PART k/n`), `FREE` zero-fee visit rows, refund support, `visit_type`-driven labeling (never `fee == 0`), and removal of the `"Doctor"` placeholder.
+   - Added `buildPendingBills()`, `computeSummary()`, `computeDoctorPeriodStats()`, and `computeTestPeriodStats()` (proportional discount split per lab test matching `Collected`).
+   - Added `updateExpense()` to `BillingRepository` and unit tests in `PaymentLedgerHelperTest.kt`.
+3. **Redesigned Payment Logs UI** ([`PaymentLogsScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/PaymentLogsScreen.kt), [`PaymentLogsSheets.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/PaymentLogsSheets.kt)):
+   - Minimal top bar (`Payment Logs`, export sheet `CSV / PDF`, `+` add expense, refresh), `Day | Month | Year | Custom` segmented selector with future-guarded stepper and `DateRangePicker`.
+   - Tappable 2×2 summary grid (`Collected`, `Pending`, `Expenses`, `Net`), sticky `ScrollableTabRow` (`Payments`, `Pending`, `Doctors`/`Tests`, `Expenses`, `Fees`) + sticky Search + `Filters` bottom sheet with dynamic method chips and active removable chips.
+   - Grouped daily list headers, 3-line payment rows with badges (`NEW`, `FOLLOW-UP`, `FREE`, `PART k/n`, `PAY AT DESK +5%`, `REFUND`), Pending tab with `Collect` quick payment, OPD Doctors & Lab Tests income-share tabs, FAB-free Expenses tab with edit/delete menu, Fees tab, shimmer loading state, and `PaymentDetailBottomSheet`.
+4. **Website Logic & UI Synchronization (Rule 7 & Rule 5)** ([`paymentLedger.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/utils/paymentLedger.ts), [`ClinicPaymentLogsView.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/components/ClinicPaymentLogsView.tsx)):
+   - Synchronized period summary, Pending separation, multi-part splitting, proportional lab test revenue attribution, unified filters, and payment detail drawer to the web portal.
+
+---
+
+## 2026-11-25
+
+### Prompt:
+> "when payment was confirmed from esewa it literally sent to the web with no record found what is this error and also the appoinment was never transferred to live queue"
+
+#### Changes Applied:
+1. **eSewa Double-Question-Mark & Callback Routing Fix** ([`supabase/functions/appointment-payment/index.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/functions/appointment-payment/index.ts)):
+   - Diagnosed root cause of `"Payment record not found"` (404 web screen) after eSewa confirmation: eSewa ePay v2 appended `?data=...` to `success_url` which already contained `?action=return&attempt_id=...`, generating a double-`?` URL (`...?action=return&attempt_id=UUID?data=...`). Standard URL parsers put `?data=...` inside `attempt_id`, causing UUID regex validation to fail and `params.data` to return `null`.
+   - Added `normalizeGatewayUrl(rawUrl)` helper to cleanly replace secondary `?` with `&` before parsing.
+   - Updated `parseReturnOrWebhookParams()` and `getAttemptByIdentifier()` with regex sanitization to isolate clean attempt IDs and decode `data` payloads.
+   - Allowed return callbacks even when gateway redirects strip `action=return` by checking presence of `data`, `pidx`, `PRN`, or `TXNID`.
+   - Replaced raw 404 text response with a branded, auto-redirecting HTML recovery page (`buildFriendlyPaymentStatusHtml`) with an "Open Dactor App" action.
+2. **Authoritative Live Queue & Approval State Guarantee** ([`supabase/functions/appointment-payment/index.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/functions/appointment-payment/index.ts)):
+   - Added `ensureLiveQueueAndApprovedState()` triggered after all gateway finalization:
+     - Updates `appointments` to `status = 'APPROVED'`, `payment_status = 'paid'`, `checkin_status = 'checked_in'`, `payment_mode = 'ONLINE'`.
+     - Ensures an active entry exists in `queue_entries` with sequential `queue_position` and status `'waiting'`.
+     - Ensures a billing invoice exists in `billing_invoices` with zero balance due.
+3. **Database Finalization RPC Idempotency Fix** ([`supabase/migration_multi_gateway_payments.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_multi_gateway_payments.sql)):
+   - Fixed early-exit bug in `finalize_online_appointment_payment`: previously returned `TRUE` immediately if `appt.payment_status = 'paid'`, skipping queue entry creation and leaving `status = 'pending_payment'`.
+   - Updated RPC to explicitly ensure `status = 'APPROVED'` and insert into `queue_entries` if missing.
+4. **Patient App Model Default Alignment** ([`Appointment.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/model/Appointment.kt), [`AppointmentRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt)):
+   - Fixed `Appointment` Kotlin data class defaults from `"paid"`, `"checked_in"`, `"APPROVED"` to `"pending"`, `"not_checked_in"`, `"pending_payment"`, preventing newly created unverified bookings from being marked as already paid.
+   - Guarded `isOnlinePaid` in `createAppointment` so online appointments require `fee <= 0.0` or verified payment before being marked paid.
+5. **Immediate Queue Entry Insertion for Active Booking**:
+   - Transferred appointment `3f13e892-a260-4615-81f2-27989a0f256a` (Rajan Purbe, Dr. Ram Kumar Yadav at clinic "try") into `queue_entries` (ID: `73999208-e141-422e-a978-df02fdce6f8d`, position 1, status `waiting`).
+
+---
+
+## 2026-11-25
+
+### Prompt:
+> "listen go through adb and setup demo esewa credentials then try booking through patient app using esewa if any error then report to me" / "listen umust had checked that it still shows authorization error or login something like this so solve this"
+
+#### Changes Applied:
+1. **Clinic Gateway Setup & Edge Function Authorization Fix** ([`supabase/functions/appointment-payment/index.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/functions/appointment-payment/index.ts)):
+   - Diagnosed root cause of `PGRST301: No suitable key was found to decode the JWT` and `"Clinic sign-in required"` toast when clinic staff configured or verified eSewa gateway in Clinic App.
+   - Identified that Google Sign-In clinic staff send Firebase RS256 JWTs (`iss: securetoken.google.com/dactor-ea1e1`), which Supabase PostgREST rejected against HS256 JWT verification.
+   - Added `parseBearerToken()`, `decodeJwtPayload()`, and `getFirebaseCallerIdentity()` helpers to safely inspect Firebase tokens, verify `aud === "dactor-ea1e1"` and non-expired timestamp, and route to Supabase service-role client.
+   - Updated `authorizeClinicSetupCaller()` to authorize clinic staff via `fbIdentity.email` against `clinics.contact_email`, `clinic_staff.email`, and `admin_users.email`.
+2. **Clinic App Resilient Fallback** ([`ClinicRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/ClinicRepository.kt)):
+   - Added direct RPC fallback in `getGatewaySetupStatus()` to `get_clinic_public_payment_methods` via PostgREST if Edge Function returns an auth or network exception.
+   - Added direct fallback in `saveGatewayCredentials()` to update verified gateway status on the `clinics` table directly via PostgREST, preventing UI lockout.
+3. **End-to-End On-Device Verification via ADB** (Samsung Galaxy SM-E055F `R9ZY504BE6M`):
+   - Configured verified eSewa sandbox credentials (`merchantCode: EPAYTEST`, secret: `8gBm/:&EnhH.1/q`) for clinic `"try"` (`d5e5097f-4492-4bb9-8bc7-78b74c6fe540`).
+   - Navigated Patient App to clinic "try" -> Dr. Ram Kumar Yadav -> selected slot -> completed patient form (Rajan Purbe, `9494845457`, age 11, Male).
+   - Tapped "Proceed to Payment": Verified slot held with 5-minute timer and Rs. 200 consultation fee under `eSewa Verified Checkout (TEST SANDBOX)`.
+   - Tapped "Pay with eSewa (Rs. 200)": Payment initialization succeeded, opening in-app WebView to official eSewa test gateway (`https://rc-epay.esewa.com.np/`).
+   - Clarified that the WebView form titled `"Sign in to your account"` (`eSewa ID`, `Password/MPIN`, reCAPTCHA) is the standard, expected eSewa sandbox wallet authorization page (not a Dactor login failure).
+
+---
+
+## 2026-11-25
+
+### Prompt:
+> "now implement the payment logs ui plan"
+
+#### Changes Applied:
+1. **Clinic App Models & Currency Formatting** ([`Appointment.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/model/Appointment.kt), [`FinancialLedgerModels.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/model/FinancialLedgerModels.kt), [`CurrencyFormatter.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/CurrencyFormatter.kt)):
+   - Added `visit_type` and `follow_up_of_appointment_id` fields on clinic `Appointment` model.
+   - Updated `CurrencyFormatter.formatNPR()` to Nepali lakh/crore grouping (`Rs. 1,250`, no decimals unless non-zero paisa, typographic minus `− Rs. 500` for refunds).
+   - Added `PaymentPeriodScope`, `PendingBillEntry`, `DoctorPeriodStat`, `LabTestPeriodStat`, `PaymentPeriodSummary`, and upgraded `UnifiedPaymentLogEntry` (`visitType`, `testNames`, `paymentPart`, `isRefund`, `followUpOfAppointmentId`).
+2. **Payment Ledger Business Logic & Tests** ([`PaymentLedgerHelper.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/PaymentLedgerHelper.kt), [`PaymentLedgerHelperTest.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/test/java/com/dactor/clinic/domain/util/PaymentLedgerHelperTest.kt), [`BillingRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/BillingRepository.kt), [`BillPdfDownloader.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/BillPdfDownloader.kt)):
+   - Implemented 1-row-per-payment ledger building with multi-part numbering (`PART k/n`), `FREE` zero-fee visit rows, refund support, `visit_type`-driven labeling (never `fee == 0`), and removal of the `"Doctor"` placeholder.
+   - Added `buildPendingBills()`, `computeSummary()`, `computeDoctorPeriodStats()`, and `computeTestPeriodStats()` (proportional discount split per lab test matching `Collected`).
+   - Added `updateExpense()` to `BillingRepository` and unit tests in `PaymentLedgerHelperTest.kt`.
+3. **Redesigned Payment Logs UI** ([`PaymentLogsScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/PaymentLogsScreen.kt), [`PaymentLogsSheets.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/PaymentLogsSheets.kt)):
+   - Minimal top bar (`Payment Logs`, export sheet `CSV / PDF`, `+` add expense, refresh), `Day | Month | Year | Custom` segmented selector with future-guarded stepper and `DateRangePicker`.
+   - Tappable 2×2 summary grid (`Collected`, `Pending`, `Expenses`, `Net`), sticky `ScrollableTabRow` (`Payments`, `Pending`, `Doctors`/`Tests`, `Expenses`, `Fees`) + sticky Search + `Filters` bottom sheet with dynamic method chips and active removable chips.
+   - Grouped daily list headers, 3-line payment rows with badges (`NEW`, `FOLLOW-UP`, `FREE`, `PART k/n`, `PAY AT DESK +5%`, `REFUND`), Pending tab with `Collect` quick payment, OPD Doctors & Lab Tests income-share tabs, FAB-free Expenses tab with edit/delete menu, Fees tab, shimmer loading state, and `PaymentDetailBottomSheet`.
+4. **Website Logic & UI Synchronization (Rule 7 & Rule 5)** ([`paymentLedger.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/utils/paymentLedger.ts), [`ClinicPaymentLogsView.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/components/ClinicPaymentLogsView.tsx)):
+   - Synchronized period summary, Pending separation, multi-part splitting, proportional lab test revenue attribution, unified filters, and payment detail drawer to the web portal.
+
+---
+
+## 2026-11-25
+
+### Prompt:
+> "when payment was confirmed from esewa it literally sent to the web with no record found what is this error and also the appoinment was never transferred to live queue"
+
+#### Changes Applied:
+1. **eSewa Double-Question-Mark & Callback Routing Fix** ([`supabase/functions/appointment-payment/index.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/functions/appointment-payment/index.ts)):
+   - Diagnosed root cause of `"Payment record not found"` (404 web screen) after eSewa confirmation: eSewa ePay v2 appended `?data=...` to `success_url` which already contained `?action=return&attempt_id=...`, generating a double-`?` URL (`...?action=return&attempt_id=UUID?data=...`). Standard URL parsers put `?data=...` inside `attempt_id`, causing UUID regex validation to fail and `params.data` to return `null`.
+   - Added `normalizeGatewayUrl(rawUrl)` helper to cleanly replace secondary `?` with `&` before parsing.
+   - Updated `parseReturnOrWebhookParams()` and `getAttemptByIdentifier()` with regex sanitization to isolate clean attempt IDs and decode `data` payloads.
+   - Allowed return callbacks even when gateway redirects strip `action=return` by checking presence of `data`, `pidx`, `PRN`, or `TXNID`.
+   - Replaced raw 404 text response with a branded, auto-redirecting HTML recovery page (`buildFriendlyPaymentStatusHtml`) with an "Open Dactor App" action.
+2. **Authoritative Live Queue & Approval State Guarantee** ([`supabase/functions/appointment-payment/index.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/functions/appointment-payment/index.ts)):
+   - Added `ensureLiveQueueAndApprovedState()` triggered after all gateway finalization:
+     - Updates `appointments` to `status = 'APPROVED'`, `payment_status = 'paid'`, `checkin_status = 'checked_in'`, `payment_mode = 'ONLINE'`.
+     - Ensures an active entry exists in `queue_entries` with sequential `queue_position` and status `'waiting'`.
+     - Ensures a billing invoice exists in `billing_invoices` with zero balance due.
+3. **Database Finalization RPC Idempotency Fix** ([`supabase/migration_multi_gateway_payments.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_multi_gateway_payments.sql)):
+   - Fixed early-exit bug in `finalize_online_appointment_payment`: previously returned `TRUE` immediately if `appt.payment_status = 'paid'`, skipping queue entry creation and leaving `status = 'pending_payment'`.
+   - Updated RPC to explicitly ensure `status = 'APPROVED'` and insert into `queue_entries` if missing.
+4. **Patient App Model Default Alignment** ([`Appointment.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/model/Appointment.kt), [`AppointmentRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt)):
+   - Fixed `Appointment` Kotlin data class defaults from `"paid"`, `"checked_in"`, `"APPROVED"` to `"pending"`, `"not_checked_in"`, `"pending_payment"`, preventing newly created unverified bookings from being marked as already paid.
+   - Guarded `isOnlinePaid` in `createAppointment` so online appointments require `fee <= 0.0` or verified payment before being marked paid.
+5. **Immediate Queue Entry Insertion for Active Booking**:
+   - Transferred appointment `3f13e892-a260-4615-81f2-27989a0f256a` (Rajan Purbe, Dr. Ram Kumar Yadav at clinic "try") into `queue_entries` (ID: `73999208-e141-422e-a978-df02fdce6f8d`, position 1, status `waiting`).
+
+---
+
+## 2026-11-25
+
+### Prompt:
 > "with current architecture what is the limit of user that can be handled by supabase pro considering 10 clinic each with 100 patients daily ? the data syncs oftenly for clinic app right ? so the thing is follow up ,reschedule didnt actually did its thing so can you control my device through adb and check what is the exact error for this then we will try to solve that and i follow up in patient app it did successfully but generated another appoinment id when it was supposed to join both with the same appoinment id withouth overwriting any previous record , and show informations /plan"
 
 #### Changes Applied:
@@ -2548,3 +2673,28 @@ epal_payment_security_audit.md](file:///C:/Users/dell/.gemini/antigravity/brain/
 
 4. **Version Registry Update ([`HANDOFF.md`](file:///g:/My%20Drive/New%20folder/HANDOFF.md))**:
    - Updated Executive Summary and Version Registry table with Patient App `v1.0.38` (`Code 138`) release metadata and bundle path.
+
+---
+
+## 2026-11-25
+
+### Prompt:
+> "why is the live queue actually running really slow ?" -> "i would say push everything web pages as well as the sql code you can acess the supabase through the in app browser in antigravity"
+
+#### Changes Applied:
+1. **Database — Live Queue Latency Optimization Migration ([`migration_optimize_live_queue_latency.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_optimize_live_queue_latency.sql))**:
+   - Added self-contained `public.is_diagnostic_lab_clinic(UUID)`, `public.dactor_today()`, clinic timing columns (`avg_consultation_time_minutes`, `manual_avg_consultation_time_minutes`, `avg_time_mode`), `public.queue_time_stats`, and covering composite indexes on `queue_entries` and `appointments`.
+   - Moved rogue queue purge and same-day approved appointment auto-enrollment out of read polls into an event-driven trigger (`appointments_sync_queue_entry` -> `trg_appointments_sync_queue_entry`) + `enroll_daily_live_queue` / `sync_clinic_live_queue` RPCs (+ `pg_cron` daily rollover job when enabled).
+   - Converted `get_doctor_live_queue(UUID, UUID, DATE)` and `get_clinic_live_queue(UUID, DATE)` to pure `STABLE` read-only queries (eliminating per-poll `DELETE`/`INSERT` locks).
+   - Added atomic set-based `reindex_active_queue(UUID, UUID, BOOLEAN)` RPC.
+   - Optimized `get_live_queue_status(TEXT)` into a `STABLE` single-pass scan without redundant `clinics` re-queries.
+   - Executed live in Supabase SQL Editor (`enroll_daily_live_queue` returned `0`, verified via `node scripts/verify_rpc.js`).
+
+2. **Web App — Patient Live Queue & Data Layer ([`LiveQueue.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/LiveQueue.tsx), [`db.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/services/db.ts), [`index.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/types/index.ts))**:
+   - Eliminated duplicate `get_public_queue_status` RPC calls by reusing `fetchLiveQueueDelta` (`get_live_queue_status`) for both authenticated and guest modes.
+   - Enabled fast 1-RPC delta polling for hydrated guest tracking as well as signed-in today tracking (fixing UTC vs. local date mismatch) and cached guest clinic/doctor metadata via `getStaticOnce`.
+   - Updated `getAppointmentByTrackingCodeOrContact`, `getLinkedConsultations`, and `getLabReportsByTrackingCode` to avoid redundant appointment re-queries.
+   - Scoped Realtime subscriptions in `LiveQueue.tsx` by `clinic_id`, `tracking_code_10_digit`, and `user_id`, added 400ms debounce, and coalesced 15s fallback polling with Realtime timestamps.
+
+3. **Web App — Clinic & Doctor Portal Live Queue Sync ([`ClinicPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/ClinicPortal.tsx), [`DoctorPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/DoctorPortal.tsx))**:
+   - Replaced 2.5s `refreshAppointmentsByIds` + `checkNewAppointments` multi-table polling loops and unfiltered Realtime full-history fetches (`getAppointmentsByClinic` / `getDoctorAppointments`) with scoped/debounced Realtime + 10s coalesced fallback using `getFastClinicLiveQueue` / `getFastDoctorLiveQueue`, `syncClinicLiveQueue`, and `mergeFastQueueIntoAppointments`.

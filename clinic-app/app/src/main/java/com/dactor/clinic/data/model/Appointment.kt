@@ -27,6 +27,8 @@ data class Appointment(
     @SerialName("notes") val notes: String? = null,
     @SerialName("payment_mode") val paymentMode: String = "ONLINE",
     @SerialName("status") val status: String = "APPROVED",
+    @SerialName("visit_type") val visitType: String? = null,
+    @SerialName("follow_up_of_appointment_id") val followUpOfAppointmentId: String? = null,
     @SerialName("attempt_number") val attemptNumber: Int = 1,
     @SerialName("token_number") val tokenNumber: Int? = null,
     @SerialName("service_charge_amount") val serviceChargeAmount: Double = 0.0,

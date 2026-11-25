@@ -1210,14 +1210,16 @@ open class AppointmentRepository @Inject constructor(
             if (!inMem.isNullOrEmpty()) {
                 return@withContext inMem
             }
-            try {
-                val local = appointmentDao?.getAppointmentsForDoctorList(doctorId)?.map { it.toDomainModel() }
-                val filtered = if (date != null) local?.filter { it.appointmentDate == date } else local
-                if (!filtered.isNullOrEmpty()) {
-                    doctorAppointmentsCache[cacheKey] = filtered
-                    return@withContext filtered
-                }
-            } catch (_: Exception) {}
+            if (date != null) {
+                try {
+                    val local = appointmentDao?.getAppointmentsForDoctorList(doctorId)?.map { it.toDomainModel() }
+                    val filtered = local?.filter { it.appointmentDate == date }
+                    if (!filtered.isNullOrEmpty()) {
+                        doctorAppointmentsCache[cacheKey] = filtered
+                        return@withContext filtered
+                    }
+                } catch (_: Exception) {}
+            }
         }
         try {
             val appts = if (date != null) {

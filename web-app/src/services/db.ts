@@ -484,7 +484,10 @@ export async function getAllAppointmentsByTrackingCode(code: string): Promise<Ap
   }
 }
 
-export async function getAppointmentByTrackingCodeOrContact(identifier: string): Promise<Appointment | null> {
+export async function getAppointmentByTrackingCodeOrContact(
+  identifier: string,
+  skipContactFallback: boolean = false
+): Promise<Appointment | null> {
   try {
     const clean = identifier.trim()
     if (!clean) return null
@@ -501,9 +504,11 @@ export async function getAppointmentByTrackingCodeOrContact(identifier: string):
     }
 
     // 1. Try 10-character alphanumeric tracking code directly
-    if (/^[0-9a-zA-Z]{10}$/.test(clean)) {
+    const isCode10 = /^[0-9a-zA-Z]{10}$/.test(clean)
+    if (isCode10) {
       const byCode = await getAppointmentByTrackingCode(clean)
       if (byCode) return byCode
+      if (skipContactFallback) return null
     }
 
     const pickBestAppointment = (list: any[]) => {
@@ -564,8 +569,11 @@ export async function getAppointmentByTrackingCodeOrContact(identifier: string):
       }
     }
 
-    // Fallback: direct code lookup
-    return await getAppointmentByTrackingCode(clean)
+    // Fallback: direct code lookup only if not already attempted in step 1
+    if (!isCode10) {
+      return await getAppointmentByTrackingCode(clean)
+    }
+    return null
   } catch {
     return null
   }
@@ -580,7 +588,10 @@ export interface LinkedConsultationsResult {
   isLinked: boolean
 }
 
-export async function getLinkedConsultations(appointmentIdOrCode: string): Promise<LinkedConsultationsResult> {
+export async function getLinkedConsultations(
+  appointmentIdOrCode: string,
+  knownTarget?: Appointment | null
+): Promise<LinkedConsultationsResult> {
   const result: LinkedConsultationsResult = {
     targetAppointment: null,
     initialAppointment: null,
@@ -591,7 +602,7 @@ export async function getLinkedConsultations(appointmentIdOrCode: string): Promi
   }
 
   try {
-    const target = await getAppointmentByTrackingCodeOrContact(appointmentIdOrCode)
+    const target = knownTarget || (await getAppointmentByTrackingCodeOrContact(appointmentIdOrCode))
     if (!target) return result
 
     result.targetAppointment = target
@@ -2399,17 +2410,19 @@ export async function deleteClinicService(id: string): Promise<boolean> {
 // ==========================================
 // LAB REPORTS API
 // ==========================================
-export async function getLabReportsByTrackingCode(code: string): Promise<LabReport[]> {
+export async function getLabReportsByTrackingCode(
+  code: string,
+  knownAppointmentId?: string
+): Promise<LabReport[]> {
   try {
     const cleanCode = code.trim()
-    // Find appointment by 10-digit code first
-    const appt = await getAppointmentByTrackingCode(cleanCode)
-    if (!appt) return []
+    const appointmentId = knownAppointmentId || (await getAppointmentByTrackingCode(cleanCode))?.id
+    if (!appointmentId) return []
 
     const { data, error } = await supabase
       .from('lab_reports')
       .select('*, appointment:appointments(*)')
-      .eq('appointment_id', appt.id)
+      .eq('appointment_id', appointmentId)
       .order('created_at', { ascending: false })
 
     if (error) throw error
@@ -5215,7 +5228,7 @@ export async function getFastDoctorLiveQueue(
     const { data, error } = await supabase.rpc('get_doctor_live_queue', {
       p_doctor_id: doctorId || null,
       p_clinic_id: clinicId,
-      p_date: date || new Date().toISOString().slice(0, 10),
+      p_date: date || getLocalDateIsoString(),
     })
     if (error) throw error
     return data || []
@@ -5232,7 +5245,7 @@ export async function getFastClinicLiveQueue(
   try {
     const { data, error } = await supabase.rpc('get_clinic_live_queue', {
       p_clinic_id: clinicId,
-      p_date: date || new Date().toISOString().slice(0, 10),
+      p_date: date || getLocalDateIsoString(),
     })
     if (error) throw error
     return data || []
@@ -5240,6 +5253,155 @@ export async function getFastClinicLiveQueue(
     console.warn('getFastClinicLiveQueue RPC failed:', err)
     return []
   }
+}
+
+export async function syncClinicLiveQueue(clinicId: string, date?: string): Promise<number> {
+  if (!clinicId) return 0
+  try {
+    const { data, error } = await supabase.rpc('sync_clinic_live_queue', {
+      p_clinic_id: clinicId,
+      p_date: date || getLocalDateIsoString(),
+    })
+    if (error) throw error
+    return typeof data === 'number' ? data : 0
+  } catch (err) {
+    console.warn('syncClinicLiveQueue RPC failed:', err)
+    return 0
+  }
+}
+
+function mapQueueStatusToCheckinStatus(status: string): Appointment['checkinStatus'] {
+  const s = (status || '').toLowerCase()
+  if (s === 'inside') return 'in_consultation'
+  if (s === 'done') return 'completed'
+  if (
+    s === 'waiting' ||
+    s === 'in_consultation' ||
+    s === 'completed' ||
+    s === 'sample_collected' ||
+    s === 'processing' ||
+    s === 'report_prepared' ||
+    s === 'no_show' ||
+    s === 'cancelled'
+  ) {
+    return s as Appointment['checkinStatus']
+  }
+  return 'waiting'
+}
+
+export function mergeFastQueueIntoAppointments(
+  prev: Appointment[],
+  items: FastLiveQueueItem[],
+  targetDate: string,
+  doctorIdFilter?: string | null
+): Appointment[] {
+  const itemByApptId = new Map<string, FastLiveQueueItem>()
+  for (const item of items) {
+    if (item.appointment_id) itemByApptId.set(item.appointment_id, item)
+  }
+
+  let changed = false
+  const seenIds = new Set<string>()
+  const next: Appointment[] = []
+
+  for (const appt of prev) {
+    seenIds.add(appt.id)
+    const fast = itemByApptId.get(appt.id)
+    if (fast) {
+      const mappedCheckin = mapQueueStatusToCheckinStatus(fast.status)
+      const nextTime = fast.appointment_time || appt.appointmentTime
+      const nextDate = fast.appointment_date || appt.appointmentDate
+      const nextPayStatus = normalizePaymentStatus(fast.payment_status || appt.paymentStatus)
+      if (
+        appt.queueEntryId !== fast.id ||
+        appt.queuePosition !== fast.queue_position ||
+        appt.queueStatus !== fast.status ||
+        appt.checkinStatus !== mappedCheckin ||
+        appt.insideAt !== (fast.inside_at ?? undefined) ||
+        appt.calledAt !== (fast.called_at ?? undefined) ||
+        appt.completedAt !== (fast.completed_at ?? undefined) ||
+        appt.appointmentTime !== nextTime ||
+        appt.appointmentDate !== nextDate ||
+        appt.paymentStatus !== nextPayStatus
+      ) {
+        changed = true
+        next.push({
+          ...appt,
+          queueEntryId: fast.id,
+          queuePosition: fast.queue_position,
+          queueNumber: appt.queueNumber || fast.queue_position,
+          queueStatus: fast.status,
+          checkinStatus: mappedCheckin,
+          insideAt: fast.inside_at ?? undefined,
+          calledAt: fast.called_at ?? undefined,
+          completedAt: fast.completed_at ?? undefined,
+          consultationDurationSeconds: fast.consultation_duration_seconds ?? appt.consultationDurationSeconds,
+          appointmentTime: nextTime,
+          appointmentDate: nextDate,
+          paymentStatus: nextPayStatus,
+          doctorId: fast.doctor_id ?? appt.doctorId,
+          doctorName: fast.doctor_name || appt.doctorName,
+        })
+      } else {
+        next.push(appt)
+      }
+      continue
+    }
+
+    // If an active approved appointment for targetDate is no longer in the authoritative queue RPC,
+    // keep it only if it is already completed/cancelled or belongs to a different date/doctor.
+    const matchesDoctor = !doctorIdFilter || !appt.doctorId || appt.doctorId === doctorIdFilter
+    if (
+      appt.appointmentDate === targetDate &&
+      matchesDoctor &&
+      appt.queueEntryId &&
+      ['waiting', 'inside', 'in_consultation'].includes((appt.checkinStatus || '').toLowerCase())
+    ) {
+      changed = true
+      next.push({ ...appt, status: 'CANCELLED', checkinStatus: 'cancelled' })
+    } else {
+      next.push(appt)
+    }
+  }
+
+  for (const item of items) {
+    if (!item.appointment_id || seenIds.has(item.appointment_id)) continue
+    changed = true
+    next.push({
+      id: item.appointment_id,
+      trackingCode10Digit: item.tracking_code || item.appointment_id.slice(0, 8),
+      clinicId: item.clinic_id,
+      doctorId: item.doctor_id ?? undefined,
+      doctorName: item.doctor_name || undefined,
+      userId: item.user_id ?? undefined,
+      patientName: item.patient_name || `Patient #${item.queue_position}`,
+      patientAge: item.patient_age || 0,
+      patientGender: item.patient_gender || 'Registered',
+      patientMobile: item.patient_mobile || '',
+      appointmentDate: item.appointment_date || targetDate,
+      appointmentTime: item.appointment_time || '',
+      paymentStatus: normalizePaymentStatus(item.payment_status ?? undefined),
+      paymentMode: item.payment_mode || 'ONLINE',
+      checkinStatus: mapQueueStatusToCheckinStatus(item.status),
+      status: 'APPROVED',
+      feeAmount: item.total_amount || 0,
+      totalAmount: item.total_amount || 0,
+      isWalkin: item.is_walkin,
+      selectedLabTests: item.selected_lab_tests ?? undefined,
+      optInEarlyCall: item.opt_in_early_call,
+      queueNumber: item.queue_position,
+      queuePosition: item.queue_position,
+      queueEntryId: item.id,
+      queueStatus: item.status,
+      calledAt: item.called_at ?? undefined,
+      insideAt: item.inside_at ?? undefined,
+      completedAt: item.completed_at ?? undefined,
+      consultationDurationSeconds: item.consultation_duration_seconds ?? undefined,
+      createdAt: item.created_at || new Date().toISOString(),
+    })
+  }
+
+  return changed ? next : prev
 }
 
 export async function getPatientProfileByEmail(email: string): Promise<PatientProfile | null> {
@@ -6448,11 +6610,12 @@ export function buildClinicPatientDirectory(appointments: Appointment[]): Clinic
 
   for (const a of sorted) {
     const cleanMobile = (a.patientMobile || '').replace(/\D/g, '')
-    const cleanName = (a.patientName || '').trim()
-    // Robust key hierarchy: normalized phone (if >= 7 digits) -> userId -> normalized patient name -> appointment id
+    const cleanName = (a.patientName || '').trim().replace(/\s+/g, ' ')
+    const firstName = cleanName.toLowerCase().split(' ')[0] || ''
+    // Robust patient-centric key: phone + primary name so family members sharing a phone remain distinct
     const key = cleanMobile.length >= 7
-      ? cleanMobile
-      : (a.userId || (cleanName ? cleanName.toLowerCase() : a.id))
+      ? (firstName ? `${cleanMobile}:${firstName}` : cleanMobile)
+      : (cleanName ? cleanName.toLowerCase() : a.id)
 
     const isFollowup = Number(a.feeAmount) === 0
     const isCancelled = (a.checkinStatus || '').toLowerCase() === 'cancelled' || (a.status || '').toUpperCase() === 'CANCELLED'
@@ -6623,7 +6786,8 @@ export async function checkNewAppointments(
   doctorId: string | null,
   date: string,
   knownApptIds: string[],
-  sinceIso?: string
+  sinceIso?: string,
+  isLabOverride?: boolean
 ): Promise<Appointment[]> {
   if (!clinicId || !date) return []
   try {
@@ -6635,8 +6799,10 @@ export async function checkNewAppointments(
       .eq('status', 'APPROVED')
       .neq('checkin_status', 'cancelled')
 
-    const clinic = await getClinicById(clinicId)
-    const isLab = isDiagnosticLabClinic(clinic)
+    const isLab =
+      typeof isLabOverride === 'boolean'
+        ? isLabOverride
+        : isDiagnosticLabClinic(await getClinicById(clinicId))
 
     if (!isLab && doctorId) {
       query = query.eq('doctor_id', doctorId)

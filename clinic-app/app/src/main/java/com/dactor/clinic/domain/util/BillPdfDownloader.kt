@@ -403,8 +403,8 @@ object BillPdfDownloader {
     ) {
         try {
             val gross = logs.sumOf { it.amount }
-            val followups = logs.count { !it.isNewPatientForDoctor }
-            val newPatients = logs.count { it.isNewPatientForDoctor }
+            val followups = logs.count { it.visitType == "follow_up" }
+            val newPatients = logs.count { it.visitType == "new" }
             val platformCommission = logs.sumOf { it.serviceChargeAmount }
             val netPayout = gross - platformCommission
             val totalExpenses = expenses.sumOf { it.amount }
@@ -566,8 +566,14 @@ object BillPdfDownloader {
                 val token = log.trackingCode10Digit ?: "\u2013"
                 val dateStr = log.dateTime.take(16).replace("T", " ")
                 val pName = if (log.patientName.length > 18) log.patientName.take(16) + ".." else log.patientName
-                val dName = if (log.doctorName.length > 15) log.doctorName.take(13) + ".." else log.doctorName
-                val vType = if (log.isNewPatientForDoctor) "NEW" else "FOLLOW-UP (FREE)"
+                val rawPersonOrTest = log.doctorName.ifBlank { log.testNames.joinToString(", ").ifBlank { "\u2013" } }
+                val dName = if (rawPersonOrTest.length > 15) rawPersonOrTest.take(13) + ".." else rawPersonOrTest
+                val vType = when {
+                    log.isRefund -> "REFUND"
+                    log.visitType == "new" -> "NEW"
+                    log.visitType == "follow_up" -> if (log.amount == 0.0) "FOLLOW-UP (FREE)" else "FOLLOW-UP"
+                    else -> if (log.amount == 0.0) "FREE" else "VISIT"
+                }
                 val method = log.paymentMethod
 
                 canvas.drawText("#$token", colToken, rowY, textPaint)

@@ -153,10 +153,10 @@ CREATE OR REPLACE FUNCTION public.add_clinic_expense(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_catalog
+SET search_path = public, pg_catalog, extensions
 AS $$
 DECLARE
-    v_id UUID := COALESCE(p_id, uuid_generate_v4());
+    v_id UUID := COALESCE(p_id, gen_random_uuid());
     v_v_num TEXT := NULLIF(TRIM(p_voucher_number), '');
     v_rem TEXT := NULLIF(TRIM(p_remarks), '');
     v_time TEXT := NULLIF(TRIM(p_expense_time), '');

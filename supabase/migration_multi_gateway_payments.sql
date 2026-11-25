@@ -166,6 +166,21 @@ BEGIN
 
     -- Idempotency if appointment was already marked paid by a concurrent callback/sweep
     IF appt.payment_status::text = 'paid' THEN
+        -- Still guarantee status is APPROVED and queue entry exists if missing!
+        UPDATE public.appointments
+        SET status = 'APPROVED',
+            checkin_status = 'checked_in',
+            updated_at = NOW()
+        WHERE id = appt.id AND status <> 'APPROVED';
+
+        SELECT COALESCE(MAX(queue_position), 0) + 1 INTO next_position
+        FROM public.queue_entries
+        WHERE clinic_id = appt.clinic_id AND status IN ('waiting', 'inside');
+
+        INSERT INTO public.queue_entries (appointment_id, clinic_id, doctor_id, queue_position, status)
+        VALUES (appt.id, appt.clinic_id, appt.doctor_id, next_position, 'waiting')
+        ON CONFLICT (appointment_id) DO NOTHING;
+
         UPDATE public.appointment_payment_attempts
         SET status = 'complete',
             provider_reference = COALESCE(NULLIF(trim(p_provider_reference), ''), provider_reference, attempt.transaction_uuid),

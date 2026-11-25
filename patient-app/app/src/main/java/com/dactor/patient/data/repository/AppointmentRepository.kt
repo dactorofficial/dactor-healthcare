@@ -968,7 +968,7 @@ class AppointmentRepository @Inject constructor(
         val serviceCharge = if (isPayAtDesk) Math.round(fee * (PAY_AT_DESK_SERVICE_CHARGE_PERCENT / 100.0) * 100.0) / 100.0 else 0.0
         val totalAmt = if (isPayAtDesk) fee + serviceCharge else fee
 
-        val isOnlinePaid = !isPayAtDesk && appointment.paymentStatus.equals("paid", ignoreCase = true)
+        val isOnlinePaid = !isPayAtDesk && fee <= 0.0 && appointment.paymentStatus.equals("paid", ignoreCase = true)
         val initialPaymentStatus = if (isPayAtDesk) "pending" else if (isOnlinePaid) "paid" else "pending"
         val initialCheckinStatus = if (isPayAtDesk) "not_checked_in" else if (isOnlinePaid) "checked_in" else "not_checked_in"
         val initialStatus = if (isPayAtDesk) "WAITING_FOR_APPROVAL" else if (isOnlinePaid) "APPROVED" else "pending_payment"

@@ -54,28 +54,65 @@ data class PlatformCommissionSettlement(
         get() = 0.05
 }
 
+enum class PaymentPeriodScope(val label: String) {
+    DAY("Day"),
+    MONTH("Month"),
+    YEAR("Year"),
+    CUSTOM("Custom")
+}
+
 data class UnifiedPaymentLogEntry(
     val id: String,
     val appointmentId: String? = null,
     val invoiceId: String? = null,
     val trackingCode10Digit: String? = null,
+    val followUpOfAppointmentId: String? = null,
+    val followUpOfTrackingCode: String? = null,
+    val doctorId: String? = null,
     val patientName: String,
     val patientPhone: String,
-    val doctorName: String,
-    val doctorSpecialty: String,
+    val doctorName: String = "",
+    val doctorSpecialty: String = "",
     val consultationFee: Double = 0.0,
     val amount: Double,
     val dateTime: String,
     val paymentMethod: String,
+    val paymentMode: String = "ONLINE",
     val referenceId: String? = null,
     val note: String? = null,
     val invoiceStatus: String = "paid",
     val totalBill: Double = 0.0,
     val balanceDue: Double = 0.0,
     val receiptUrl: String? = null,
-    val isNewPatientForDoctor: Boolean = true,
+    val visitType: String = "new", // "new" | "follow_up" | "unknown" | ""
+    val testNames: List<String> = emptyList(),
+    val paymentPart: Pair<Int, Int>? = null,
+    val isRefund: Boolean = false,
     val category: String = "CONSULTATION",
     val serviceChargeAmount: Double = 0.0
+) {
+    /** Compatibility helper used by PDF/CSV exporters. */
+    val isNewPatientForDoctor: Boolean
+        get() = visitType.equals("new", ignoreCase = true)
+}
+
+data class PendingBillEntry(
+    val invoiceId: String? = null,
+    val appointmentId: String,
+    val trackingCode10Digit: String,
+    val patientName: String,
+    val patientPhone: String,
+    val doctorId: String? = null,
+    val doctorName: String = "",
+    val testNames: List<String> = emptyList(),
+    val visitDate: String,
+    val visitTime: String = "",
+    val visitType: String = "unknown",
+    val paymentMode: String = "ONLINE",
+    val totalAmount: Double,
+    val paidAmount: Double,
+    val balanceDue: Double,
+    val isPartlyPaid: Boolean = paidAmount > 0.01 && balanceDue > 0.01
 )
 
 data class VisitMetric(
@@ -95,4 +132,36 @@ data class DoctorVisitAnalytics(
     val totalOpdRevenue: Double,
     val dailyBreakdown: Map<String, VisitMetric>,
     val monthlyBreakdown: Map<String, VisitMetric>
+)
+
+data class DoctorPeriodStat(
+    val doctorId: String,
+    val doctorName: String,
+    val specialty: String,
+    val consultationFee: Double,
+    val totalVisits: Int,
+    val newPatients: Int,
+    val followupPatients: Int,
+    val collectedAmount: Double,
+    val sharePercent: Double
+)
+
+data class LabTestPeriodStat(
+    val testName: String,
+    val count: Int,
+    val unitPrice: Double,
+    val collectedIncome: Double,
+    val sharePercent: Double
+)
+
+data class PaymentPeriodSummary(
+    val collected: Double,
+    val collectedCount: Int,
+    val pendingTotal: Double,
+    val pendingCount: Int,
+    val expenses: Double,
+    val expensesCount: Int,
+    val platformFees: Double,
+    val subscriptionDue: Double,
+    val net: Double
 )
