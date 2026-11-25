@@ -1250,7 +1250,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     approxTimeText,
     suggestedArrivalText,
     slotNoticeText,
-    displayWaitText
+    displayWaitText,
+    isArriveSoon
   } = useMemo(() => {
     const now = new Date()
     const isDoctorFree = isDoctorInClinic && !inConsultationPatient && clinic?.isOnBreak !== true
@@ -1263,6 +1264,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         suggestedArrivalText: 'Clinic closed for today',
         slotNoticeText: 'The clinic is closed for today. Consultations have ended.',
         displayWaitText: 'Clinic Closed',
+        isArriveSoon: false,
       }
     }
 
@@ -1274,6 +1276,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         suggestedArrivalText: 'Marked as No-Show',
         slotNoticeText: 'This appointment was marked as No-Show as clinic consultations concluded.',
         displayWaitText: 'No Show',
+        isArriveSoon: false,
       }
     }
 
@@ -1285,6 +1288,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         suggestedArrivalText: 'Diagnostic Report Ready',
         slotNoticeText: 'Your certified lab report is ready. Verify your identity below to view and download.',
         displayWaitText: 'Ready',
+        isArriveSoon: false,
       }
     }
 
@@ -1296,6 +1300,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         suggestedArrivalText: 'Sample Collected',
         slotNoticeText: 'Your sample was collected and is currently being processed in the laboratory.',
         displayWaitText: 'In Lab',
+        isArriveSoon: false,
       }
     }
 
@@ -1309,6 +1314,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           suggestedArrivalText: `Scheduled slot for ${multiSlotResult.dateLabel}`,
           slotNoticeText: `Scheduled for ${multiSlotResult.dateLabel} • Approx. ${multiSlotResult.approxAppointmentTimeText}`,
           displayWaitText: multiSlotResult.approxAppointmentTimeText,
+          isArriveSoon: false,
         }
       }
       return {
@@ -1318,6 +1324,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         suggestedArrivalText: `Scheduled slot for ${dateLabel}`,
         slotNoticeText: `Scheduled for ${dateLabel} • Syncing queue line position...`,
         displayWaitText: `Scheduled for ${dateLabel}`,
+        isArriveSoon: false,
       }
     }
 

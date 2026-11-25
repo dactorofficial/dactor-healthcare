@@ -211,6 +211,7 @@ import { clearAllAppCache } from '../utils/cacheCleaner'
 import { supabase } from '../lib/supabase'
 import {
   matchClinic,
+  matchDoctor,
   QUICK_SPECIALTY_SUGGESTIONS,
   getRecentSearches,
   saveRecentSearch,
@@ -4005,27 +4006,18 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                         return { doc, linkedClinics, score: 10, matchReason: undefined }
                       }
 
-                      const q = clinicSearchQuery.toLowerCase()
-                      const nameMatch = (doc.fullName || '').toLowerCase().includes(q)
-                      const specMatch =
-                        (doc.specialty || '').toLowerCase().includes(q) ||
-                        ((doc as any).specialties &&
-                          (doc as any).specialties.some((s: string) => s.toLowerCase().includes(q)))
-                      const qualMatch =
-                        ((doc as any).qualifications || (doc as any).education || '').toLowerCase().includes(q)
-                      const clinicMatch = linkedClinics.some((c) => (c.name || '').toLowerCase().includes(q))
+                      const match = matchDoctor(doc, linkedClinics, clinicSearchQuery)
+                      if (!match.isMatch) return null
 
-                      if (nameMatch || specMatch || qualMatch || clinicMatch) {
-                        let reason = 'Matched Specialist'
-                        if (nameMatch) reason = `Doctor: Dr. ${doc.fullName}`
-                        else if (specMatch) reason = `Specialty: ${doc.specialty}`
-                        else if (clinicMatch) reason = `Practices at matched clinic`
-                        return { doc, linkedClinics, score: nameMatch ? 20 : 15, matchReason: reason }
+                      return {
+                        doc,
+                        linkedClinics,
+                        score: match.score,
+                        matchReason: match.matchHighlightReason || 'Matched Specialist',
                       }
-
-                      return null
                     })
-                    .filter(Boolean) as Array<{
+                    .filter(Boolean)
+                    .sort((a, b) => (b?.score || 0) - (a?.score || 0)) as Array<{
                     doc: Doctor
                     linkedClinics: Clinic[]
                     score: number

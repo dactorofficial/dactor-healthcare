@@ -376,23 +376,57 @@ object MedicalSearchEngine {
 
     // Facility words found in most clinic names. Matching on them alone lists every
     // "...Clinic" / "...Hospital" when the patient searches for one specific clinic by name.
-    private val genericNameWords = setOf(
+    val genericNameWords = setOf(
         "clinic", "polyclinic", "hospital", "health", "healthcare", "center", "centre",
         "care", "medical", "pvt", "ltd", "and", "the", "of"
     )
 
     /** Query words without generic facility words, unless the query consists only of them. */
-    private fun significantTokens(tokens: List<String>): List<String> =
+    fun significantTokens(tokens: List<String>): List<String> =
         tokens.filter { it !in genericNameWords }.ifEmpty { tokens }
 
-    /** True when [key] starts a word of [text]: "ent" matches "ent doctor" but not "center" or "dental". */
-    private fun containsAtWordStart(text: String, key: String): Boolean = " $text".contains(" $key")
+    /**
+     * Splits text into words using Unicode letter and number boundaries.
+     * Supports Latin, Devanagari / Nepali, and any other Unicode script.
+     */
+    fun tokenizeWords(text: String?): List<String> {
+        if (text.isNullOrBlank()) return emptyList()
+        return text.lowercase(Locale.ROOT).split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
+    }
 
-    /** True when every query word starts a word of the clinic name: "everest lab" -> "Everest Diagnostic Lab". */
-    private fun nameMatchesAllWords(nameLower: String, query: String): Boolean {
-        val nameWords = nameLower.split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }
-        val queryWords = query.split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }
-        return queryWords.isNotEmpty() && queryWords.all { qw -> nameWords.any { it.startsWith(qw) } }
+    /**
+     * Checks whether [text] contains [target] matching at word boundaries / word starts.
+     * - Multi-word target (e.g. "everest lab", "chest pain"): every word in target must match or prefix a word in text.
+     * - Single-word target (e.g. "ent", "ear", "cardio"): at least one word in text must equal or start with target,
+     *   or if target is longer (>= 3 chars), target starts with the word in text.
+     */
+    fun matchesWordStart(text: String?, target: String?): Boolean {
+        if (text.isNullOrBlank() || target.isNullOrBlank()) return false
+        val targetWords = tokenizeWords(target)
+        if (targetWords.isEmpty()) return false
+        val textWords = tokenizeWords(text)
+        if (textWords.isEmpty()) return false
+
+        if (targetWords.size > 1) {
+            return targetWords.all { tw ->
+                textWords.any { w -> w.startsWith(tw) || (w.length >= 3 && tw.startsWith(w)) }
+            }
+        }
+
+        val tw = targetWords.first()
+        return textWords.any { w -> w.startsWith(tw) || (w.length >= 3 && tw.startsWith(w)) }
+    }
+
+    /** True when [key] starts a word of [text]: "ent" matches "ent doctor" but not "center" or "dental". */
+    private fun containsAtWordStart(text: String, key: String): Boolean = matchesWordStart(text, key)
+
+    /** True when every query word starts a word of the clinic name (supports English & Nepali unicode). */
+    fun nameMatchesAllWords(nameLower: String, query: String): Boolean {
+        val nameWords = tokenizeWords(nameLower)
+        val queryWords = tokenizeWords(query)
+        return queryWords.isNotEmpty() && queryWords.all { qw ->
+            nameWords.any { w -> w.startsWith(qw) || (w.length >= 3 && qw.startsWith(w)) }
+        }
     }
 
     /**

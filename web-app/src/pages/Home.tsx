@@ -226,10 +226,15 @@ export const Home: React.FC<HomeProps> = ({
     }
 
     // Search query filter with MedicalSearchEngine symptom & organ matching
+    const clinicScores = new Map<string, number>()
     if (searchQuery.trim()) {
       result = result.filter((c) => {
         const match = matchClinic(c, c.doctorsList, [], searchQuery)
-        return match.isMatch
+        if (match.isMatch) {
+          clinicScores.set(c.id, match.score)
+          return true
+        }
+        return false
       })
     }
 
@@ -279,6 +284,9 @@ export const Home: React.FC<HomeProps> = ({
         const feeB = b.primaryDoctor?.consultationFee || 500
         return feeA - feeB
       })
+    } else if (searchQuery.trim()) {
+      // Default sort when searching: highest match score first (strict parity with FindClinics.tsx & mobile app)
+      result.sort((a, b) => (clinicScores.get(b.id) || 0) - (clinicScores.get(a.id) || 0))
     }
 
     return result
@@ -307,10 +315,15 @@ export const Home: React.FC<HomeProps> = ({
     }
 
     // Search query filter using matchDoctor
+    const doctorScores = new Map<string, number>()
     if (searchQuery.trim()) {
       result = result.filter((item) => {
         const match = matchDoctor(item.doctor, item.practicingClinics, searchQuery)
-        return match.isMatch
+        if (match.isMatch) {
+          doctorScores.set(item.doctor.id, match.score)
+          return true
+        }
+        return false
       })
     }
 
@@ -348,8 +361,11 @@ export const Home: React.FC<HomeProps> = ({
         const feeB = b.doctor.consultationFee || 500
         return feeA - feeB
       })
+    } else if (searchQuery.trim()) {
+      // Default sort when searching: highest match score first (strict parity with mobile app PatientMainScreen.kt)
+      result.sort((a, b) => (doctorScores.get(b.doctor.id) || 0) - (doctorScores.get(a.doctor.id) || 0))
     }
-    // Note: When selectedSort === 'default', result retains the fair randomized rotation so every doctor has equal chance to be featured at the top
+    // Note: When selectedSort === 'default' and not searching, result retains the fair randomized rotation so every doctor has equal chance to be featured at the top
 
     return result
   }, [doctorHomeItems, selectedLocation, searchQuery, selectedSpecialty, selectedSort])

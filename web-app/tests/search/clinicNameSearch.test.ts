@@ -5,7 +5,7 @@
  * Run: node --experimental-strip-types tests/search/clinicNameSearch.test.ts
  */
 
-import { matchClinic, matchDoctor, getSuggestedSpecialties } from '../../src/utils/searchEngine.ts'
+import { matchClinic, matchDoctor, getSuggestedSpecialties, nameMatchesAllWords, matchesWordStart } from '../../src/utils/searchEngine.ts'
 
 declare const process: any
 
@@ -78,7 +78,9 @@ eq('"Patan Dental Clinic" only matches Patan', rank('Patan Dental Clinic'), ['pa
 check('"polyclinic" on its own still lists polyclinics', ['sunrise', 'citycare'].every((id) => rank('polyclinic').includes(id)))
 
 // Symptom and specialty search still work
-eq('"ent" ranks the ENT polyclinic first', rank('ent')[0], 'citycare')
+eq('"ent" only matches the ENT polyclinic', rank('ent'), ['citycare'])
+check('"ent" does not match Kantipur Health Center (c-ent-er)', !rank('ent').includes('kantipur'))
+check('"ent" does not match Patan Dental Clinic (d-ent-al)', !rank('ent').includes('patan'))
 check('"ear pain" finds ENT', rank('ear pain').includes('citycare'))
 check('"dentist" finds dental clinic', rank('dentist').includes('patan'))
 check('"chest pain" finds cardiology', ['citycare', 'heartcare'].every((id) => rank('chest pain').includes(id)))
@@ -88,6 +90,11 @@ check('"blood test" finds lab', rank('blood test').includes('everest'))
 // Doctor search by clinic name ignores generic words
 check('Doctor at City Care does not match "Sunrise Polyclinic"', !matchDoctor(cityCareDoctors[0], [cityCare], 'Sunrise Polyclinic').isMatch)
 check('Doctor at City Care matches "City Care Polyclinic"', matchDoctor(cityCareDoctors[0], [cityCare], 'City Care Polyclinic').isMatch)
+
+// Nepali Unicode script clinic name matching
+check('Nepali script tokenization and word start match', matchesWordStart('पाटन डेन्टल क्लिनिक', 'पाटन'))
+check('Nepali script full name matches all words', nameMatchesAllWords('पाटन डेन्टल क्लिनिक', 'पाटन डेन्टल'))
+check('Nepali script partial word match', matchesWordStart('काठमाडौं पोलिक्लिनिक', 'काठमाडौं'))
 
 if (failed > 0) {
   console.error(`\n❌ ${failed} clinic search check(s) failed`)
