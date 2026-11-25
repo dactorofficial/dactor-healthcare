@@ -24,6 +24,20 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ### Prompt:
+> "check new change"
+
+#### Changes Applied:
+1. **Live Database RPC Verification**:
+   - Tested `get_live_queue_status` with dummy tracking code `0000000000`: Returned `200 OK` (`[]`), verifying column ambiguity error `42702` was resolved.
+   - Tested `get_live_queue_status` against real appointment record (`5856281645`):
+     - Identified enum type mismatch error `22P02` (`invalid input value for enum clinic_type_enum: "lab"` when evaluating `v_clinic.type = 'lab'`).
+     - Fixed in [`supabase/migration_live_queue_timing_and_countdown.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_live_queue_timing_and_countdown.sql) by casting to TEXT with `COALESCE(v_clinic.type::TEXT, '') = 'diagnostic_lab' OR COALESCE(v_clinic.type::TEXT, '') ILIKE '%lab%' OR COALESCE(v_clinic.name, '') ILIKE '%lab%'`.
+   - Verified `repair_pay_at_desk_historical_bookings`: Returned `200 OK`.
+   - Verified `get_public_queue_status`: Returned `200 OK`.
+
+---
+
+### Prompt:
 > "ran both code ensure the changes"
 
 #### Changes Applied:
@@ -126,6 +140,20 @@ This file tracks user prompts and the exact changes applied across the codebase,
    - Executed `SELECT public.repair_pay_at_desk_historical_bookings();` verifying that all existing Pay-at-Desk bookings are verified and consistent.
    - Executed PostgREST schema cache reload via `NOTIFY pgrst, 'reload schema';`.
    - Verified that all three functions are registered in `information_schema.routines` under the `public` schema.
+
+---
+
+### Prompt:
+> "check new change"
+
+#### Changes Applied:
+1. **Live Database RPC Verification**:
+   - Tested `get_live_queue_status` with dummy tracking code `0000000000`: Returned `200 OK` (`[]`), verifying column ambiguity error `42702` was resolved.
+   - Tested `get_live_queue_status` against real appointment record (`5856281645`):
+     - Identified enum type mismatch error `22P02` (`invalid input value for enum clinic_type_enum: "lab"` when evaluating `v_clinic.type = 'lab'`).
+     - Fixed in [`supabase/migration_live_queue_timing_and_countdown.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_live_queue_timing_and_countdown.sql) by casting to TEXT with `COALESCE(v_clinic.type::TEXT, '') = 'diagnostic_lab' OR COALESCE(v_clinic.type::TEXT, '') ILIKE '%lab%' OR COALESCE(v_clinic.name, '') ILIKE '%lab%'`.
+   - Verified `repair_pay_at_desk_historical_bookings`: Returned `200 OK`.
+   - Verified `get_public_queue_status`: Returned `200 OK`.
 
 ---
 

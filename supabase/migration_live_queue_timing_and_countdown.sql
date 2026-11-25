@@ -79,7 +79,9 @@ BEGIN
         v_doc_in_clinic := COALESCE(v_doctor.is_in_clinic, FALSE);
     END IF;
 
-    v_is_lab := (v_clinic.type = 'diagnostic_lab') OR (v_clinic.type = 'lab');
+    v_is_lab := (COALESCE(v_clinic.type::TEXT, '') = 'diagnostic_lab' 
+                 OR COALESCE(v_clinic.type::TEXT, '') ILIKE '%lab%' 
+                 OR COALESCE(v_clinic.name, '') ILIKE '%lab%');
     v_effective_doc_id := CASE WHEN v_is_lab THEN NULL ELSE v_appt.doctor_id END;
     v_avg_mins := COALESCE(v_clinic.avg_consultation_time_minutes, 10);
     IF v_avg_mins <= 0 THEN v_avg_mins := 10; END IF;
