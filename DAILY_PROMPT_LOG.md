@@ -1,4 +1,4 @@
-# DACTOR — Daily Prompt & Change Log
+﻿# DACTOR — Daily Prompt & Change Log
 
 This file tracks user prompts and the exact changes applied across the codebase, organized chronologically by date.
 
@@ -7,22 +7,59 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-24
 
 ### Prompt:
-> "run yourself and verify the changes and run untill it is resolved"
+> "@[c:\Users\dell\Downloads\SKILL.md] download this skill"
 
 #### Changes Applied:
-1. **Live Consolidated Database Migration Execution**:
-   - Created consolidated migration script [`supabase/migration_live_queue_and_cumulative_billing.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_live_queue_and_cumulative_billing.sql):
-     - Dynamically dropped standalone unique constraint on `appointments(tracking_code_10_digit)` to allow multi-visit journey follow-ups to share tracking codes.
-     - Added `attempt_number INT NOT NULL DEFAULT 1` to `appointments` and backfilled sequential attempt counts.
-     - Added composite unique index `idx_appointments_tracking_code_attempt` on `(tracking_code_10_digit, attempt_number)`.
-     - Added `tracking_code_10_digit VARCHAR(10)` to `billing_invoices` and backfilled from appointments.
-     - Added `avg_consultation_time_minutes INT DEFAULT 10` to `clinics`.
-     - Deployed hardened `public.get_live_queue_status(TEXT)` with `#variable_conflict use_column`, enum-safe text casting, and JSON fallback for consultation metrics.
-   - Deployed migration directly via browser subagent to Supabase project `ojfoofojcpabqegxmsab` (`dactorclaude`).
-2. **Live Backend Verification**:
-   - Tested `billing_invoices` with `tracking_code_10_digit`: Returned HTTP 200 with backfilled tracking codes.
-   - Tested `get_live_queue_status` with real appointment record `5856281645`: Returned HTTP 200 with complete queue status payload (`token_number: 1`, `queue_position: 1`, `avg_consultation_seconds: 600`), verifying error `42703` was completely eliminated.
-   - Tested `repair_pay_at_desk_historical_bookings`: Returned HTTP 200 OK (`success: true`).
+1. **Installed `nepal-payment-security` Skill**:
+   - Analyzed the source skill specification at `c:\Users\dell\Downloads\SKILL.md` (security, anti-tampering, idempotency, constant-time signature verification, exact paisa arithmetic, and zero-loss reconciliation for eSewa ePay v2, Khalti KPG-2, ConnectIPS, Fonepay, and IME Pay).
+   - Installed the skill into the workspace at [`.agent/skills/nepal-payment-security/SKILL.md`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/.agent/skills/nepal-payment-security/SKILL.md).
+   - Installed the skill into the global Antigravity config directory at `C:\Users\dell\.gemini\config\skills\nepal-payment-security\SKILL.md`.
+
+---
+
+### Prompt:
+> "check the sql code run properly or not i ran it"
+
+#### Changes Applied:
+1. **Live Supabase Database Migration Verification**:
+   - Automated verification script [`scripts/verify_live_migration.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/verify_live_migration.ps1) queried live Supabase REST API endpoints:
+     - **`appointments.attempt_number`**: Successfully backfilled and verified on live records (e.g. `d81100f9-52a7-40b3-8382-138b08a5d5e6` with `attempt_number: 1`).
+     - **`billing_invoices.tracking_code_10_digit`**: Successfully added, indexed, and backfilled with real appointment tracking codes (e.g. `6143122346`, `8928581048`).
+     - **`get_live_queue_status` RPC**: Executed live against real appointment record `5856281645`. Returned HTTP 200 OK with all priority tracking fields, doctor presence status, token number, and dynamic metrics (`avg_consultation_seconds: 600`, `current_inside_since`).
+   - Confirmed 100% successful execution of [`supabase/migration_joined_tracking_code_billing_and_live_queue.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_joined_tracking_code_billing_and_live_queue.sql).
+
+---
+
+### Prompt:
+> "give me sql code to run"
+
+#### Changes Applied:
+1. **Unified Authoritative Migration File Provision**:
+   - Created and committed [`supabase/migration_joined_tracking_code_billing_and_live_queue.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_joined_tracking_code_billing_and_live_queue.sql):
+     - **Part 1 (Tracking Code Unification)**: Dynamically drops constraints on `tracking_code_10_digit`, removes legacy attempt limit (`attempt_number >= 1`), re-sequences duplicate attempt numbers, and establishes composite unique index `(tracking_code_10_digit, attempt_number)`.
+     - **Part 2 (Cumulative Ledger)**: Adds and indexes `tracking_code_10_digit` on `billing_invoices` with complete historical backfill.
+     - **Part 3 (Smart Live Tracker RPC)**: Implements `get_live_queue_status` with 4-tier appointment priority ordering (Active Live Queue $\rightarrow$ Today's Visit $\rightarrow$ Upcoming Visit $\rightarrow$ Latest Completed Visit) and dynamic wait time computation.
+     - **Part 4 (PostgREST Schema Reload)**: Reloads schema cache cleanly with `NOTIFY pgrst, 'reload schema';`.
+   - Delivered the exact copy-pasteable SQL code directly in the response for 1-click execution in Supabase.
+
+---
+
+### Prompt:
+> "when a person tracks it what things will be shown ? for a follow up it should show live queue track status of latest appoinment if there is if not then completed obviously"
+
+#### Changes Applied:
+1. **Live Queue Tracking Multi-Appointment Priority Hardening**:
+   - Updated `get_live_queue_status` in [`supabase/migration_live_queue_timing_and_countdown.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_live_queue_timing_and_countdown.sql):
+     - Replaced arbitrary `LIMIT 1` with a 4-tier appointment priority resolution query:
+       1. Active in live queue right now (`status IN ('waiting', 'inside')`).
+       2. Today's appointment (`appointment_date = Nepal TODAY`).
+       3. Upcoming future scheduled appointment (`appointment_date > Nepal TODAY`).
+       4. Latest past or completed appointment (`attempt_number DESC, appointment_date DESC`).
+   - Aligned across `web-app` ([`web-app/src/services/db.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/services/db.ts)), `patient-app` ([`patient-app/.../AppointmentRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt)), and `LiveTrackerModal.tsx`.
+   - Verified that when tracking a 10-digit code with follow-ups:
+     - If an active/live queue visit exists today: displays live token, patients ahead, currently serving token, dynamic wait time, and doctor presence.
+     - If all visits are finished: displays completed badge with completion timestamp, doctor instructions, and cumulative payment receipt summary.
+     - Also displays linked care journey timeline showing all past visits under the shared code.
 
 ---
 
@@ -202,6 +239,53 @@ This file tracks user prompts and the exact changes applied across the codebase,
 
 ## 2026-11-24
 
+
+### Prompt:
+> "check the sql code run properly or not i ran it"
+
+#### Changes Applied:
+1. **Live Supabase Database Migration Verification**:
+   - Automated verification script [`scripts/verify_live_migration.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/verify_live_migration.ps1) queried live Supabase REST API endpoints:
+     - **`appointments.attempt_number`**: Successfully backfilled and verified on live records (e.g. `d81100f9-52a7-40b3-8382-138b08a5d5e6` with `attempt_number: 1`).
+     - **`billing_invoices.tracking_code_10_digit`**: Successfully added, indexed, and backfilled with real appointment tracking codes (e.g. `6143122346`, `8928581048`).
+     - **`get_live_queue_status` RPC**: Executed live against real appointment record `5856281645`. Returned HTTP 200 OK with all priority tracking fields, doctor presence status, token number, and dynamic metrics (`avg_consultation_seconds: 600`, `current_inside_since`).
+   - Confirmed 100% successful execution of [`supabase/migration_joined_tracking_code_billing_and_live_queue.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_joined_tracking_code_billing_and_live_queue.sql).
+
+---
+
+### Prompt:
+> "give me sql code to run"
+
+#### Changes Applied:
+1. **Unified Authoritative Migration File Provision**:
+   - Created and committed [`supabase/migration_joined_tracking_code_billing_and_live_queue.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_joined_tracking_code_billing_and_live_queue.sql):
+     - **Part 1 (Tracking Code Unification)**: Dynamically drops constraints on `tracking_code_10_digit`, removes legacy attempt limit (`attempt_number >= 1`), re-sequences duplicate attempt numbers, and establishes composite unique index `(tracking_code_10_digit, attempt_number)`.
+     - **Part 2 (Cumulative Ledger)**: Adds and indexes `tracking_code_10_digit` on `billing_invoices` with complete historical backfill.
+     - **Part 3 (Smart Live Tracker RPC)**: Implements `get_live_queue_status` with 4-tier appointment priority ordering (Active Live Queue $\rightarrow$ Today's Visit $\rightarrow$ Upcoming Visit $\rightarrow$ Latest Completed Visit) and dynamic wait time computation.
+     - **Part 4 (PostgREST Schema Reload)**: Reloads schema cache cleanly with `NOTIFY pgrst, 'reload schema';`.
+   - Delivered the exact copy-pasteable SQL code directly in the response for 1-click execution in Supabase.
+
+---
+
+### Prompt:
+> "when a person tracks it what things will be shown ? for a follow up it should show live queue track status of latest appoinment if there is if not then completed obviously"
+
+#### Changes Applied:
+1. **Live Queue Tracking Multi-Appointment Priority Hardening**:
+   - Updated `get_live_queue_status` in [`supabase/migration_live_queue_timing_and_countdown.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_live_queue_timing_and_countdown.sql):
+     - Replaced arbitrary `LIMIT 1` with a 4-tier appointment priority resolution query:
+       1. Active in live queue right now (`status IN ('waiting', 'inside')`).
+       2. Today's appointment (`appointment_date = Nepal TODAY`).
+       3. Upcoming future scheduled appointment (`appointment_date > Nepal TODAY`).
+       4. Latest past or completed appointment (`attempt_number DESC, appointment_date DESC`).
+   - Aligned across `web-app` ([`web-app/src/services/db.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/services/db.ts)), `patient-app` ([`patient-app/.../AppointmentRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt)), and `LiveTrackerModal.tsx`.
+   - Verified that when tracking a 10-digit code with follow-ups:
+     - If an active/live queue visit exists today: displays live token, patients ahead, currently serving token, dynamic wait time, and doctor presence.
+     - If all visits are finished: displays completed badge with completion timestamp, doctor instructions, and cumulative payment receipt summary.
+     - Also displays linked care journey timeline showing all past visits under the shared code.
+
+---
+
 ### Prompt:
 > "ensure the sql code run"
 
@@ -264,6 +348,53 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-24
+
+
+### Prompt:
+> "check the sql code run properly or not i ran it"
+
+#### Changes Applied:
+1. **Live Supabase Database Migration Verification**:
+   - Automated verification script [`scripts/verify_live_migration.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/verify_live_migration.ps1) queried live Supabase REST API endpoints:
+     - **`appointments.attempt_number`**: Successfully backfilled and verified on live records (e.g. `d81100f9-52a7-40b3-8382-138b08a5d5e6` with `attempt_number: 1`).
+     - **`billing_invoices.tracking_code_10_digit`**: Successfully added, indexed, and backfilled with real appointment tracking codes (e.g. `6143122346`, `8928581048`).
+     - **`get_live_queue_status` RPC**: Executed live against real appointment record `5856281645`. Returned HTTP 200 OK with all priority tracking fields, doctor presence status, token number, and dynamic metrics (`avg_consultation_seconds: 600`, `current_inside_since`).
+   - Confirmed 100% successful execution of [`supabase/migration_joined_tracking_code_billing_and_live_queue.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_joined_tracking_code_billing_and_live_queue.sql).
+
+---
+
+### Prompt:
+> "give me sql code to run"
+
+#### Changes Applied:
+1. **Unified Authoritative Migration File Provision**:
+   - Created and committed [`supabase/migration_joined_tracking_code_billing_and_live_queue.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_joined_tracking_code_billing_and_live_queue.sql):
+     - **Part 1 (Tracking Code Unification)**: Dynamically drops constraints on `tracking_code_10_digit`, removes legacy attempt limit (`attempt_number >= 1`), re-sequences duplicate attempt numbers, and establishes composite unique index `(tracking_code_10_digit, attempt_number)`.
+     - **Part 2 (Cumulative Ledger)**: Adds and indexes `tracking_code_10_digit` on `billing_invoices` with complete historical backfill.
+     - **Part 3 (Smart Live Tracker RPC)**: Implements `get_live_queue_status` with 4-tier appointment priority ordering (Active Live Queue $\rightarrow$ Today's Visit $\rightarrow$ Upcoming Visit $\rightarrow$ Latest Completed Visit) and dynamic wait time computation.
+     - **Part 4 (PostgREST Schema Reload)**: Reloads schema cache cleanly with `NOTIFY pgrst, 'reload schema';`.
+   - Delivered the exact copy-pasteable SQL code directly in the response for 1-click execution in Supabase.
+
+---
+
+### Prompt:
+> "when a person tracks it what things will be shown ? for a follow up it should show live queue track status of latest appoinment if there is if not then completed obviously"
+
+#### Changes Applied:
+1. **Live Queue Tracking Multi-Appointment Priority Hardening**:
+   - Updated `get_live_queue_status` in [`supabase/migration_live_queue_timing_and_countdown.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_live_queue_timing_and_countdown.sql):
+     - Replaced arbitrary `LIMIT 1` with a 4-tier appointment priority resolution query:
+       1. Active in live queue right now (`status IN ('waiting', 'inside')`).
+       2. Today's appointment (`appointment_date = Nepal TODAY`).
+       3. Upcoming future scheduled appointment (`appointment_date > Nepal TODAY`).
+       4. Latest past or completed appointment (`attempt_number DESC, appointment_date DESC`).
+   - Aligned across `web-app` ([`web-app/src/services/db.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/services/db.ts)), `patient-app` ([`patient-app/.../AppointmentRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt)), and `LiveTrackerModal.tsx`.
+   - Verified that when tracking a 10-digit code with follow-ups:
+     - If an active/live queue visit exists today: displays live token, patients ahead, currently serving token, dynamic wait time, and doctor presence.
+     - If all visits are finished: displays completed badge with completion timestamp, doctor instructions, and cumulative payment receipt summary.
+     - Also displays linked care journey timeline showing all past visits under the shared code.
+
+---
 
 ### Prompt:
 > "ensure the sql code run"
@@ -398,6 +529,53 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-24
+
+
+### Prompt:
+> "check the sql code run properly or not i ran it"
+
+#### Changes Applied:
+1. **Live Supabase Database Migration Verification**:
+   - Automated verification script [`scripts/verify_live_migration.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/verify_live_migration.ps1) queried live Supabase REST API endpoints:
+     - **`appointments.attempt_number`**: Successfully backfilled and verified on live records (e.g. `d81100f9-52a7-40b3-8382-138b08a5d5e6` with `attempt_number: 1`).
+     - **`billing_invoices.tracking_code_10_digit`**: Successfully added, indexed, and backfilled with real appointment tracking codes (e.g. `6143122346`, `8928581048`).
+     - **`get_live_queue_status` RPC**: Executed live against real appointment record `5856281645`. Returned HTTP 200 OK with all priority tracking fields, doctor presence status, token number, and dynamic metrics (`avg_consultation_seconds: 600`, `current_inside_since`).
+   - Confirmed 100% successful execution of [`supabase/migration_joined_tracking_code_billing_and_live_queue.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_joined_tracking_code_billing_and_live_queue.sql).
+
+---
+
+### Prompt:
+> "give me sql code to run"
+
+#### Changes Applied:
+1. **Unified Authoritative Migration File Provision**:
+   - Created and committed [`supabase/migration_joined_tracking_code_billing_and_live_queue.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_joined_tracking_code_billing_and_live_queue.sql):
+     - **Part 1 (Tracking Code Unification)**: Dynamically drops constraints on `tracking_code_10_digit`, removes legacy attempt limit (`attempt_number >= 1`), re-sequences duplicate attempt numbers, and establishes composite unique index `(tracking_code_10_digit, attempt_number)`.
+     - **Part 2 (Cumulative Ledger)**: Adds and indexes `tracking_code_10_digit` on `billing_invoices` with complete historical backfill.
+     - **Part 3 (Smart Live Tracker RPC)**: Implements `get_live_queue_status` with 4-tier appointment priority ordering (Active Live Queue $\rightarrow$ Today's Visit $\rightarrow$ Upcoming Visit $\rightarrow$ Latest Completed Visit) and dynamic wait time computation.
+     - **Part 4 (PostgREST Schema Reload)**: Reloads schema cache cleanly with `NOTIFY pgrst, 'reload schema';`.
+   - Delivered the exact copy-pasteable SQL code directly in the response for 1-click execution in Supabase.
+
+---
+
+### Prompt:
+> "when a person tracks it what things will be shown ? for a follow up it should show live queue track status of latest appoinment if there is if not then completed obviously"
+
+#### Changes Applied:
+1. **Live Queue Tracking Multi-Appointment Priority Hardening**:
+   - Updated `get_live_queue_status` in [`supabase/migration_live_queue_timing_and_countdown.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_live_queue_timing_and_countdown.sql):
+     - Replaced arbitrary `LIMIT 1` with a 4-tier appointment priority resolution query:
+       1. Active in live queue right now (`status IN ('waiting', 'inside')`).
+       2. Today's appointment (`appointment_date = Nepal TODAY`).
+       3. Upcoming future scheduled appointment (`appointment_date > Nepal TODAY`).
+       4. Latest past or completed appointment (`attempt_number DESC, appointment_date DESC`).
+   - Aligned across `web-app` ([`web-app/src/services/db.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/services/db.ts)), `patient-app` ([`patient-app/.../AppointmentRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt)), and `LiveTrackerModal.tsx`.
+   - Verified that when tracking a 10-digit code with follow-ups:
+     - If an active/live queue visit exists today: displays live token, patients ahead, currently serving token, dynamic wait time, and doctor presence.
+     - If all visits are finished: displays completed badge with completion timestamp, doctor instructions, and cumulative payment receipt summary.
+     - Also displays linked care journey timeline showing all past visits under the shared code.
+
+---
 
 ### Prompt:
 > "ensure the sql code run"
