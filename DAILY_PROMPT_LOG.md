@@ -7,6 +7,36 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-24
 
 ### Prompt:
+> "ensure the sql code run"
+
+#### Changes Applied:
+1. **Live Multi-Gateway Payment Setup Migration Execution**:
+   - Created authoritative migration script [`supabase/migration_setup_payment_methods.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_setup_payment_methods.sql):
+     - Added missing multi-gateway columns to `public.clinic_payment_credentials` (`esewa_enabled`, `esewa_is_verified`, `khalti_enabled`, `khalti_public_key`, `khalti_secret_key`, `fonepay_enabled`, `fonepay_merchant_code`, `fonepay_secret_key`, `connectips_enabled`, etc.).
+     - Created and seeded `public.platform_payment_settings` with default gateway configurations.
+     - Updated `public.get_clinic_public_payment_methods(UUID)` to evaluate active credentials and demo mode safely without runtime field errors.
+   - Dispatched the built-in browser subagent to execute the migration live on Supabase project `ojfoofojcpabqegxmsab` (`https://supabase.com/dashboard/project/ojfoofojcpabqegxmsab/sql/new`).
+   - Verified live execution completed with 0 errors and reloaded PostgREST schema cache.
+2. **Authoritative RPC Verification**:
+   - Tested live RPC endpoint `get_clinic_public_payment_methods` across active clinics (`NOBEL HEALTHCARE`, `hehe clinic`, and others).
+   - Confirmed HTTP 200 response returning verified online payment gateways (`eSewa Mobile Wallet` with merchant ID `EPAYTEST`) alongside `Pay at Desk (+5%)`.
+
+---
+
+### Prompt:
+> "so now how will it be shown multiple appoinments ? generate a ui of it /generative_ui"
+
+#### Changes Applied:
+1. **Interactive Multi-Appointment Journey & Cumulative Billing UI**:
+   - Created interactive generative UI artifact [`multi_appointment_journey_widget.html`](file:///C:/Users/dell/.gemini/antigravity/brain/c2b348c1-3075-4b54-a7ac-da17549d170d/multi_appointment_journey_widget.html):
+     - **Journey Timeline View**: Illustrates how multiple visits (Visit 1 Initial Consult -> Visit 2 Follow-Up Today -> Visit 3 Scheduled Review) share the single 10-digit tracking code (`#9841234567`) with incremented attempt numbers (`attempt_number`).
+     - **Cumulative Billing Ledger View**: Demonstrates how Visit 1 charges (OPD Rs. 200), payments (Rs. 100), and follow-up charges (Rs. 0 + CBC Blood Test Rs. 500) proceed forward into a single unified ledger without overwriting history.
+     - **Live Bill Simulator**: Allows interactive testing of adding services (ECG, Echo) and recording desk payments in real time with dynamic balance due calculations.
+   - Embedded interactive widget in response via `<agent-embed>`.
+
+---
+
+### Prompt:
 > "do i need to run anything again ?"
 
 #### Changes Applied:
@@ -138,6 +168,23 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-24
 
 ### Prompt:
+> "ensure the sql code run"
+
+#### Changes Applied:
+1. **Live Multi-Gateway Payment Setup Migration Execution**:
+   - Created authoritative migration script [`supabase/migration_setup_payment_methods.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_setup_payment_methods.sql):
+     - Added missing multi-gateway columns to `public.clinic_payment_credentials` (`esewa_enabled`, `esewa_is_verified`, `khalti_enabled`, `khalti_public_key`, `khalti_secret_key`, `fonepay_enabled`, `fonepay_merchant_code`, `fonepay_secret_key`, `connectips_enabled`, etc.).
+     - Created and seeded `public.platform_payment_settings` with default gateway configurations.
+     - Updated `public.get_clinic_public_payment_methods(UUID)` to evaluate active credentials and demo mode safely without runtime field errors.
+   - Dispatched the built-in browser subagent to execute the migration live on Supabase project `ojfoofojcpabqegxmsab` (`https://supabase.com/dashboard/project/ojfoofojcpabqegxmsab/sql/new`).
+   - Verified live execution completed with 0 errors and reloaded PostgREST schema cache.
+2. **Authoritative RPC Verification**:
+   - Tested live RPC endpoint `get_clinic_public_payment_methods` across active clinics (`NOBEL HEALTHCARE`, `hehe clinic`, and others).
+   - Confirmed HTTP 200 response returning verified online payment gateways (`eSewa Mobile Wallet` with merchant ID `EPAYTEST`) alongside `Pay at Desk (+5%)`.
+
+---
+
+### Prompt:
 > "Pay-at-Desk Super Admin Settlement continue with this plan"
 
 #### Changes Applied:
@@ -182,6 +229,23 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-24
+
+### Prompt:
+> "ensure the sql code run"
+
+#### Changes Applied:
+1. **Live Multi-Gateway Payment Setup Migration Execution**:
+   - Created authoritative migration script [`supabase/migration_setup_payment_methods.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_setup_payment_methods.sql):
+     - Added missing multi-gateway columns to `public.clinic_payment_credentials` (`esewa_enabled`, `esewa_is_verified`, `khalti_enabled`, `khalti_public_key`, `khalti_secret_key`, `fonepay_enabled`, `fonepay_merchant_code`, `fonepay_secret_key`, `connectips_enabled`, etc.).
+     - Created and seeded `public.platform_payment_settings` with default gateway configurations.
+     - Updated `public.get_clinic_public_payment_methods(UUID)` to evaluate active credentials and demo mode safely without runtime field errors.
+   - Dispatched the built-in browser subagent to execute the migration live on Supabase project `ojfoofojcpabqegxmsab` (`https://supabase.com/dashboard/project/ojfoofojcpabqegxmsab/sql/new`).
+   - Verified live execution completed with 0 errors and reloaded PostgREST schema cache.
+2. **Authoritative RPC Verification**:
+   - Tested live RPC endpoint `get_clinic_public_payment_methods` across active clinics (`NOBEL HEALTHCARE`, `hehe clinic`, and others).
+   - Confirmed HTTP 200 response returning verified online payment gateways (`eSewa Mobile Wallet` with merchant ID `EPAYTEST`) alongside `Pay at Desk (+5%)`.
+
+---
 
 ### Prompt:
 > "/browser so open in app browser and run the sql code urself"
@@ -284,6 +348,23 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-24
+
+### Prompt:
+> "ensure the sql code run"
+
+#### Changes Applied:
+1. **Live Multi-Gateway Payment Setup Migration Execution**:
+   - Created authoritative migration script [`supabase/migration_setup_payment_methods.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_setup_payment_methods.sql):
+     - Added missing multi-gateway columns to `public.clinic_payment_credentials` (`esewa_enabled`, `esewa_is_verified`, `khalti_enabled`, `khalti_public_key`, `khalti_secret_key`, `fonepay_enabled`, `fonepay_merchant_code`, `fonepay_secret_key`, `connectips_enabled`, etc.).
+     - Created and seeded `public.platform_payment_settings` with default gateway configurations.
+     - Updated `public.get_clinic_public_payment_methods(UUID)` to evaluate active credentials and demo mode safely without runtime field errors.
+   - Dispatched the built-in browser subagent to execute the migration live on Supabase project `ojfoofojcpabqegxmsab` (`https://supabase.com/dashboard/project/ojfoofojcpabqegxmsab/sql/new`).
+   - Verified live execution completed with 0 errors and reloaded PostgREST schema cache.
+2. **Authoritative RPC Verification**:
+   - Tested live RPC endpoint `get_clinic_public_payment_methods` across active clinics (`NOBEL HEALTHCARE`, `hehe clinic`, and others).
+   - Confirmed HTTP 200 response returning verified online payment gateways (`eSewa Mobile Wallet` with merchant ID `EPAYTEST`) alongside `Pay at Desk (+5%)`.
+
+---
 
 ### Prompt:
 > "is the previous sha id for clinic and patient app already there ?"
