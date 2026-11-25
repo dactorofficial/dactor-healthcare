@@ -7,6 +7,24 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-24
 
 ### Prompt:
+> "did you check the sql code"
+
+#### Changes Applied:
+1. **Live PostgreSQL & RPC Verification in Supabase**:
+   - Re-verified all routines registered by [`supabase/migration_repair_pay_at_desk_settlements.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_repair_pay_at_desk_settlements.sql):
+     - `public.repair_pay_at_desk_historical_bookings()`: returned HTTP 200 OK with `{"success": true, "repaired_count": 0, "unpaid_fixed": 0, "double_charge_fixed": 0, "total_commission_synced_npr": 0.00}`.
+     - `public.mark_pay_at_desk_collected()`: returned expected HTTP 400 Bad Request with PostgreSQL exception `P0001: Appointment 00000000-0000-0000-0000-000000000000 not found`.
+     - `public.is_authorized_clinic_staff()`: returned `false` for unauthenticated dummy clinic ID.
+2. **Schema Audit & Record Field Error Resolution**:
+   - Audited [`supabase/migration_live_queue_timing_and_countdown.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_live_queue_timing_and_countdown.sql):
+     - Caught error `42703: record "v_clinic" has no field "avg_consultation_time_minutes"` when tested against real appointment records (`5856281645`).
+     - Fixed in [`supabase/migration_live_queue_timing_and_countdown.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_live_queue_timing_and_countdown.sql) by replacing direct record field access with resilient JSON parsing from `v_clinic.description::jsonb` with safe fallback to 10 minutes.
+3. **Tracking & Ledger Migration Audit**:
+   - Confirmed schema state of `billing_invoices` for [`supabase/migration_joined_tracking_code_and_cumulative_billing.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_joined_tracking_code_and_cumulative_billing.sql).
+
+---
+
+### Prompt:
 > "/browser so open in app browser and run the sql code urself"
 
 #### Changes Applied:
