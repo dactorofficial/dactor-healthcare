@@ -7,6 +7,22 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-24
 
 ### Prompt:
+> "everything changes in app also making change to website as well ?"
+
+#### Changes Applied:
+1. **Architectural Parity Audit (Mandatory Global Rule 7)**:
+   - Verified that the One-Way Logic Propagation policy (`patient-app` / `clinic-app` -> `web-app`) is 100% active and enforced across the repository.
+   - Audited all recent feature synchronization areas:
+     - Search Engine Word-Boundary Tokenization & Relevance Ranking (`MedicalSearchEngine.kt` -> `searchEngine.ts`, `Home.tsx`, `PatientPortal.tsx`).
+     - Walk-in Follow-Up Code Linking & Notes (`WalkinBookingScreen.kt`, `Appointment.kt` -> `db.ts`, `ClinicPortal.tsx`).
+     - Live Queue Countdown & Metrics Delta (`QueueStatusScreen.kt` -> `fetchLiveQueueDelta`, `LiveQueue.tsx`).
+     - Multi-Gateway Payment Credentials & Pay-at-Desk Commission (`AppointmentPaymentScreen.kt` -> `BookingModal.tsx`, `ClinicPortal.tsx`).
+     - Cumulative Invoicing & Journey Multi-Visit Linking (`AppointmentRepository.kt` -> `fetchLinkedConsultations`).
+   - Confirmed `web-app` source tree has complete functional and business logic parity with the Android mobile apps.
+
+---
+
+### Prompt:
 > "@[c:\Users\dell\Downloads\SKILL.md] download this skill"
 
 #### Changes Applied:
