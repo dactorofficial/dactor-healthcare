@@ -24,6 +24,20 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ### Prompt:
+> "check again for sql"
+
+#### Changes Applied:
+1. **Live Database RPC Verification**:
+   - Re-tested `get_live_queue_status` against real active appointment record `5856281645`.
+   - Encountered error `42703`: `record "v_clinic" has no field "avg_consultation_time_minutes"` because `clinics` table did not have the column defined in early migrations.
+   - Updated [`supabase/migration_live_queue_timing_and_countdown.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_live_queue_timing_and_countdown.sql):
+     - Added `ALTER TABLE public.clinics ADD COLUMN IF NOT EXISTS avg_consultation_time_minutes INT DEFAULT 10;`.
+     - Hardened `get_live_queue_status` with `v_avg_mins := 10;` fallback so it never fails even if the column is absent.
+   - Refactored and simplified [`scripts/verify_rpc.js`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/verify_rpc.js) to test both dummy and real appointments automatically.
+
+---
+
+### Prompt:
 > "check new change"
 
 #### Changes Applied:
@@ -140,6 +154,20 @@ This file tracks user prompts and the exact changes applied across the codebase,
    - Executed `SELECT public.repair_pay_at_desk_historical_bookings();` verifying that all existing Pay-at-Desk bookings are verified and consistent.
    - Executed PostgREST schema cache reload via `NOTIFY pgrst, 'reload schema';`.
    - Verified that all three functions are registered in `information_schema.routines` under the `public` schema.
+
+---
+
+### Prompt:
+> "check again for sql"
+
+#### Changes Applied:
+1. **Live Database RPC Verification**:
+   - Re-tested `get_live_queue_status` against real active appointment record `5856281645`.
+   - Encountered error `42703`: `record "v_clinic" has no field "avg_consultation_time_minutes"` because `clinics` table did not have the column defined in early migrations.
+   - Updated [`supabase/migration_live_queue_timing_and_countdown.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_live_queue_timing_and_countdown.sql):
+     - Added `ALTER TABLE public.clinics ADD COLUMN IF NOT EXISTS avg_consultation_time_minutes INT DEFAULT 10;`.
+     - Hardened `get_live_queue_status` with `v_avg_mins := 10;` fallback so it never fails even if the column is absent.
+   - Refactored and simplified [`scripts/verify_rpc.js`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/verify_rpc.js) to test both dummy and real appointments automatically.
 
 ---
 

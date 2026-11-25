@@ -5,6 +5,9 @@
 -- Adds: current_inside_since TIMESTAMPTZ, avg_consultation_seconds INT
 -- ==============================================================================
 
+-- Ensure avg_consultation_time_minutes column exists on clinics
+ALTER TABLE public.clinics ADD COLUMN IF NOT EXISTS avg_consultation_time_minutes INT DEFAULT 10;
+
 DROP FUNCTION IF EXISTS public.get_live_queue_status(TEXT);
 
 CREATE OR REPLACE FUNCTION public.get_live_queue_status(p_code_or_id TEXT)
@@ -83,7 +86,14 @@ BEGIN
                  OR COALESCE(v_clinic.type::TEXT, '') ILIKE '%lab%' 
                  OR COALESCE(v_clinic.name, '') ILIKE '%lab%');
     v_effective_doc_id := CASE WHEN v_is_lab THEN NULL ELSE v_appt.doctor_id END;
-    v_avg_mins := COALESCE(v_clinic.avg_consultation_time_minutes, 10);
+    v_avg_mins := 10;
+    BEGIN
+        IF v_clinic.description IS NOT NULL AND v_clinic.description ~ '^\s*\{' THEN
+            v_avg_mins := COALESCE(NULLIF((v_clinic.description::jsonb ->> 'avg_consultation_time_minutes'), '')::INT, 10);
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        v_avg_mins := 10;
+    END;
     IF v_avg_mins <= 0 THEN v_avg_mins := 10; END IF;
     v_avg_seconds := v_avg_mins * 60;
 
