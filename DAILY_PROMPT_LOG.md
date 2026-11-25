@@ -24,6 +24,23 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ### Prompt:
+> "ran both code ensure the changes"
+
+#### Changes Applied:
+1. **Live Database RPC Verification**:
+   - Executed live REST API test against Supabase production endpoint (`https://ojfoofojcpabqegxmsab.supabase.co/rest/v1/rpc/repair_pay_at_desk_historical_bookings`):
+     - Returned `200 OK` with payload `{"success": true, "repaired_count": 0, "double_charge_fixed": 0, ...}` confirming Pay-at-Desk historical repair and settlement security functions are fully live and active.
+   - Executed live REST API test against `get_public_queue_status`:
+     - Returned `200 OK` (`[]`) confirming public queue status lookup is functional.
+   - Executed live REST API test against `get_live_queue_status`:
+     - Detected PostgreSQL error `42702` (ambiguous column `tracking_code_10_digit` in the un-aliased query).
+   - Provided the finalized, disambiguated `get_live_queue_status` SQL function with `#variable_conflict use_column` and table qualification (`a.tracking_code_10_digit = v_clean`) for 1-click execution in Supabase.
+2. **Automated Verification Script**:
+   - Added and retained [`scripts/verify_rpc.js`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/verify_rpc.js) for continuous automated health checks of Supabase RPC endpoints.
+
+---
+
+### Prompt:
 > "Search Prioritization continue with this plan"
 
 #### Changes Applied:
@@ -109,6 +126,23 @@ This file tracks user prompts and the exact changes applied across the codebase,
    - Executed `SELECT public.repair_pay_at_desk_historical_bookings();` verifying that all existing Pay-at-Desk bookings are verified and consistent.
    - Executed PostgREST schema cache reload via `NOTIFY pgrst, 'reload schema';`.
    - Verified that all three functions are registered in `information_schema.routines` under the `public` schema.
+
+---
+
+### Prompt:
+> "ran both code ensure the changes"
+
+#### Changes Applied:
+1. **Live Database RPC Verification**:
+   - Executed live REST API test against Supabase production endpoint (`https://ojfoofojcpabqegxmsab.supabase.co/rest/v1/rpc/repair_pay_at_desk_historical_bookings`):
+     - Returned `200 OK` with payload `{"success": true, "repaired_count": 0, "double_charge_fixed": 0, ...}` confirming Pay-at-Desk historical repair and settlement security functions are fully live and active.
+   - Executed live REST API test against `get_public_queue_status`:
+     - Returned `200 OK` (`[]`) confirming public queue status lookup is functional.
+   - Executed live REST API test against `get_live_queue_status`:
+     - Detected PostgreSQL error `42702` (ambiguous column `tracking_code_10_digit` in the un-aliased query).
+   - Provided the finalized, disambiguated `get_live_queue_status` SQL function with `#variable_conflict use_column` and table qualification (`a.tracking_code_10_digit = v_clean`) for 1-click execution in Supabase.
+2. **Automated Verification Script**:
+   - Added and retained [`scripts/verify_rpc.js`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/verify_rpc.js) for continuous automated health checks of Supabase RPC endpoints.
 
 ---
 

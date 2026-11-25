@@ -29,6 +29,11 @@ async function main() {
   console.log('get_live_queue_status status:', r1.status);
   console.log('get_live_queue_status body:', r1.body);
 
+  console.log('Testing get_public_queue_status with p_tracking_code...');
+  const r_pub = await callRpc('get_public_queue_status', { p_tracking_code: '0000000000' });
+  console.log('get_public_queue_status status:', r_pub.status);
+  console.log('get_public_queue_status body:', r_pub.body);
+
   console.log('Testing repair_pay_at_desk_historical_bookings...');
   const r2 = await callRpc('repair_pay_at_desk_historical_bookings', {});
   console.log('repair_pay_at_desk_historical_bookings status:', r2.status);
