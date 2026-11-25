@@ -179,6 +179,9 @@ function Bump-App {
     }
     $destVersionedPath = Join-Path $apksDir $destVersionedName
     Copy-Item $builtApk $destVersionedPath -Force
+    if ($BuildType -eq "Debug") {
+        Copy-Item $builtApk (Join-Path $apksDir "$OutputPrefix-v$newName.apk") -Force -ErrorAction SilentlyContinue
+    }
 
     # Also save directly to SSD location
     $ssdApksDir = if (Test-Path "C:\Users\nitup\Dactor-APKs") {

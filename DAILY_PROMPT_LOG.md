@@ -7,6 +7,23 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-24
 
 ### Prompt:
+> "generate latest debug apk for clinic"
+
+#### Changes Applied:
+1. **Clinic App Version Bump & Debug APK Build (`v1.0.91` / Code `91`)**:
+   - Incremented `versionCode` to `91` and `versionName` to `"1.0.91"` in [`clinic-app/app/build.gradle.kts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/build.gradle.kts).
+   - Executed `assembleDebug` build via [`build_apks.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/build_apks.ps1) on SSD builder (`40.39 MB` / `42,353,236 bytes`).
+   - Staged debug binaries across:
+     - [`APKs/Dactor-ClinicApp-v1.0.91-debug.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-ClinicApp-v1.0.91-debug.apk)
+     - [`APKs/Dactor-ClinicApp-v1.0.91.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-ClinicApp-v1.0.91.apk)
+     - [`APKs/Dactor-ClinicApp-debug.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-ClinicApp-debug.apk)
+     - SSD backup: `C:\Users\dell\Dactor-APKs\Dactor-ClinicApp-v1.0.91-debug.apk`
+2. **Handoff & Registry Tracking**:
+   - Updated executive summary and APK Version Registry in [`HANDOFF.md`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/HANDOFF.md) with version `v1.0.91 (Code 91)`.
+
+---
+
+### Prompt:
 > "run sql urself and test it as well"
 
 #### Changes Applied:

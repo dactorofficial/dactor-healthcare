@@ -1,17 +1,39 @@
-param(
-    [string]$VersionName = "1.0.33",
-    [int]$VersionCode = 133
+﻿param(
+    [string]$VersionName = "",
+    [int]$VersionCode = 0
 )
 
 $ErrorActionPreference = "Stop"
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 
+$workspaceRoot = $PSScriptRoot
+if (-not (Test-Path "$workspaceRoot\patient-app")) {
+    $workspaceRoot = (Get-Location).Path
+}
+
+$repoGradle = Join-Path $workspaceRoot "patient-app\app\build.gradle.kts"
+$content = Get-Content $repoGradle -Raw
+
+if ($VersionCode -eq 0) {
+    if ($content -match 'versionCode\s*=\s*(\d+)') {
+        $VersionCode = [int]$matches[1]
+    } else {
+        $VersionCode = 141
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($VersionName)) {
+    if ($content -match 'versionName\s*=\s*"([^"]+)"') {
+        $VersionName = $matches[1]
+    } else {
+        $VersionName = "1.0.41"
+    }
+}
+
 Write-Host "=== Fast SSD Build for Patient App AAB ===" -ForegroundColor Cyan
 Write-Host "Target Version: v$VersionName (Code: $VersionCode)" -ForegroundColor Green
 
 # 1. Update version in main repository build.gradle.kts with retry loop
-$repoGradle = "G:\My Drive\New folder\patient-app\app\build.gradle.kts"
-$content = Get-Content $repoGradle -Raw
 $content = $content -replace 'versionCode\s*=\s*\d+', "versionCode = $VersionCode"
 $content = $content -replace 'versionName\s*=\s*"[^"]+"', "versionName = `"$VersionName`""
 $content = $content -replace 'layout\.buildDirectory\.set\(.*?\)', '// layout.buildDirectory default'
@@ -38,41 +60,54 @@ if (-not (Test-Path "$ssdRoot\app")) {
 
 # 3. Copy only necessary files to SSD with MIR
 Write-Host "Staging source to local SSD ($ssdRoot)..." -ForegroundColor Yellow
-Copy-Item "G:\My Drive\New folder\patient-app\gradlew*" "$ssdRoot\" -Force
-Copy-Item "G:\My Drive\New folder\patient-app\*.gradle.kts" "$ssdRoot\" -Force
-Copy-Item "G:\My Drive\New folder\patient-app\gradle.properties" "$ssdRoot\" -Force
+$patientAppDir = Join-Path $workspaceRoot "patient-app"
+Copy-Item (Join-Path $patientAppDir "gradlew*") "$ssdRoot\" -Force
+Copy-Item (Join-Path $patientAppDir "*.gradle.kts") "$ssdRoot\" -Force
+Copy-Item (Join-Path $patientAppDir "gradle.properties") "$ssdRoot\" -Force
 
 New-Item -ItemType Directory -Path "$ssdRoot\gradle" -Force | Out-Null
 New-Item -ItemType Directory -Path "$ssdRoot\app\keystores" -Force | Out-Null
 New-Item -ItemType Directory -Path "$ssdRoot\app\src" -Force | Out-Null
 
-robocopy "G:\My Drive\New folder\patient-app\gradle" "$ssdRoot\gradle" /MIR /FFT /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
+robocopy (Join-Path $patientAppDir "gradle") "$ssdRoot\gradle" /MIR /FFT /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "Robocopy failed on gradle with code $LASTEXITCODE" }
-robocopy "G:\My Drive\New folder\patient-app\app\keystores" "$ssdRoot\app\keystores" /MIR /FFT /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
+robocopy (Join-Path $patientAppDir "app\keystores") "$ssdRoot\app\keystores" /MIR /FFT /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "Robocopy failed on keystores with code $LASTEXITCODE" }
-robocopy "G:\My Drive\New folder\patient-app\app\src" "$ssdRoot\app\src" /MIR /FFT /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
+robocopy (Join-Path $patientAppDir "app\src") "$ssdRoot\app\src" /MIR /FFT /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
 if ($LASTEXITCODE -ge 8) { throw "Robocopy failed on src with code $LASTEXITCODE" }
 $global:LASTEXITCODE = 0
 
-Copy-Item "G:\My Drive\New folder\patient-app\app\build.gradle.kts" "$ssdRoot\app\" -Force
-Copy-Item "G:\My Drive\New folder\patient-app\app\google-services.json" "$ssdRoot\app\" -Force
-if (Test-Path "G:\My Drive\New folder\patient-app\app\proguard-rules.pro") {
-    Copy-Item "G:\My Drive\New folder\patient-app\app\proguard-rules.pro" "$ssdRoot\app\" -Force
+Copy-Item (Join-Path $patientAppDir "app\build.gradle.kts") "$ssdRoot\app\" -Force
+Copy-Item (Join-Path $patientAppDir "app\google-services.json") "$ssdRoot\app\" -Force
+if (Test-Path (Join-Path $patientAppDir "app\proguard-rules.pro")) {
+    Copy-Item (Join-Path $patientAppDir "app\proguard-rules.pro") "$ssdRoot\app\" -Force
 }
 
 # 4. Configure SDK and Java
-if (Test-Path "C:\Program Files\Microsoft\jdk-17.0.21.21-hotspot") {
-    $env:JAVA_HOME = "C:\Program Files\Microsoft\jdk-17.0.21.21-hotspot"
+$msftJdk = Get-ChildItem -Path "C:\Program Files\Microsoft" -Filter "jdk-17*" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+if ($msftJdk -and (Test-Path $msftJdk)) {
+    $env:JAVA_HOME = $msftJdk
 } elseif (Test-Path "C:\Program Files\Android\Android Studio\jbr") {
     $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 }
 $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 
-$sdkPath = if (Test-Path "$env:LOCALAPPDATA\Android\Sdk") { "$env:LOCALAPPDATA\Android\Sdk" } else { "C:\Users\Ram Rathi\AppData\Local\Android\Sdk" }
-$env:ANDROID_HOME = $sdkPath
-$env:ANDROID_SDK_ROOT = $sdkPath
-$escapedSdk = $sdkPath -replace '\\', '/'
-Set-Content -Path "$ssdRoot\local.properties" -Value "sdk.dir=$escapedSdk" -Force
+$sdkCandidates = @(
+    "$env:LOCALAPPDATA\Android\Sdk",
+    "C:\Users\nitup\AppData\Local\Android\Sdk",
+    "C:\Android\sdk"
+)
+foreach ($cand in $sdkCandidates) {
+    if (Test-Path $cand) {
+        $env:ANDROID_HOME = $cand
+        $env:ANDROID_SDK_ROOT = $cand
+        break
+    }
+}
+if ($env:ANDROID_HOME) {
+    $escapedSdk = $env:ANDROID_HOME -replace '\\', '/'
+    Set-Content -Path "$ssdRoot\local.properties" -Value "sdk.dir=$escapedSdk" -Force
+}
 
 # 5. Clean prior build outputs and KSP caches on SSD to avoid stale bundle or incremental cache corruption
 if (Test-Path "$ssdRoot\app\build\outputs\bundle") {
@@ -80,6 +115,9 @@ if (Test-Path "$ssdRoot\app\build\outputs\bundle") {
 }
 if (Test-Path "$ssdRoot\app\build\kspCaches") {
     Remove-Item -Path "$ssdRoot\app\build\kspCaches" -Recurse -Force -ErrorAction SilentlyContinue
+}
+if (Test-Path "$ssdRoot\app\build\intermediates") {
+    Remove-Item -Path "$ssdRoot\app\build\intermediates" -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # 6. Build AAB on SSD
@@ -106,9 +144,9 @@ if (-not $aabFound) {
 
 # 8. Copy to destinations
 $destAabName = "Dactor-PatientApp-v$VersionName.aab"
-$aabsDir = "G:\My Drive\New folder\AABs"
-$playStoreDir = "G:\My Drive\New folder\PlayStore\patient-app"
-$ssdApksDir = "C:\Users\nitup\Dactor-APKs"
+$aabsDir = Join-Path $workspaceRoot "AABs"
+$playStoreDir = Join-Path $workspaceRoot "PlayStore\patient-app"
+$ssdApksDir = if (Test-Path "C:\Users\nitup\Dactor-APKs") { "C:\Users\nitup\Dactor-APKs" } else { Join-Path $env:USERPROFILE "Dactor-APKs" }
 
 if (-not (Test-Path $aabsDir)) { New-Item -ItemType Directory -Path $aabsDir -Force | Out-Null }
 if (-not (Test-Path $playStoreDir)) { New-Item -ItemType Directory -Path $playStoreDir -Force | Out-Null }
@@ -123,12 +161,12 @@ $dest6 = "$ssdApksDir\$destAabName"
 $dest7 = "$ssdApksDir\Dactor-PatientApp-v$VersionCode.aab"
 
 Copy-Item $aabFound.FullName $dest1 -Force
-Copy-Item $aabFound.FullName $dest2 -Force
+Copy-Item $aabFound.FullName $dest2 -Force -ErrorAction SilentlyContinue
 Copy-Item $aabFound.FullName $dest3 -Force
 Copy-Item $aabFound.FullName $dest4 -Force
-Copy-Item $aabFound.FullName $dest5 -Force
-Copy-Item $aabFound.FullName $dest6 -Force
-Copy-Item $aabFound.FullName $dest7 -Force
+Copy-Item $aabFound.FullName $dest5 -Force -ErrorAction SilentlyContinue
+Copy-Item $aabFound.FullName $dest6 -Force -ErrorAction SilentlyContinue
+Copy-Item $aabFound.FullName $dest7 -Force -ErrorAction SilentlyContinue
 
 $sw.Stop()
 $sizeMB = [math]::Round(($aabFound.Length / 1MB), 2)
