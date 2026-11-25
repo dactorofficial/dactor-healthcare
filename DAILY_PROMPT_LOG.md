@@ -7,6 +7,25 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-24
 
 ### Prompt:
+> "generate latest aab for patient" / "generate latest debug apk for patient"
+
+#### Changes Applied:
+1. **Patient App Version Increment (`v1.0.41` / Code `141`)**:
+   - Bumped `versionCode = 141` and `versionName = "1.0.41"` in [`patient-app/app/build.gradle.kts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/build.gradle.kts).
+2. **Build Automation Scripts Refactoring**:
+   - Refactored [`build_patient_aab_ssd.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/build_patient_aab_ssd.ps1) and [`build_clinic_aab_ssd.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/build_clinic_aab_ssd.ps1) to dynamically discover repository paths, Microsoft OpenJDK 17 (`C:\Program Files\Microsoft\jdk-17*`), and Android SDK paths without hardcoded drive dependencies.
+3. **Debug APK Build**:
+   - Successfully compiled `assembleDebug` via [`build_apks.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/build_apks.ps1) on SSD builder (`25.73 MB` / `26,984,347 bytes`).
+   - Staged to [`APKs/Dactor-PatientApp-v1.0.41-debug.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-PatientApp-v1.0.41-debug.apk), [`APKs/Dactor-PatientApp-v1.0.41.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-PatientApp-v1.0.41.apk), [`APKs/Dactor-PatientApp-debug.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-PatientApp-debug.apk), and local SSD backup (`C:\Users\dell\Dactor-APKs\`).
+4. **Production Release AAB Build**:
+   - Successfully compiled `bundleRelease` signed with official production upload key (`dactor-upload.jks`) via [`build_patient_aab_ssd.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/build_patient_aab_ssd.ps1) (`16.85 MB` / `17,671,748 bytes`).
+   - Staged to [`AABs/Dactor-PatientApp-v1.0.41.aab`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/AABs/Dactor-PatientApp-v1.0.41.aab), [`AABs/Dactor-PatientApp-release.aab`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/AABs/Dactor-PatientApp-release.aab), [`AABs/Dactor-PatientApp-v141.aab`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/AABs/Dactor-PatientApp-v141.aab), [`PlayStore/patient-app/Dactor-PatientApp-v1.0.41.aab`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/PlayStore/patient-app/Dactor-PatientApp-v1.0.41.aab), and local SSD backup.
+5. **Master Handoff & Version Registry**:
+   - Updated latest version entry to `v1.0.41 (Code 141)` in [`HANDOFF.md`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/HANDOFF.md).
+
+---
+
+### Prompt:
 > "generate latest debug apk for clinic"
 
 #### Changes Applied:

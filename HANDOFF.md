@@ -32,7 +32,7 @@ The DACTOR platform consists of three tightly coupled applications operating on 
 |---|---|---|---|---|
 | **Super Admin Console** | React 18 + Vite + TypeScript + Tailwind | `admin-panel/` | [Live Site on GitHub Pages](https://dactorofficial.github.io/admin-portal/) <br> GitHub: `https://github.com/dactorofficial/admin-portal` | v1.0 |
 | **Clinic & Doctor App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `clinic-app/` | `APKs/Dactor-ClinicApp-v1.0.91-debug.apk`<br>`AABs/Dactor-ClinicApp-v1.0.90.aab` | **v1.0.91 (Code 91)** |
-| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.36.apk`<br>`AABs/Dactor-PatientApp-v1.0.38.aab` | **v1.0.38 (Code 138)** |
+| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.41-debug.apk`<br>`AABs/Dactor-PatientApp-v1.0.41.aab` | **v1.0.41 (Code 141)** |
 | **Cloud Backend & Storage** | Supabase (PostgreSQL + Auth + Storage + Realtime) | `supabase/` | Project URL: `https://ojfoofojcpabqegxmsab.supabase.co` | Cloud Live |
 
 ---
@@ -430,6 +430,8 @@ Run the install script, which automatically resolves the latest versioned APK:
 | 2026-11-24 | Clinic & Doctor | v1.0.90 | 90 | `AABs/Dactor-ClinicApp-v1.0.90.aab` | Official Google Play Store production release bundle: signed with production upload key (`dactor-upload`), versionCode 90, versionName 1.0.90 (23.61 MB / 24,754,051 bytes). Built with compileSdk 36, targetSdk 36, Core Library Desugaring, and verified production signing via `build_clinic_bundle.ps1`; staged to `AABs/`, `PlayStore/clinic-app/`, and SSD backup. |
 | 2026-11-24 | Clinic & Doctor | v1.0.91 | 91 | `APKs/Dactor-ClinicApp-v1.0.91-debug.apk` | Debug APK build: compiled with assembleDebug on SSD via `build_apks.ps1`, versionCode 91, versionName 1.0.91 (40.39 MB / 42,353,236 bytes). Staged to `APKs/Dactor-ClinicApp-v1.0.91-debug.apk`, `APKs/Dactor-ClinicApp-v1.0.91.apk`, and `APKs/Dactor-ClinicApp-debug.apk`, with local SSD backup in `C:\Users\dell\Dactor-APKs\`. |
 | 2026-11-24 | Patient | v1.0.40 | 140 | `APKs/Dactor-PatientApp-v1.0.40.apk` | Release APK build: signed with official production upload key (`dactor-upload`), versionCode 140, versionName 1.0.40 (17.20 MB / 18,037,132 bytes). Fixed misplaced import in `QueueStatusScreen.kt`, compiled with compileSdk 36, targetSdk 36, Core Library Desugaring, and verified v2 APK signature via `build_apks.ps1`; staged to `APKs/`, local SSD backup, and mirrored to `G:\My Drive\New folder\APKs\`. |
+| 2026-11-24 | Patient | v1.0.41 | 141 | `APKs/Dactor-PatientApp-v1.0.41-debug.apk` | Debug APK build: compiled with assembleDebug on SSD via `build_apks.ps1`, versionCode 141, versionName 1.0.41 (25.73 MB / 26,984,347 bytes). Staged to `APKs/Dactor-PatientApp-v1.0.41-debug.apk`, `APKs/Dactor-PatientApp-v1.0.41.apk`, and `APKs/Dactor-PatientApp-debug.apk`, with local SSD backup in `C:\Users\dell\Dactor-APKs\`. |
+| 2026-11-24 | Patient | v1.0.41 | 141 | `AABs/Dactor-PatientApp-v1.0.41.aab` | Official Google Play Store production release bundle: signed with production upload key (`dactor-upload`), versionCode 141, versionName 1.0.41 (16.85 MB / 17,671,748 bytes). Built with compileSdk 36, targetSdk 36, Core Library Desugaring, and verified production signing via `build_patient_aab_ssd.ps1`; staged to `AABs/`, `PlayStore/patient-app/`, and local SSD backup. |
 
 
 ---
