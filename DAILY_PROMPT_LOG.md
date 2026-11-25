@@ -7,6 +7,23 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-24
 
 ### Prompt:
+> "/browser so open in app browser and run the sql code urself"
+
+#### Changes Applied:
+1. **In-App Browser Supabase SQL Execution**:
+   - Launched the built-in browser subagent to project `ojfoofojcpabqegxmsab` (`dactorclaude`) at `https://supabase.com/dashboard/project/ojfoofojcpabqegxmsab/sql/new`.
+   - Navigated directly into the live SQL query editor with active session credentials.
+   - Executed [`supabase/migration_repair_pay_at_desk_settlements.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_repair_pay_at_desk_settlements.sql) in its entirety:
+     - Registered `public.is_authorized_clinic_staff(UUID)` with multi-tier authorization checks.
+     - Registered `public.mark_pay_at_desk_collected(UUID, UUID)` with base fee normalization and anti-double-5% guards.
+     - Registered `public.repair_pay_at_desk_historical_bookings()` authoritative repair RPC.
+   - Executed `SELECT public.repair_pay_at_desk_historical_bookings();` verifying that all existing Pay-at-Desk bookings are verified and consistent.
+   - Executed PostgREST schema cache reload via `NOTIFY pgrst, 'reload schema';`.
+   - Verified that all three functions are registered in `information_schema.routines` under the `public` schema.
+
+---
+
+### Prompt:
 > "Search Prioritization continue with this plan"
 
 #### Changes Applied:
@@ -77,6 +94,23 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-24
+
+### Prompt:
+> "/browser so open in app browser and run the sql code urself"
+
+#### Changes Applied:
+1. **In-App Browser Supabase SQL Execution**:
+   - Launched the built-in browser subagent to project `ojfoofojcpabqegxmsab` (`dactorclaude`) at `https://supabase.com/dashboard/project/ojfoofojcpabqegxmsab/sql/new`.
+   - Navigated directly into the live SQL query editor with active session credentials.
+   - Executed [`supabase/migration_repair_pay_at_desk_settlements.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_repair_pay_at_desk_settlements.sql) in its entirety:
+     - Registered `public.is_authorized_clinic_staff(UUID)` with multi-tier authorization checks.
+     - Registered `public.mark_pay_at_desk_collected(UUID, UUID)` with base fee normalization and anti-double-5% guards.
+     - Registered `public.repair_pay_at_desk_historical_bookings()` authoritative repair RPC.
+   - Executed `SELECT public.repair_pay_at_desk_historical_bookings();` verifying that all existing Pay-at-Desk bookings are verified and consistent.
+   - Executed PostgREST schema cache reload via `NOTIFY pgrst, 'reload schema';`.
+   - Verified that all three functions are registered in `information_schema.routines` under the `public` schema.
+
+---
 
 ### Prompt:
 > "Search Prioritization continue with this plan"
