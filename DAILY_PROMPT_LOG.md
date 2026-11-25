@@ -7,6 +7,19 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-24
 
 ### Prompt:
+> "install in my phone"
+
+#### Changes Applied:
+1. **Device Connection & Authorization**:
+   - Polled connected Android device `R9ZY504BE6M` via Android Debug Bridge (ADB).
+   - Verified device authorization status transitioned to authorized `device`.
+2. **Clinic App Direct Installation**:
+   - Streamed and installed [`APKs/Dactor-ClinicApp-v1.0.91-debug.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-ClinicApp-v1.0.91-debug.apk) via `adb install -r -d -g`.
+   - Verified installation on device: package `com.dactor.clinic`, `versionCode=91`, `versionName=1.0.91` (`Success`).
+
+---
+
+### Prompt:
 > "generate latest aab for patient" / "generate latest debug apk for patient"
 
 #### Changes Applied:
