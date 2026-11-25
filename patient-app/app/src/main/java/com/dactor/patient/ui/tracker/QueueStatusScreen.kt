@@ -59,6 +59,7 @@ import com.dactor.patient.domain.util.CurrencyFormatter
 import com.dactor.patient.domain.util.DateTimePickers
 import com.dactor.patient.ui.navigation.NavRoutes
 import com.dactor.patient.util.DiagnosticLabPolicy
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -130,6 +131,7 @@ fun QueueStatusScreen(
     var doctorSpecialty by remember { mutableStateOf(cachedPrewarmDoctor?.specialty ?: "") }
     var doctorPhotoUrl by remember { mutableStateOf<String?>(cachedPrewarmDoctor?.resolvedProfilePictureUrl ?: cachedPrewarmDoctor?.profilePictureUrl) }
     var isDoctorInClinic by remember { mutableStateOf(cachedPrewarmDoctor?.isInClinic ?: false) }
+    var doctorObj by remember { mutableStateOf<com.dactor.patient.data.model.Doctor?>(cachedPrewarmDoctor) }
 
     var tokenNumber by remember { mutableIntStateOf(cachedPrewarmQueue?.queuePosition ?: 0) }
     var patientsAhead by remember { mutableIntStateOf(if (cachedPrewarmQueue != null) (cachedPrewarmQueue.queuePosition - 1).coerceAtLeast(0) else -1) } // -1 = not yet loaded
@@ -276,6 +278,12 @@ fun QueueStatusScreen(
         if (queryCode.isBlank()) return
 
         try {
+            // Live queue status (the server counts patients ahead) starts at once, alongside the booking lookup
+            val todayIso = java.time.LocalDate.now().toString()
+            var liveDeltaJob = if (appointment?.appointmentDate?.trim()?.take(10) == todayIso) {
+                coroutineScope.async { queueRepository?.fetchLiveQueueDelta(queryCode) }
+            } else null
+
             val appt = if (isDeltaOnly && appointment != null) {
                 appointment
             } else {
@@ -301,10 +309,20 @@ fun QueueStatusScreen(
                     )
                 }
 
-                // Load confidential details and lab reports only on initial full load or manual refresh
-                if (!isDeltaOnly) {
-                    loadConfidentialDetails(appt)
+                if (liveDeltaJob == null && appt.appointmentDate.trim().take(10) == todayIso) {
+                    liveDeltaJob = coroutineScope.async { queueRepository?.fetchLiveQueueDelta(queryCode) }
                 }
+
+                // Everything below is fetched together instead of one request after another.
+                // Load confidential details and lab reports only on initial full load or manual refresh
+                val confidentialJob = if (!isDeltaOnly) coroutineScope.async { loadConfidentialDetails(appt) } else null
+                // Clinic and doctor never change for a booking: use the saved copy, fetch only when missing
+                val clinicJob = if (appt.clinicId.isNotBlank() && clinicObj?.id != appt.clinicId) {
+                    coroutineScope.async { clinicRepository?.getClinicById(appt.clinicId) }
+                } else null
+                val doctorJob = if (!appt.doctorId.isNullOrBlank() && doctorObj?.id != appt.doctorId) {
+                    coroutineScope.async { doctorRepository?.getDoctorById(appt.doctorId) }
+                } else null
 
                 // Auto-unlock only when signed-in account explicitly matches email or userId
                 val savedEmail = sessionManager?.getSavedEmail()?.trim()?.lowercase()
@@ -317,40 +335,9 @@ fun QueueStatusScreen(
                     isSavedToProfile = true
                 }
 
-                // Fetch clinic info (only when missing or on initial full refresh; cached on device)
-                if (appt.clinicId.isNotBlank()) {
-                    val shouldRefreshClinic = (!isDeltaOnly || clinicObj == null)
-                    if (shouldRefreshClinic) {
-                        val clinic = clinicRepository?.getClinicById(appt.clinicId, forceRefresh = (clinicObj == null))
-                        if (clinic != null) {
-                            clinicObj = clinic
-                            clinicName = clinic.name
-                            clinicAddress = clinic.addressText ?: "Nepal"
-                            clinicPhone = clinic.contactPhone?.trim() ?: ""
-                            clinicLatitude = clinic.latitude ?: 27.7172
-                            clinicLongitude = clinic.longitude ?: 85.3240
-                            clinicType = clinic.type ?: "single_visit"
-                            clinicAvgTimeMinutes = doctorAvgMinutes ?: clinic.getEffectiveAvgMinutes()
-                        }
-                    }
-                }
-
-                // Fetch doctor info (only when missing or on full refresh)
-                var resolvedDoc: com.dactor.patient.data.model.Doctor? = null
-                if (!appt.doctorId.isNullOrBlank() && (!isDeltaOnly || doctorName.isBlank() || doctorPhotoUrl == null)) {
-                    val doctor = doctorRepository?.getDoctorById(appt.doctorId)
-                    resolvedDoc = doctor
-                    if (doctor != null) {
-                        doctorName = doctor.fullName
-                        doctorSpecialty = doctor.specialty ?: "General Physician"
-                        doctorPhotoUrl = doctor.resolvedProfilePictureUrl ?: doctor.profilePictureUrl
-                        isDoctorInClinic = doctor.isInClinic ?: true
-                    }
-                }
-
                 // Strictly isolate appointments by the exact same 10-digit Appointment ID (trackingCode10Digit)
                 // Appointments with different appointment IDs from the same clinic must NEVER be grouped or shown together
-                if (!isDeltaOnly) {
+                val visitsJob = if (!isDeltaOnly) coroutineScope.async {
                     val targetCode = appt.trackingCode10Digit
                     try {
                         val sameCodeVisits = if (targetCode.isNotBlank() && appointmentRepository != null) {
@@ -374,16 +361,51 @@ fun QueueStatusScreen(
                     } catch (e: Exception) {
                         multiClinicAppointments = listOf(appt)
                     }
+                } else null
+
+                val isPendingClinicApproval = (!appt.status.equals("APPROVED", ignoreCase = true) && !appt.status.equals("confirmed", ignoreCase = true)) || appt.status == "WAITING_FOR_APPROVAL" || appt.status == "pending_payment"
+                val qEntryJob = if (isPendingClinicApproval) null else coroutineScope.async { queueRepository?.getQueueStatus(appt.id, forceRefresh = isDeltaOnly) }
+
+                // Fetch clinic info (only when not saved yet)
+                if (clinicJob != null) {
+                    val clinic = clinicJob.await()
+                    if (clinic != null) {
+                        clinicObj = clinic
+                        clinicName = clinic.name
+                        clinicAddress = clinic.addressText ?: "Nepal"
+                        clinicPhone = clinic.contactPhone?.trim() ?: ""
+                        clinicLatitude = clinic.latitude ?: 27.7172
+                        clinicLongitude = clinic.longitude ?: 85.3240
+                        clinicType = clinic.type ?: "single_visit"
+                        clinicAvgTimeMinutes = doctorAvgMinutes ?: clinic.getEffectiveAvgMinutes()
+                    }
                 }
 
+                // Fetch doctor info (only when not saved yet; in/out of clinic comes from the live status)
+                if (doctorJob != null) {
+                    val doctor = doctorJob.await()
+                    if (doctor != null) {
+                        doctorObj = doctor
+                        doctorName = doctor.fullName
+                        doctorSpecialty = doctor.specialty ?: "General Physician"
+                        doctorPhotoUrl = doctor.resolvedProfilePictureUrl ?: doctor.profilePictureUrl
+                        isDoctorInClinic = doctor.isInClinic ?: true
+                    }
+                }
+
+                visitsJob?.await()
+                confidentialJob?.await()
+
                 // Fetch queue token and live status (combining queue_entries, appointment checkin_status, and lab_reports)
-                val isPendingClinicApproval = (!appt.status.equals("APPROVED", ignoreCase = true) && !appt.status.equals("confirmed", ignoreCase = true)) || appt.status == "WAITING_FOR_APPROVAL" || appt.status == "pending_payment"
-                var qEntry = if (isPendingClinicApproval) null else queueRepository?.getQueueStatus(appt.id, forceRefresh = isDeltaOnly)
+                var qEntry = qEntryJob?.await()
+                var liveDeltaResult = liveDeltaJob?.await()
                 val isUpcomingOrToday = !isPendingClinicApproval && appt.appointmentDate >= today && appt.checkinStatus.lowercase() in listOf("waiting", "checked_in", "in_queue", "confirmed", "booked")
                 val isAlreadyDone = qEntry?.status?.lowercase() in listOf("done", "completed") || appt.checkinStatus.lowercase() in listOf("done", "completed")
                 if (isUpcomingOrToday && !isAlreadyDone && qEntry == null) {
                     if (appt.appointmentDate == today && appt.clinicId.isNotBlank()) {
                         qEntry = queueRepository?.ensureQueueEntryForAppointment(appt.id, appt.clinicId, appt.doctorId)
+                        // The token was just assigned, so read the live status again
+                        if ((liveDeltaResult?.tokenNumber ?: 0) <= 0) liveDeltaResult = queueRepository?.fetchLiveQueueDelta(queryCode)
                     } else if (appt.appointmentDate > today) {
                         qEntry = null
                     }
@@ -432,7 +454,9 @@ fun QueueStatusScreen(
                 }
 
                 // Multi-slot cumulative position across the appointment's date (calculate only once or on full refresh)
-                if (!isDeltaOnly || multiSlotResult == null) {
+                // Not needed today when the server already sent the live position (that download was the slow part)
+                val hasLivePosition = (liveDeltaResult?.tokenNumber ?: 0) > 0 && appt.appointmentDate.trim().take(10) == todayIso
+                if (!hasLivePosition && (!isDeltaOnly || multiSlotResult == null)) {
                     val slotResult = if (isPendingClinicApproval) null else queueRepository?.calculateMultiSlotDailyPosition(
                         clinicId = appt.clinicId,
                         doctorId = if (isLabClinic) null else appt.doctorId,
@@ -449,7 +473,7 @@ fun QueueStatusScreen(
 
                 // Save master cache on initial full refresh
                 if (!isDeltaOnly) {
-                    sessionManager?.saveCachedTrackerMaster(queryCode, appt, clinicObj, resolvedDoc)
+                    sessionManager?.saveCachedTrackerMaster(queryCode, appt, clinicObj, doctorObj)
                 }
 
                 val parsedApptDate = com.dactor.patient.data.repository.QueueRepository.parseLocalDateSafe(appt.appointmentDate)
@@ -472,7 +496,7 @@ fun QueueStatusScreen(
                     tokenNumber = slotResult?.cumulativePosition ?: (if (tokenNumber > 0) tokenNumber else 1)
                     liveTimingEstimate = null // Silence live countdown for advance dates
                 } else if (appt.clinicId.isNotBlank() && isAppointmentToday) {
-                    val liveDelta = queueRepository?.fetchLiveQueueDelta(queryCode)
+                    val liveDelta = liveDeltaResult
                     if (liveDelta != null && liveDelta.tokenNumber > 0) {
                         tokenNumber = liveDelta.tokenNumber
                         patientsAhead = liveDelta.patientsAhead.coerceAtLeast(0)
@@ -530,6 +554,9 @@ fun QueueStatusScreen(
                         )
                         liveTimingEstimate = timing
                     }
+
+                    // Show the screen now; the alert checks below need not hold it back
+                    isDataLoaded = true
 
                     val liveAhead = patientsAhead
                     val timing = liveTimingEstimate
