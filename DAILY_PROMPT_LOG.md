@@ -7,6 +7,19 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-24
 
 ### Prompt:
+> "install in my phone" (Patient App v1.0.41)
+
+#### Changes Applied:
+1. **Device Connection & Recovery**:
+   - Reconnected ADB daemon with connected Samsung Galaxy SM_E055F (`R9ZY504BE6M`).
+   - Restored device status from `offline` to online authorized `device`.
+2. **Patient App Direct Installation**:
+   - Streamed and installed [`APKs/Dactor-PatientApp-v1.0.41-debug.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-PatientApp-v1.0.41-debug.apk) via `adb install -r -d -g`.
+   - Verified installation directly on device: package `com.dactor.patient`, `versionCode=141`, `versionName=1.0.41` (`Success`).
+
+---
+
+### Prompt:
 > "install in my phone"
 
 #### Changes Applied:
