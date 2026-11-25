@@ -178,31 +178,38 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
         })
       }
 
-      // 3. Fetch all PAY_AT_DESK appointments
-      const { data: apptsData, error: apptErr } = await supabase
-        .from('appointments')
-        .select(`
-          id,
-          tracking_code_10_digit,
-          clinic_id,
-          doctor_id,
-          patient_name,
-          patient_mobile,
-          fee_amount,
-          service_charge_amount,
-          total_amount,
-          appointment_date,
-          appointment_time,
-          status,
-          payment_mode,
-          payment_status,
-          checkin_status,
-          created_at
-        `)
-        .ilike('payment_mode', 'PAY_AT_DESK')
-        .order('appointment_date', { ascending: false })
+      // 3. Fetch all PAY_AT_DESK appointments (paged: Supabase returns at most 1000 rows per request)
+      const apptsData: any[] = []
+      for (let from = 0; ; from += 1000) {
+        const { data, error: apptErr } = await supabase
+          .from('appointments')
+          .select(`
+            id,
+            tracking_code_10_digit,
+            clinic_id,
+            doctor_id,
+            patient_name,
+            patient_mobile,
+            fee_amount,
+            service_charge_amount,
+            total_amount,
+            appointment_date,
+            appointment_time,
+            status,
+            payment_mode,
+            payment_status,
+            checkin_status,
+            created_at
+          `)
+          .ilike('payment_mode', 'PAY_AT_DESK')
+          .order('appointment_date', { ascending: false })
+          .order('id', { ascending: true })
+          .range(from, from + 999)
 
-      if (apptErr) throw apptErr
+        if (apptErr) throw apptErr
+        apptsData.push(...(data || []))
+        if (!data || data.length < 1000) break
+      }
 
       const mappedAppts: DeskAppointment[] = (apptsData || []).map((a: any) => {
         const doc = a.doctor_id ? docLookup.get(a.doctor_id) : undefined

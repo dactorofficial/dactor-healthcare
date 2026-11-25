@@ -150,12 +150,29 @@ class BillingRepository @Inject constructor(
 
             // Also sync fee_amount and payment_status on the appointments table so patient profile & directory always see the bill
             try {
-                supabaseClient.postgrest["appointments"].update({
-                    set("fee_amount", invoiceToSave.totalAmount)
-                    set("payment_status", dbPaymentStatus)
-                    set("updated_at", nowIso)
-                }) {
-                    filter { eq("id", invoiceToSave.appointmentId) }
+                val isPayAtDesk = supabaseClient.postgrest["appointments"]
+                    .select { filter { eq("id", invoiceToSave.appointmentId) } }
+                    .decodeList<Appointment>()
+                    .firstOrNull()?.isPayAtDesk == true
+
+                if (isPayAtDesk) {
+                    // Pay at Desk: the bill total already includes the 5% platform charge, so it must not be written
+                    // back as the base fee (the DB trigger would add 5% again). Settle through the authoritative RPC so
+                    // the appointment is marked paid and the collection reaches the Super Admin settlement pages.
+                    if (dbPaymentStatus == "paid") {
+                        supabaseClient.postgrest.rpc(
+                            "mark_pay_at_desk_collected",
+                            ApproveRpcParams(invoiceToSave.appointmentId, invoiceToSave.clinicId.ifBlank { null })
+                        )
+                    }
+                } else {
+                    supabaseClient.postgrest["appointments"].update({
+                        set("fee_amount", invoiceToSave.totalAmount)
+                        set("payment_status", dbPaymentStatus)
+                        set("updated_at", nowIso)
+                    }) {
+                        filter { eq("id", invoiceToSave.appointmentId) }
+                    }
                 }
             } catch (ignored: Exception) {
                 ignored.printStackTrace()

@@ -374,6 +374,27 @@ object MedicalSearchEngine {
     private val suggestedSpecialtiesCache = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
     private val expandedStemsCache = java.util.concurrent.ConcurrentHashMap<String, Set<String>>()
 
+    // Facility words found in most clinic names. Matching on them alone lists every
+    // "...Clinic" / "...Hospital" when the patient searches for one specific clinic by name.
+    private val genericNameWords = setOf(
+        "clinic", "polyclinic", "hospital", "health", "healthcare", "center", "centre",
+        "care", "medical", "pvt", "ltd", "and", "the", "of"
+    )
+
+    /** Query words without generic facility words, unless the query consists only of them. */
+    private fun significantTokens(tokens: List<String>): List<String> =
+        tokens.filter { it !in genericNameWords }.ifEmpty { tokens }
+
+    /** True when [key] starts a word of [text]: "ent" matches "ent doctor" but not "center" or "dental". */
+    private fun containsAtWordStart(text: String, key: String): Boolean = " $text".contains(" $key")
+
+    /** True when every query word starts a word of the clinic name: "everest lab" -> "Everest Diagnostic Lab". */
+    private fun nameMatchesAllWords(nameLower: String, query: String): Boolean {
+        val nameWords = nameLower.split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }
+        val queryWords = query.split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }
+        return queryWords.isNotEmpty() && queryWords.all { qw -> nameWords.any { it.startsWith(qw) } }
+    }
+
     /**
      * Returns suggested specialist titles for a user's search query.
      * e.g. searching "skin" immediately returns ["Dermatologist", "Dermatology", "Cosmetologist"]
@@ -388,8 +409,8 @@ object MedicalSearchEngine {
 
         // Direct or prefix match against symptomToSpecialistSuggestions keys
         for ((key, specialists) in symptomToSpecialistSuggestions) {
-            if (key == clean || key.startsWith(clean) || clean.contains(key) ||
-                tokens.any { tok -> key == tok || key.startsWith(tok) || tok.contains(key) }
+            if (key == clean || key.startsWith(clean) || containsAtWordStart(clean, key) ||
+                tokens.any { tok -> key == tok || key.startsWith(tok) || tok.startsWith(key) }
             ) {
                 suggestions.addAll(specialists)
             }
@@ -423,11 +444,11 @@ object MedicalSearchEngine {
         val tokens = clean.split("\\s+".toRegex()).filter { it.isNotBlank() }
         val stems = mutableSetOf<String>()
         stems.add(clean)
-        stems.addAll(tokens)
+        stems.addAll(significantTokens(tokens))
 
         // Add whole query synonyms & prefix matches
         for ((key, syns) in synonymMap) {
-            if (key == clean || (clean.length >= 3 && key.startsWith(clean)) || clean.contains(key)) {
+            if (key == clean || (clean.length >= 3 && key.startsWith(clean)) || containsAtWordStart(clean, key)) {
                 stems.addAll(syns)
             }
         }
@@ -466,7 +487,7 @@ object MedicalSearchEngine {
 
         val corpus = OpenRouteSpatialEngine.getDoctorCorpus(doctor, clinics)
         val expandedStems = expandQuery(q)
-        val qTokens = q.split("\\s+".toRegex()).filter { it.length >= 2 }
+        val qTokens = significantTokens(q.split("\\s+".toRegex()).filter { it.length >= 2 })
 
         // Fast O(1) rejection against pre-indexed combined corpus before detailed scoring
         val anyStemInCorpus = corpus.combinedCorpus.contains(q) ||
@@ -712,6 +733,12 @@ object MedicalSearchEngine {
                     break
                 }
             }
+        }
+
+        // A query that names this clinic must outrank clinics that only share specialty keywords.
+        if (nameMatchesAllWords(clinicNameLower, q)) {
+            score += 1000
+            highlightReason = "Matched Clinic Name: ${clinic.name}"
         }
 
         // 4. Location or Area (Rank 4)

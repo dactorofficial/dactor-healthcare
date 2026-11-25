@@ -1,4 +1,4 @@
-import { Clinic, Doctor, ClinicService } from '../types'
+import type { Clinic, Doctor, ClinicService } from '../types'
 
 export interface SearchMatchResult {
   isMatch: boolean
@@ -341,6 +341,31 @@ export const QUICK_SPECIALTY_SUGGESTIONS = [
   'Pathology & Blood Tests',
 ]
 
+// Facility words found in most clinic names. Matching on them alone lists every
+// "...Clinic" / "...Hospital" when the patient searches for one specific clinic by name.
+const GENERIC_NAME_WORDS = new Set([
+  'clinic', 'polyclinic', 'hospital', 'health', 'healthcare', 'center', 'centre',
+  'care', 'medical', 'pvt', 'ltd', 'and', 'the', 'of',
+])
+
+/** Query words without generic facility words, unless the query consists only of them. */
+function significantTokens(tokens: string[]): string[] {
+  const specific = tokens.filter((t) => !GENERIC_NAME_WORDS.has(t))
+  return specific.length > 0 ? specific : tokens
+}
+
+/** True when `key` starts a word of `text`: "ent" matches "ent doctor" but not "center" or "dental". */
+function containsAtWordStart(text: string, key: string): boolean {
+  return ` ${text}`.includes(` ${key}`)
+}
+
+/** True when every query word starts a word of the clinic name: "everest lab" -> "Everest Diagnostic Lab". */
+function nameMatchesAllWords(nameLower: string, query: string): boolean {
+  const nameWords = nameLower.split(/[^a-z0-9]+/).filter(Boolean)
+  const queryWords = query.split(/[^a-z0-9]+/).filter(Boolean)
+  return queryWords.length > 0 && queryWords.every((qw) => nameWords.some((w) => w.startsWith(qw)))
+}
+
 /**
  * Returns suggested specialist titles for a search query.
  */
@@ -355,8 +380,8 @@ export function getSuggestedSpecialties(query: string): string[] {
     if (
       key === clean ||
       key.startsWith(clean) ||
-      clean.includes(key) ||
-      tokens.some((tok) => key === tok || key.startsWith(tok) || tok.includes(key))
+      containsAtWordStart(clean, key) ||
+      tokens.some((tok) => key === tok || key.startsWith(tok) || tok.startsWith(key))
     ) {
       specialists.forEach((s) => suggestions.add(s))
     }
@@ -385,11 +410,11 @@ export function expandQuery(query: string): Set<string> {
   const tokens = clean.split(/\s+/).filter((t) => t.length > 0)
   const stems = new Set<string>()
   stems.add(clean)
-  tokens.forEach((t) => stems.add(t))
+  significantTokens(tokens).forEach((t) => stems.add(t))
 
   // Whole query synonyms
   for (const [key, syns] of Object.entries(SYNONYM_MAP)) {
-    if (key === clean || (clean.length >= 3 && key.startsWith(clean)) || clean.includes(key)) {
+    if (key === clean || (clean.length >= 3 && key.startsWith(clean)) || containsAtWordStart(clean, key)) {
       syns.forEach((s) => stems.add(s))
     }
   }
@@ -596,6 +621,12 @@ export function matchClinic(
     }
   }
 
+  // A query that names this clinic must outrank clinics that only share specialty keywords.
+  if (nameMatchesAllWords(clinicNameLower, q)) {
+    score += 1000
+    highlightReason = `Matched Clinic Name: ${clinic.name}`
+  }
+
   // 5. Location or Area (Rank 4)
   if (clinicAddrLower.includes(q)) {
     score += 75
@@ -707,7 +738,7 @@ export function matchDoctor(
   }
 
   // 3. Practicing Clinics & Area (Bidirectional Affiliation Match)
-  const qTokens = q.split(/\s+/).filter((t) => t.length >= 2)
+  const qTokens = significantTokens(q.split(/\s+/).filter((t) => t.length >= 2))
   for (const clinic of clinics) {
     const cName = (clinic.name || '').toLowerCase()
     const cAddr = (clinic.addressText || '').toLowerCase()

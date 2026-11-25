@@ -2858,7 +2858,7 @@ fun QueueBoardScreen(
                                             val showMarkPaidInline = showMarkPaid && !(item.status == "inside" && isDiagItem)
                                             val onCollectDeskPayment: () -> Unit = {
                                                 coroutineScope.launch {
-                                                    val res = appointmentRepository?.markPaymentCollectedAtDesk(item.appointmentId)
+                                                    val res = appointmentRepository?.markPaymentCollectedAtDesk(item.appointmentId, effectiveClinicId)
                                                     if (res?.isSuccess == true) {
                                                         val paidLabel = if (item.totalAmount % 1.0 == 0.0) item.totalAmount.toInt().toString() else String.format(java.util.Locale.US, "%.2f", item.totalAmount)
                                                         notificationSentMessage = "✓ Collected NPR $paidLabel at desk for ${item.patientName}!"
