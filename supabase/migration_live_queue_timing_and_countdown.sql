@@ -116,7 +116,7 @@ BEGIN
            OR (v_is_lab = FALSE AND ((v_effective_doc_id IS NOT NULL AND cur.doctor_id = v_effective_doc_id) OR (v_effective_doc_id IS NULL AND cur.doctor_id IS NULL)))
        )
        AND ca.appointment_date = v_appt.appointment_date
-       AND cur.status IN ('inside', 'in_consultation')
+       AND cur.status::TEXT IN ('inside', 'in_consultation')
      ORDER BY cur.queue_position
      LIMIT 1;
 
@@ -125,7 +125,7 @@ BEGIN
     END IF;
 
     -- Queue position and ahead count
-    SELECT COALESCE(qe.queue_position, 0), COALESCE(qe.status, 'waiting')
+    SELECT COALESCE(qe.queue_position, 0), COALESCE(qe.status::TEXT, 'waiting')
       INTO v_token, v_status
       FROM public.queue_entries qe
      WHERE qe.appointment_id = v_appt.id
@@ -141,7 +141,7 @@ BEGIN
                OR (v_is_lab = FALSE AND ((v_effective_doc_id IS NOT NULL AND ahead.doctor_id = v_effective_doc_id) OR (v_effective_doc_id IS NULL AND ahead.doctor_id IS NULL)))
            )
            AND aa.appointment_date = v_appt.appointment_date
-           AND ahead.status = 'waiting'
+           AND ahead.status::TEXT = 'waiting'
            AND ahead.queue_position < v_token;
     END IF;
 
@@ -171,7 +171,7 @@ BEGIN
         COALESCE(v_doctor.specialty, '')::TEXT,
         v_appt.appointment_date,
         v_appt.appointment_time,
-        COALESCE(v_appt.checkin_status, 'waiting')::TEXT,
+        COALESCE(v_appt.checkin_status::TEXT, 'waiting')::TEXT,
         v_status::TEXT,
         v_token::INT,
         v_token::INT,

@@ -53,6 +53,20 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ### Prompt:
+> "ensure the changes sql code"
+
+#### Changes Applied:
+1. **Live Database RPC Verification**:
+   - Re-tested `get_live_queue_status` against real appointment record `5856281645`.
+   - Identified enum comparison error `22P02` (`invalid input value for enum queue_status_enum: "in_consultation"`).
+   - In [`supabase/migration_live_queue_timing_and_countdown.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_live_queue_timing_and_countdown.sql):
+     - Cast all enum fields (`cur.status::TEXT`, `qe.status::TEXT`, `ahead.status::TEXT`, `v_appt.checkin_status::TEXT`) to `::TEXT` across all queries and returns to eliminate enum literal validation crashes.
+     - Fully verified fallback consultation time handling to avoid missing field errors.
+   - Updated and formatted finalized SQL for direct copy-paste execution.
+
+---
+
+### Prompt:
 > "check again for sql"
 
 #### Changes Applied:
@@ -183,6 +197,20 @@ This file tracks user prompts and the exact changes applied across the codebase,
    - Executed `SELECT public.repair_pay_at_desk_historical_bookings();` verifying that all existing Pay-at-Desk bookings are verified and consistent.
    - Executed PostgREST schema cache reload via `NOTIFY pgrst, 'reload schema';`.
    - Verified that all three functions are registered in `information_schema.routines` under the `public` schema.
+
+---
+
+### Prompt:
+> "ensure the changes sql code"
+
+#### Changes Applied:
+1. **Live Database RPC Verification**:
+   - Re-tested `get_live_queue_status` against real appointment record `5856281645`.
+   - Identified enum comparison error `22P02` (`invalid input value for enum queue_status_enum: "in_consultation"`).
+   - In [`supabase/migration_live_queue_timing_and_countdown.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_live_queue_timing_and_countdown.sql):
+     - Cast all enum fields (`cur.status::TEXT`, `qe.status::TEXT`, `ahead.status::TEXT`, `v_appt.checkin_status::TEXT`) to `::TEXT` across all queries and returns to eliminate enum literal validation crashes.
+     - Fully verified fallback consultation time handling to avoid missing field errors.
+   - Updated and formatted finalized SQL for direct copy-paste execution.
 
 ---
 
