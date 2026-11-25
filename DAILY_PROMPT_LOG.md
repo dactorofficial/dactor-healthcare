@@ -7,6 +7,32 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-24
 
 ### Prompt:
+> "Search Prioritization continue with this plan"
+
+#### Changes Applied:
+1. **Search Engine Word-Start Matching & Substring False-Positive Elimination**:
+   - In [`web-app/src/utils/searchEngine.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/utils/searchEngine.ts) and [`patient-app/app/src/main/java/com/dactor/patient/util/MedicalSearchEngine.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/util/MedicalSearchEngine.kt):
+     - Implemented `tokenizeWords()` and `matchesWordStart()` using Unicode character classes (`\p{L}\p{N}`) across TypeScript and Kotlin.
+     - Replaced naive substring checks with `matchesWordStart()` across Clinic Specialties, Doctor Specialties, Doctor Bio/Education, Services, Clinic Names, Clinic Addresses, Descriptions, and Clinic Types.
+     - Fully eliminated false positives where "ent" matched "Kantipur Health Center" (c-ent-er), "Patan Dental Clinic" (d-ent-al), or Dental specialties; where "ear" matched "Heart Care Hospital" (h-ear-t); and where "lab" matched "available" or "collaborative".
+     - Added full Devanagari/Nepali script tokenization and matching support so Nepali clinic names (e.g. "पाटन डेन्टल क्लिनिक") match queries accurately.
+2. **Homepage Search Relevance Sorting Parity ([`web-app/src/pages/Home.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/Home.tsx))**:
+   - Added score-based descending sort when `searchQuery.trim()` is present for both clinics and doctors, ensuring exact-match clinics (+1000 boost) and relevant doctors appear at the top.
+   - Preserved fair randomized rotation and user-selected sort options (`in_clinic`, `fee_asc`) when browsing without a search query.
+3. **Patient Portal Doctor Search Upgrade ([`web-app/src/pages/PatientPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/PatientPortal.tsx))**:
+   - Replaced simplistic string-matching with `matchDoctor(doc, linkedClinics, clinicSearchQuery)`.
+   - Added descending relevance score sorting (`sort((a, b) => b.score - a.score)`), bringing full parity with mobile app `PatientMainScreen.kt` and `PatientSearchScreen.kt`.
+4. **Regression Test Verification**:
+   - Expanded [`web-app/tests/search/clinicNameSearch.test.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/tests/search/clinicNameSearch.test.ts) and [`patient-app/app/src/test/java/com/dactor/patient/util/MedicalSearchEngineClinicNameSearchTest.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/test/java/com/dactor/patient/util/MedicalSearchEngineClinicNameSearchTest.kt):
+     - Verified `rank("ent")` strictly returns `['citycare']` and excludes Kantipur and Patan Dental.
+     - Verified Nepali script tokenization, word-start matching, and multi-word matching.
+     - All 28 checks in the regression suite pass successfully.
+
+---
+
+## 2026-11-24
+
+### Prompt:
 > "Pay-at-Desk Super Admin Settlement continue with this plan"
 
 #### Changes Applied:
@@ -47,6 +73,32 @@ This file tracks user prompts and the exact changes applied across the codebase,
    - In [`web-app/src/pages/ClinicPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/ClinicPortal.tsx), added clinic isolation and lab check to walk-in follow-up code lookup. In `handleWalkinSubmit`, passed `paymentMode = FREE`, `status = APPROVED`, `totalAmount = finalFee`, and `notes = walkinNotes` in both optimistic state and offline queue mutation.
 4. **Documentation**:
    - Updated [`FIXES_README.md`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/FIXES_README.md) with complete summary of walk-in follow-up changes across mobile and web.
+
+---
+
+## 2026-11-24
+
+### Prompt:
+> "Search Prioritization continue with this plan"
+
+#### Changes Applied:
+1. **Search Engine Word-Start Matching & Substring False-Positive Elimination**:
+   - In [`web-app/src/utils/searchEngine.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/utils/searchEngine.ts) and [`patient-app/app/src/main/java/com/dactor/patient/util/MedicalSearchEngine.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/util/MedicalSearchEngine.kt):
+     - Implemented `tokenizeWords()` and `matchesWordStart()` using Unicode character classes (`\p{L}\p{N}`) across TypeScript and Kotlin.
+     - Replaced naive substring checks with `matchesWordStart()` across Clinic Specialties, Doctor Specialties, Doctor Bio/Education, Services, Clinic Names, Clinic Addresses, Descriptions, and Clinic Types.
+     - Fully eliminated false positives where "ent" matched "Kantipur Health Center" (c-ent-er), "Patan Dental Clinic" (d-ent-al), or Dental specialties; where "ear" matched "Heart Care Hospital" (h-ear-t); and where "lab" matched "available" or "collaborative".
+     - Added full Devanagari/Nepali script tokenization and matching support so Nepali clinic names (e.g. "पाटन डेन्टल क्लिनिक") match queries accurately.
+2. **Homepage Search Relevance Sorting Parity ([`web-app/src/pages/Home.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/Home.tsx))**:
+   - Added score-based descending sort when `searchQuery.trim()` is present for both clinics and doctors, ensuring exact-match clinics (+1000 boost) and relevant doctors appear at the top.
+   - Preserved fair randomized rotation and user-selected sort options (`in_clinic`, `fee_asc`) when browsing without a search query.
+3. **Patient Portal Doctor Search Upgrade ([`web-app/src/pages/PatientPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/PatientPortal.tsx))**:
+   - Replaced simplistic string-matching with `matchDoctor(doc, linkedClinics, clinicSearchQuery)`.
+   - Added descending relevance score sorting (`sort((a, b) => b.score - a.score)`), bringing full parity with mobile app `PatientMainScreen.kt` and `PatientSearchScreen.kt`.
+4. **Regression Test Verification**:
+   - Expanded [`web-app/tests/search/clinicNameSearch.test.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/tests/search/clinicNameSearch.test.ts) and [`patient-app/app/src/test/java/com/dactor/patient/util/MedicalSearchEngineClinicNameSearchTest.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/test/java/com/dactor/patient/util/MedicalSearchEngineClinicNameSearchTest.kt):
+     - Verified `rank("ent")` strictly returns `['citycare']` and excludes Kantipur and Patan Dental.
+     - Verified Nepali script tokenization, word-start matching, and multi-word matching.
+     - All 28 checks in the regression suite pass successfully.
 
 ---
 
