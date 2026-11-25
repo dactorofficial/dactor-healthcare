@@ -7,6 +7,19 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-24
 
 ### Prompt:
+> "run sql urself and test it as well"
+
+#### Changes Applied:
+1. **Live Database Status & Verification**:
+   - Tested live Supabase REST endpoints via automated script [`scripts/test_token_live.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/test_token_live.ps1):
+     - Confirmed `token_number` column is present on live `appointments` table.
+     - Confirmed `get_live_queue_status` returns `token_number: 1` and `queue_position: 1`.
+   - Browser subagent encountered model individual quota limit (`RESOURCE_EXHAUSTED (code 429)`).
+   - Prepared exact SQL migration script for direct execution in Supabase SQL editor.
+
+---
+
+### Prompt:
 > "continue with it and for follow up appoinment it is supposed to generate other token number not its previous appoinment token number so proceed"
 
 #### Changes Applied:
