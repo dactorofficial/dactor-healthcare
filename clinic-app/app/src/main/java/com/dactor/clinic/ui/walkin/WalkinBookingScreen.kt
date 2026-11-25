@@ -180,23 +180,33 @@ fun WalkinBookingScreen(
                 }
                 val found = localMatch ?: appointmentRepository?.getAppointmentByTrackingCode(clean)
                 if (found != null) {
-                    returningPatientRecord = found
-                    patientName = found.patientName
-                    mobileNumber = found.patientMobile
-                    age = (found.patientAge ?: 30).toString()
-                    selectedGender = if (found.patientGender?.isNotBlank() == true) found.patientGender else "Male"
-                    email = found.patientEmail ?: ""
-                    feeAmount = "0"
+                    val isLabFound = found.selectedLabTests?.isNotBlank() == true ||
+                        (effectiveClinicId.isNotBlank() && isLabClinic)
+                    if (found.clinicId.isNotBlank() && effectiveClinicId.isNotBlank() && found.clinicId != effectiveClinicId) {
+                        returningPatientRecord = null
+                        followupLookupError = "Code #$clean belongs to another clinic."
+                    } else if (isLabClinic || isLabFound) {
+                        returningPatientRecord = null
+                        followupLookupError = "Diagnostic lab tests are one-time visits and do not support follow-ups."
+                    } else {
+                        returningPatientRecord = found
+                        patientName = found.patientName
+                        mobileNumber = found.patientMobile
+                        age = (found.patientAge ?: 30).toString()
+                        selectedGender = if (found.patientGender?.isNotBlank() == true) found.patientGender else "Male"
+                        email = found.patientEmail ?: ""
+                        feeAmount = "0"
 
-                    if (!found.doctorId.isNullOrBlank() && affiliatedDoctors.isNotEmpty()) {
-                        val matchingDoc = affiliatedDoctors.firstOrNull { it.id == found.doctorId }
-                        if (matchingDoc != null) {
-                            selectedDoctor = matchingDoc
+                        if (!found.doctorId.isNullOrBlank() && affiliatedDoctors.isNotEmpty()) {
+                            val matchingDoc = affiliatedDoctors.firstOrNull { it.id == found.doctorId }
+                            if (matchingDoc != null) {
+                                selectedDoctor = matchingDoc
+                            }
                         }
+                        // Slot is not cleared here: the slot loader re-runs when the doctor changes and
+                        // re-selects a valid slot. Clearing it left no slot when the doctor was unchanged.
+                        followupLookupError = null
                     }
-                    // Slot is not cleared here: the slot loader re-runs when the doctor changes and
-                    // re-selects a valid slot. Clearing it left no slot when the doctor was unchanged.
-                    followupLookupError = null
                 } else {
                     returningPatientRecord = null
                     followupLookupError = "No appointment record found for code #$clean."
@@ -1277,6 +1287,9 @@ fun WalkinBookingScreen(
                             } else {
                                 selectedDoctor?.consultationFee ?: (feeAmount.toDoubleOrNull() ?: 500.0)
                             }
+                            val followUpNote = if (isFollowUpVisit) {
+                                "Follow-Up Consultation (Ref: #${returningPatientRecord?.trackingCode10Digit ?: followupCodeInput.trim()})"
+                            } else null
                             val walkin = Appointment(
                                 id = java.util.UUID.randomUUID().toString(),
                                 trackingCode10Digit = generatedCode,
@@ -1296,7 +1309,9 @@ fun WalkinBookingScreen(
                                 totalAmount = computedFee,
                                 paymentMode = if (computedFee > 0.0) "CASH" else "FREE",
                                 isWalkin = true,
-                                selectedLabTests = selectedTestsSummary
+                                selectedLabTests = selectedTestsSummary,
+                                status = "APPROVED",
+                                notes = followUpNote
                             )
 
                             val result = appointmentRepository?.createWalkinAppointment(walkin, allowOverbooking = true)

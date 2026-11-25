@@ -1113,6 +1113,16 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           if (!active) return
           setWalkinLookupLoading(false)
           if (found) {
+            if (found.clinicId && selectedClinic?.id && found.clinicId !== selectedClinic.id) {
+              setWalkinRetainedAppt(null)
+              setWalkinLookupError(`Code #${clean} belongs to another clinic.`)
+              return
+            }
+            if (isLabClinic || (found.selectedTests && found.selectedTests.length > 0)) {
+              setWalkinRetainedAppt(null)
+              setWalkinLookupError('Diagnostic lab tests are one-time visits and do not support follow-ups.')
+              return
+            }
             setWalkinRetainedAppt(found)
             setWalkinName(found.patientName)
             setWalkinAge(String(found.patientAge || ''))
@@ -2791,7 +2801,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         slotId: walkinSlotId || undefined,
         checkinStatus: 'waiting',
         paymentStatus: 'paid',
+        paymentMode: finalFee > 0 ? 'CASH' : 'FREE',
+        status: 'APPROVED',
         feeAmount: finalFee,
+        totalAmount: finalFee,
         notes: walkinNotes,
         selectedTests: isLabClinic ? walkinSelectedTests.map((t) => t.serviceName) : [],
         queuePosition: queuePos,
@@ -2858,7 +2871,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
             slot_id: walkinSlotId || null,
             checkin_status: 'waiting',
             payment_status: 'paid',
+            payment_mode: finalFee > 0 ? 'CASH' : 'FREE',
+            status: 'APPROVED',
             fee_amount: finalFee,
+            total_amount: finalFee,
             notes: walkinNotes,
             selected_tests: localAppt.selectedTests,
           },

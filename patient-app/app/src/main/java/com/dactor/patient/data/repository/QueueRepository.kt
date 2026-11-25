@@ -120,7 +120,9 @@ data class LiveQueueDelta(
     @SerialName("doctor_is_in_clinic") val doctorIsInClinic: Boolean = false,
     @SerialName("is_anyone_inside") val isAnyoneInside: Boolean = false,
     @SerialName("estimated_wait_minutes") val estimatedWaitMinutes: Int = 0,
-    @SerialName("slot_notice") val slotNotice: String = ""
+    @SerialName("slot_notice") val slotNotice: String = "",
+    @SerialName("current_inside_since") val currentInsideSince: String? = null,
+    @SerialName("avg_consultation_seconds") val avgConsultationSeconds: Int? = null
 )
 
 @Singleton
@@ -128,17 +130,35 @@ class QueueRepository @Inject constructor(
     private val supabaseClient: SupabaseClient
 ) {
 
-    /** Doctor's running average consultation time (seconds) for this booking's queue, from the server. */
-    suspend fun getDoctorAvgConsultationSeconds(trackingCode: String): Int? = withContext(Dispatchers.IO) {
+    data class QueueTimingInfo(
+        val insideSince: String? = null,
+        val avgSeconds: Int? = null
+    )
+
+    /** Doctor's running consultation metrics (inside timestamp and average seconds) from get_public_queue_status. */
+    suspend fun getQueueTimingInfo(trackingCode: String): QueueTimingInfo? = withContext(Dispatchers.IO) {
         if (!Regex("^[0-9]{10}$").matches(trackingCode)) return@withContext null
         @Serializable
         data class Params(val p_tracking_code: String)
         @Serializable
-        data class Row(val avg_consultation_seconds: Int? = null)
+        data class Row(
+            val avg_consultation_seconds: Int? = null,
+            val current_inside_since: String? = null
+        )
         runCatching {
             supabaseClient.postgrest.rpc("get_public_queue_status", Params(trackingCode))
-                .decodeList<Row>().firstOrNull()?.avg_consultation_seconds
+                .decodeList<Row>().firstOrNull()?.let {
+                    QueueTimingInfo(
+                        insideSince = it.current_inside_since,
+                        avgSeconds = it.avg_consultation_seconds
+                    )
+                }
         }.getOrNull()
+    }
+
+    /** Doctor's running average consultation time (seconds) for this booking's queue, from the server. */
+    suspend fun getDoctorAvgConsultationSeconds(trackingCode: String): Int? = withContext(Dispatchers.IO) {
+        getQueueTimingInfo(trackingCode)?.avgSeconds
     }
 
     private val queueEntriesForClinicCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, List<QueueEntry>>>()
@@ -667,7 +687,9 @@ class QueueRepository @Inject constructor(
             appointmentTime: String? = null,
             optInEarlyCall: Boolean = false,
             appointmentDate: String? = null,
-            avgMinutesOverride: Int? = null
+            avgMinutesOverride: Int? = null,
+            currentInsideSince: String? = null,
+            isAnyoneInsideOverride: Boolean? = null
         ): LiveQueueTimingEstimate {
             val avgMins = (avgMinutesOverride ?: clinic?.getEffectiveAvgMinutes() ?: 10).coerceAtLeast(1)
             val todaySchedule = clinic?.getTodaySchedule()
@@ -685,7 +707,18 @@ class QueueRepository @Inject constructor(
                         .thenBy { it.queuePosition }
                 )
 
-            val insideEntry = activeEntries.firstOrNull { it.status == "inside" || it.status == "in_consultation" }
+            val insideEntryFromList = activeEntries.firstOrNull { it.status == "inside" || it.status == "in_consultation" }
+            val insideEntry = insideEntryFromList ?: if (isAnyoneInsideOverride == true) {
+                QueueEntry(
+                    id = "synthetic_inside_cabin",
+                    appointmentId = "",
+                    clinicId = clinic?.id ?: "",
+                    doctorId = null,
+                    queuePosition = 0,
+                    status = "inside",
+                    insideAt = currentInsideSince
+                )
+            } else null
 
             val totalPeopleAhead = if (targetEntry != null) {
                 if (targetEntry.status in listOf("inside", "in_consultation")) {

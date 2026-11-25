@@ -2718,6 +2718,10 @@ fun PatientDirectoryScreen(
                                         val chosenDoctor = affiliatedDoctors.find { it.id == scheduleDoctorId } ?: affiliatedDoctors.firstOrNull()
                                         val calculatedFee = if (isFollowUpVisit) 0.0 else (chosenDoctor?.consultationFee ?: 500.0)
 
+                                        val followUpPrefix = if (isFollowUpVisit) {
+                                            if (pItem.trackingCode.isNotBlank()) "Follow-Up Consultation (Ref: #${pItem.trackingCode})"
+                                            else "Follow-Up Consultation"
+                                        } else ""
                                         val newAppt = Appointment(
                                             id = java.util.UUID.randomUUID().toString(),
                                             trackingCode10Digit = TrackingCodeGenerator.generate(),
@@ -2738,7 +2742,8 @@ fun PatientDirectoryScreen(
                                             appointmentTime = cleanTime,
                                             feeAmount = calculatedFee,
                                             totalAmount = calculatedFee,
-                                            isWalkin = true
+                                            isWalkin = true,
+                                            notes = followUpPrefix.ifBlank { null }
                                         )
                                         val created = appointmentRepository.createWalkinAppointment(newAppt, allowOverbooking = true)
                                         if (created != null) {

@@ -4,6 +4,52 @@ This file tracks user prompts and the exact changes applied across the codebase,
 
 ---
 
+## 2026-11-24
+
+### Prompt:
+> "Walk-in Follow-Up Fix continue with it"
+
+#### Changes Applied:
+1. **Clinic App — Appointment Model & Repository Hardening**:
+   - In [`clinic-app/app/src/main/java/com/dactor/clinic/data/model/Appointment.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/model/Appointment.kt), added `@SerialName("notes") val notes: String? = null` to map and preserve follow-up reference links (`Follow-Up Consultation (Ref: #oldCode)`).
+   - In [`clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt), updated `AppointmentInsertDto` to include `payment_mode`, `status`, `total_amount`, `selected_lab_tests`, and `notes`.
+   - In `createWalkinAppointment`, mapped `effectivePaymentMode` ("FREE" for follow-up/zero-fee visits), `status` ("APPROVED"), `totalAmount`, `selectedLabTests`, and `notes` into the insert payload so they are persisted to Supabase instead of being dropped.
+2. **Clinic App — Walk-In & Follow-Up UI Parity**:
+   - In [`clinic-app/app/src/main/java/com/dactor/clinic/ui/walkin/WalkinBookingScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/walkin/WalkinBookingScreen.kt), added clinic boundary validation (blocking codes from other clinics) and diagnostic lab isolation (blocking follow-up bookings on one-time lab test visits). Added `followUpNote` linking to previous tracking code, and passed `status = "APPROVED"`, `paymentMode = "FREE"`, and `notes = followUpNote`.
+   - In [`clinic-app/app/src/main/java/com/dactor/clinic/ui/patients/PatientDetailScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/patients/PatientDetailScreen.kt), updated Schedule Follow-Up to save `paymentStatus = "paid"`, `paymentMode = "FREE"`, `totalAmount = 0.0`, `status = "APPROVED"`, and follow-up reference note.
+   - In [`clinic-app/app/src/main/java/com/dactor/clinic/ui/patients/PatientDirectoryScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/patients/PatientDirectoryScreen.kt), passed follow-up reference note directly to `newAppt`.
+3. **Website Alignment (One-Way Logic Parity)**:
+   - In [`web-app/src/services/db.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/services/db.ts), updated the `createAppointment` rapid double-tap deduplication guard to check a 120-second time window (`gte('created_at', doubleTapWindowStart)`) and match `patient_name: patientNameClean`, eliminating the bug where a same-day follow-up with the same phone and slot returned the old appointment. Included `payment_mode`, `notes`, and `selected_lab_tests` in `dbPayload`.
+   - In [`web-app/src/pages/ClinicPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/ClinicPortal.tsx), added clinic isolation and lab check to walk-in follow-up code lookup. In `handleWalkinSubmit`, passed `paymentMode = FREE`, `status = APPROVED`, `totalAmount = finalFee`, and `notes = walkinNotes` in both optimistic state and offline queue mutation.
+4. **Documentation**:
+   - Updated [`FIXES_README.md`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/FIXES_README.md) with complete summary of walk-in follow-up changes across mobile and web.
+
+---
+
+## 2026-11-24
+
+### Prompt:
+> "is the previous sha id for clinic and patient app already there ?"
+> "generate aab then for clinic app"
+
+#### Changes Applied:
+1. **Keystore & SHA Fingerprint Verification**:
+   - Verified that shared debug keystore SHA-1 (`b65ff6c53826dfbf360ec3fd2d75af2e83ea2c79`), Google Play App Signing SHA-1s (`d7874c2afdfd1063d04823c67d9beca3abee1a4e` for Clinic and `df90f87c0b49df2298719fb7c7e1a299b3628f54` for Patient), and production upload key SHA-1 (`b9ed0f4e0534880d1b5f9b8ca8ed9e7ffb7defe7`) are permanently integrated and referenced in both `clinic-app/app/google-services.json` and `patient-app/app/google-services.json`.
+2. **Clinic App Version Bump**:
+   - Incremented `versionCode` from `89` to `90` and `versionName` from `"1.0.89"` to `"1.0.90"` in [`clinic-app/app/build.gradle.kts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/build.gradle.kts) adhering to Mandatory Global Rule 6.
+3. **Android SDK Provisioning**:
+   - Initialized local Android SDK at `C:\Users\dell\AppData\Local\Android\Sdk`.
+   - Configured official Android SDK license hashes for automated Gradle package acquisition.
+   - Verified Android SDK Platform 36 and Build-Tools 34.0.0.
+4. **Production AAB Release Build**:
+   - Executed `build_clinic_bundle.ps1` with production upload keystore (`dactor-upload`).
+   - Successfully generated signed production Google Play App Bundle: `AABs/Dactor-ClinicApp-v1.0.90.aab` (23.61 MB / 24,754,051 bytes).
+   - Staged bundle across `AABs/`, `PlayStore/clinic-app/`, SSD backup (`C:\Users\dell\Dactor-APKs\`), and mirrored to `G:\My Drive\New folder\`.
+5. **Handoff Tracking**:
+   - Updated Version Log in [`HANDOFF.md`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/HANDOFF.md).
+
+---
+
 ## 2026-11-21
 
 ### Prompt:

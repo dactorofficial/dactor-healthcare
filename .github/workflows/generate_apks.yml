@@ -1,0 +1,203 @@
+name: Generate Dactor APKs
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'Which app to build'
+        required: true
+        type: choice
+        default: 'All'
+        options:
+          - 'All'
+          - 'Clinic'
+          - 'Patient'
+      build_type:
+        description: 'Build Type'
+        required: true
+        type: choice
+        default: 'Release'
+        options:
+          - 'Release'
+          - 'Debug'
+      bump_version:
+        description: 'Auto-increment versionCode and patch versionName'
+        required: false
+        type: boolean
+        default: true
+      version_name:
+        description: 'Custom versionName override (e.g. 1.0.95), leave empty for auto'
+        required: false
+        type: string
+        default: ''
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: "apk-generation-${{ github.ref }}"
+  cancel-in-progress: false
+
+jobs:
+  build-apks:
+    name: Build Android APKs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Ensure Executable Gradle Wrappers
+        run: |
+          chmod +x clinic-app/gradlew || true
+          chmod +x patient-app/gradlew || true
+
+      - name: Ensure Keystores in Place
+        run: |
+          mkdir -p clinic-app/app/keystores patient-app/app/keystores
+          if [ -d "shared-keystore" ]; then
+            cp -n shared-keystore/* clinic-app/app/keystores/ 2>/dev/null || true
+            cp -n shared-keystore/* patient-app/app/keystores/ 2>/dev/null || true
+          fi
+          # Allow base64 secret injection if defined in GitHub repository secrets
+          if [ -n "${{ secrets.DACTOR_UPLOAD_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.DACTOR_UPLOAD_KEYSTORE_BASE64 }}" | base64 -d > clinic-app/app/keystores/dactor-upload.jks
+            echo "${{ secrets.DACTOR_UPLOAD_KEYSTORE_BASE64 }}" | base64 -d > patient-app/app/keystores/dactor-upload.jks
+            echo "Injected release keystore from secrets."
+          fi
+
+      - name: Bump Version Numbers (if enabled)
+        id: versioning
+        run: |
+          node - << 'EOF'
+          const fs = require('fs');
+          const bumpVersion = "${{ github.event.inputs.bump_version || 'true' }}" === "true";
+          const customVersion = "${{ github.event.inputs.version_name || '' }}".trim();
+
+          function bumpGradle(filePath, appName) {
+            if (!fs.existsSync(filePath)) return null;
+            let content = fs.readFileSync(filePath, 'utf8');
+            let oldCode = 1;
+            let oldName = "1.0.0";
+
+            const codeMatch = content.match(/versionCode\s*=\s*(\d+)/);
+            if (codeMatch) oldCode = parseInt(codeMatch[1], 10);
+
+            const nameMatch = content.match(/versionName\s*=\s*"([^"]+)"/);
+            if (nameMatch) oldName = nameMatch[1];
+
+            let newCode = oldCode;
+            let newName = oldName;
+
+            if (bumpVersion) {
+              newCode = oldCode + 1;
+              if (customVersion) {
+                newName = customVersion;
+              } else {
+                const parts = oldName.split('.');
+                if (parts.length === 2) {
+                  newName = `${parts[0]}.${parts[1]}.1`;
+                } else if (parts.length >= 3) {
+                  const last = parseInt(parts[parts.length - 1], 10) || 0;
+                  parts[parts.length - 1] = (last + 1).toString();
+                  newName = parts.join('.');
+                } else {
+                  newName = `${oldName}.1`;
+                }
+              }
+              content = content.replace(/versionCode\s*=\s*\d+/, `versionCode = ${newCode}`);
+              content = content.replace(/versionName\s*=\s*"[^"]+"/, `versionName = "${newName}"`);
+              fs.writeFileSync(filePath, content, 'utf8');
+              console.log(`[${appName}] Updated: v${oldName} (${oldCode}) -> v${newName} (${newCode})`);
+            } else {
+              console.log(`[${appName}] Keeping: v${oldName} (${oldCode})`);
+            }
+
+            return { appName, oldName, newName, oldCode, newCode };
+          }
+
+          bumpGradle('clinic-app/app/build.gradle.kts', 'ClinicApp');
+          bumpGradle('patient-app/app/build.gradle.kts', 'PatientApp');
+          EOF
+
+      - name: Build Clinic App APK
+        if: ${{ github.event.inputs.app == 'All' || github.event.inputs.app == 'Clinic' || github.event_name == 'push' }}
+        run: |
+          cd clinic-app
+          BUILD_TYPE="${{ github.event.inputs.build_type || 'Release' }}"
+          echo "Building Clinic App ($BUILD_TYPE)..."
+          ./gradlew assemble${BUILD_TYPE} --no-daemon --stacktrace
+
+      - name: Build Patient App APK
+        if: ${{ github.event.inputs.app == 'All' || github.event.inputs.app == 'Patient' || github.event_name == 'push' }}
+        run: |
+          cd patient-app
+          BUILD_TYPE="${{ github.event.inputs.build_type || 'Release' }}"
+          echo "Building Patient App ($BUILD_TYPE)..."
+          ./gradlew assemble${BUILD_TYPE} --no-daemon --stacktrace
+
+      - name: Collect & Stage APK Artifacts
+        id: stage_apks
+        run: |
+          mkdir -p APKs
+          BUILD_TYPE="${{ github.event.inputs.build_type || 'Release' }}"
+          BT_LOWER=$(echo "$BUILD_TYPE" | tr '[:upper:]' '[:lower:]')
+
+          # Find and copy Clinic APK
+          CLINIC_APK=$(find clinic-app/app/build/outputs/apk -name "*.apk" ! -name "*unaligned*" 2>/dev/null | head -n 1)
+          if [ -n "$CLINIC_APK" ]; then
+            CLINIC_VER=$(grep -oP 'versionName\s*=\s*"\K[^"]+' clinic-app/app/build.gradle.kts || echo "latest")
+            SUFFIX=""
+            [ "$BUILD_TYPE" = "Debug" ] && SUFFIX="-debug"
+            TARGET_NAME="Dactor-ClinicApp-v${CLINIC_VER}${SUFFIX}.apk"
+            cp "$CLINIC_APK" "APKs/$TARGET_NAME"
+            cp "$CLINIC_APK" "APKs/Dactor-ClinicApp-${BT_LOWER}.apk"
+            echo "Staged Clinic APK: APKs/$TARGET_NAME"
+          fi
+
+          # Find and copy Patient APK
+          PATIENT_APK=$(find patient-app/app/build/outputs/apk -name "*.apk" ! -name "*unaligned*" 2>/dev/null | head -n 1)
+          if [ -n "$PATIENT_APK" ]; then
+            PATIENT_VER=$(grep -oP 'versionName\s*=\s*"\K[^"]+' patient-app/app/build.gradle.kts || echo "latest")
+            SUFFIX=""
+            [ "$BUILD_TYPE" = "Debug" ] && SUFFIX="-debug"
+            TARGET_NAME="Dactor-PatientApp-v${PATIENT_VER}${SUFFIX}.apk"
+            cp "$PATIENT_APK" "APKs/$TARGET_NAME"
+            cp "$PATIENT_APK" "APKs/Dactor-PatientApp-${BT_LOWER}.apk"
+            echo "Staged Patient APK: APKs/$TARGET_NAME"
+          fi
+
+          echo "=== Staged APKs ==="
+          ls -lh APKs/
+
+      - name: Upload Generated APKs Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dactor-APKs
+          path: APKs/*.apk
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Publish GitHub Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: APKs/*.apk
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

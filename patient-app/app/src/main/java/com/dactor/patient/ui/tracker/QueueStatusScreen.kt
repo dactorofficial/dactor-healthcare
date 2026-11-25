@@ -63,6 +63,21 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+data class TrackerTimingInputs(
+    val clinic: Clinic?,
+    val isDoctorInClinic: Boolean,
+    val allClinicQueueEntries: List<com.dactor.patient.data.model.QueueEntry>,
+    val targetEntry: com.dactor.patient.data.model.QueueEntry?,
+    val fallbackPatientsAhead: Int,
+    val appointmentTime: String?,
+    val optInEarlyCall: Boolean,
+    val appointmentDate: String?,
+    val avgMinutesOverride: Int?,
+    val currentInsideSince: String?,
+    val isAnyoneInsideOverride: Boolean?,
+    val slotNotice: String
+)
 import java.time.LocalDate
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -144,6 +159,7 @@ fun QueueStatusScreen(
     var currentEpochSecond by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
     var isDataLoaded by remember { mutableStateOf(cachedPrewarmAppt != null) }
     var isAnyoneInsideDoctorCabin by remember { mutableStateOf(false) }
+    var trackerTimingInputs by remember { mutableStateOf<TrackerTimingInputs?>(null) }
 
     // Automatic alert state: fires once when ≤2 people are ahead in live queue
     var hasTriggeredTwoAheadAlert by remember(appointmentIdOrCode) { mutableStateOf(false) }
@@ -261,6 +277,29 @@ fun QueueStatusScreen(
         }
     }
 
+    // Live moving expected time countdown: recompute estimate on each second tick
+    LaunchedEffect(currentEpochSecond) {
+        val inputs = trackerTimingInputs
+        if (inputs != null) {
+            val updated = QueueRepository.calculateLiveQueueTimingEstimate(
+                clinic = inputs.clinic,
+                isDoctorInClinic = inputs.isDoctorInClinic,
+                allClinicQueueEntries = inputs.allClinicQueueEntries,
+                targetEntry = inputs.targetEntry,
+                fallbackPatientsAhead = inputs.fallbackPatientsAhead,
+                appointmentTime = inputs.appointmentTime,
+                optInEarlyCall = inputs.optInEarlyCall,
+                appointmentDate = inputs.appointmentDate,
+                avgMinutesOverride = inputs.avgMinutesOverride,
+                currentInsideSince = inputs.currentInsideSince,
+                isAnyoneInsideOverride = inputs.isAnyoneInsideOverride
+            )
+            liveTimingEstimate = if (inputs.slotNotice.isNotBlank()) {
+                updated.copy(slotNoticeText = inputs.slotNotice)
+            } else updated
+        }
+    }
+
     suspend fun loadConfidentialDetails(targetAppt: Appointment) {
         try {
             val inv = appointmentRepository?.getInvoiceForAppointment(targetAppt.id)
@@ -322,6 +361,9 @@ fun QueueStatusScreen(
                 } else null
                 val doctorJob = if (!appt.doctorId.isNullOrBlank() && doctorObj?.id != appt.doctorId) {
                     coroutineScope.async { doctorRepository?.getDoctorById(appt.doctorId) }
+                } else null
+                val timingJob = if (queryCode.matches(Regex("^[0-9]{10}$"))) {
+                    coroutineScope.async { queueRepository?.getQueueTimingInfo(queryCode) }
                 } else null
 
                 // Auto-unlock only when signed-in account explicitly matches email or userId
@@ -491,11 +533,20 @@ fun QueueStatusScreen(
                     patientsAhead = -1
                     tokenNumber = 0
                     liveTimingEstimate = null
+                    trackerTimingInputs = null
                 } else if (isFutureOrTomorrow) {
                     patientsAhead = slotResult?.patientsAheadInDay ?: 0
                     tokenNumber = slotResult?.cumulativePosition ?: (if (tokenNumber > 0) tokenNumber else 1)
                     liveTimingEstimate = null // Silence live countdown for advance dates
+                    trackerTimingInputs = null
                 } else if (appt.clinicId.isNotBlank() && isAppointmentToday) {
+                    val timingResult = timingJob?.await()
+                    val effectiveAvgSec = liveDeltaResult?.avgConsultationSeconds ?: timingResult?.avgSeconds
+                    if (effectiveAvgSec != null && effectiveAvgSec > 0) {
+                        doctorAvgMinutes = Math.round(effectiveAvgSec / 60.0).toInt().coerceAtLeast(1)
+                    }
+                    val effectiveInsideSince = liveDeltaResult?.currentInsideSince ?: timingResult?.insideSince
+
                     val liveDelta = liveDeltaResult
                     if (liveDelta != null && liveDelta.tokenNumber > 0) {
                         tokenNumber = liveDelta.tokenNumber
@@ -503,19 +554,42 @@ fun QueueStatusScreen(
                         queueStatus = liveDelta.queueStatus
                         isDoctorInClinic = liveDelta.doctorIsInClinic
                         isAnyoneInsideDoctorCabin = liveDelta.isAnyoneInside
+                        val effectiveDoctorInClinic = if (isLabClinic) true else isDoctorInClinic
+                        val entriesList = if (qEntry != null) listOf(qEntry.copy(queuePosition = tokenNumber, status = queueStatus)) else emptyList()
+                        val target = qEntry?.copy(queuePosition = tokenNumber, status = queueStatus)
+                        val notice = liveDelta.slotNotice
+
                         val timing = QueueRepository.calculateLiveQueueTimingEstimate(
                             clinic = clinicObj,
-                            isDoctorInClinic = if (isLabClinic) true else isDoctorInClinic,
-                            allClinicQueueEntries = if (qEntry != null) listOf(qEntry.copy(queuePosition = tokenNumber, status = queueStatus)) else emptyList(),
-                            targetEntry = qEntry?.copy(queuePosition = tokenNumber, status = queueStatus),
+                            isDoctorInClinic = effectiveDoctorInClinic,
+                            allClinicQueueEntries = entriesList,
+                            targetEntry = target,
                             fallbackPatientsAhead = patientsAhead,
                             appointmentTime = appt.appointmentTime,
                             optInEarlyCall = appt.optInEarlyCall,
-                            appointmentDate = appt.appointmentDate
+                            appointmentDate = appt.appointmentDate,
+                            avgMinutesOverride = doctorAvgMinutes,
+                            currentInsideSince = effectiveInsideSince,
+                            isAnyoneInsideOverride = isAnyoneInsideDoctorCabin
                         )
-                        liveTimingEstimate = if (liveDelta.slotNotice.isNotBlank()) {
-                            timing.copy(slotNoticeText = liveDelta.slotNotice)
+                        liveTimingEstimate = if (notice.isNotBlank()) {
+                            timing.copy(slotNoticeText = notice)
                         } else timing
+
+                        trackerTimingInputs = TrackerTimingInputs(
+                            clinic = clinicObj,
+                            isDoctorInClinic = effectiveDoctorInClinic,
+                            allClinicQueueEntries = entriesList,
+                            targetEntry = target,
+                            fallbackPatientsAhead = patientsAhead,
+                            appointmentTime = appt.appointmentTime,
+                            optInEarlyCall = appt.optInEarlyCall,
+                            appointmentDate = appt.appointmentDate,
+                            avgMinutesOverride = doctorAvgMinutes,
+                            currentInsideSince = effectiveInsideSince,
+                            isAnyoneInsideOverride = isAnyoneInsideDoctorCabin,
+                            slotNotice = notice
+                        )
                     } else {
                         val doctorDateEntries = queueRepository?.getQueueEntriesForDoctorAndDate(
                             clinicId = appt.clinicId,
@@ -540,19 +614,37 @@ fun QueueStatusScreen(
                         tokenNumber = if (myPos > 0) myPos else (slotResult?.cumulativePosition ?: 1)
                         isAnyoneInsideDoctorCabin = doctorDateEntries.any { it.status == "inside" || it.status == "in_consultation" }
 
+                        val effectiveDoctorInClinic = if (isLabClinic) true else isDoctorInClinic
                         // Real estimated timing calculation using QueueRepository engine scoped strictly to specific doctor and date
                         val timing = QueueRepository.calculateLiveQueueTimingEstimate(
                             clinic = clinicObj,
-                            isDoctorInClinic = if (isLabClinic) true else isDoctorInClinic,
+                            isDoctorInClinic = effectiveDoctorInClinic,
                             allClinicQueueEntries = doctorDateEntries,
                             targetEntry = qEntry,
                             fallbackPatientsAhead = liveAhead,
                             appointmentTime = appt.appointmentTime,
                             optInEarlyCall = appt.optInEarlyCall,
                             appointmentDate = appt.appointmentDate,
-                            avgMinutesOverride = doctorAvgMinutes
+                            avgMinutesOverride = doctorAvgMinutes,
+                            currentInsideSince = effectiveInsideSince,
+                            isAnyoneInsideOverride = isAnyoneInsideDoctorCabin
                         )
                         liveTimingEstimate = timing
+
+                        trackerTimingInputs = TrackerTimingInputs(
+                            clinic = clinicObj,
+                            isDoctorInClinic = effectiveDoctorInClinic,
+                            allClinicQueueEntries = doctorDateEntries,
+                            targetEntry = qEntry,
+                            fallbackPatientsAhead = liveAhead,
+                            appointmentTime = appt.appointmentTime,
+                            optInEarlyCall = appt.optInEarlyCall,
+                            appointmentDate = appt.appointmentDate,
+                            avgMinutesOverride = doctorAvgMinutes,
+                            currentInsideSince = effectiveInsideSince,
+                            isAnyoneInsideOverride = isAnyoneInsideDoctorCabin,
+                            slotNotice = ""
+                        )
                     }
 
                     // Show the screen now; the alert checks below need not hold it back
@@ -2279,6 +2371,11 @@ fun QueueStatusScreen(
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     val timing = liveTimingEstimate
+                                    val isArriveFast = !isLate && !isFutureOrTomorrow && (timing?.isClinicOnBreak != true) && (
+                                        patientsAhead == 0 ||
+                                        timing?.estimatedTimeLeftText?.contains("Arrive", ignoreCase = true) == true ||
+                                        timing?.expectedExactTimeText?.contains("arrive", ignoreCase = true) == true
+                                    )
                                     val displayWait = when {
                                         showClinicClosedUI || isNoShow -> "Clinic Closed"
                                         isLate -> "Arrive soon, you are late"
@@ -2287,26 +2384,27 @@ fun QueueStatusScreen(
                                         isFutureOrTomorrow && !multiSlotResult?.approxAppointmentTimeText.isNullOrBlank() -> {
                                             multiSlotResult!!.approxAppointmentTimeText
                                         }
+                                        isArriveFast -> "Your turn, arrive soon"
+                                        !timing?.expectedExactTimeText.isNullOrBlank() && timing.expectedExactTimeText != "Done" && timing.expectedExactTimeText != "In Consultation" && !timing.expectedExactTimeText.contains("Arrive", ignoreCase = true) -> {
+                                            "Expected at ${timing.expectedExactTimeText}"
+                                        }
                                         else -> timing?.estimatedTimeLeftText?.takeIf { it.isNotBlank() }
                                             ?: (if (patientsAhead > 0) "~${patientsAhead * clinicAvgTimeMinutes} min" else "< 5 min")
                                     }
-                                    val isArriveFast = !isLate && !isFutureOrTomorrow && (timing?.isClinicOnBreak != true) && (displayWait.contains("Arrive Fast", ignoreCase = true) ||
-                                        displayWait.contains("Arrive Soon", ignoreCase = true) ||
-                                        timing?.expectedExactTimeText?.contains("arrive fast", ignoreCase = true) == true ||
-                                        timing?.expectedExactTimeText?.contains("arrive soon", ignoreCase = true) == true ||
-                                        (patientsAhead == 0 && (timing?.estimatedTimeLeftText?.contains("Arrive Fast", ignoreCase = true) == true || timing?.estimatedTimeLeftText?.contains("Arrive Soon", ignoreCase = true) == true)))
                                     val displayWindow = when {
                                         showClinicClosedUI || isNoShow -> "Consultations ended for today"
                                         isLate -> "Report to clinic desk immediately"
                                         isLabClinic && isReportReady -> "Verify below to view report"
                                         isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> "Processing laboratory tests"
                                         isFutureOrTomorrow && !multiSlotResult?.timeWindowText.isNullOrBlank() -> multiSlotResult!!.timeWindowText
-                                        isArriveFast -> "Your turn, arrive soon"
+                                        isArriveFast -> "You're next in line • Please be near the cabin"
                                         timing?.isClinicOnBreak == true && !timing.timeWindowText.isNullOrBlank() -> timing.timeWindowText
                                         timing?.isClinicOnBreak == true && !timing.approxTimeText.isNullOrBlank() -> timing.approxTimeText
+                                        !timing?.estimatedTimeLeftText.isNullOrBlank() && !timing.timeWindowText.isNullOrBlank() -> {
+                                            "${timing.estimatedTimeLeftText} left · window ${timing.timeWindowText}"
+                                        }
                                         !timing?.timeWindowText.isNullOrBlank() -> timing!!.timeWindowText
                                         !timing?.approxTimeText.isNullOrBlank() -> timing!!.approxTimeText
-                                        !timing?.expectedExactTimeText.isNullOrBlank() && timing.expectedExactTimeText != "Soon, be ready" -> "Approx. ${timing.expectedExactTimeText} (±15 min)"
                                         patientsAhead == 0 -> "You're next in line"
                                         else -> "In active queue"
                                     }

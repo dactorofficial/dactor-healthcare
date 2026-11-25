@@ -797,15 +797,18 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
       code10 = await generateGuaranteedUniqueTrackingCode()
     }
 
-    // 3. Deduplication guard against rapid double-taps on poor connections
+    // 3. Deduplication guard against rapid double-taps on poor connections (last 2 minutes)
     if (cleanMobile && appt.clinicId && apptDate && appt.slotId) {
+      const doubleTapWindowStart = new Date(Date.now() - 120 * 1000).toISOString()
       const { data: existingDup } = await supabase
         .from('appointments')
         .select('*, clinic:clinics(*), doctor:doctors(*)')
         .eq('clinic_id', appt.clinicId)
         .eq('slot_id', appt.slotId)
         .eq('patient_mobile', cleanMobile)
+        .eq('patient_name', patientNameClean)
         .eq('appointment_date', apptDate)
+        .gte('created_at', doubleTapWindowStart)
         .maybeSingle()
       if (existingDup) {
         return mapAppointment(existingDup)
@@ -989,7 +992,7 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
       appointment_time: apptTime,
       checkin_status: isPayAtDesk ? 'not_checked_in' : (isWalkin || appt.paymentStatus === 'paid' ? 'checked_in' : 'not_checked_in'),
       payment_status: isPayAtDesk ? 'pending' : normalizePaymentStatus(appt.paymentStatus),
-      payment_mode: isPayAtDesk ? 'PAY_AT_DESK' : 'ONLINE',
+      payment_mode: isPayAtDesk ? 'PAY_AT_DESK' : (appt.paymentMode || (isWalkin || appt.paymentStatus === 'paid' ? (fee > 0 ? 'CASH' : 'FREE') : 'ONLINE')),
       status: isPayAtDesk ? 'WAITING_FOR_APPROVAL' : (isWalkin || appt.paymentStatus === 'paid' ? 'APPROVED' : 'pending_payment'),
       attempt_number: 1,
       service_charge_amount: serviceCharge,
@@ -997,6 +1000,8 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
       fee_amount: fee,
       is_walkin: isWalkin,
       slot_id: appt.slotId || null,
+      notes: appt.notes || null,
+      selected_lab_tests: (appt as any).selectedLabTests || null,
     }
 
     let insertResult = await supabase
@@ -8000,6 +8005,8 @@ export interface LiveQueueDelta {
   is_anyone_inside: boolean
   estimated_wait_minutes: number
   slot_notice: string
+  current_inside_since?: string | null
+  avg_consultation_seconds?: number | null
 }
 
 export async function fetchLiveQueueDelta(codeOrId: string): Promise<LiveQueueDelta | null> {

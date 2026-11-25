@@ -343,27 +343,72 @@ export const QUICK_SPECIALTY_SUGGESTIONS = [
 
 // Facility words found in most clinic names. Matching on them alone lists every
 // "...Clinic" / "...Hospital" when the patient searches for one specific clinic by name.
-const GENERIC_NAME_WORDS = new Set([
+export const GENERIC_NAME_WORDS = new Set([
   'clinic', 'polyclinic', 'hospital', 'health', 'healthcare', 'center', 'centre',
   'care', 'medical', 'pvt', 'ltd', 'and', 'the', 'of',
 ])
 
 /** Query words without generic facility words, unless the query consists only of them. */
-function significantTokens(tokens: string[]): string[] {
+export function significantTokens(tokens: string[]): string[] {
   const specific = tokens.filter((t) => !GENERIC_NAME_WORDS.has(t))
   return specific.length > 0 ? specific : tokens
 }
 
-/** True when `key` starts a word of `text`: "ent" matches "ent doctor" but not "center" or "dental". */
-function containsAtWordStart(text: string, key: string): boolean {
-  return ` ${text}`.includes(` ${key}`)
+/**
+ * Splits text into words using Unicode letter and number boundaries.
+ * Supports Latin, Devanagari / Nepali, and any other Unicode script.
+ */
+export function tokenizeWords(text: string): string[] {
+  if (!text) return []
+  return text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)
 }
 
-/** True when every query word starts a word of the clinic name: "everest lab" -> "Everest Diagnostic Lab". */
-function nameMatchesAllWords(nameLower: string, query: string): boolean {
-  const nameWords = nameLower.split(/[^a-z0-9]+/).filter(Boolean)
-  const queryWords = query.split(/[^a-z0-9]+/).filter(Boolean)
-  return queryWords.length > 0 && queryWords.every((qw) => nameWords.some((w) => w.startsWith(qw)))
+/**
+ * Checks whether `text` contains `target` matching at word boundaries / word starts.
+ * - For multi-word target phrases (e.g. "everest lab", "chest pain"):
+ *   every word in target must match or prefix a word in text.
+ * - For single-word target (e.g. "ent", "ear", "cardio", "dental"):
+ *   at least one word in text must equal or start with target, or if target is longer (>= 3 chars),
+ *   target starts with the word in text (e.g. "cardiology" matching "cardio").
+ *
+ * This strictly prevents substring false positives where:
+ * - "ent" matched "center" or "dental"
+ * - "ear" matched "heart" or "clear"
+ * - "lab" matched "available" or "collaborative"
+ * - "ct" matched "doctor" or "practice"
+ */
+export function matchesWordStart(text: string, target: string): boolean {
+  if (!text || !target) return false
+  const targetWords = tokenizeWords(target)
+  if (targetWords.length === 0) return false
+  const textWords = tokenizeWords(text)
+  if (textWords.length === 0) return false
+
+  if (targetWords.length > 1) {
+    return targetWords.every((tw) =>
+      textWords.some((w) => w.startsWith(tw) || (w.length >= 3 && tw.startsWith(w)))
+    )
+  }
+
+  const tw = targetWords[0]
+  return textWords.some((w) => w.startsWith(tw) || (w.length >= 3 && tw.startsWith(w)))
+}
+
+/** True when `key` starts a word of `text`: "ent" matches "ent doctor" but not "center" or "dental". */
+export function containsAtWordStart(text: string, key: string): boolean {
+  return matchesWordStart(text, key)
+}
+
+/** True when every query word starts a word of the clinic name (supports English & Nepali unicode). */
+export function nameMatchesAllWords(nameLower: string, query: string): boolean {
+  const nameWords = tokenizeWords(nameLower)
+  const queryWords = tokenizeWords(query)
+  return (
+    queryWords.length > 0 &&
+    queryWords.every((qw) =>
+      nameWords.some((w) => w.startsWith(qw) || (w.length >= 3 && qw.startsWith(w)))
+    )
+  )
 }
 
 /**
@@ -478,12 +523,12 @@ export function matchClinic(
   // 1. Specialty or symptom keywords in Clinic Specialties
   for (const cSpec of clinic.specialties || []) {
     const cSpecLower = cSpec.toLowerCase()
-    if (cSpecLower.includes(q)) {
+    if (matchesWordStart(cSpecLower, q)) {
       score += 150
       if (!highlightReason) highlightReason = `Specialty: ${cSpec}`
     } else {
       for (const stem of stemsArray) {
-        if (cSpecLower.includes(stem)) {
+        if (matchesWordStart(cSpecLower, stem)) {
           score += 140
           if (!highlightReason) {
             const sug = suggestedSpecs[0] || cSpec
@@ -507,7 +552,7 @@ export function matchClinic(
     let docMatched = false
 
     // Rank 1: Doctor Specialty exact or symptom stem match
-    if (allDocSpecs.includes(q)) {
+    if (matchesWordStart(allDocSpecs, q)) {
       score += 145
       docMatched = true
       if (!highlightReason) {
@@ -515,7 +560,11 @@ export function matchClinic(
       }
     } else {
       for (const stem of stemsArray) {
-        if (allDocSpecs.includes(stem) || docBioLower.includes(stem) || docEduLower.includes(stem)) {
+        if (
+          matchesWordStart(allDocSpecs, stem) ||
+          matchesWordStart(docBioLower, stem) ||
+          matchesWordStart(docEduLower, stem)
+        ) {
           score += 135
           docMatched = true
           if (!highlightReason) {
@@ -585,7 +634,7 @@ export function matchClinic(
     const srvLower = (srv.serviceName || '').toLowerCase()
     const srvDescLower = (srv.description || '').toLowerCase()
 
-    if (srvLower.includes(q) || (q.length >= 3 && srvDescLower.includes(q))) {
+    if (matchesWordStart(srvLower, q) || (q.length >= 3 && matchesWordStart(srvDescLower, q))) {
       score += isLabClinic ? 115 : 60
       if (!highlightReason) {
         highlightReason = isLabClinic
@@ -594,7 +643,7 @@ export function matchClinic(
       }
     } else {
       for (const stem of stemsArray) {
-        if (srvLower.includes(stem) || (stem.length >= 3 && srvDescLower.includes(stem))) {
+        if (matchesWordStart(srvLower, stem) || (stem.length >= 3 && matchesWordStart(srvDescLower, stem))) {
           score += isLabClinic ? 95 : 50
           if (!highlightReason) {
             highlightReason = isLabClinic
@@ -608,12 +657,12 @@ export function matchClinic(
   }
 
   // 4. Clinic Name (Rank 3)
-  if (clinicNameLower.includes(q)) {
+  if (matchesWordStart(clinicNameLower, q)) {
     score += 95
     if (!highlightReason) highlightReason = `Matched Clinic Name: ${clinic.name}`
   } else {
     for (const stem of stemsArray) {
-      if (clinicNameLower.includes(stem)) {
+      if (matchesWordStart(clinicNameLower, stem)) {
         score += 85
         if (!highlightReason) highlightReason = `Clinic Name Match: ${clinic.name}`
         break
@@ -628,12 +677,12 @@ export function matchClinic(
   }
 
   // 5. Location or Area (Rank 4)
-  if (clinicAddrLower.includes(q)) {
+  if (matchesWordStart(clinicAddrLower, q)) {
     score += 75
     if (!highlightReason) highlightReason = `Matched Location: ${clinic.addressText || clinic.name}`
   } else {
     for (const stem of stemsArray) {
-      if (clinicAddrLower.includes(stem)) {
+      if (matchesWordStart(clinicAddrLower, stem)) {
         score += 65
         if (!highlightReason) highlightReason = `Location Match: ${clinic.addressText || clinic.name}`
         break
@@ -643,11 +692,11 @@ export function matchClinic(
 
   // 6. Fallback: description or type
   for (const stem of stemsArray) {
-    if (clinicDescLower.includes(stem)) {
+    if (matchesWordStart(clinicDescLower, stem)) {
       score += 35
       if (!highlightReason) highlightReason = `Clinic Specialty Match: ${clinic.name}`
     }
-    if (clinicTypeLower.includes(stem)) {
+    if (matchesWordStart(clinicTypeLower, stem)) {
       score += 20
     }
   }

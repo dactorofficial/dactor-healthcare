@@ -86,8 +86,13 @@ appointment was created. Sometimes it failed with "Please select a published OPD
 ### Changes
 | File | Change |
 |---|---|
-| `clinic-app/.../data/repository/AppointmentRepository.kt` | The double-tap check now only matches a booking with the same mobile **and** patient name, same slot and date, **created in the last 2 minutes**. Genuine follow-ups now create a new appointment. |
-| `clinic-app/.../ui/walkin/WalkinBookingScreen.kt` | The follow-up lookup no longer clears the selected slot. The slot loader still re-selects a valid slot when the follow-up's doctor is different. |
+| `clinic-app/.../data/model/Appointment.kt` | Added `notes` field to Appointment model so follow-up consultation reference notes are mapped. |
+| `clinic-app/.../data/repository/AppointmentRepository.kt` | The double-tap check now only matches a booking with the same mobile **and** patient name, same slot and date, **created in the last 2 minutes**. Genuine follow-ups now create a new appointment. Added `payment_mode`, `status`, `total_amount`, `selected_lab_tests`, `notes` to `AppointmentInsertDto` and `createWalkinAppointment`. |
+| `clinic-app/.../ui/walkin/WalkinBookingScreen.kt` | The follow-up lookup no longer clears the selected slot. Added clinic isolation and diagnostic lab check to follow-up code lookup. Sets `notes = Follow-Up Consultation (Ref: #oldCode)`, `status = APPROVED`, `paymentMode = FREE`, and fee 0. |
+| `clinic-app/.../ui/patients/PatientDetailScreen.kt` | Schedule follow-up sets `paymentStatus = "paid"`, `paymentMode = "FREE"`, `status = "APPROVED"`, `totalAmount = 0.0`, and follow-up reference notes. |
+| `clinic-app/.../ui/patients/PatientDirectoryScreen.kt` | Schedule follow-up passes follow-up reference notes and sets `paymentMode = "FREE"`, `paymentStatus = "paid"`. |
+| `web-app/src/services/db.ts` | Aligned deduplication check with 120s window + patient name filter. Included `payment_mode`, `notes`, and `selected_lab_tests` in appointment insert payload. |
+| `web-app/src/pages/ClinicPortal.tsx` | Added clinic isolation and lab check to walk-in follow-up lookup. Passed `paymentMode = FREE`, `status = APPROVED`, `totalAmount = finalFee` in local appointment and offline mutation. |
 
 ---
 

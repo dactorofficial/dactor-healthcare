@@ -46,7 +46,12 @@ data class AppointmentInsertDto(
     @SerialName("appointment_date") val appointmentDate: String,
     @SerialName("appointment_time") val appointmentTime: String,
     @SerialName("fee_amount") val feeAmount: Double = 0.0,
-    @SerialName("is_walkin") val isWalkin: Boolean = false
+    @SerialName("is_walkin") val isWalkin: Boolean = false,
+    @SerialName("payment_mode") val paymentMode: String = "ONLINE",
+    @SerialName("status") val status: String = "APPROVED",
+    @SerialName("total_amount") val totalAmount: Double = 0.0,
+    @SerialName("selected_lab_tests") val selectedLabTests: String? = null,
+    @SerialName("notes") val notes: String? = null
 )
 
 @Serializable
@@ -797,6 +802,12 @@ open class AppointmentRepository @Inject constructor(
             }
 
             val isLab = appointment.selectedLabTests?.isNotBlank() == true || isDiagnosticLabClinic(appointment.clinicId)
+            val effectivePaymentMode = when {
+                appointment.paymentMode.isNotBlank() -> appointment.paymentMode
+                appointment.feeAmount <= 0.0 -> "FREE"
+                else -> "CASH"
+            }
+            val effectiveTotalAmount = if (appointment.totalAmount > 0.0) appointment.totalAmount else appointment.feeAmount
             val insertDto = AppointmentInsertDto(
                 id = apptId,
                 trackingCode10Digit = trackingCode,
@@ -814,7 +825,12 @@ open class AppointmentRepository @Inject constructor(
                 appointmentDate = appointment.appointmentDate,
                 appointmentTime = normalizedTime,
                 feeAmount = appointment.feeAmount,
-                isWalkin = true
+                isWalkin = true,
+                paymentMode = effectivePaymentMode,
+                status = if (appointment.status.isNotBlank()) appointment.status else "APPROVED",
+                totalAmount = effectiveTotalAmount,
+                selectedLabTests = appointment.selectedLabTests,
+                notes = appointment.notes
             )
 
             // Insert appointment (with fallback if userId or slotId FK fails)

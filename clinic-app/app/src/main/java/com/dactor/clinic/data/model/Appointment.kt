@@ -24,6 +24,7 @@ data class Appointment(
     @SerialName("is_walkin") val isWalkin: Boolean = false,
     @SerialName("opt_in_early_call") val optInEarlyCall: Boolean = false,
     @SerialName("selected_lab_tests") val selectedLabTests: String? = null,
+    @SerialName("notes") val notes: String? = null,
     @SerialName("payment_mode") val paymentMode: String = "ONLINE",
     @SerialName("status") val status: String = "APPROVED",
     @SerialName("attempt_number") val attemptNumber: Int = 1,

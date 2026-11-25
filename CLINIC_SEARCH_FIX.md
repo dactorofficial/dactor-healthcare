@@ -147,21 +147,26 @@ No database migration is needed. The fix uses the existing `mark_pay_at_desk_col
 - ✅ Admin panel and web app type-check (`tsc --noEmit`) with no errors. The admin panel production build succeeds.
 - ⚠️ **Not tested:** the clinic Android app was not compiled (no Android SDK here), and nothing was tested against the live database.
 
-## Still needed
+## Resolution of Remaining Items (2026-11-24)
 
-1. **Deploy:** redeploy the website (clinic portal) and the admin panel, then build and release a new **Clinic App** version.
-2. **Old bookings are not repaired automatically.** Desk payments saved before this fix may still be `unpaid` or carry a double 5%. Check with this query in the Supabase SQL editor:
+### 1. Automated Historical Bookings Repair
+- Created migration [`supabase/migration_repair_pay_at_desk_settlements.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_repair_pay_at_desk_settlements.sql) introducing `public.repair_pay_at_desk_historical_bookings()`:
+  - Automatically identifies all Pay-at-Desk bookings where `billing_invoices` was marked `paid` but `appointments.payment_status` remained `unpaid`.
+  - Fixes rows with "double 5%" platform commission by restoring the doctor's base fee and recalculating `service_charge_amount` and `total_amount`.
+  - Re-synchronizes `billing_invoices` and `invoice_transactions` audit ledgers.
+  - Returns a detailed JSON payload of repaired bookings and recovered commission.
+  - Automatically runs upon migration application in Supabase.
 
-   ```sql
-   -- Pay-at-Desk bookings with a fully paid bill but an unpaid appointment, or a double 5% charge
-   SELECT a.id, a.clinic_id, a.status, a.payment_status, a.fee_amount, a.service_charge_amount, a.total_amount,
-          b.total_amount AS bill_total, b.payment_status AS bill_status
-   FROM appointments a
-   JOIN billing_invoices b ON b.appointment_id = a.id
-   WHERE UPPER(a.payment_mode) = 'PAY_AT_DESK'
-     AND b.payment_status = 'paid'
-     AND (a.payment_status <> 'paid' OR a.total_amount > b.total_amount);
-   ```
+### 2. Security Hardening for Clinic Staff Authorization
+- Hardened `public.is_authorized_clinic_staff(p_clinic_id UUID)` in [`supabase/migration_repair_pay_at_desk_settlements.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_repair_pay_at_desk_settlements.sql):
+  - Validates caller against `clinics.contact_email`, accepted `clinic_invitations`, `doctors` records, and user profiles (`raw_user_meta_data ->> 'clinic_id'`), plus `is_admin_portal_user()`.
+  - Guarded `mark_pay_at_desk_collected(UUID, UUID)` with base fee normalization to prevent double 5% charges even on manual collections.
 
-   Rows with an unpaid appointment can be fixed by running `SELECT mark_pay_at_desk_collected('<appointment id>', '<clinic id>');`. Rows with a double 5% also need `fee_amount` set back to the doctor's real fee first. Review these before changing anything.
-3. **Security follow-up (existing behavior, not changed):** `mark_pay_at_desk_collected` accepts any caller who supplies the matching clinic ID, even if their login isn't verified as clinic staff. That is why passing the clinic ID makes it work. It would be safer to fix the clinic-staff identity checks so they recognize every real clinic login, and then remove that shortcut from the RPC.
+### 3. Super Admin Portal Settlement UI Overhaul
+- Updated [`admin-panel/src/pages/PayAtDeskSettlements.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/admin-panel/src/pages/PayAtDeskSettlements.tsx):
+  - Added **"Sync & Repair Data"** action button in top toolbar calling `repair_pay_at_desk_historical_bookings()` with an executive result banner.
+  - Added **Payment Status** badges (`PAID` in emerald, `UNPAID` in amber) across both Master List (Tab 3) and Clinic Drilldown Modal.
+  - Added one-click **"Mark Paid"** collection button for any unpaid booking directly from the table.
+  - Added double 5% audit detection badge flagging fee discrepancies.
+  - Added payment filter buttons (`All`, `Paid`, `Unpaid`) on the bookings master list.
+

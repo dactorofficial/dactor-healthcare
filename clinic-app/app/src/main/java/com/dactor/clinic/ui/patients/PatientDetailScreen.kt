@@ -1142,12 +1142,16 @@ fun PatientDetailScreen(
                                 patientGender = appointment.patientGender,
                                 patientMobile = appointment.patientMobile,
                                 patientEmail = appointment.patientEmail,
-                                paymentStatus = "pending",
+                                paymentStatus = "paid",
+                                paymentMode = "FREE",
                                 checkinStatus = "waiting",
+                                status = "APPROVED",
                                 appointmentDate = followUpDate.trim(),
                                 appointmentTime = followUpTime.trim(),
                                 feeAmount = 0.0, // Follow-up visit: free consultation
-                                isWalkin = true
+                                totalAmount = 0.0,
+                                isWalkin = true,
+                                notes = "Follow-Up Consultation (Ref: #${appointment.trackingCode10Digit})"
                             )
                             val created = appointmentRepository?.createWalkinAppointment(newAppt)
                             if (created != null) {

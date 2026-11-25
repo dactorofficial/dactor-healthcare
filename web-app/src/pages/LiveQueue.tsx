@@ -431,7 +431,10 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           ])
           if (seq !== requestSeqRef.current) return
           const timing = Array.isArray(timingRows) ? timingRows[0] : null
-          setQueueTiming(timing ? { insideSince: timing.current_inside_since ?? null, avgSeconds: timing.avg_consultation_seconds ?? null } : null)
+          setQueueTiming({
+            insideSince: delta?.current_inside_since ?? timing?.current_inside_since ?? null,
+            avgSeconds: delta?.avg_consultation_seconds ?? timing?.avg_consultation_seconds ?? null,
+          })
 
           if (clinicData && (!clinic || clinic.id !== clinicData.id)) setClinic(clinicData)
           if (queueList && queueList.length > 0) setClinicQueue(queueList as any)
@@ -863,20 +866,20 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   const clinicAvgMinutes = queueTiming?.avgSeconds
     ? Math.max(1, Math.round(queueTiming.avgSeconds / 60))
     : (clinic?.avgConsultationTimeMinutes || 10)
-  const insideSinceMs = queueTiming?.insideSince ? Date.parse(queueTiming.insideSince) : NaN
+  const insideSinceStr = liveDelta?.current_inside_since || queueTiming?.insideSince || null
+  const insideSinceMs = insideSinceStr ? Date.parse(insideSinceStr) : NaN
+  const hasAnyoneInside = Boolean(inConsultationPatient || liveDelta?.is_anyone_inside)
   // Remaining time of the patient inside now; an overrun pushes everyone later (minimum 1 min)
-  const currentRemainingMinutes = inConsultationPatient && Number.isFinite(insideSinceMs)
+  const currentRemainingMinutes = hasAnyoneInside && Number.isFinite(insideSinceMs)
     ? Math.max(1, (insideSinceMs + clinicAvgMinutes * 60000 - currentEpochSecond * 1000) / 60000)
-    : null
+    : (hasAnyoneInside ? Math.max(1, clinicAvgMinutes * 0.5) : null)
   const fallbackWaitMinutes = currentRemainingMinutes !== null
     ? Math.max(0, (patientsAhead - 1) * clinicAvgMinutes + currentRemainingMinutes)
     : Math.max(0, patientsAhead * clinicAvgMinutes)
 
   const estimatedWaitMinutes = (isPastAppointment || (clinic?.isOpen === false && isAppointmentToday) || patientsAhead <= 0)
     ? 0
-    : (liveDelta?.estimated_wait_minutes !== undefined && isAppointmentToday
-      ? Math.max(0, liveDelta.estimated_wait_minutes)
-      : Math.round(fallbackWaitMinutes))
+    : Math.round(fallbackWaitMinutes)
 
   const isConsultancyCompleted =
     appointment?.checkinStatus !== 'waiting' &&
@@ -1434,7 +1437,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       } else {
         // Current time is within slot or slot is over: calculate dynamically based on active queue
         finalExpected = dynamicTime
-        waitText = `~${estimatedWaitMinutes} min`
+        const diffMins = Math.max(1, Math.ceil((finalExpected.getTime() - now.getTime()) / 60000))
+        waitText = diffMins > 60 ? `~${Math.round(diffMins / 60)} hr` : `~${diffMins} min`
       }
     }
 
@@ -1447,12 +1451,12 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     return {
       effectiveExpectedTime: finalExpected,
       timeWindowText: isArriveSoon ? 'Immediate' : `${fmt(startWin)} – ${fmt(endWin)}`,
-      approxTimeText: isArriveSoon ? 'Your turn, arrive soon' : `around ${fmt(finalExpected)}`,
+      approxTimeText: isArriveSoon ? 'Your turn, arrive soon' : `Expected at ${fmt(finalExpected)}`,
       suggestedArrivalText: arrivalAdvice,
       slotNoticeText: isArriveSoon ? 'You are at position 1! You are next in line — arrive soon.' : notice,
       displayWaitText: waitText
     }
-  }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, clinic?.isOpen, isNoShow, showClinicClosedUI, isLabClinic, effectiveLabStatus, isSampleCollectedOrFurther, clinic?.weeklyScheduleJson, clinicAvgMinutes, patientsAhead, estimatedWaitMinutes, isFutureOrTomorrow, multiSlotResult, dateLabel, slotStartTimeStr, isAppointmentToday])
+  }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, clinic?.isOpen, isNoShow, showClinicClosedUI, isLabClinic, effectiveLabStatus, isSampleCollectedOrFurther, clinic?.weeklyScheduleJson, clinicAvgMinutes, patientsAhead, estimatedWaitMinutes, isFutureOrTomorrow, multiSlotResult, dateLabel, slotStartTimeStr, isAppointmentToday, currentEpochSecond])
 
   // Formatted expected call time
   const formattedExpectedTime = approxTimeText
@@ -2455,7 +2459,9 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           ? multiSlotResult.approxAppointmentTimeText
                           : isFutureOrTomorrow
                           ? `${slotStartTimeStr} (±15 min)`
-                          : displayWaitText}
+                          : isArriveSoon
+                          ? 'Your turn, arrive soon'
+                          : `Expected at ${effectiveExpectedTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}
                       </div>
                       <span className={`text-[11px] ${showClinicClosedUI ? 'text-rose-700 dark:text-rose-400' : 'text-teal-700 dark:text-teal-400'}`}>
                         {showClinicClosedUI
@@ -2466,7 +2472,9 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           ? `${multiSlotResult.timeWindowText} (±15 min)`
                           : isFutureOrTomorrow
                           ? 'Staggered arrival window'
-                          : `${timeWindowText} (${approxTimeText})`}
+                          : isArriveSoon
+                          ? 'You are next in line • Please be near the cabin'
+                          : `${displayWaitText} left · window ${timeWindowText}`}
                       </span>
                     </div>
                   </div>

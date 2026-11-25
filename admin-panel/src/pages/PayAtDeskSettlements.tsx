@@ -17,7 +17,9 @@ import {
   Calendar,
   Phone,
   MapPin,
-  Info
+  Info,
+  Wrench,
+  AlertTriangle
 } from 'lucide-react'
 
 interface PayAtDeskSettlementsProps {
@@ -127,6 +129,18 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
 
   // Printable Voucher Receipt Modal state
   const [activeVoucherForPrint, setActiveVoucherForPrint] = useState<PlatformSettlement | null>(null)
+
+  // Data Repair & Sync state
+  const [isRepairing, setIsRepairing] = useState(false)
+  const [repairResult, setRepairResult] = useState<{
+    success: boolean
+    repaired_count: number
+    unpaid_fixed: number
+    double_charge_fixed: number
+    total_commission_synced_npr: number
+  } | null>(null)
+  const [payingApptId, setPayingApptId] = useState<string | null>(null)
+  const [bookingsPaymentFilter, setBookingsPaymentFilter] = useState<'ALL' | 'PAID' | 'UNPAID'>('ALL')
 
   useEffect(() => {
     loadAllData()
@@ -543,6 +557,46 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
     }
   }
 
+  // Run automated Pay-at-Desk historical repair RPC
+  const handleRunDataRepair = async () => {
+    if (!window.confirm('Run Pay-at-Desk data audit & repair? This synchronizes counter-collected payments and fixes double 5% calculations.')) {
+      return
+    }
+
+    setIsRepairing(true)
+    try {
+      const { data, error } = await supabase.rpc('repair_pay_at_desk_historical_bookings')
+      if (error) throw error
+      setRepairResult(data)
+      alert(`✓ Desk Repair Complete!\nRepaired ${data?.repaired_count || 0} booking(s)\n${data?.unpaid_fixed || 0} marked collected\n${data?.double_charge_fixed || 0} double 5% charges fixed\nNPR ${(data?.total_commission_synced_npr || 0).toLocaleString()} commission synchronized.`)
+      await loadAllData()
+    } catch (err: any) {
+      console.error('Error running desk repair RPC:', err)
+      alert('Repair attempt returned: ' + (err.message || 'Error executing RPC'))
+    } finally {
+      setIsRepairing(false)
+    }
+  }
+
+  // Mark an individual counter booking collected
+  const handleMarkAppointmentCollected = async (apptId: string, clinicId: string) => {
+    setPayingApptId(apptId)
+    try {
+      const { error } = await supabase.rpc('mark_pay_at_desk_collected', {
+        p_appointment_id: apptId,
+        p_clinic_id: clinicId,
+      })
+      if (error) throw error
+      alert('✓ Desk appointment successfully marked collected & paid!')
+      await loadAllData()
+    } catch (err: any) {
+      console.error('Error collecting desk payment:', err)
+      alert('Failed to mark collected: ' + (err.message || 'Error'))
+    } finally {
+      setPayingApptId(null)
+    }
+  }
+
   // Export clinic overview to CSV
   const handleExportCSV = () => {
     const headers = [
@@ -620,6 +674,16 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
           </button>
 
           <button
+            onClick={handleRunDataRepair}
+            disabled={isRepairing || loading}
+            className="flex items-center gap-2 px-3.5 py-2 bg-indigo-900/60 hover:bg-indigo-800 text-indigo-200 border border-indigo-700/60 rounded-xl text-xs font-semibold transition shadow-sm"
+            title="Scan and repair historical Pay-at-Desk appointments with double 5% charges or un-synced counter collections"
+          >
+            <Wrench className={`w-3.5 h-3.5 ${isRepairing ? 'animate-spin text-amber-400' : 'text-indigo-400'}`} />
+            <span>{isRepairing ? 'Repairing...' : 'Sync & Repair Data'}</span>
+          </button>
+
+          <button
             onClick={handleExportCSV}
             className="flex items-center gap-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition"
           >
@@ -636,6 +700,27 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
           </button>
         </div>
       </div>
+
+      {/* Repair Result Banner */}
+      {repairResult && (
+        <div className="bg-emerald-500/10 border border-emerald-500/30 p-4 rounded-2xl flex items-center justify-between gap-3 text-xs text-emerald-300">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            <div>
+              <span className="font-bold text-white">Desk Data Audit & Repair Complete: </span>
+              <span>
+                Processed {repairResult.repaired_count} bookings ({repairResult.unpaid_fixed} unpaid marked collected, {repairResult.double_charge_fixed} double 5% charges corrected). NPR {repairResult.total_commission_synced_npr.toLocaleString()} platform commission synchronized.
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={() => setRepairResult(null)}
+            className="text-emerald-400 hover:text-white p-1 rounded-lg"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -1138,15 +1223,44 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
               <h3 className="font-bold text-white text-base">Pay at Desk Appointments Across All Clinics</h3>
               <p className="text-slate-400 text-xs">Total: {deskAppointments.length} counter-booked appointments.</p>
             </div>
-            <div className="relative max-w-xs w-full">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search patient, code, or clinic..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none"
-              />
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center bg-slate-900 border border-slate-700 rounded-xl p-0.5">
+                <button
+                  onClick={() => setBookingsPaymentFilter('ALL')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                    bookingsPaymentFilter === 'ALL' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  All ({deskAppointments.length})
+                </button>
+                <button
+                  onClick={() => setBookingsPaymentFilter('PAID')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                    bookingsPaymentFilter === 'PAID' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Paid ({deskAppointments.filter((a) => String(a.payment_status).toLowerCase() === 'paid').length})
+                </button>
+                <button
+                  onClick={() => setBookingsPaymentFilter('UNPAID')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                    bookingsPaymentFilter === 'UNPAID' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Unpaid ({deskAppointments.filter((a) => String(a.payment_status).toLowerCase() !== 'paid').length})
+                </button>
+              </div>
+
+              <div className="relative max-w-xs w-full">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search patient, code, or clinic..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none"
+                />
+              </div>
             </div>
           </div>
 
@@ -1163,19 +1277,23 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
                     <th className="py-3.5 px-3 font-semibold text-right">Fee (NPR)</th>
                     <th className="py-3.5 px-3 font-semibold text-right text-indigo-300">5% Charge</th>
                     <th className="py-3.5 px-3 font-semibold text-right font-bold text-white">Total Bill</th>
-                    <th className="py-3.5 px-3 font-semibold text-center">Status</th>
+                    <th className="py-3.5 px-3 font-semibold text-center">Appt Status</th>
+                    <th className="py-3.5 px-3 font-semibold text-center">Payment</th>
+                    <th className="py-3.5 px-4 font-semibold text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-700/50">
                   {deskAppointments.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-12 text-center text-slate-400">
+                      <td colSpan={11} className="py-12 text-center text-slate-400">
                         No Pay at Desk appointments recorded yet.
                       </td>
                     </tr>
                   ) : (
                     deskAppointments
                       .filter((a) => {
+                        if (bookingsPaymentFilter === 'PAID' && String(a.payment_status).toLowerCase() !== 'paid') return false
+                        if (bookingsPaymentFilter === 'UNPAID' && String(a.payment_status).toLowerCase() === 'paid') return false
                         if (!searchQuery.trim()) return true
                         const q = searchQuery.toLowerCase()
                         return (
@@ -1185,53 +1303,82 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
                           (a.clinic_name && a.clinic_name.toLowerCase().includes(q))
                         )
                       })
-                      .map((appt) => (
-                        <tr key={appt.id} className="hover:bg-slate-750/50 transition">
-                          <td className="py-3 px-4 font-mono font-bold text-amber-400">
-                            {appt.tracking_code_10_digit}
-                          </td>
-                          <td className="py-3 px-4 font-mono text-slate-300">
-                            {appt.appointment_date} {appt.appointment_time}
-                          </td>
-                          <td className="py-3 px-4 font-medium text-white">
-                            {appt.clinic_name}
-                          </td>
-                          <td className="py-3 px-4">
-                            <div className="font-semibold text-slate-200">{appt.patient_name}</div>
-                            {appt.patient_mobile && (
-                              <div className="text-[10px] text-slate-400 font-mono">{appt.patient_mobile}</div>
-                            )}
-                          </td>
-                          <td className="py-3 px-4 text-slate-300">
-                            {appt.doctor_name || 'General Doctor'}
-                            {appt.doctor_specialty && (
-                              <span className="block text-[10px] text-slate-500">{appt.doctor_specialty}</span>
-                            )}
-                          </td>
-                          <td className="py-3 px-3 text-right font-medium text-slate-300">
-                            {appt.fee_amount.toFixed(2)}
-                          </td>
-                          <td className="py-3 px-3 text-right font-semibold text-indigo-400">
-                            {appt.service_charge_amount.toFixed(2)}
-                          </td>
-                          <td className="py-3 px-3 text-right font-bold text-white">
-                            {appt.total_amount.toFixed(2)}
-                          </td>
-                          <td className="py-3 px-3 text-center">
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                appt.status === 'APPROVED' || appt.status === 'COMPLETED'
-                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                  : appt.status === 'WAITING_FOR_APPROVAL'
-                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                  : 'bg-slate-700 text-slate-400'
-                              }`}
-                            >
-                              {appt.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))
+                      .map((appt) => {
+                        const isPaid = String(appt.payment_status).toLowerCase() === 'paid'
+                        return (
+                          <tr key={appt.id} className="hover:bg-slate-750/50 transition">
+                            <td className="py-3 px-4 font-mono font-bold text-amber-400">
+                              {appt.tracking_code_10_digit}
+                            </td>
+                            <td className="py-3 px-4 font-mono text-slate-300">
+                              {appt.appointment_date} {appt.appointment_time}
+                            </td>
+                            <td className="py-3 px-4 font-medium text-white">
+                              {appt.clinic_name}
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="font-semibold text-slate-200">{appt.patient_name}</div>
+                              {appt.patient_mobile && (
+                                <div className="text-[10px] text-slate-400 font-mono">{appt.patient_mobile}</div>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-slate-300">
+                              {appt.doctor_name || 'General Doctor'}
+                              {appt.doctor_specialty && (
+                                <span className="block text-[10px] text-slate-500">{appt.doctor_specialty}</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-3 text-right font-medium text-slate-300">
+                              {appt.fee_amount.toFixed(2)}
+                            </td>
+                            <td className="py-3 px-3 text-right font-semibold text-indigo-400">
+                              {appt.service_charge_amount.toFixed(2)}
+                            </td>
+                            <td className="py-3 px-3 text-right font-bold text-white">
+                              {appt.total_amount.toFixed(2)}
+                            </td>
+                            <td className="py-3 px-3 text-center">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  appt.status === 'APPROVED' || appt.status === 'COMPLETED'
+                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                    : appt.status === 'WAITING_FOR_APPROVAL'
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                    : 'bg-slate-700 text-slate-400'
+                                }`}
+                              >
+                                {appt.status}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 text-center">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  isPaid
+                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                }`}
+                              >
+                                {isPaid ? 'PAID' : 'UNPAID'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              {!isPaid ? (
+                                <button
+                                  onClick={() => handleMarkAppointmentCollected(appt.id, appt.clinic_id)}
+                                  disabled={payingApptId === appt.id}
+                                  className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-[10px] transition disabled:opacity-50"
+                                >
+                                  {payingApptId === appt.id ? 'Marking...' : 'Mark Paid'}
+                                </button>
+                              ) : (
+                                <span className="text-emerald-400 text-[11px] font-medium flex items-center justify-end gap-1">
+                                  <Check className="w-3.5 h-3.5" /> Settled
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })
                   )}
                 </tbody>
               </table>
@@ -1493,7 +1640,9 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
                     <th className="py-2.5 px-3 text-right">Fee (NPR)</th>
                     <th className="py-2.5 px-3 text-right text-indigo-400">5% Charge</th>
                     <th className="py-2.5 px-3 text-right font-bold text-white">Total</th>
-                    <th className="py-2.5 px-3 text-center">Status</th>
+                    <th className="py-2.5 px-3 text-center">Appt Status</th>
+                    <th className="py-2.5 px-3 text-center">Payment</th>
+                    <th className="py-2.5 px-3 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
@@ -1508,43 +1657,78 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
                         a.patient_mobile.includes(q)
                       )
                     })
-                    .map((appt) => (
-                      <tr key={appt.id} className="hover:bg-slate-800/40">
-                        <td className="py-2.5 px-3 font-mono font-bold text-amber-400">
-                          {appt.tracking_code_10_digit}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono text-slate-300">
-                          {appt.appointment_date} {appt.appointment_time}
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span className="font-semibold text-white">{appt.patient_name}</span>
-                          <span className="block text-[10px] text-slate-400 font-mono">{appt.patient_mobile}</span>
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-300">
-                          {appt.doctor_name || 'General Doctor'}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-medium">
-                          {appt.fee_amount.toFixed(2)}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-semibold text-indigo-400">
-                          {appt.service_charge_amount.toFixed(2)}
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-bold text-white">
-                          {appt.total_amount.toFixed(2)}
-                        </td>
-                        <td className="py-2.5 px-3 text-center">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              appt.status === 'APPROVED' || appt.status === 'COMPLETED'
-                                ? 'bg-emerald-500/20 text-emerald-300'
-                                : 'bg-slate-700 text-slate-400'
-                            }`}
-                          >
-                            {appt.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    .map((appt) => {
+                      const isPaid = String(appt.payment_status).toLowerCase() === 'paid'
+                      const isDoubleCharge = appt.fee_amount > 0 && (appt.total_amount > appt.fee_amount * 1.055 || appt.service_charge_amount > appt.fee_amount * 0.055)
+                      return (
+                        <tr key={appt.id} className="hover:bg-slate-800/40">
+                          <td className="py-2.5 px-3 font-mono font-bold text-amber-400">
+                            {appt.tracking_code_10_digit}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-slate-300">
+                            {appt.appointment_date} {appt.appointment_time}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className="font-semibold text-white">{appt.patient_name}</span>
+                            <span className="block text-[10px] text-slate-400 font-mono">{appt.patient_mobile}</span>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-300">
+                            {appt.doctor_name || 'General Doctor'}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-medium">
+                            {appt.fee_amount.toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-semibold text-indigo-400">
+                            {appt.service_charge_amount.toFixed(2)}
+                            {isDoubleCharge && (
+                              <span className="block text-[9px] text-rose-400 font-bold" title="Fee calculation discrepancy detected">
+                                Double 5% Alert
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-bold text-white">
+                            {appt.total_amount.toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                appt.status === 'APPROVED' || appt.status === 'COMPLETED'
+                                  ? 'bg-emerald-500/20 text-emerald-300'
+                                  : 'bg-slate-700 text-slate-400'
+                              }`}
+                            >
+                              {appt.status}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                isPaid
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              }`}
+                            >
+                              {isPaid ? 'PAID' : 'UNPAID'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            {!isPaid ? (
+                              <button
+                                onClick={() => handleMarkAppointmentCollected(appt.id, appt.clinic_id)}
+                                disabled={payingApptId === appt.id}
+                                className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-[10px] transition disabled:opacity-50"
+                              >
+                                {payingApptId === appt.id ? 'Marking...' : 'Mark Paid'}
+                              </button>
+                            ) : (
+                              <span className="text-emerald-400 text-[11px] font-medium flex items-center justify-end gap-1">
+                                <Check className="w-3.5 h-3.5" /> Settled
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
                 </tbody>
               </table>
             </div>

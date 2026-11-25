@@ -427,6 +427,7 @@ Run the install script, which automatically resolves the latest versioned APK:
 | 2026-11-11 | Clinic & Doctor | v1.0.86 | 86 | `APKs/Dactor-ClinicApp-v1.0.86.apk` | Debug APK build: direct 1-tap Pay at Desk confirmation without redundant alert popups, inline progress spinner, loadData scoping alignment, compiled with API 36 / Core Library Desugaring, staged to `APKs/` and local SSD backup (39.81 MB). |
 | 2026-11-12 | Patient | v1.0.38 | 138 | `AABs/Dactor-PatientApp-v1.0.38.aab` | Official Google Play Store production release bundle: signed with production upload key (`dactor-upload`), versionCode 138, versionName 1.0.38 (16.73 MB / 17,540,750 bytes). Fixed `PaymentScreen.kt` declaration ordering for `serviceCharge` and `totalAtDesk` above `handleCancelOrExpireTransaction`, includes Appointments tab filtering/priority sorting and 5% Pay at Desk billing updates, staged to `AABs/`, `APKs/`, `PlayStore/patient-app/`, and SSD backup. |
 | 2026-11-12 | Clinic & Doctor | v1.0.87 | 87 | `AABs/Dactor-ClinicApp-v1.0.87.aab` | Official Google Play Store production release bundle: signed with production upload key (`dactor-upload`), versionCode 87, versionName 1.0.87 (23.28 MB / 24,409,358 bytes). Fixed `QueueBoardScreen.kt` declaration ordering for `handleMarkDoneAction` after `loadQueue()`, disabled incremental Kotlin/KSP (`kotlin.incremental=false`, `ksp.incremental=false`) and serialized AAPT2 daemons (`android.aapt2compiledaemons.max=1`) in `clinic-app/gradle.properties`, includes 5% Pay at Desk billing/invoice updates and 1-tap Pay at Desk confirmation, staged to `AABs/`, `PlayStore/clinic-app/`, and SSD backup. |
+| 2026-11-24 | Clinic & Doctor | v1.0.90 | 90 | `AABs/Dactor-ClinicApp-v1.0.90.aab` | Official Google Play Store production release bundle: signed with production upload key (`dactor-upload`), versionCode 90, versionName 1.0.90 (23.61 MB / 24,754,051 bytes). Built with compileSdk 36, targetSdk 36, Core Library Desugaring, and verified production signing via `build_clinic_bundle.ps1`; staged to `AABs/`, `PlayStore/clinic-app/`, and SSD backup. |
 
 
 ---
@@ -801,7 +802,16 @@ Super Admin required a dedicated portal inside the Super Admin Console (`admin-p
      - Supports voucher reference ID, settlement status (`settled`, `pending`, `waived`), and admin notes.
      - Inserts immutable settlement audit records into `public.platform_commission_settlements` with logged admin email.
    - **Clinic Bookings Drilldown Modal**:
-     - Displays full appointment ledger for selected clinic (10-digit tracking code, patient, doctor, fee, 5% service charge, total amount, approval status, check-in status).
+     - Displays full appointment ledger for selected clinic (10-digit tracking code, patient, doctor, fee, 5% service charge, total amount, approval status, check-in status, and payment status).
+     - Direct one-click **"Mark Paid"** collection action for any unpaid counter appointments.
+     - Automated detection and visual alerts for "Double 5%" fee compounding.
+   - **Historical Data Audit & Repair Engine**:
+     - Integrated **"Sync & Repair Data"** toolbar action calling `public.repair_pay_at_desk_historical_bookings()`.
+     - Automatically scans and repairs uncollected bookings and double 5% calculations across `appointments`, `billing_invoices`, and `invoice_transactions`.
+     - Displays real-time executive repair summary toast banner with recovered commission amounts.
+   - **Master Bookings List (Tab 3)**:
+     - Full cross-clinic search with payment status filtering (`All`, `Paid`, `Unpaid`).
+     - Real-time `Mark Paid` counter resolution directly from table.
    - **Settlement Vouchers Ledger & Printable Receipt**:
      - Historical audit trail of all settlement transactions.
      - Formatted official A4 printable voucher modal with Dactor Healthcare Platform header, breakdown table, authorized clearing officer, and clinic stamp area.
