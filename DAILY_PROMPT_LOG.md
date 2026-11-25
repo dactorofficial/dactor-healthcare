@@ -192,6 +192,22 @@ This file tracks user prompts and the exact changes applied across the codebase,
 5. **Handoff Tracking**:
    - Updated Version Log in [`HANDOFF.md`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/HANDOFF.md).
 
+### Prompt:
+> "generate apk for patient app"
+
+#### Changes Applied:
+1. **Patient App Version Bump**:
+   - Incremented `versionCode` from `139` to `140` and `versionName` from `"1.0.39"` to `"1.0.40"` in [`patient-app/app/build.gradle.kts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/build.gradle.kts) adhering to Mandatory Global Rule 6.
+2. **Syntax & Import Fix in QueueStatusScreen**:
+   - Fixed misplaced import in [`patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt): moved `import java.time.LocalDate` from below `TrackerTimingInputs` to the top of the file.
+3. **Release APK Generation**:
+   - Built production release APK via `./build_apks.ps1 -App Patient -NoBump` signed with official production upload key (`dactor-upload`).
+   - Verified v2 APK Signature Scheme and SHA-1 (`b9ed0f4e...`) and SHA-256 (`716efa2d...`) digests with `apksigner`.
+   - Output APK: [`APKs/Dactor-PatientApp-v1.0.40.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-PatientApp-v1.0.40.apk) (17.20 MB / 18,037,132 bytes).
+   - Staged to `APKs/`, local SSD backup (`C:\Users\dell\Dactor-APKs\`), and mirrored to `G:\My Drive\New folder\APKs\`.
+4. **Handoff Tracking**:
+   - Updated Version Log in [`HANDOFF.md`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/HANDOFF.md).
+
 ---
 
 ## 2026-11-21
