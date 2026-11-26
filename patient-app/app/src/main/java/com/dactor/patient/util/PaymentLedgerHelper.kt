@@ -2,6 +2,7 @@ package com.dactor.patient.util
 
 import com.dactor.patient.data.model.Appointment
 import com.dactor.patient.data.model.BillingInvoice
+import com.dactor.patient.data.model.InvoiceItem
 import com.dactor.patient.data.model.PaymentRecord
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -227,7 +228,14 @@ object PaymentLedgerHelper {
                 } else {
                     item.itemName
                 }
-                allItems.add(item.copy(itemName = taggedName))
+                allItems.add(
+                    InvoiceItem(
+                        itemName = taggedName,
+                        quantity = item.quantity,
+                        price = item.price,
+                        total = item.effectiveTotal
+                    )
+                )
             }
 
             val parsedLogs = parsePaymentRecords(

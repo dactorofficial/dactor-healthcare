@@ -7,6 +7,25 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-25
 
 ### Prompt:
+> "generate patient apk"
+
+#### Changes Applied:
+1. **Patient App Version Bump (`patient-app/app/build.gradle.kts`)**:
+   - Incremented `versionCode` from `142` to `143`.
+   - Incremented `versionName` from `"1.0.42"` to `"1.0.43"`.
+2. **Compilation Fixes in Patient App**:
+   - [`LoginScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/auth/LoginScreen.kt): Added missing `import androidx.compose.ui.layout.positionInParent`.
+   - [`ProfileScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/profile/ProfileScreen.kt): Added missing `import androidx.compose.foundation.rememberScrollState` and `import androidx.compose.foundation.verticalScroll`.
+   - [`PaymentLedgerHelper.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/util/PaymentLedgerHelper.kt): Added `import com.dactor.patient.data.model.InvoiceItem` and replaced `item.copy(itemName = ...)` with explicit constructor invocation `InvoiceItem(itemName = taggedName, quantity = item.quantity, price = item.price, total = item.effectiveTotal)`.
+3. **APK Generation**:
+   - Built Patient App release APK using `./build_apks.ps1 -App Patient`.
+   - Generated signed release APK: [`APKs/Dactor-PatientApp-v1.0.43.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-PatientApp-v1.0.43.apk) (11.25 MB).
+4. **Documentation & Tracking**:
+   - Updated `HANDOFF.md` version registry and table with `v1.0.43 (Code 143)`.
+
+---
+
+### Prompt:
 > "generate clinic apk" / "generate now"
 
 #### Changes Applied:

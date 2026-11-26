@@ -32,7 +32,7 @@ The DACTOR platform consists of three tightly coupled applications operating on 
 |---|---|---|---|---|
 | **Super Admin Console** | React 18 + Vite + TypeScript + Tailwind | `admin-panel/` | [Live Site on GitHub Pages](https://dactorofficial.github.io/admin-portal/) <br> GitHub: `https://github.com/dactorofficial/admin-portal` | v1.0 |
 | **Clinic & Doctor App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `clinic-app/` | `APKs/Dactor-ClinicApp-v1.0.93.apk`<br>`AABs/Dactor-ClinicApp-v1.0.90.aab` | **v1.0.93 (Code 93)** |
-| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.42.apk`<br>`AABs/Dactor-PatientApp-v1.0.41.aab` | **v1.0.42 (Code 142)** |
+| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.43.apk`<br>`AABs/Dactor-PatientApp-v1.0.41.aab` | **v1.0.43 (Code 143)** |
 | **Cloud Backend & Storage** | Supabase (PostgreSQL + Auth + Storage + Realtime) | `supabase/` | Project URL: `https://ojfoofojcpabqegxmsab.supabase.co` | Cloud Live |
 
 ---
@@ -364,6 +364,7 @@ Run the install script, which automatically resolves the latest versioned APK:
 
 | Date | App | Version Name | Version Code | Filename | Key Changes |
 |---|---|---|---|---|---|
+| 2026-11-25 | Patient | v1.0.43 | 143 | `APKs/Dactor-PatientApp-v1.0.43.apk` | Fixed missing layout and scroll imports (`positionInParent`, `verticalScroll`, `rememberScrollState`), resolved `InvoiceItem` constructor parameter mapping in `PaymentLedgerHelper`, assembled signed release APK (11.25 MB). |
 | 2026-10-10 | Clinic & Doctor | v1.0.0 | 1 | `APKs/Dactor-ClinicApp-debug.apk` | Initial debug build (Base) |
 | 2026-10-10 | Patient | v1.0.0 | 1 | `APKs/Dactor-PatientApp-debug.apk` | Initial debug build (Base) |
 | 2026-10-11 | Clinic & Doctor | v1.0.1 | 2 | `APKs/Dactor-ClinicApp-v1.0.1.apk` | Upgraded to AGP 8.5.2, SDK XML v4 support, in-process compilation |
