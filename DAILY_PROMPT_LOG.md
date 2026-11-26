@@ -7,6 +7,16 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-25
 
 ### Prompt:
+> "download through adb"
+
+#### Changes Applied:
+1. **Device Identification**: Detected connected target device via ADB (`Samsung SM_E055F` / Serial: `R9ZY504BE6M`).
+2. **Clean Installation**: Replaced previously installed debug build by performing a clean install of the official production-signed release APK ([`APKs/Dactor-PatientApp-v1.0.42.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-PatientApp-v1.0.42.apk)).
+3. **Verification**: Confirmed via `dumpsys package com.dactor.patient` that `versionCode=142` and `versionName=1.0.42` are active on the device.
+
+---
+
+### Prompt:
 > "generate apk for patient app"
 
 #### Changes Applied:
