@@ -42,6 +42,11 @@ import {
   getEffectiveAppointmentTotal,
 } from '../types'
 import {
+  calculateLiveQueueTimingEstimate,
+  parseSlotStartTime,
+  formatTime12H
+} from '../utils/queueTiming'
+import {
   getAppointmentByTrackingCode,
   getAppointmentByTrackingCodeOrContact,
   getFastDoctorLiveQueue,
@@ -1344,23 +1349,12 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
   // Helper to parse slot start time
   const slotStartDate = useMemo(() => {
-    if (!appointment?.appointmentTime) return null
-    const token = appointment.appointmentTime.split(/[-–]|to/)[0]?.trim()
-    if (!token) return null
-    const m = token.match(/^(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*([APap][Mm]))?/)
-    if (!m) return null
-    let hours = parseInt(m[1], 10)
-    const minutes = parseInt(m[2], 10)
-    const ampm = m[3]?.toUpperCase()
-    if (ampm === 'PM' && hours < 12) hours += 12
-    if (ampm === 'AM' && hours === 12) hours = 0
-    const d = new Date()
-    d.setHours(hours, minutes, 0, 0)
-    return d
+    return parseSlotStartTime(appointment?.appointmentTime)
   }, [appointment?.appointmentTime])
 
   const {
     effectiveExpectedTime,
+    expectedExactTimeText,
     timeWindowText,
     approxTimeText,
     suggestedArrivalText,
@@ -1369,11 +1363,11 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     isArriveSoon
   } = useMemo(() => {
     const now = new Date()
-    const isDoctorFree = isDoctorInClinic && !inConsultationPatient && clinic?.isOnBreak !== true
 
     if (showClinicClosedUI) {
       return {
         effectiveExpectedTime: now,
+        expectedExactTimeText: 'Clinic Closed',
         timeWindowText: 'Clinic Closed',
         approxTimeText: 'Clinic Closed',
         suggestedArrivalText: 'Clinic closed for today',
@@ -1386,6 +1380,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     if (isNoShow) {
       return {
         effectiveExpectedTime: now,
+        expectedExactTimeText: 'No Show',
         timeWindowText: 'No Show',
         approxTimeText: 'Visit Concluded',
         suggestedArrivalText: 'Marked as No-Show',
@@ -1398,6 +1393,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     if (isLabClinic && effectiveLabStatus === 'prepared') {
       return {
         effectiveExpectedTime: now,
+        expectedExactTimeText: 'Report Ready',
         timeWindowText: 'Report Prepared',
         approxTimeText: 'Report Ready',
         suggestedArrivalText: 'Diagnostic Report Ready',
@@ -1410,6 +1406,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     if (isLabClinic && (effectiveLabStatus === 'processing' || isSampleCollectedOrFurther)) {
       return {
         effectiveExpectedTime: now,
+        expectedExactTimeText: 'In Laboratory',
         timeWindowText: 'Sample Processing',
         approxTimeText: 'In Laboratory',
         suggestedArrivalText: 'Sample Collected',
@@ -1424,6 +1421,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       if (multiSlotResult) {
         return {
           effectiveExpectedTime: now,
+          expectedExactTimeText: multiSlotResult.approxAppointmentTimeText,
           timeWindowText: `${multiSlotResult.timeWindowText} (±15 min)`,
           approxTimeText: multiSlotResult.approxAppointmentTimeText,
           suggestedArrivalText: `Scheduled slot for ${multiSlotResult.dateLabel}`,
@@ -1434,6 +1432,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       }
       return {
         effectiveExpectedTime: now,
+        expectedExactTimeText: `${slotStartTimeStr} (±15 min)`,
         timeWindowText: `${slotStartTimeStr} (±15 min)`,
         approxTimeText: `Scheduled for ${dateLabel}`,
         suggestedArrivalText: `Scheduled slot for ${dateLabel}`,
@@ -1443,144 +1442,37 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       }
     }
 
-    let arrivalStr = ''
-    let slotStartFmt = ''
-    if (slotStartDate) {
-      const arr = new Date(slotStartDate.getTime() - 15 * 60000)
-      arrivalStr = arr.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-      slotStartFmt = slotStartDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-    }
-
-    const arrivalAdvice = arrivalStr ? `Please arrive by ${arrivalStr}.` : ''
-    const notice = slotStartDate
-      ? (patientsAhead === 0
-          ? `No one ahead of you. Your slot starts at ${slotStartFmt}. ${arrivalAdvice}`
-          : `${patientsAhead} ${patientsAhead === 1 ? 'person' : 'people'} ahead. Your slot starts at ${slotStartFmt}. ${arrivalAdvice}`)
-      : (patientsAhead === 0
-          ? 'No one ahead of you. You are up next!'
-          : `${patientsAhead} ahead in line. Est. wait: ~${estimatedWaitMinutes} mins`)
-
-    const dynamicTime = new Date(now.getTime() + estimatedWaitMinutes * 60000)
-    const isSlotInFuture = slotStartDate ? now.getTime() < slotStartDate.getTime() : false
-
-    // When clinic is on break, anchor patient #1 to break end time and subsequent patients to break end + (patientsAhead * avgMins)
-    if (clinic?.isOnBreak && isAppointmentToday) {
-      let breakEndHours = 14
-      let breakEndMinutes = 0
-
-      if (clinic?.weeklyScheduleJson) {
-        try {
-          const schedList = JSON.parse(clinic.weeklyScheduleJson)
-          if (Array.isArray(schedList)) {
-            const todayDay = now.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase()
-            const todayItem = schedList.find((s: any) =>
-              String(s.dayOfWeek || s.day || '').toUpperCase().startsWith(todayDay.slice(0, 3))
-            )
-            if (todayItem && todayItem.hasBreak && todayItem.breakEnd) {
-              const m = todayItem.breakEnd.match(/^(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*([APap][Mm]))?/)
-              if (m) {
-                let h = parseInt(m[1], 10)
-                const min = parseInt(m[2], 10)
-                const ampm = m[3]?.toUpperCase()
-                if (ampm === 'PM' && h < 12) h += 12
-                if (ampm === 'AM' && h === 12) h = 0
-                breakEndHours = h
-                breakEndMinutes = min
-              }
-            }
+    // Today's active queue timing estimation using unified queueTiming engine
+    let breakEndStr: string | null = null
+    if (clinic?.weeklyScheduleJson) {
+      try {
+        const schedList = JSON.parse(clinic.weeklyScheduleJson)
+        if (Array.isArray(schedList)) {
+          const todayDay = now.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase()
+          const todayItem = schedList.find((s: any) =>
+            String(s.dayOfWeek || s.day || '').toUpperCase().startsWith(todayDay.slice(0, 3))
+          )
+          if (todayItem && todayItem.hasBreak && todayItem.breakEnd) {
+            breakEndStr = todayItem.breakEnd
           }
-        } catch {}
-      }
-
-      const breakEndDate = new Date()
-      breakEndDate.setHours(breakEndHours, breakEndMinutes, 0, 0)
-
-      // If scheduled break end has already passed today, anchor to now (+ 5 mins buffer)
-      const effectiveBreakEnd = now.getTime() > breakEndDate.getTime()
-        ? new Date(now.getTime() + 5 * 60000)
-        : breakEndDate
-
-      // Stagger from break ending time:
-      // Patient #1 in line gets effectiveBreakEnd
-      // Subsequent patients get effectiveBreakEnd + (patientsAhead * clinicAvgMinutes)
-      const breakStaggered = new Date(effectiveBreakEnd.getTime() + patientsAhead * clinicAvgMinutes * 60000)
-
-      // Respect booked slot start time if it is even later in the day
-      const finalExpected = (slotStartDate && slotStartDate.getTime() > breakStaggered.getTime())
-        ? new Date(slotStartDate.getTime() + patientsAhead * clinicAvgMinutes * 60000)
-        : breakStaggered
-
-      const diffMins = Math.round((finalExpected.getTime() - now.getTime()) / 60000)
-      const waitText = diffMins > 60
-        ? `~${Math.round(diffMins / 60)} hr`
-        : diffMins > 0
-        ? `~${diffMins} min`
-        : 'Resuming shortly'
-
-      const fmt = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-      const startWin = new Date(finalExpected.getTime() - 5 * 60000)
-      const endWin = new Date(finalExpected.getTime() + 10 * 60000)
-
-      const notice = patientsAhead === 0
-        ? `Clinic on break. You are #1 in queue; consultation resumes at ${fmt(effectiveBreakEnd)}.`
-        : `Clinic on break. ${patientsAhead} ${patientsAhead === 1 ? 'person' : 'people'} ahead; consultation resumes around ${fmt(finalExpected)}.`
-
-      return {
-        effectiveExpectedTime: finalExpected,
-        timeWindowText: `${fmt(startWin)} – ${fmt(endWin)}`,
-        approxTimeText: `around ${fmt(finalExpected)}`,
-        suggestedArrivalText: arrivalAdvice,
-        slotNoticeText: notice,
-        displayWaitText: waitText,
-        isArriveSoon: false,
-      }
+        }
+      } catch {}
     }
 
-    let finalExpected: Date
-    let waitText: string
-
-    if (patientsAhead === 0) {
-      if (isSlotInFuture) {
-        finalExpected = slotStartDate || now
-        const diffMins = Math.round((finalExpected.getTime() - now.getTime()) / 60000)
-        waitText = diffMins > 60 ? `Starts at ${slotStartFmt}` : `~${Math.max(0, diffMins)} min`
-      } else {
-        // Position 1 and current time is within slot or slot is over:
-        finalExpected = now
-        waitText = 'Arrive Soon'
-      }
-    } else {
-      // Patient is at position 2, 3, etc. (patientsAhead > 0)
-      if (isSlotInFuture && slotStartDate) {
-        // Stagger patient by (patientsAhead * clinicAvgMinutes) so time is in between the time slot!
-        const slotStaggered = new Date(slotStartDate.getTime() + patientsAhead * clinicAvgMinutes * 60000)
-        finalExpected = dynamicTime.getTime() > slotStaggered.getTime() ? dynamicTime : slotStaggered
-        const diffMins = Math.round((finalExpected.getTime() - now.getTime()) / 60000)
-        waitText = diffMins > 60 ? `~${Math.round(diffMins / 60)} hr` : `~${Math.max(0, diffMins)} min`
-      } else {
-        // Current time is within slot or slot is over: calculate dynamically based on active queue
-        finalExpected = dynamicTime
-        const diffMins = Math.max(1, Math.ceil((finalExpected.getTime() - now.getTime()) / 60000))
-        waitText = diffMins > 60 ? `~${Math.round(diffMins / 60)} hr` : `~${diffMins} min`
-      }
-    }
-
-    const fmt = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-    const startWin = new Date(finalExpected.getTime() - 5 * 60000)
-    const endWin = new Date(finalExpected.getTime() + 10 * 60000)
-
-    const isArriveSoon = waitText === 'Arrive Soon' || waitText === 'Arrive Fast'
-
-    return {
-      effectiveExpectedTime: finalExpected,
-      timeWindowText: isArriveSoon ? 'Immediate' : `${fmt(startWin)} – ${fmt(endWin)}`,
-      approxTimeText: isArriveSoon ? 'Your turn, arrive soon' : `Expected at ${fmt(finalExpected)}`,
-      suggestedArrivalText: arrivalAdvice,
-      slotNoticeText: isArriveSoon ? 'You are at position 1! You are next in line — arrive soon.' : notice,
-      displayWaitText: waitText,
-      isArriveSoon,
-    }
-  }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, clinic?.isOpen, isNoShow, showClinicClosedUI, isLabClinic, effectiveLabStatus, isSampleCollectedOrFurther, clinic?.weeklyScheduleJson, clinicAvgMinutes, patientsAhead, estimatedWaitMinutes, isFutureOrTomorrow, multiSlotResult, dateLabel, slotStartTimeStr, isAppointmentToday, currentEpochSecond])
+    return calculateLiveQueueTimingEstimate({
+      now,
+      appointmentTime: appointment?.appointmentTime,
+      appointmentDate: appointment?.appointmentDate,
+      patientsAhead,
+      avgConsultMinutes: clinicAvgMinutes,
+      isDoctorInClinic,
+      inConsultationSince: inConsultationPatient ? (inConsultationPatient.updatedAt || inConsultationPatient.createdAt) : null,
+      isAnyoneInside: !!inConsultationPatient,
+      isOnBreak: !!(clinic?.isOnBreak && isAppointmentToday),
+      breakEnd: breakEndStr,
+      optInEarlyCall: appointment?.optInEarlyCall,
+    })
+  }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, clinic?.isOpen, isNoShow, showClinicClosedUI, isLabClinic, effectiveLabStatus, isSampleCollectedOrFurther, clinic?.weeklyScheduleJson, clinicAvgMinutes, patientsAhead, estimatedWaitMinutes, isFutureOrTomorrow, multiSlotResult, dateLabel, slotStartTimeStr, isAppointmentToday, currentEpochSecond, appointment?.appointmentTime, appointment?.appointmentDate, appointment?.optInEarlyCall])
 
   // Formatted expected call time
   const formattedExpectedTime = approxTimeText
@@ -2583,9 +2475,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           ? multiSlotResult.approxAppointmentTimeText
                           : isFutureOrTomorrow
                           ? `${slotStartTimeStr} (±15 min)`
-                          : isArriveSoon
-                          ? 'Your turn, arrive soon'
-                          : `Expected at ${effectiveExpectedTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}
+                          : `Expected at ${expectedExactTimeText || formatTime12H(effectiveExpectedTime)}`}
                       </div>
                       <span className={`text-[11px] ${showClinicClosedUI ? 'text-rose-700 dark:text-rose-400' : 'text-teal-700 dark:text-teal-400'}`}>
                         {showClinicClosedUI
@@ -2596,7 +2486,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           ? `${multiSlotResult.timeWindowText} (±15 min)`
                           : isFutureOrTomorrow
                           ? 'Staggered arrival window'
-                          : isArriveSoon
+                          : patientsAhead === 0
                           ? 'You are next in line • Please be near the cabin'
                           : `${displayWaitText} left · window ${timeWindowText}`}
                       </span>

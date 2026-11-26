@@ -18,6 +18,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
@@ -585,6 +586,8 @@ class QueueRepository @Inject constructor(
     }
 
     companion object {
+        val CLINIC_ZONE_ID: ZoneId = ZoneId.of("Asia/Kathmandu")
+
         fun parseTimeString(timeStr: String?): LocalTime? {
             if (timeStr.isNullOrBlank()) return null
             val clean = timeStr.trim().uppercase()
@@ -695,9 +698,10 @@ class QueueRepository @Inject constructor(
             val todaySchedule = clinic?.getTodaySchedule()
             val openLocalTime = ClinicScheduleHelper.parseTimeToLocalTime(todaySchedule?.openTime ?: "08:00 AM")
             val timeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.US)
-            val nowTime = LocalTime.now()
-            val nowInstant = Instant.now()
-            val zoneId = ZoneId.systemDefault()
+            val zoneId = CLINIC_ZONE_ID
+            val nowZoned = ZonedDateTime.now(zoneId)
+            val nowTime = nowZoned.toLocalTime()
+            val nowInstant = nowZoned.toInstant()
 
             // Count ONLY active people. Strictly exclude completed, cancelled and no-show patients.
             val activeEntries = allClinicQueueEntries
@@ -739,13 +743,23 @@ class QueueRepository @Inject constructor(
             val suggestedArrivalStr = slotStartTime?.minusMinutes(15)?.format(timeFormatter) ?: ""
             val arrivalAdvice = if (suggestedArrivalStr.isNotBlank()) "Please arrive by $suggestedArrivalStr." else ""
 
+            val isSlotInFutureRaw = slotStartTime != null && nowTime.isBefore(slotStartTime)
+
             val slotNotice = when {
                 slotStartTime != null && totalPeopleAhead == 0 -> {
-                    "No one ahead of you. Your slot starts at $slotStartStr. $arrivalAdvice".trim()
+                    if (isSlotInFutureRaw) {
+                        "No one ahead of you. Your slot starts at $slotStartStr. $arrivalAdvice".trim()
+                    } else {
+                        "No one ahead of you. You are up next!"
+                    }
                 }
                 slotStartTime != null && totalPeopleAhead > 0 -> {
                     val personWord = if (totalPeopleAhead == 1) "person" else "people"
-                    "$totalPeopleAhead $personWord ahead. Your slot starts at $slotStartStr. $arrivalAdvice".trim()
+                    if (isSlotInFutureRaw) {
+                        "$totalPeopleAhead $personWord ahead. Your slot starts at $slotStartStr. $arrivalAdvice".trim()
+                    } else {
+                        "$totalPeopleAhead $personWord ahead in line. Active consultation underway."
+                    }
                 }
                 totalPeopleAhead == 0 -> "No one ahead of you. You are up next!"
                 else -> "$totalPeopleAhead ${if (totalPeopleAhead == 1) "person" else "people"} ahead in line."
@@ -968,8 +982,8 @@ class QueueRepository @Inject constructor(
                         dynamicExpectedTime = nowTime.plusMinutes((totalPeopleAhead * avgMins).toLong())
                         minsWaitCalc = (totalPeopleAhead * avgMins)
                     } else if (totalPeopleAhead == 0) {
-                        dynamicExpectedTime = nowTime
-                        minsWaitCalc = 0
+                        dynamicExpectedTime = nowTime.plusMinutes(2)
+                        minsWaitCalc = 2
                     } else {
                         val anchorInstant = latestActivityInstant ?: nowInstant
                         val expectedInstant = anchorInstant.plusSeconds(totalPeopleAhead * avgMins * 60L)
@@ -980,7 +994,7 @@ class QueueRepository @Inject constructor(
                 }
             }
 
-            // Apply Rule 2: Dynamic slot-aware queue time calculation
+            // Apply Dynamic slot-aware queue time calculation
             val isFirstPosition = (totalPeopleAhead == 0)
 
             val effectiveExpectedTime: LocalTime
@@ -989,50 +1003,60 @@ class QueueRepository @Inject constructor(
 
             if (isFirstPosition) {
                 if (isSlotInFuture && !canOfferEarly) {
-                    effectiveExpectedTime = slotStartTime ?: nowTime
-                    val diff = java.time.Duration.between(nowTime, effectiveExpectedTime).toMinutes().toInt()
-                    effectiveTimeLeftText = if (diff > 60) {
-                        val hours = diff / 60
-                        val rem = diff % 60
-                        if (rem == 0) "~ $hours hr" else "~ ${hours}h ${rem}m"
-                    } else if (diff > 0) {
-                        "~ $diff min"
-                    } else {
-                        "Starts at $slotStartStr"
+                    // Future slot floor: patient booked for future slot (e.g. 9-10 AM, now is 8:30 AM).
+                    // Floor at slotStartTime, but if prior queue overrun pushed dynamicExpectedTime > slotStartTime, show overrun.
+                    effectiveExpectedTime = if (dynamicExpectedTime.isAfter(slotStartTime)) dynamicExpectedTime else slotStartTime!!
+                    val diffSec = java.time.Duration.between(nowTime, effectiveExpectedTime).seconds
+                    val diffMins = kotlin.math.ceil(diffSec / 60.0).toInt().coerceAtLeast(0)
+                    effectiveTimeLeftText = when {
+                        diffMins > 60 -> {
+                            val hours = diffMins / 60
+                            val rem = diffMins % 60
+                            if (rem == 0) "~ $hours hr" else "~ ${hours}h ${rem}m"
+                        }
+                        diffMins > 0 -> "~ $diffMins min"
+                        else -> "Starts at $slotStartStr"
                     }
-                    effectiveExactTimeText = slotStartStr.ifBlank { effectiveExpectedTime.format(timeFormatter) }
+                    effectiveExactTimeText = effectiveExpectedTime.format(timeFormatter)
                 } else {
-                    // Position 1 and current time is within slot, doctor free early, or slot is over:
-                    // Directly shows "Your turn, arrive fast"
-                    effectiveExpectedTime = nowTime
-                    effectiveTimeLeftText = "Arrive Soon"
-                    effectiveExactTimeText = "Your turn, arrive soon"
+                    // Active or overdue slot (now >= slotStartTime), or early arrival opted-in:
+                    // Doctor free: +2m preparation buffer
+                    // Doctor not in clinic / away: +5m buffer
+                    // Someone inside: dynamicExpectedTime (inside patient end time)
+                    val minForwardTime = when {
+                        insideEntry != null -> dynamicExpectedTime
+                        !isDoctorInClinic -> nowTime.plusMinutes(5)
+                        else -> nowTime.plusMinutes(2)
+                    }
+                    effectiveExpectedTime = if (dynamicExpectedTime.isAfter(minForwardTime)) dynamicExpectedTime else minForwardTime
+                    val diffSec = java.time.Duration.between(nowTime, effectiveExpectedTime).seconds
+                    val diffMins = kotlin.math.ceil(diffSec / 60.0).toInt().coerceAtLeast(1)
+                    effectiveTimeLeftText = if (diffMins <= 2) "Up Next (~2 min)" else "~ $diffMins min"
+                    effectiveExactTimeText = effectiveExpectedTime.format(timeFormatter)
                 }
             } else {
                 // Patient is at position 2, 3, etc. (totalPeopleAhead > 0)
                 if (isSlotInFuture) {
-                    // Stagger patient by (totalPeopleAhead * avgMins) so time is in between the time slot!
+                    // Stagger patient by (totalPeopleAhead * avgMins) so time is within slot
                     val slotStaggered = (slotStartTime ?: nowTime).plusMinutes((totalPeopleAhead * avgMins).toLong())
                     effectiveExpectedTime = if (dynamicExpectedTime.isAfter(slotStaggered)) dynamicExpectedTime else slotStaggered
-                    val diff = java.time.Duration.between(nowTime, effectiveExpectedTime).toMinutes().toInt()
-                    effectiveTimeLeftText = if (diff > 60) {
-                        val hours = diff / 60
-                        val rem = diff % 60
+                    val diffSec = java.time.Duration.between(nowTime, effectiveExpectedTime).seconds
+                    val diffMins = kotlin.math.ceil(diffSec / 60.0).toInt().coerceAtLeast(1)
+                    effectiveTimeLeftText = if (diffMins > 60) {
+                        val hours = diffMins / 60
+                        val rem = diffMins % 60
                         if (rem == 0) "~ $hours hr" else "~ ${hours}h ${rem}m"
-                    } else if (diff > 0) {
-                        "~ $diff min"
                     } else {
-                        "~ ${(totalPeopleAhead * avgMins)} min"
+                        "~ $diffMins min"
                     }
                     effectiveExactTimeText = effectiveExpectedTime.format(timeFormatter)
                 } else {
-                    // Current time is within slot or slot is over: calculate dynamically based on active queue
-                    if (dynamicExpectedTime.isBefore(nowTime)) {
-                        dynamicExpectedTime = nowTime.plusMinutes((totalPeopleAhead * avgMins).toLong())
-                        minsWaitCalc = (totalPeopleAhead * avgMins)
-                    }
-                    effectiveExpectedTime = dynamicExpectedTime
-                    effectiveTimeLeftText = "~ $minsWaitCalc min"
+                    // Overdue or active slot: strictly forward clamp >= now
+                    val minForwardTime = nowTime.plusMinutes((totalPeopleAhead * avgMins).toLong().coerceAtLeast(1))
+                    effectiveExpectedTime = if (dynamicExpectedTime.isAfter(minForwardTime)) dynamicExpectedTime else minForwardTime
+                    val diffSec = java.time.Duration.between(nowTime, effectiveExpectedTime).seconds
+                    val diffMins = kotlin.math.ceil(diffSec / 60.0).toInt().coerceAtLeast(1)
+                    effectiveTimeLeftText = if (diffMins > 60) "~ ${diffMins / 60}h ${diffMins % 60}m" else "~ $diffMins min"
                     effectiveExactTimeText = effectiveExpectedTime.format(timeFormatter)
                 }
             }

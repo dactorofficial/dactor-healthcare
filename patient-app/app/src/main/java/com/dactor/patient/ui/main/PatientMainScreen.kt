@@ -1068,6 +1068,14 @@ fun HomeTab(
 
     var isSearching by remember { mutableStateOf(false) }
 
+    var clockTick15s by remember { mutableStateOf(System.currentTimeMillis() / 15000L) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(15000L)
+            clockTick15s = System.currentTimeMillis() / 15000L
+        }
+    }
+
     LaunchedEffect(searchQuery) {
         if (searchQuery.isNotBlank()) {
             isSearching = true
@@ -6173,7 +6181,7 @@ fun AppointmentsTab(
                     val isMissed = !isConsultationDone && (isNoShowStatus || isPastDate)
 
                     // Calculate live queue timing estimate ONLY for today's appointment
-                    val timingEstimate = remember(clinic, doctor, qEntry, liveAhead, isInClinic, isClinicOnBreak, doctorEntries, isToday) {
+                    val timingEstimate = remember(clinic, doctor, qEntry, liveAhead, isInClinic, isClinicOnBreak, doctorEntries, isToday, clockTick15s) {
                         if (isToday) {
                             QueueRepository.calculateLiveQueueTimingEstimate(
                                 clinic = clinic,
@@ -6887,9 +6895,11 @@ fun AppointmentsTab(
                                                         isLate -> "Arrive Soon"
                                                         isWithDoctor -> "In consultation"
                                                         isClinicOnBreak -> "Clinic on break"
-                                                        timingEstimate.isSoonBeReady || timingEstimate.expectedExactTimeText == "Soon, be ready" -> "Soon, be ready"
                                                         timingEstimate.doctorStatusBanner != null -> timingEstimate.estimatedTimeLeftText
-                                                        liveAhead == 0 -> "Soon, be ready"
+                                                        liveAhead == 0 -> {
+                                                            if (timingEstimate.estimatedTimeLeftText.isNotBlank()) timingEstimate.estimatedTimeLeftText else "Up Next"
+                                                        }
+                                                        timingEstimate.isSoonBeReady || timingEstimate.expectedExactTimeText == "Soon, be ready" -> "Soon, be ready"
                                                         else -> timingEstimate.estimatedTimeLeftText
                                                     },
                                                     fontSize = 11.sp,

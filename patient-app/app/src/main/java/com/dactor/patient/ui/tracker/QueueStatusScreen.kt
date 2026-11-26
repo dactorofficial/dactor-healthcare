@@ -2440,10 +2440,14 @@ fun QueueStatusScreen(
                                 ) {
                                     val timing = liveTimingEstimate
                                     val isArriveFast = !isLate && !isFutureOrTomorrow && (timing?.isClinicOnBreak != true) && (
-                                        patientsAhead == 0 ||
                                         timing?.estimatedTimeLeftText?.contains("Arrive", ignoreCase = true) == true ||
                                         timing?.expectedExactTimeText?.contains("arrive", ignoreCase = true) == true
                                     )
+                                    val hasExactTime = !timing?.expectedExactTimeText.isNullOrBlank() &&
+                                        timing.expectedExactTimeText != "Done" &&
+                                        timing.expectedExactTimeText != "In Consultation" &&
+                                        !timing.expectedExactTimeText.contains("Arrive", ignoreCase = true)
+
                                     val displayWait = when {
                                         showClinicClosedUI || isNoShow -> "Clinic Closed"
                                         isLate -> "Arrive soon, you are late"
@@ -2452,10 +2456,8 @@ fun QueueStatusScreen(
                                         isFutureOrTomorrow && !multiSlotResult?.approxAppointmentTimeText.isNullOrBlank() -> {
                                             multiSlotResult!!.approxAppointmentTimeText
                                         }
+                                        hasExactTime -> "Expected at ${timing.expectedExactTimeText}"
                                         isArriveFast -> "Your turn, arrive soon"
-                                        !timing?.expectedExactTimeText.isNullOrBlank() && timing.expectedExactTimeText != "Done" && timing.expectedExactTimeText != "In Consultation" && !timing.expectedExactTimeText.contains("Arrive", ignoreCase = true) -> {
-                                            "Expected at ${timing.expectedExactTimeText}"
-                                        }
                                         else -> timing?.estimatedTimeLeftText?.takeIf { it.isNotBlank() }
                                             ?: (if (patientsAhead > 0) "~${patientsAhead * clinicAvgTimeMinutes} min" else "< 5 min")
                                     }
@@ -2465,7 +2467,7 @@ fun QueueStatusScreen(
                                         isLabClinic && isReportReady -> "Verify below to view report"
                                         isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> "Processing laboratory tests"
                                         isFutureOrTomorrow && !multiSlotResult?.timeWindowText.isNullOrBlank() -> multiSlotResult!!.timeWindowText
-                                        isArriveFast -> "You're next in line • Please be near the cabin"
+                                        patientsAhead == 0 -> "You're next in line • Please be near the cabin"
                                         timing?.isClinicOnBreak == true && !timing.timeWindowText.isNullOrBlank() -> timing.timeWindowText
                                         timing?.isClinicOnBreak == true && !timing.approxTimeText.isNullOrBlank() -> timing.approxTimeText
                                         !timing?.estimatedTimeLeftText.isNullOrBlank() && !timing.timeWindowText.isNullOrBlank() -> {
@@ -2473,7 +2475,6 @@ fun QueueStatusScreen(
                                         }
                                         !timing?.timeWindowText.isNullOrBlank() -> timing!!.timeWindowText
                                         !timing?.approxTimeText.isNullOrBlank() -> timing!!.approxTimeText
-                                        patientsAhead == 0 -> "You're next in line"
                                         else -> "In active queue"
                                     }
 

@@ -7,6 +7,44 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "/plan why is the expected time a hard coded not dynamic yet for the first patient as well like if the person is the first and the expected time is 6 and if its already 7 it is not supposed to show 6 still solve this make a plan only" & "but you remeber the logic right that if a patient has booked for 9-10 and the current time is in between 8-9 and no patient it will still show time for 9 not the in between time of 8-9"
+
+#### Changes Applied:
+1. **Supabase Database RPC Migration ([`supabase/migration_dynamic_first_patient_queue_timing.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_dynamic_first_patient_queue_timing.sql))**:
+   - Upgraded `get_live_queue_status` RPC with future-slot floor rule (`max(slot_start, dynamic_expected)`) and forward clamp (`max(now + lead, dynamic_expected)`).
+   - Configured lead buffers: `+2m` when doctor is free, `+5m` when doctor is away/break overrun, and `insideEnd` when an active patient is inside cabin.
+   - Formatted `expected_time_str` in Nepal timezone (`Asia/Kathmandu`).
+2. **Patient Mobile App (`patient-app`)**:
+   - [`QueueRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/repository/QueueRepository.kt):
+     - Added `CLINIC_ZONE_ID = ZoneId.of("Asia/Kathmandu")`.
+     - Eliminated static `if (isFirstPosition)` freeze that previously forced `"Your turn, arrive soon"` / `"Immediate"` and suppressed clock times.
+     - Implemented Future Slot Floor: when `nowTime < slotStartTime` (e.g. 8:30 AM for a 9:00 AM slot, `!canOfferEarly`), expected time remains anchored at `>= 9:00 AM` (`~ 30 min`).
+     - Implemented Active/Overdue Forward Clamp: when `nowTime >= slotStartTime` (e.g. at 7:00 PM for 6:00 PM slot), dynamically outputs `7:02 PM` (`"Up Next (~2 min)"`), `7:05 PM` if doctor away, or `7:08 PM` if active patient is inside.
+     - Updated `slotNotice` text so expired slot text like "Your slot starts at 6:00 PM" is not shown after slot time has passed.
+   - [`QueueStatusScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt):
+     - Removed hardcoded `isArriveFast` override for Expected Call card that previously hid `expectedExactTimeText` whenever `patientsAhead == 0`.
+     - Prioritized `hasExactTime` to prominently display `"Expected at ${timing.expectedExactTimeText}"` with `"You're next in line • Please be near the cabin"` subtext.
+   - [`PatientMainScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt):
+     - Added 15-second clock tick (`clockTick15s`) to re-evaluate `timingEstimate` dynamically as wall-clock time passes slot start.
+     - Updated consultation badge to display `timingEstimate.estimatedTimeLeftText` and `"Exp: ${timingEstimate.expectedExactTimeText}"`.
+3. **Clinic & Doctor Mobile App (`clinic-app`)**:
+   - [`QueueRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/QueueRepository.kt):
+     - Added `CLINIC_ZONE_ID = ZoneId.of("Asia/Kathmandu")`.
+     - Mirrored dynamic timing engine eliminating static first-position freeze and enforcing future slot floor and past slot forward clamp.
+4. **Web Portal & Parity Utility (`web-app`)**:
+   - [`queueTiming.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/utils/queueTiming.ts): Created unified queue timing utility with AM/PM-aware slot range parser, future slot floor, and forward clamp.
+   - [`LiveQueue.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/LiveQueue.tsx): Connected live queue tracker to `queueTiming.ts` and updated Expected Window card to show `"Expected at ${expectedExactTimeText}"`.
+   - [`ClinicPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/ClinicPortal.tsx): Updated wait time calculation with dynamic forward clamp for position #1 and subsequent positions.
+5. **Testing & Live Deployment**:
+   - Created test suite [`tests/test_dynamic_queue_timing.cjs`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/tests/test_dynamic_queue_timing.cjs) validating 7 critical invariant cases (all 7 passed).
+   - Rebuilt web app via `npm run build` (`tsc` + `vite build`) in `web-app/dist/`.
+   - Executed live deployment script [`scripts/deploy_ghpages.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/deploy_ghpages.ps1).
+
+---
+
+## 2026-11-26
+
+### Prompt:
 > "implement the sql urself"
 
 #### Changes Applied:

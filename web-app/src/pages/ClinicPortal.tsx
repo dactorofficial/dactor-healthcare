@@ -511,28 +511,31 @@ function calculateLiveQueueTimingEstimate(
       waitStr = remainingMins > 60 ? `Starts at ${slotStartFmt}` : `~${remainingMins} mins`
     } else {
       // Position 1 and current time is within slot or slot is over:
-      finalExpectedTime = now
-      waitStr = 'Arrive Soon'
-      remainingMins = 0
+      const minForwardTime = insidePatient ? dynamicExpectedTime : new Date(now.getTime() + 2 * 60000)
+      finalExpectedTime = dynamicExpectedTime.getTime() > minForwardTime.getTime() ? dynamicExpectedTime : minForwardTime
+      const diffSec = Math.max(0, Math.round((finalExpectedTime.getTime() - now.getTime()) / 1000))
+      remainingMins = Math.max(1, Math.ceil(diffSec / 60))
+      waitStr = remainingMins <= 2 ? 'Up Next (~2 min)' : `~${remainingMins} mins`
     }
   } else {
     // Patient is at position 2, 3, etc. (patientsAhead > 0)
     if (slotStartDate && isSlotInFuture) {
       const slotStaggered = new Date(slotStartDate.getTime() + patientsAhead * avgMins * 60000)
       finalExpectedTime = dynamicExpectedTime.getTime() > slotStaggered.getTime() ? dynamicExpectedTime : slotStaggered
-      remainingMins = Math.max(0, Math.round((finalExpectedTime.getTime() - now.getTime()) / 60000))
+      remainingMins = Math.max(1, Math.ceil((finalExpectedTime.getTime() - now.getTime()) / 60000))
       waitStr = remainingMins > 60 ? `~${Math.round(remainingMins / 60)} hr` : `~${remainingMins} mins`
     } else {
       // Current time is within slot or slot is over: calculate dynamically based on active queue
-      finalExpectedTime = dynamicExpectedTime
-      remainingMins = dynamicWaitMins
-      waitStr = `~${dynamicWaitMins} mins`
+      const minForwardTime = new Date(now.getTime() + patientsAhead * avgMins * 60000)
+      finalExpectedTime = dynamicExpectedTime.getTime() > minForwardTime.getTime() ? dynamicExpectedTime : minForwardTime
+      remainingMins = Math.max(1, Math.ceil((finalExpectedTime.getTime() - now.getTime()) / 60000))
+      waitStr = remainingMins > 60 ? `~${Math.round(remainingMins / 60)} hr` : `~${remainingMins} mins`
     }
   }
 
   const isArriveFast = waitStr === 'Arrive Fast' || waitStr === 'Arrive Soon'
   const windowText = isArriveFast ? 'Immediate' : formatTimeWindow(finalExpectedTime)
-  const approxText = isArriveFast ? 'Your turn, arrive soon' : formatApproxTime(finalExpectedTime)
+  const approxText = formatApproxTime(finalExpectedTime)
 
   const isSoon = patientsAhead === 0 || remainingMins <= 3 || waitStr.includes('Soon') || isArriveFast
 
