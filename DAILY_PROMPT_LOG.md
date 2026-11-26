@@ -7,6 +7,23 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "download through adb"
+
+#### Changes Applied:
+1. **Device Detection**:
+   - Connected ADB target `R9ZY504BE6M` (Samsung SM_E055F) detected and authorized.
+2. **APK Installation**:
+   - Streamed and installed [`APKs/Dactor-ClinicApp-v1.0.94-debug.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-ClinicApp-v1.0.94-debug.apk) via `adb install -r -d -g`.
+3. **On-Device Verification**:
+   - Verified active package version via `dumpsys`: `versionCode=94`, `versionName=1.0.94`.
+4. **App Launch**:
+   - Dispatched launch intent for `com.dactor.clinic/.MainActivity` bringing the freshly installed app to the foreground.
+
+---
+
+## 2026-11-26
+
+### Prompt:
 > "generate debug apk clinic"
 
 #### Changes Applied:
