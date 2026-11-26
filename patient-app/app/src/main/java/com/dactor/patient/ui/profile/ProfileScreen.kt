@@ -510,6 +510,7 @@ fun ProfileScreen(
                             Icon(Icons.Default.Logout, contentDescription = "Sign Out", tint = MaterialTheme.colorScheme.error)
                         }
                     }
+                    com.dactor.patient.ui.components.QuickLanguageButton(compact = true)
                     if (!isArchived && isLoggedIn) {
                         IconButton(onClick = { navController.navigate(NavRoutes.Notifications.route) }) {
                             Icon(Icons.Default.Notifications, contentDescription = "Notifications")

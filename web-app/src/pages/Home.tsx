@@ -42,6 +42,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { matchClinic, matchDoctor } from '../utils/searchEngine'
 import { updatePageSEO } from '../utils/seo'
+import { useLanguage } from '../utils/i18n'
 import dactorLogo from '../assets/logo.svg'
 
 interface HomeProps {
@@ -85,6 +86,7 @@ export const Home: React.FC<HomeProps> = ({
   onOpenTrackerModal,
   onOpenReportModal,
 }) => {
+  const { strings, language } = useLanguage()
   const [trackingCode, setTrackingCode] = useState('')
   const [clinics, setClinics] = useState<Clinic[]>([])
   const [doctors, setDoctors] = useState<Doctor[]>([])
@@ -509,7 +511,7 @@ export const Home: React.FC<HomeProps> = ({
                   type="submit"
                   className="px-5 py-2.5 bg-gradient-to-r from-brand-600 via-sky-600 to-cyan-500 hover:brightness-105 text-white font-black rounded-xl text-xs sm:text-sm transition-all shadow-glass-brand shrink-0 cursor-pointer active:scale-95 flex items-center justify-center gap-1.5"
                 >
-                  <span>Track Live Queue</span>
+                  <span>{strings.trackLiveQueue}</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </form>
@@ -695,7 +697,7 @@ export const Home: React.FC<HomeProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search skin, heart, child, clinic or doctor..."
+            placeholder={strings.searchPlaceholder}
             className="w-full pl-12 pr-10 py-3.5 liquid-glass-input rounded-full text-sm font-semibold text-slate-900 shadow-glass-sm border border-white/80 placeholder:text-slate-400 placeholder:font-normal"
           />
           <Search className="w-5 h-5 text-brand-600 absolute left-4 top-3.5" />
@@ -786,7 +788,7 @@ export const Home: React.FC<HomeProps> = ({
               className="flex items-center space-x-1.5 px-3.5 py-1.5 bg-gradient-to-r from-brand-600 to-cyan-500 text-white rounded-xl text-xs font-bold hover:brightness-105 transition-all cursor-pointer shadow-glass-brand border border-white/30"
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span>Sort</span>
+              <span>{strings.sortFilter}</span>
             </button>
 
             {showSortDropdown && (
@@ -801,7 +803,7 @@ export const Home: React.FC<HomeProps> = ({
                     selectedSort === 'default' ? 'bg-brand-50/90 text-brand-700 font-bold' : 'text-slate-700 hover:bg-white/60'
                   }`}
                 >
-                  Recommended
+                  {strings.sortRecommended}
                 </button>
                 <button
                   type="button"
@@ -813,7 +815,7 @@ export const Home: React.FC<HomeProps> = ({
                     selectedSort === 'in_clinic' ? 'bg-brand-50/90 text-brand-700 font-bold' : 'text-slate-700 hover:bg-white/60'
                   }`}
                 >
-                  🟢 Doctor In Clinic First
+                  {strings.sortInClinicFirst}
                 </button>
                 <button
                   type="button"
@@ -825,7 +827,7 @@ export const Home: React.FC<HomeProps> = ({
                     selectedSort === 'fee_asc' ? 'bg-brand-50/90 text-brand-700 font-bold' : 'text-slate-700 hover:bg-white/60'
                   }`}
                 >
-                  Lowest Fee First
+                  {strings.sortFeeLowHigh}
                 </button>
               </div>
             )}
@@ -847,7 +849,7 @@ export const Home: React.FC<HomeProps> = ({
                 : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
             }`}
           >
-            All Providers
+            {strings.tabAll}
           </button>
           <button
             type="button"
@@ -859,7 +861,7 @@ export const Home: React.FC<HomeProps> = ({
             }`}
           >
             <Stethoscope className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            <span>Specialist Doctors</span>
+            <span>{strings.tabDoctors}</span>
             <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${activeEntityTab === 'doctors' ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-700'}`}>
               {filteredDoctorItems.length}
             </span>
@@ -874,7 +876,7 @@ export const Home: React.FC<HomeProps> = ({
             }`}
           >
             <Building2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            <span>Clinics & Labs</span>
+            <span>{strings.tabClinics}</span>
             <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${activeEntityTab === 'clinics' ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-700'}`}>
               {filteredClinics.length}
             </span>
@@ -1012,12 +1014,12 @@ export const Home: React.FC<HomeProps> = ({
                           {isDocInClinic ? (
                             <span className="inline-flex items-center px-2 py-1 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/80 shadow-xs">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-pulse" />
-                              In Clinic
+                              {strings.inClinic}
                             </span>
                           ) : (
                             <span className="inline-flex items-center px-2 py-1 rounded-full text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200/80">
                               <ShieldCheck className="w-3 h-3 mr-1 text-sky-600" />
-                              Verified
+                              {strings.verified}
                             </span>
                           )}
                         </div>
@@ -1238,7 +1240,7 @@ export const Home: React.FC<HomeProps> = ({
 
                         <span className="inline-flex items-center px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-500 text-white shadow-xs border border-white/30">
                           <ShieldCheck className="w-3 sm:w-3.5 h-3 sm:h-3.5 mr-1" />
-                          Verified
+                          {strings.verified}
                         </span>
                       </div>
 

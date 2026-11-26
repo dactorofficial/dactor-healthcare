@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { App } from './App'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { LanguageProvider } from './utils/i18n'
 import './index.css'
 import { installAccountRestoreHook } from './utils/cacheCleaner'
 import { handOffPaymentReturnToOpener, installPaymentReturnListener } from './utils/paymentWindow'
@@ -22,7 +23,9 @@ if (rootEl && isPaymentWindowReturn) {
   ReactDOM.createRoot(rootEl).render(
     <React.StrictMode>
       <ErrorBoundary>
-        <App />
+        <LanguageProvider>
+          <App />
+        </LanguageProvider>
       </ErrorBoundary>
     </React.StrictMode>
   )

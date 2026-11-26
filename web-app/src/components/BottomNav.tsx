@@ -8,6 +8,7 @@ import {
   Stethoscope,
   Sparkles,
 } from 'lucide-react'
+import { useLanguage } from '../utils/i18n'
 
 interface BottomNavProps {
   activeTab: string
@@ -22,6 +23,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   onOpenTrackerModal,
   authRole,
 }) => {
+  const { strings } = useLanguage()
+
   // Completely hide mobile bottom navigation bar when inside any specific portal
   if (
     [
@@ -48,15 +51,15 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
   // 1:1 Parity with Android App Navigation (PatientMainScreen.kt)
   const navItems: NavItem[] = [
-    { id: 'home', label: 'Home', icon: Home },
-    { id: 'live-queue', label: 'Track / Queue', icon: Activity },
-    { id: 'track-action', label: 'Track', icon: Sparkles, isAction: true },
-    { id: 'records', label: 'Records', icon: FileText },
+    { id: 'home', label: strings.navHome, icon: Home },
+    { id: 'live-queue', label: strings.navTracker, icon: Activity },
+    { id: 'track-action', label: strings.navTracker, icon: Sparkles, isAction: true },
+    { id: 'records', label: strings.navRecords, icon: FileText },
     authRole === 'clinic_manager'
-      ? { id: 'portal', label: 'Clinic', icon: Building2 }
+      ? { id: 'portal', label: strings.clinicCenter, icon: Building2 }
       : authRole === 'doctor'
-      ? { id: 'doctor-portal', label: 'Doctor', icon: Stethoscope }
-      : { id: 'account', label: 'Account', icon: User },
+      ? { id: 'doctor-portal', label: strings.doctorDesk, icon: Stethoscope }
+      : { id: 'account', label: strings.navProfile, icon: User },
   ]
 
   return (

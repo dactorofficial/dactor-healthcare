@@ -305,6 +305,7 @@ fun DiscoveryScreen(
                     }
                 },
                 actions = {
+                    com.dactor.patient.ui.components.QuickLanguageButton(compact = true)
                     IconButton(onClick = { navController.navigate(NavRoutes.Notifications.route) }) {
                         Icon(
                             Icons.Default.Notifications,

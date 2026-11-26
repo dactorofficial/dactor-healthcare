@@ -905,6 +905,9 @@ fun DashboardScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        // Top Right Quick Language Switcher Button (Beside Notifications)
+                        com.dactor.clinic.ui.components.ClinicQuickLanguageButton(compact = false)
+
                         // Top Right Notification Bell Button
                         Surface(
                             shape = CircleShape,

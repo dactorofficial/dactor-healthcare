@@ -158,30 +158,50 @@ class MainActivity : ComponentActivity() {
             }
         }
         setContent {
-            com.dactor.clinic.ui.theme.DactorClinicTheme {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .navigationBarsPadding(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    com.dactor.clinic.ui.components.NetworkConnectivityGate {
-                        com.dactor.clinic.ui.components.AppUpdateGate(appUpdateRepository = appUpdateRepository) {
-                            com.dactor.clinic.ui.components.NotificationPermissionEnforcer()
-                            DactorClinicNavHost(
-                                authRepository = authRepository,
-                                clinicRepository = clinicRepository,
-                                doctorRepository = doctorRepository,
-                                appointmentRepository = appointmentRepository,
-                                queueRepository = queueRepository,
-                                billingRepository = billingRepository,
-                                labReportRepository = labReportRepository,
-                                slotRepository = slotRepository,
-                                invitationRepository = invitationRepository,
-                                draftManager = draftManager,
-                                sessionManager = sessionManager,
-                                patientRepository = patientRepository
-                            )
+            var currentLanguage by androidx.compose.runtime.remember {
+                androidx.compose.runtime.mutableStateOf(
+                    com.dactor.clinic.ui.i18n.ClinicLanguage.fromCode(sessionManager.getAppLanguage())
+                )
+            }
+            val clinicStrings = if (currentLanguage == com.dactor.clinic.ui.i18n.ClinicLanguage.NEPALI) {
+                com.dactor.clinic.ui.i18n.ClinicNepaliStrings
+            } else {
+                com.dactor.clinic.ui.i18n.ClinicEnglishStrings
+            }
+
+            androidx.compose.runtime.CompositionLocalProvider(
+                com.dactor.clinic.ui.i18n.LocalClinicStrings provides clinicStrings,
+                com.dactor.clinic.ui.i18n.LocalClinicLanguage provides currentLanguage,
+                com.dactor.clinic.ui.i18n.LocalUpdateClinicLanguage provides { newLang ->
+                    sessionManager.setAppLanguage(newLang.code)
+                    currentLanguage = newLang
+                }
+            ) {
+                com.dactor.clinic.ui.theme.DactorClinicTheme {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .navigationBarsPadding(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {
+                        com.dactor.clinic.ui.components.NetworkConnectivityGate {
+                            com.dactor.clinic.ui.components.AppUpdateGate(appUpdateRepository = appUpdateRepository) {
+                                com.dactor.clinic.ui.components.NotificationPermissionEnforcer()
+                                DactorClinicNavHost(
+                                    authRepository = authRepository,
+                                    clinicRepository = clinicRepository,
+                                    doctorRepository = doctorRepository,
+                                    appointmentRepository = appointmentRepository,
+                                    queueRepository = queueRepository,
+                                    billingRepository = billingRepository,
+                                    labReportRepository = labReportRepository,
+                                    slotRepository = slotRepository,
+                                    invitationRepository = invitationRepository,
+                                    draftManager = draftManager,
+                                    sessionManager = sessionManager,
+                                    patientRepository = patientRepository
+                                )
+                            }
                         }
                     }
                 }

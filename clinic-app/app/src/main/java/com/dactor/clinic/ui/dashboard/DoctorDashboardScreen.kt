@@ -48,6 +48,7 @@ import com.dactor.clinic.ui.navigation.NavRoutes
 import com.dactor.clinic.ui.queue.DoctorLiveQueueContent
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.material3.TabRowDefaults.SecondaryIndicator
+import com.dactor.clinic.ui.i18n.LocalClinicStrings
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -482,6 +483,9 @@ fun DoctorDashboardScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
+                            // Quick Language Switcher
+                            com.dactor.clinic.ui.components.ClinicQuickLanguageButton(size = 36.dp, compact = false)
+
                             // Notifications
                             Surface(
                                 shape = CircleShape,
@@ -688,7 +692,7 @@ fun DoctorDashboardScreen(
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
                             )
-                            Text("Live Queue", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(LocalClinicStrings.current.liveQueueCardTitle, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
                 )
@@ -705,7 +709,7 @@ fun DoctorDashboardScreen(
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
                             )
-                            Text("Dashboard & Workspace", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(LocalClinicStrings.current.dashboardTitle, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
                 )

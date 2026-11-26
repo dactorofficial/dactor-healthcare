@@ -48,7 +48,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const { language } = useLanguage()
+  const { language, toggleLanguage, strings } = useLanguage()
   const [langModalOpen, setLangModalOpen] = useState(false)
 
   // Explicit landing page navigation handler that avoids auto-redirection loop
@@ -96,20 +96,20 @@ export const Navbar: React.FC<NavbarProps> = ({
   const portalBadge = isInsidePortal
     ? activePortalRole === 'clinic_manager'
       ? {
-          label: 'Clinic Center',
+          label: strings.clinicCenter,
           icon: Building2,
           className:
             'bg-brand-50 text-brand-700 border-brand-200/80 dark:bg-brand-950/50 dark:text-brand-300 dark:border-brand-800',
         }
       : activePortalRole === 'doctor'
       ? {
-          label: 'Doctor Desk',
+          label: strings.doctorDesk,
           icon: Stethoscope,
           className:
             'bg-emerald-50 text-emerald-800 border-emerald-200/80 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800',
         }
       : {
-          label: 'Patient Portal',
+          label: strings.patientPortal,
           icon: User,
           className:
             'bg-sky-50 text-sky-800 border-sky-200/80 dark:bg-sky-950/50 dark:text-sky-300 dark:border-sky-800',
@@ -118,11 +118,11 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   // 1:1 Parity with Android App Navigation (PatientMainScreen.kt)
   const allNavLinks = [
-    { id: 'home', label: 'Home', icon: Home },
-    { id: 'live-queue', label: 'Track / Queue', icon: Activity },
-    { id: 'records', label: 'Records', icon: FileText },
-    { id: 'account', label: 'Account', icon: User },
-    { id: 'clinics', label: 'Find Clinics', icon: Stethoscope },
+    { id: 'home', label: strings.navHome, icon: Home },
+    { id: 'live-queue', label: strings.navTracker, icon: Activity },
+    { id: 'records', label: strings.navRecords, icon: FileText },
+    { id: 'account', label: strings.navProfile, icon: User },
+    { id: 'clinics', label: strings.navClinics, icon: Stethoscope },
   ]
 
   // Strictly remove unassociated portal links from navigation on public pages
@@ -167,7 +167,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 )}
               </div>
               <p className="hidden sm:block text-[11px] font-medium text-slate-500 tracking-tight leading-none">
-                Nepal OPD Queue & Healthcare Ecosystem
+                {strings.brandTagline}
               </p>
             </div>
           </div>
@@ -212,7 +212,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 title="Track live token queue by 10-digit code"
               >
                 <Sparkles className="w-3.5 h-3.5 text-brand-600 animate-pulse" />
-                <span>Track 10-Digit Code</span>
+                <span>{strings.track10DigitCode}</span>
               </button>
             )}
 
@@ -230,11 +230,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </button>
 
-            {/* Tiny Language Switcher Pill */}
+            {/* Direct 1-Tap Language Switcher Pill */}
             <button
-              onClick={() => setLangModalOpen(true)}
+              onClick={() => toggleLanguage()}
               className="flex items-center space-x-1 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:text-brand-600 bg-white/60 hover:bg-white/90 border border-white/60 rounded-xl shadow-glass-sm transition-all duration-150 cursor-pointer backdrop-blur-md active:scale-95"
-              title="Change Language / भाषा परिवर्तन गर्नुहोस्"
+              title={language === 'ne' ? 'Switch to English' : 'नेपालीमा परिवर्तन गर्नुहोस्'}
             >
               <Globe className="w-3.5 h-3.5 text-blue-600" />
               <span className="text-[11px] font-extrabold">{language === 'ne' ? 'नेपाली' : 'EN'}</span>
@@ -381,7 +381,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   title="Open Patient Portal (Appointments, Lab Reports & Bills)"
                 >
                   <User className="w-3.5 h-3.5" />
-                  <span>My Health</span>
+                  <span>{strings.myHealth}</span>
                 </button>
 
                 <button
@@ -394,7 +394,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   title="Open Doctor Consultation Desk"
                 >
                   <Stethoscope className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Doctor Desk</span>
+                  <span>{strings.doctorDesk}</span>
                 </button>
 
                 <button
@@ -407,7 +407,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   title="Open Clinic & Diagnostic Facility Portal"
                 >
                   <Building2 className="w-3.5 h-3.5 text-brand-600" />
-                  <span>Clinic Center</span>
+                  <span>{strings.clinicCenter}</span>
                 </button>
               </div>
             )}
@@ -422,7 +422,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 title="Track live queue"
               >
                 <Sparkles className="w-3.5 h-3.5 text-brand-600 animate-pulse" />
-                <span>Track</span>
+                <span>{strings.navTracker}</span>
               </button>
             )}
 
@@ -439,11 +439,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </button>
 
-            {/* Tiny Language Switcher Pill (Mobile) */}
+            {/* Direct 1-Tap Language Switcher Pill (Mobile) */}
             <button
-              onClick={() => setLangModalOpen(true)}
-              className="p-1.5 px-2 flex items-center space-x-1 text-slate-700 hover:text-brand-600 bg-white/60 border border-white/60 rounded-xl shadow-glass-sm transition-colors cursor-pointer backdrop-blur-md text-xs font-bold"
-              title="Language"
+              onClick={() => toggleLanguage()}
+              className="p-1.5 px-2 flex items-center space-x-1 text-slate-700 hover:text-brand-600 bg-white/60 border border-white/60 rounded-xl shadow-glass-sm transition-colors cursor-pointer backdrop-blur-md text-xs font-bold active:scale-95"
+              title={language === 'ne' ? 'Switch to English' : 'नेपालीमा परिवर्तन गर्नुहोस्'}
             >
               <Globe className="w-3.5 h-3.5 text-blue-600" />
               <span className="text-[10px] font-extrabold">{language === 'ne' ? 'नेपाली' : 'EN'}</span>
