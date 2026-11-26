@@ -48,7 +48,9 @@ import com.dactor.clinic.data.model.Doctor
 import com.dactor.clinic.data.repository.AuthRepository
 import com.dactor.clinic.data.repository.ClinicRepository
 import com.dactor.clinic.data.repository.DoctorRepository
+import com.dactor.clinic.di.AppModule
 import com.dactor.clinic.ui.navigation.NavRoutes
+import io.github.jan.supabase.gotrue.auth
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -328,12 +330,19 @@ fun ClinicLoginScreen(
                         val clinic = clinicRepository?.getClinicByEmail(pending.email)
                         if (clinic != null) {
                             if (clinic.verificationStatus.equals("approved", ignoreCase = true)) {
-                                sessionManager.clearPendingVerification()
-                                clinicRepository?.clearCache()
-                                doctorRepository?.clearCache()
-                                sessionManager.saveClinicSession(clinic.id, clinic.contactEmail ?: pending.email, clinic.name)
-                                navController.navigate("${NavRoutes.Dashboard}/${clinic.id}") {
-                                    popUpTo(NavRoutes.ClinicLogin) { inclusive = true }
+                                val hasActiveAuthSession =
+                                    FirebaseAuth.getInstance().currentUser != null ||
+                                        AppModule.supabaseClient.auth.currentSessionOrNull() != null
+                                if (hasActiveAuthSession) {
+                                    sessionManager.clearPendingVerification()
+                                    clinicRepository?.clearCache()
+                                    doctorRepository?.clearCache()
+                                    sessionManager.saveClinicSession(clinic.id, clinic.contactEmail ?: pending.email, clinic.name)
+                                    navController.navigate("${NavRoutes.Dashboard}/${clinic.id}") {
+                                        popUpTo(NavRoutes.ClinicLogin) { inclusive = true }
+                                    }
+                                } else {
+                                    statusMessage = "Your clinic is approved! Please sign in with Google to continue."
                                 }
                             } else {
                                 pendingEntityName = clinic.name
@@ -597,15 +606,25 @@ fun ClinicLoginScreen(
         googleAccount = account
         val email = account.email ?: ""
         val idToken = account.idToken
-        if (!idToken.isNullOrBlank()) {
+        if (idToken.isNullOrBlank()) {
+            isLoading = false
+            statusMessage = null
+            errorMessage = "Google sign-in did not return an ID token. Please sign in again."
+            return
+        }
+        coroutineScope.launch {
             try {
+                isLoading = true
+                statusMessage = "Verifying Google session..."
                 val credential = GoogleAuthProvider.getCredential(idToken, null)
-                FirebaseAuth.getInstance().signInWithCredential(credential)
+                FirebaseAuth.getInstance().signInWithCredential(credential).await()
+                processLoginForEmail(email, "", account.id)
             } catch (e: Exception) {
-                e.printStackTrace()
+                isLoading = false
+                statusMessage = null
+                errorMessage = "Firebase authentication failed: ${e.message ?: "Please sign in again."}"
             }
         }
-        processLoginForEmail(email, "", account.id)
     }
 
     val accountPickerLauncher = rememberLauncherForActivityResult(
@@ -919,38 +938,20 @@ fun ClinicLoginScreen(
         try {
             googleSignInClient.signOut().addOnCompleteListener {
                 try {
-                    val pickerIntent = AccountPicker.newChooseAccountIntent(
-                        AccountPicker.AccountChooserOptions.Builder()
-                            .setAllowableAccountsTypes(listOf("com.google"))
-                            .build()
-                    )
-                    accountPickerLauncher.launch(pickerIntent)
-                } catch (e: Exception) {
-                    try {
-                        googleSignInLauncher.launch(googleSignInClient.signInIntent)
-                    } catch (e2: Exception) {
-                        isLoading = false
-                        statusMessage = null
-                        errorMessage = "Failed to open account chooser: ${e2.message}"
-                    }
+                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
+                } catch (e2: Exception) {
+                    isLoading = false
+                    statusMessage = null
+                    errorMessage = "Failed to open Google Sign-In: ${e2.message}"
                 }
             }
         } catch (e: Exception) {
             try {
-                val pickerIntent = AccountPicker.newChooseAccountIntent(
-                    AccountPicker.AccountChooserOptions.Builder()
-                        .setAllowableAccountsTypes(listOf("com.google"))
-                        .build()
-                )
-                accountPickerLauncher.launch(pickerIntent)
-            } catch (e2: Exception) {
-                try {
-                    googleSignInLauncher.launch(googleSignInClient.signInIntent)
-                } catch (e3: Exception) {
-                    isLoading = false
-                    statusMessage = null
-                    errorMessage = "Failed to launch account picker: ${e3.message}"
-                }
+                googleSignInLauncher.launch(googleSignInClient.signInIntent)
+            } catch (e3: Exception) {
+                isLoading = false
+                statusMessage = null
+                errorMessage = "Failed to launch Google Sign-In: ${e3.message}"
             }
         }
     }

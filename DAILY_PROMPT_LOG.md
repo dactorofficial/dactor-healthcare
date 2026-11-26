@@ -7,6 +7,23 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-25
 
 ### Prompt:
+> "clinic-payment-signin-fix-plan.md /plan continue"
+
+#### Changes Applied:
+1. **Cryptographic Dual-Auth Edge Function Verification** ([`_shared/callerAuth.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/functions/_shared/callerAuth.ts), [`appointment-payment/index.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/functions/appointment-payment/index.ts), [`document-access/index.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/functions/document-access/index.ts), [`send-fcm-alert/index.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/functions/send-fcm-alert/index.ts)):
+   - Replaced unverified `atob` Firebase JWT decoding and `is_trusted_application_identity` RPC checks with `resolveVerifiedCaller`, verifying Firebase ID tokens cryptographically against Google's `securetoken@system.gserviceaccount.com` JWKS (RS256, `iss`, `aud`, `exp`, `iat`, `auth_time`, `email_verified`) and Supabase JWTs via `service.auth.getUser(token)`.
+   - Added unified `isVerifiedAdmin`, `isVerifiedClinicStaff`, `isVerifiedDoctor`, and `isVerifiedPatientForAppointment` authorization helpers across all three Edge Functions.
+2. **Web App Firebase Token Forwarding & 401 Re-Auth** ([`firebase.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/lib/firebase.ts), [`db.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/services/db.ts), [`ClinicPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/ClinicPortal.tsx)):
+   - Exported `getFirebaseIdToken(forceRefresh)` and added `invokeAuthenticatedEdgeFunction` in `db.ts` to forward Firebase ID tokens (preferring active Supabase session, then Firebase ID token, with a single force-refresh retry on `401`) and extract real Edge Function error messages with `.status`.
+   - Added `gatewayNeedsReauth` state and an inline `"Session expired — Sign in with Google"` recovery action in `ClinicPortal.tsx` without clearing entered gateway fields.
+3. **Clinic App Session Hardening & Gateway Error UX** ([`EdgeFunctionCaller.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/remote/EdgeFunctionCaller.kt), [`ClinicLoginScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/auth/ClinicLoginScreen.kt), [`ClinicSettingsScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/settings/ClinicSettingsScreen.kt)):
+   - Removed the anonymous fallback in `EdgeFunctionCaller.kt` (throws `EdgeFunctionException(401, ...)` when no Firebase or Supabase token is available) and added single `401` retry with `getIdToken(true).await().token`.
+   - Updated `ClinicLoginScreen.kt` to `.await()` `signInWithCredential` (aborting login if `idToken` is blank or Firebase sign-in fails), replaced `AccountPicker` bypasses with `googleSignInLauncher`, and required an active Firebase/Supabase session before auto-resuming approved pending clinics to `Dashboard`.
+   - Added an inline `401` `"Re-authenticate with Google"` banner/action in `ClinicSettingsScreen.kt` under gateway credential setup.
+
+---
+
+### Prompt:
 > "why is the live queue tracker retriving so slow /plan" + "continue"
 
 #### Changes Applied:

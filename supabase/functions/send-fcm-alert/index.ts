@@ -1,4 +1,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  resolveVerifiedCaller,
+  isVerifiedAdmin,
+  isVerifiedClinicStaff,
+  isVerifiedDoctor,
+} from "../_shared/callerAuth.ts";
 
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://dactorofficial.github.io",
@@ -253,34 +259,16 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const authorization = req.headers.get("Authorization") ?? "";
-    if (!/^Bearer\s+\S+$/i.test(authorization)) {
-      return json({ error: "Sign-in required" }, 401, corsHeaders);
-    }
-
-    const tokenPart = authorization.replace(/^Bearer\s+/i, "").trim();
-    const isServiceRole = (tokenPart === serviceKey);
-    const isAnonToken = (tokenPart === anonKey);
-
-    const user = createClient(supabaseUrl, anonKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-      global: { headers: { Authorization: authorization } },
-    });
     const service = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    let isTrustedUser = false;
-    let isAdminUser = isServiceRole;
-
-    if (!isServiceRole && !isAnonToken) {
-      try {
-        const { data: trusted } = await user.rpc("is_trusted_application_identity");
-        if (trusted === true) isTrustedUser = true;
-        const { data: admin } = await user.rpc("is_admin_portal_user");
-        if (admin === true) isAdminUser = true;
-      } catch (_) {}
+    const caller = await resolveVerifiedCaller(req, service, supabaseUrl, anonKey, serviceKey);
+    if (!caller) {
+      return json({ error: "Sign-in required" }, 401, corsHeaders);
     }
+
+    const isAdminUser = await isVerifiedAdmin(caller, service);
 
     const body = await req.json();
     const appointmentId = typeof body?.appointmentId === "string" ? body.appointmentId.trim() : "";
@@ -315,11 +303,8 @@ Deno.serve(async (req) => {
     if (broadcastAll && !appointmentId) {
       let authorized = isAdminUser;
 
-      if (!authorized && clinicId && isTrustedUser) {
-        const { data: staff, error: staffError } = await user.rpc("is_authorized_clinic_staff", {
-          p_clinic_id: clinicId,
-        });
-        if (staff === true && !staffError) authorized = true;
+      if (!authorized && clinicId) {
+        authorized = await isVerifiedClinicStaff(caller, clinicId, service);
       }
 
       if (!authorized && clinicId) {
@@ -419,11 +404,8 @@ Deno.serve(async (req) => {
     // -------------------------------------------------------------------------
     if (clinicId && !appointmentId) {
       let authorized = isAdminUser;
-      if (!authorized && isTrustedUser) {
-        const { data: authStaff } = await user.rpc("is_authorized_clinic_staff", {
-          p_clinic_id: clinicId,
-        });
-        if (authStaff === true) authorized = true;
+      if (!authorized) {
+        authorized = await isVerifiedClinicStaff(caller, clinicId, service);
       }
       if (!authorized) {
         const callerEmail = typeof body?.clinicEmail === "string" ? body.clinicEmail.trim().toLowerCase() : "";
@@ -542,35 +524,11 @@ Deno.serve(async (req) => {
     }
 
     let authorized = isAdminUser;
-    if (!authorized && isTrustedUser) {
-      // Clinic desk (receptionists/managers) retain clinic-wide notification authority across all doctors
-      const { data: authDesk } = await user.rpc("is_authorized_clinic_desk", {
-        p_clinic_id: appointment.clinic_id,
-      });
-      if (authDesk === true) authorized = true;
+    if (!authorized) {
+      authorized = await isVerifiedClinicStaff(caller, appointment.clinic_id, service);
     }
-    if (!authorized && isTrustedUser && effectiveDoctorId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(effectiveDoctorId)) {
-      try {
-        const { data: authDoctorClinic } = await user.rpc("is_authorized_doctor_for_clinic", {
-          p_doctor_id: effectiveDoctorId,
-          p_clinic_id: appointment.clinic_id,
-        });
-        if (authDoctorClinic === true) {
-          authorized = true;
-        } else {
-          const { data: authDoctor } = await user.rpc("is_authorized_doctor", {
-            p_doctor_id: effectiveDoctorId,
-          });
-          if (authDoctor === true) authorized = true;
-        }
-      } catch (_) {
-        try {
-          const { data: authDoctor } = await user.rpc("is_authorized_doctor", {
-            p_doctor_id: effectiveDoctorId,
-          });
-          if (authDoctor === true) authorized = true;
-        } catch (_) {}
-      }
+    if (!authorized && effectiveDoctorId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(effectiveDoctorId)) {
+      authorized = await isVerifiedDoctor(caller, effectiveDoctorId, service);
     }
     if (!authorized) {
       const callerEmail = typeof body?.clinicEmail === "string" ? body.clinicEmail.trim().toLowerCase() : "";

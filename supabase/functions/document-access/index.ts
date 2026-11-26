@@ -1,4 +1,11 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  resolveVerifiedCaller,
+  isVerifiedAdmin,
+  isVerifiedClinicStaff,
+  isVerifiedDoctor,
+  isVerifiedPatientForAppointment,
+} from "../_shared/callerAuth.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -129,45 +136,37 @@ Deno.serve(async (req: Request) => {
         return json({ authorized: false, error: "A valid entityId is required" }, 400, corsHeaders);
       }
 
-      // Caller authentication: verify JWT and check is_trusted_application_identity
-      const authHeader = req.headers.get("Authorization") ?? "";
-      if (!/^Bearer\s+\S+$/i.test(authHeader)) {
-        return json({ authorized: false, error: "Sign-in required" }, 401, corsHeaders);
-      }
+      // Caller authentication: verify Supabase or Firebase RS256 JWT
       const service = createClient(supabaseUrl, serviceRoleKey, {
         auth: { persistSession: false, autoRefreshToken: false },
       });
-      const user = createClient(supabaseUrl, anonKey, {
-        auth: { persistSession: false, autoRefreshToken: false },
-        global: { headers: { Authorization: authHeader } },
-      });
-      const trustedIdentity = await rpcBoolean(user, "is_trusted_application_identity");
-      if (!trustedIdentity) {
+      const caller = await resolveVerifiedCaller(req, service, supabaseUrl, anonKey, serviceRoleKey);
+      if (!caller) {
         return json({ authorized: false, error: "Sign-in required" }, 401, corsHeaders);
       }
-      const isAdmin = await rpcBoolean(user, "is_admin_portal_user");
+      const isAdmin = await isVerifiedAdmin(caller, service);
 
       // Entity ownership checks
       let isAuthorized = isAdmin;
       if (!isAuthorized) {
         if (documentType === "lab_report") {
-          isAuthorized = await rpcBoolean(user, "is_authorized_clinic_staff", { p_clinic_id: entityId });
+          isAuthorized = await isVerifiedClinicStaff(caller, entityId, service);
           if (!isAuthorized) {
             return json({ authorized: false, error: "Not authorized for this clinic" }, 403, corsHeaders);
           }
         } else if (documentType === "doctor_kyc") {
-          const isDoc = await rpcBoolean(user, "is_authorized_doctor", { p_doctor_id: entityId });
+          const isDoc = await isVerifiedDoctor(caller, entityId, service);
           let isClinicStaff = false;
           const { data: doc } = await service.from("doctors").select("clinic_id").eq("id", entityId).maybeSingle();
           if (doc?.clinic_id) {
-            isClinicStaff = await rpcBoolean(user, "is_authorized_clinic_staff", { p_clinic_id: doc.clinic_id });
+            isClinicStaff = await isVerifiedClinicStaff(caller, doc.clinic_id, service);
           }
           isAuthorized = isDoc || isClinicStaff;
           if (!isAuthorized) {
             return json({ authorized: false, error: "Not authorized for this doctor KYC" }, 403, corsHeaders);
           }
         } else if (documentType === "clinic_doc") {
-          isAuthorized = await rpcBoolean(user, "is_authorized_clinic_staff", { p_clinic_id: entityId });
+          isAuthorized = await isVerifiedClinicStaff(caller, entityId, service);
           if (!isAuthorized) {
             return json({ authorized: false, error: "Not authorized for this clinic document" }, 403, corsHeaders);
           }
@@ -254,14 +253,10 @@ Deno.serve(async (req: Request) => {
     const service = createClient(supabaseUrl, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    const user = hasBearer
-      ? createClient(supabaseUrl, anonKey, {
-          auth: { persistSession: false, autoRefreshToken: false },
-          global: { headers: { Authorization: authHeader } },
-        })
+    const caller = hasBearer
+      ? await resolveVerifiedCaller(req, service, supabaseUrl, anonKey, serviceRoleKey)
       : null;
-    const trustedIdentity = user ? await rpcBoolean(user, "is_trusted_application_identity") : false;
-    const isAdmin = trustedIdentity && user ? await rpcBoolean(user, "is_admin_portal_user") : false;
+    const isAdmin = caller ? await isVerifiedAdmin(caller, service) : false;
 
     let bucket = "";
     let storagePath: string | null = null;
@@ -287,29 +282,11 @@ Deno.serve(async (req: Request) => {
       if (!appt) return json({ authorized: false, error: "Document unavailable" }, 404, corsHeaders);
       storagePath = getSafeStoragePath(report.file_url, bucket);
 
-      const apptEmail = typeof appt?.patient_email === "string" ? appt.patient_email.trim().toLowerCase() : "";
-
       if (isAdmin) authorized = true;
-      if (!authorized && trustedIdentity && user) {
-        authorized = await rpcBoolean(user, "is_authorized_clinic_staff", { p_clinic_id: report.clinic_id })
-          || await rpcBoolean(user, "is_current_patient_for_appointment", { p_appointment_id: appt.id });
-      }
-
-      // Check direct Google email match from JWT
-      if (!authorized && apptEmail && hasBearer) {
-        try {
-          const rawToken = authHeader.replace(/^Bearer\s+/i, "").trim();
-          const parts = rawToken.split(".");
-          if (parts.length === 3) {
-            const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-            const decoded = atob(base64);
-            const payload = JSON.parse(decoded);
-            const jwtEmail = typeof payload?.email === "string" ? payload.email.trim().toLowerCase() : "";
-            if (jwtEmail && jwtEmail === apptEmail && trustedIdentity) {
-              authorized = true;
-            }
-          }
-        } catch {}
+      if (!authorized && caller) {
+        authorized =
+          (await isVerifiedClinicStaff(caller, report.clinic_id, service)) ||
+          (await isVerifiedPatientForAppointment(caller, appt.id, service));
       }
 
       // If not authorized by identity, fallback to phone confirmation with rate limiting
@@ -361,20 +338,20 @@ Deno.serve(async (req: Request) => {
       }
     } else if (documentType === "doctor_kyc") {
       bucket = "doctor-kyc-private";
-      if (!documentId || !user || !trustedIdentity) return json({ authorized: false, error: "Unauthorized" }, 403, corsHeaders);
+      if (!documentId || !caller) return json({ authorized: false, error: "Unauthorized" }, 403, corsHeaders);
       const { data: doctor, error } = await service.from("doctors")
         .select(`id,${fileField}`).eq("id", documentId).maybeSingle();
       if (error || !doctor) return json({ authorized: false, error: "Document unavailable" }, 404, corsHeaders);
       storagePath = getSafeStoragePath(doctor[fileField], bucket);
-      authorized = isAdmin || await rpcBoolean(user, "is_authorized_doctor", { p_doctor_id: documentId });
+      authorized = isAdmin || (await isVerifiedDoctor(caller, documentId, service));
     } else {
       bucket = "clinic-docs-private";
-      if (!documentId || !user || !trustedIdentity) return json({ authorized: false, error: "Unauthorized" }, 403, corsHeaders);
+      if (!documentId || !caller) return json({ authorized: false, error: "Unauthorized" }, 403, corsHeaders);
       const { data: clinic, error } = await service.from("clinics")
         .select("id,registration_doc_url").eq("id", documentId).maybeSingle();
       if (error || !clinic) return json({ authorized: false, error: "Document unavailable" }, 404, corsHeaders);
       storagePath = getSafeStoragePath(clinic.registration_doc_url, bucket);
-      authorized = isAdmin || await rpcBoolean(user, "is_authorized_clinic_staff", { p_clinic_id: documentId });
+      authorized = isAdmin || (await isVerifiedClinicStaff(caller, documentId, service));
     }
 
     if (!authorized) return json({ authorized: false, error: "Unauthorized" }, 403, corsHeaders);

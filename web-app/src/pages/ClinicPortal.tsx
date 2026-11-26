@@ -1214,6 +1214,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
   const [gatewaySetupStatus, setGatewaySetupStatus] = useState<ClinicGatewaySetupStatus | null>(null)
   const [savingGatewayOnly, setSavingGatewayOnly] = useState(false)
   const [gatewayStatusMsg, setGatewayStatusMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+  const [gatewayNeedsReauth, setGatewayNeedsReauth] = useState(false)
   const [settingDirectPaymentEnabled, setSettingDirectPaymentEnabled] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
   const [settingsSuccess, setSettingsSuccess] = useState(false)
@@ -4211,10 +4212,38 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     if (!selectedClinic || savingGatewayOnly) return
     setSavingGatewayOnly(true)
     setGatewayStatusMsg(null)
+    setGatewayNeedsReauth(false)
     try {
       await persistActiveGatewayCredentials(selectedClinic.id)
     } catch (err: any) {
-      setGatewayStatusMsg({ type: 'err', text: err?.message || `Could not verify ${settingGatewayProvider.toUpperCase()} keys` })
+      const msg = err?.message || `Could not verify ${settingGatewayProvider.toUpperCase()} keys`
+      const isAuthErr = err?.status === 401 || /sign-in required/i.test(String(msg))
+      setGatewayNeedsReauth(isAuthErr)
+      setGatewayStatusMsg({ type: 'err', text: msg })
+    } finally {
+      setSavingGatewayOnly(false)
+    }
+  }
+
+  const handleReauthForGateway = async () => {
+    if (!selectedClinic || savingGatewayOnly) return
+    setSavingGatewayOnly(true)
+    try {
+      await signInWithFirebaseGoogle('clinic')
+      setGatewayNeedsReauth(false)
+      setGatewayStatusMsg({
+        type: 'ok',
+        text: 'Google session refreshed. Click "Verify & Save" to save your gateway keys.',
+      })
+      try {
+        const status = await getClinicGatewaySetupStatus(selectedClinic.id)
+        setGatewaySetupStatus(status)
+      } catch (_) {}
+    } catch (err: any) {
+      setGatewayStatusMsg({
+        type: 'err',
+        text: err?.message || 'Google re-authentication was cancelled or failed. Please try again.',
+      })
     } finally {
       setSavingGatewayOnly(false)
     }
@@ -11522,13 +11551,23 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
 
                 {gatewayStatusMsg && (
                   <div
-                    className={`p-2.5 rounded-xl text-xs font-semibold ${
+                    className={`p-2.5 rounded-xl text-xs font-semibold flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
                       gatewayStatusMsg.type === 'ok'
                         ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
                         : 'bg-rose-50 border border-rose-200 text-rose-800'
                     }`}
                   >
-                    {gatewayStatusMsg.text}
+                    <span>{gatewayStatusMsg.text}</span>
+                    {gatewayNeedsReauth && gatewayStatusMsg.type === 'err' && (
+                      <button
+                        type="button"
+                        disabled={savingGatewayOnly}
+                        onClick={handleReauthForGateway}
+                        className="shrink-0 px-3 py-1.5 rounded-lg bg-rose-700 hover:bg-rose-800 disabled:opacity-50 text-white text-[11px] font-bold transition cursor-pointer"
+                      >
+                        Session expired — Sign in with Google
+                      </button>
+                    )}
                   </div>
                 )}
 

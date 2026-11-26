@@ -1,4 +1,11 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  resolveVerifiedCaller,
+  isVerifiedAdmin,
+  isVerifiedClinicStaff,
+  isVerifiedPatientForAppointment,
+  type VerifiedCaller,
+} from "../_shared/callerAuth.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -851,59 +858,8 @@ function trustedReturnUrl(value: unknown): URL | null {
   }
 }
 
-function parseBearerToken(req: Request): string | null {
-  const auth = req.headers.get("Authorization") ?? "";
-  if (!/^Bearer\s+\S+$/i.test(auth)) return null;
-  return auth.slice(7).trim();
-}
-
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return null;
-    let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    while (b64.length % 4 !== 0) b64 += "=";
-    const jsonStr = atob(b64);
-    return JSON.parse(jsonStr);
-  } catch {
-    return null;
-  }
-}
-
-function getFirebaseCallerIdentity(req: Request): { email?: string; uid?: string } | null {
-  const token = parseBearerToken(req);
-  if (!token) return null;
-  const payload = decodeJwtPayload(token);
-  if (!payload) return null;
-  const iss = String(payload.iss ?? "");
-  const aud = String(payload.aud ?? "");
-  const exp = Number(payload.exp ?? 0);
-  const nowSec = Math.floor(Date.now() / 1000);
-  if (
-    (iss === "https://securetoken.google.com/dactor-ea1e1" && aud === "dactor-ea1e1") ||
-    (iss.includes("securetoken.google.com") && exp > nowSec)
-  ) {
-    if (exp > nowSec) {
-      return {
-        email: typeof payload.email === "string" ? payload.email.toLowerCase().trim() : undefined,
-        uid: typeof payload.sub === "string" ? payload.sub : undefined,
-      };
-    }
-  }
-  return null;
-}
-
-async function callerClient(req: Request) {
-  const authorization = req.headers.get("Authorization") ?? "";
-  if (!/^Bearer\s+\S+$/i.test(authorization)) return null;
-  const fb = getFirebaseCallerIdentity(req);
-  if (fb) return service;
-  const client = createClient(supabaseUrl, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: authorization } },
-  });
-  const { data, error } = await client.rpc("is_trusted_application_identity");
-  return !error && data === true ? client : null;
+async function getVerifiedCaller(req: Request): Promise<VerifiedCaller | null> {
+  return await resolveVerifiedCaller(req, service, supabaseUrl, anonKey, serviceRoleKey);
 }
 
 function isServiceRoleRequest(req: Request): boolean {
@@ -916,10 +872,9 @@ function isServiceRoleRequest(req: Request): boolean {
 async function authorizeAppointment(req: Request, appointmentId: string, body: Record<string, unknown>) {
   if (!appointmentId || !/^[0-9a-f-]{36}$/i.test(appointmentId)) return false;
 
-  const client = await callerClient(req);
-  if (client) {
-    const { data, error } = await client.rpc("is_current_patient_for_appointment", { p_appointment_id: appointmentId });
-    if (!error && data === true) return true;
+  const caller = await getVerifiedCaller(req);
+  if (caller && (await isVerifiedPatientForAppointment(caller, appointmentId, service))) {
+    return true;
   }
 
   const code = String(body.trackingCode ?? "").trim();
@@ -1425,49 +1380,23 @@ async function syncClinicPublicGatewayFlags(clinicId: string, creds: ClinicCrede
 
 async function authorizeClinicSetupCaller(req: Request, clinicId: string, corsHeaders: Record<string, string>) {
   if (!clinicId || !/^[0-9a-f-]{36}$/i.test(clinicId)) {
-    return { errorResponse: json({ error: "Valid Clinic ID is required" }, 400, corsHeaders), userClient: null };
+    return { errorResponse: json({ error: "Valid Clinic ID is required" }, 400, corsHeaders), userClient: null, caller: null };
   }
 
-  // 1. Check verified Firebase token from Google Sign-In clinic staff
-  const fbIdentity = getFirebaseCallerIdentity(req);
-  if (fbIdentity && fbIdentity.email) {
-    const { data: clinic } = await service.from("clinics")
-      .select("contact_email")
-      .eq("id", clinicId)
-      .maybeSingle();
-    if (clinic && clinic.contact_email && clinic.contact_email.toLowerCase() === fbIdentity.email) {
-      return { errorResponse: null, userClient: service };
-    }
-    const { data: staff } = await service.from("clinic_staff")
-      .select("id")
-      .eq("clinic_id", clinicId)
-      .eq("email", fbIdentity.email)
-      .maybeSingle();
-    if (staff) {
-      return { errorResponse: null, userClient: service };
-    }
-    const { data: adminUser } = await service.from("admin_users")
-      .select("id")
-      .eq("email", fbIdentity.email)
-      .maybeSingle();
-    if (adminUser) {
-      return { errorResponse: null, userClient: service };
-    }
+  const caller = await getVerifiedCaller(req);
+  if (!caller) {
+    return { errorResponse: json({ error: "Clinic sign-in required" }, 401, corsHeaders), userClient: null, caller: null };
   }
 
-  // 2. Check Supabase Auth token
-  const userClient = await callerClient(req);
-  if (!userClient) return { errorResponse: json({ error: "Clinic sign-in required" }, 401, corsHeaders), userClient: null };
-
-  const { data: clinicAuthorized, error: clinicAuthError } = await userClient.rpc("is_authorized_clinic_staff", { p_clinic_id: clinicId });
-  const { data: adminAuthorized, error: adminAuthError } = await userClient.rpc("is_admin_portal_user");
-  if ((clinicAuthError || clinicAuthorized !== true) && (adminAuthError || adminAuthorized !== true)) {
+  const authorized = await isVerifiedClinicStaff(caller, clinicId, service);
+  if (!authorized) {
     return {
       errorResponse: json({ error: "This signed-in clinic account is not authorized to update gateway setup" }, 403, corsHeaders),
       userClient: null,
+      caller: null,
     };
   }
-  return { errorResponse: null, userClient };
+  return { errorResponse: null, userClient: caller.supabaseUserClient ?? service, caller };
 }
 
 async function saveCredentials(req: Request, body: Record<string, unknown>, corsHeaders: Record<string, string>) {
@@ -1995,8 +1924,10 @@ Deno.serve(async (req) => {
       const authCheck = await authorizeClinicSetupCaller(req, clinicId, corsHeaders);
       if (authCheck.errorResponse || !authCheck.userClient) return authCheck.errorResponse!;
 
-      const { data, error } = await authCheck.userClient.rpc("get_clinic_gateway_setup_status", { p_clinic_id: clinicId });
-      if (!error && data) return json({ setup: data, callbackBaseUrl: `${supabaseUrl}/functions/v1/appointment-payment` }, 200, corsHeaders);
+      if (authCheck.caller?.provider === "supabase" && authCheck.caller.supabaseUserClient) {
+        const { data, error } = await authCheck.caller.supabaseUserClient.rpc("get_clinic_gateway_setup_status", { p_clinic_id: clinicId });
+        if (!error && data) return json({ setup: data, callbackBaseUrl: `${supabaseUrl}/functions/v1/appointment-payment` }, 200, corsHeaders);
+      }
 
       // Safe fallback reading non-secret booleans if SQL RPC not yet deployed
       const creds = await getCredentials(clinicId);
@@ -2043,10 +1974,9 @@ Deno.serve(async (req) => {
     }
 
     if (body.action === "admin_get_platform_settings") {
-      const userClient = await callerClient(req);
-      if (!userClient) return json({ error: "Unauthorized: Sign-in required" }, 401, corsHeaders);
-      const { data: isAdmin } = await userClient.rpc("is_admin_portal_user");
-      if (isAdmin !== true) return json({ error: "Unauthorized: Super Admin access required" }, 403, corsHeaders);
+      const caller = await getVerifiedCaller(req);
+      if (!caller) return json({ error: "Unauthorized: Sign-in required" }, 401, corsHeaders);
+      if (!(await isVerifiedAdmin(caller, service))) return json({ error: "Unauthorized: Super Admin access required" }, 403, corsHeaders);
 
       const { data, error } = await service
         .from("platform_payment_settings")
@@ -2058,10 +1988,9 @@ Deno.serve(async (req) => {
     }
 
     if (body.action === "admin_save_platform_settings") {
-      const userClient = await callerClient(req);
-      if (!userClient) return json({ error: "Unauthorized: Sign-in required" }, 401, corsHeaders);
-      const { data: isAdmin } = await userClient.rpc("is_admin_portal_user");
-      if (isAdmin !== true) return json({ error: "Unauthorized: Super Admin access required" }, 403, corsHeaders);
+      const caller = await getVerifiedCaller(req);
+      if (!caller) return json({ error: "Unauthorized: Sign-in required" }, 401, corsHeaders);
+      if (!(await isVerifiedAdmin(caller, service))) return json({ error: "Unauthorized: Super Admin access required" }, 403, corsHeaders);
 
       const patch: Record<string, unknown> = {
         updated_at: new Date().toISOString(),

@@ -40,10 +40,12 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.dactor.clinic.data.local.UserSessionManager
 import com.dactor.clinic.data.model.Clinic
+import com.dactor.clinic.data.remote.EdgeFunctionException
 import com.dactor.clinic.data.repository.ClinicRepository
 import com.dactor.clinic.domain.util.ArchiveDateUtils
 import com.dactor.clinic.ui.legal.ClinicTermsAndConditionsDialog
 import com.dactor.clinic.ui.navigation.NavRoutes
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -101,6 +103,7 @@ fun ClinicSettingsScreen(
     var showSecretKey by remember { mutableStateOf(false) }
     var paymentGatewaysConfig by remember { mutableStateOf(com.dactor.clinic.data.model.PaymentGatewaysConfig()) }
     var isSavingGatewayOnly by remember { mutableStateOf(false) }
+    var gatewayAuthErrorMessage by remember { mutableStateOf<String?>(null) }
 
     // Platform License / Admin Subscription Payment state
     var showSubscriptionPayDialog by remember { mutableStateOf(false) }
@@ -1809,6 +1812,7 @@ fun ClinicSettingsScreen(
                                 onClick = {
                                     if (isSavingGatewayOnly) return@Button
                                     isSavingGatewayOnly = true
+                                    gatewayAuthErrorMessage = null
                                     coroutineScope.launch {
                                         try {
                                             val targetId = loadedClinicId ?: effectiveClinicId
@@ -1847,6 +1851,11 @@ fun ClinicSettingsScreen(
                                                 Toast.LENGTH_LONG
                                             ).show()
                                         } catch (e: Exception) {
+                                            val isAuthError = (e as? EdgeFunctionException)?.status == 401 ||
+                                                (e.message?.contains("sign-in required", ignoreCase = true) == true)
+                                            if (isAuthError) {
+                                                gatewayAuthErrorMessage = e.message ?: "Clinic sign-in required. Please re-authenticate with Google."
+                                            }
                                             Toast.makeText(context, "${e.message ?: "Error saving gateway keys"}", Toast.LENGTH_LONG).show()
                                         } finally {
                                             isSavingGatewayOnly = false
@@ -1869,6 +1878,44 @@ fun ClinicSettingsScreen(
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold
                                 )
+                            }
+                        }
+
+                        if (!gatewayAuthErrorMessage.isNullOrBlank()) {
+                            Spacer(Modifier.height(10.dp))
+                            Surface(
+                                color = Color(0xFFFFF1F2),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, Color(0xFFFECDD3))
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                                    Text(
+                                        text = gatewayAuthErrorMessage ?: "Clinic sign-in required.",
+                                        color = Color(0xFF9F1239),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                    OutlinedButton(
+                                        onClick = {
+                                            gatewayAuthErrorMessage = null
+                                            sessionManager.clearActiveLoginSession()
+                                            runCatching { FirebaseAuth.getInstance().signOut() }
+                                            navController.navigate(NavRoutes.ClinicLogin) {
+                                                popUpTo(0) { inclusive = true }
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = BorderStroke(1.dp, Color(0xFFBE123C))
+                                    ) {
+                                        Text(
+                                            text = "Re-authenticate with Google",
+                                            color = Color(0xFFBE123C),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

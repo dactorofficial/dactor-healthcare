@@ -194,6 +194,20 @@ export async function signInWithFirebaseGoogle(
   throw new Error('Google Sign-In service is initializing. Please tap again in a moment.')
 }
 
+export async function getFirebaseIdToken(forceRefresh = false): Promise<string | null> {
+  try {
+    if (typeof window !== 'undefined') {
+      const user = (window as any).dactorFirebase?.auth?.currentUser
+      if (user && typeof user.getIdToken === 'function') {
+        return await user.getIdToken(forceRefresh)
+      }
+    }
+  } catch (err) {
+    console.warn('Could not retrieve Firebase ID token:', err)
+  }
+  return null
+}
+
 export async function signOutFirebase(): Promise<void> {
   firebaseSignOut()
 }

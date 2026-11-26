@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase'
+import { getFirebaseIdToken } from '../lib/firebase'
 import {
   sanitizeSearchQuery,
   sanitizeUuid,
@@ -6142,16 +6143,68 @@ export async function refreshEsewaPayment(
   return await refreshOnlinePayment(appointmentId, trackingCode, patientPhone)
 }
 
+async function extractEdgeFunctionErrorMessage(error: any, fallback: string): Promise<string> {
+  try {
+    const ctx = error?.context
+    if (ctx && typeof ctx.json === 'function') {
+      const body = await ctx.clone().json().catch(() => null)
+      if (body?.error && typeof body.error === 'string') return body.error
+    }
+  } catch {}
+  return error?.message || fallback
+}
+
+async function invokeAuthenticatedEdgeFunction<T = any>(
+  functionName: string,
+  body: Record<string, any>
+): Promise<{ data: T | null; errorMessage: string | null; status: number | null }> {
+  const getBearerToken = async (forceRefresh: boolean): Promise<{ token: string | null; isFirebase: boolean }> => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.access_token) return { token: session.access_token, isFirebase: false }
+    } catch {}
+    const fbToken = await getFirebaseIdToken(forceRefresh)
+    return { token: fbToken, isFirebase: Boolean(fbToken) }
+  }
+
+  let { token, isFirebase } = await getBearerToken(false)
+  let res = await supabase.functions.invoke(functionName, {
+    body,
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  })
+
+  const status = (res.error as any)?.context?.status ?? null
+  if (res.error && status === 401 && isFirebase) {
+    const refreshed = await getFirebaseIdToken(true)
+    if (refreshed) {
+      res = await supabase.functions.invoke(functionName, {
+        body,
+        headers: { Authorization: `Bearer ${refreshed}` },
+      })
+    }
+  }
+
+  if (res.error) {
+    const errStatus = (res.error as any)?.context?.status ?? status ?? 500
+    const msg = await extractEdgeFunctionErrorMessage(res.error, 'Edge function request failed')
+    return { data: null, errorMessage: msg, status: errStatus }
+  }
+
+  if ((res.data as any)?.error) {
+    return { data: null, errorMessage: String((res.data as any).error), status: 400 }
+  }
+
+  return { data: res.data as T, errorMessage: null, status: 200 }
+}
+
 export async function getClinicGatewaySetupStatus(clinicId: string): Promise<ClinicGatewaySetupStatus | null> {
   if (!clinicId?.trim()) return null
   try {
-    const { data, error } = await supabase.functions.invoke('appointment-payment', {
-      body: {
-        action: 'get_gateway_setup_status',
-        clinicId: clinicId.trim(),
-      },
+    const { data, errorMessage } = await invokeAuthenticatedEdgeFunction<any>('appointment-payment', {
+      action: 'get_gateway_setup_status',
+      clinicId: clinicId.trim(),
     })
-    if (error || !data?.setup) return null
+    if (errorMessage || !data?.setup) return null
     return {
       ...(data.setup as ClinicGatewaySetupStatus),
       callbackBaseUrl: data.callbackBaseUrl,
@@ -6181,15 +6234,15 @@ export async function saveClinicGatewayCredentials(params: {
   pfxBase64?: string
   pfxPassword?: string
 }): Promise<{ saved: boolean; callbackUrl?: string; message?: string }> {
-  const { data, error } = await supabase.functions.invoke('appointment-payment', {
-    body: {
-      action: 'save_credentials',
-      ...params,
-      environment: params.environment || 'test',
-    },
+  const { data, errorMessage, status } = await invokeAuthenticatedEdgeFunction<any>('appointment-payment', {
+    action: 'save_credentials',
+    ...params,
+    environment: params.environment || 'test',
   })
-  if (error || data?.error) {
-    throw new Error(data?.error || error?.message || `Could not save ${params.gateway.toUpperCase()} credentials`)
+  if (errorMessage || !data) {
+    const err: any = new Error(errorMessage || `Could not save ${params.gateway.toUpperCase()} credentials`)
+    if (status) err.status = status
+    throw err
   }
   return data
 }
@@ -6199,24 +6252,25 @@ export async function toggleClinicGateway(params: {
   gateway: OnlineGatewayId
   enabled: boolean
 }): Promise<boolean> {
-  const { data, error } = await supabase.functions.invoke('appointment-payment', {
-    body: {
-      action: 'toggle_gateway',
-      clinicId: params.clinicId,
-      gateway: params.gateway,
-      enabled: params.enabled,
-    },
+  const { errorMessage, status } = await invokeAuthenticatedEdgeFunction<any>('appointment-payment', {
+    action: 'toggle_gateway',
+    clinicId: params.clinicId,
+    gateway: params.gateway,
+    enabled: params.enabled,
   })
-  if (error || data?.error) {
-    throw new Error(data?.error || error?.message || `Could not update ${params.gateway.toUpperCase()} status`)
+  if (errorMessage) {
+    const err: any = new Error(errorMessage || `Could not update ${params.gateway.toUpperCase()} status`)
+    if (status) err.status = status
+    throw err
   }
   return true
 }
 
 export async function reconcileClinicPendingPayments(clinicId: string): Promise<{ checkedCount: number; finalizedCount: number }> {
   try {
-    const { data } = await supabase.functions.invoke('appointment-payment', {
-      body: { action: 'reconcile_pending', clinicId },
+    const { data } = await invokeAuthenticatedEdgeFunction<any>('appointment-payment', {
+      action: 'reconcile_pending',
+      clinicId,
     })
     return {
       checkedCount: Number(data?.checkedCount || 0),

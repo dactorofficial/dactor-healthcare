@@ -34,15 +34,44 @@ class EdgeFunctionException(val status: Int, message: String) : Exception(messag
 object EdgeFunctionCaller {
 
     suspend fun call(client: SupabaseClient, function: String, body: JsonObject): String = withContext(Dispatchers.IO) {
-        val hasSupabaseSession = runCatching { client.auth.currentSessionOrNull() != null }.getOrDefault(false)
-        val firebaseToken = if (hasSupabaseSession) null else runCatching {
-            FirebaseAuth.getInstance().currentUser?.getIdToken(false)?.await()?.token
-        }.getOrNull()
-
-        if (firebaseToken.isNullOrBlank()) {
+        val supabaseToken = runCatching { client.auth.currentSessionOrNull()?.accessToken }.getOrNull()
+        if (!supabaseToken.isNullOrBlank()) {
             return@withContext client.functions.invoke(function = function, body = body).bodyAsText()
         }
 
+        val currentUser = FirebaseAuth.getInstance().currentUser
+            ?: throw EdgeFunctionException(
+                401,
+                "Your clinic sign-in session expired. Please sign out and sign in with Google again."
+            )
+
+        val initialToken = runCatching {
+            currentUser.getIdToken(false).await().token
+        }.getOrNull()
+
+        if (initialToken.isNullOrBlank()) {
+            throw EdgeFunctionException(
+                401,
+                "Your clinic sign-in session expired. Please sign out and sign in with Google again."
+            )
+        }
+
+        try {
+            return@withContext postWithBearer(function, body, initialToken)
+        } catch (ex: EdgeFunctionException) {
+            if (ex.status == 401) {
+                val refreshedToken = runCatching {
+                    currentUser.getIdToken(true).await().token
+                }.getOrNull()
+                if (!refreshedToken.isNullOrBlank() && refreshedToken != initialToken) {
+                    return@withContext postWithBearer(function, body, refreshedToken)
+                }
+            }
+            throw ex
+        }
+    }
+
+    private fun postWithBearer(function: String, body: JsonObject, bearerToken: String): String {
         val connection = (URL("${AppModule.SUPABASE_URL}/functions/v1/$function").openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             doOutput = true
@@ -50,7 +79,7 @@ object EdgeFunctionCaller {
             readTimeout = 45_000
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("apikey", AppModule.SUPABASE_ANON_KEY)
-            setRequestProperty("Authorization", "Bearer $firebaseToken")
+            setRequestProperty("Authorization", "Bearer $bearerToken")
         }
         try {
             connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
@@ -58,7 +87,7 @@ object EdgeFunctionCaller {
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
             if (status !in 200..299) throw EdgeFunctionException(status, serverError(text) ?: "Server error ($status)")
-            text
+            return text
         } finally {
             connection.disconnect()
         }
