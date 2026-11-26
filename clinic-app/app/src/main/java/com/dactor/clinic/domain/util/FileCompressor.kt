@@ -7,14 +7,17 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.pdf.PdfRenderer
+import android.media.ExifInterface
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.Locale
@@ -51,9 +54,15 @@ data class CompressedFileResult(
 object FileCompressor {
 
     const val MAX_FILE_SIZE_BYTES = 300 * 1024 // 300 KB strict ceiling for general documents
-    const val LAB_REPORT_MAX_BYTES = 100 * 1024 // 100 KB strict ceiling for diagnostic lab & X-ray reports
+    const val LAB_REPORT_MAX_BYTES = 100 * 1024 // 100 KB base ceiling per picture for diagnostic lab & X-ray reports
+    const val MAX_UPLOAD_CAP_BYTES = 10 * 1024 * 1024 // 10 MB absolute maximum storage cap
     private const val PREFERRED_TARGET_BYTES = 220 * 1024 // 220 KB preferred target
     private const val MAX_INITIAL_DIMENSION = 1440
+
+    fun calculateLabReportBudgetBytes(pageCount: Int): Int {
+        val safePages = pageCount.coerceAtLeast(1).toLong()
+        return (safePages * LAB_REPORT_MAX_BYTES).coerceAtMost(MAX_UPLOAD_CAP_BYTES.toLong()).toInt()
+    }
 
     fun formatSize(bytes: Int): String {
         return when {
@@ -65,13 +74,14 @@ object FileCompressor {
 
     /**
      * Stitches multiple selected images (or an individual photo) into a single, unified
-     * multi-page PDF document, compressed aggressively to <= [targetMaxBytes] (default 100 KB).
-     * Includes medical imaging optimizations (contrast enhancement, monochrome detection for X-rays).
+     * multi-page PDF document, compressed dynamically to <= n * 100 KB (or [targetMaxBytes]).
+     * Includes medical imaging optimizations (contrast enhancement, monochrome detection for X-rays,
+     * EXIF auto-rotation, and pooled page budget redistribution).
      */
     suspend fun createOptimizedPdfFromImages(
         context: Context,
         uris: List<Uri>,
-        targetMaxBytes: Int = LAB_REPORT_MAX_BYTES,
+        targetMaxBytes: Int = 0,
         baseFileName: String = "Lab_Report"
     ): CompressedFileResult? = withContext(Dispatchers.IO) {
         if (uris.isEmpty()) return@withContext null
@@ -87,7 +97,8 @@ object FileCompressor {
             }
             if (rawImages.isEmpty()) return@withContext null
 
-            createOptimizedPdfFromImageBytes(rawImages, targetMaxBytes, baseFileName, totalOriginal)
+            val effectiveBudget = if (targetMaxBytes <= 0) calculateLabReportBudgetBytes(rawImages.size) else targetMaxBytes
+            createOptimizedPdfFromImageBytes(rawImages, effectiveBudget, baseFileName, totalOriginal)
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -95,25 +106,28 @@ object FileCompressor {
     }
 
     /**
-     * Stitches multiple raw image byte arrays into a single unified PDF <= [targetMaxBytes].
+     * Stitches multiple raw image byte arrays into a single unified PDF <= [targetMaxBytes] (default n * 100 KB).
      */
     fun createOptimizedPdfFromImageBytes(
         rawImages: List<ByteArray>,
-        targetMaxBytes: Int = LAB_REPORT_MAX_BYTES,
+        targetMaxBytes: Int = 0,
         baseFileName: String = "Lab_Report",
         totalOriginalBytes: Int = rawImages.sumOf { it.size }
     ): CompressedFileResult? {
         if (rawImages.isEmpty()) return null
         val pageCount = rawImages.size
+        val effectiveTargetBytes = if (targetMaxBytes <= 0) calculateLabReportBudgetBytes(pageCount) else targetMaxBytes
 
         // Calculate overhead of PDF metadata (header, xref, catalog, page dicts)
         val pdfOverhead = (pageCount * 360 + 1200)
-        val maxTotalJpegBytes = (targetMaxBytes - pdfOverhead).coerceAtLeast(12 * 1024)
-        val perPageBudget = (maxTotalJpegBytes / pageCount).coerceAtLeast(8 * 1024)
+        val maxTotalJpegBytes = (effectiveTargetBytes - pdfOverhead).coerceAtLeast(12 * 1024)
 
+        var remainingJpegBudget = maxTotalJpegBytes
         val pageInfos = mutableListOf<JpegPageInfo>()
 
         for (i in 0 until pageCount) {
+            val remainingPages = pageCount - i
+            val perPageBudget = (remainingJpegBudget / remainingPages).coerceAtLeast(8 * 1024)
             val raw = rawImages[i]
             val pageInfo = compressImageToJpegPage(
                 rawBytes = raw,
@@ -122,6 +136,7 @@ object FileCompressor {
                 totalPages = pageCount
             ) ?: return null
             pageInfos.add(pageInfo)
+            remainingJpegBudget = (remainingJpegBudget - pageInfo.bytes.size).coerceAtLeast(8 * 1024)
         }
 
         // Check if combined size exceeds maxTotalJpegBytes
@@ -151,7 +166,7 @@ object FileCompressor {
             originalSizeBytes = totalOriginalBytes,
             compressedSizeBytes = pdfBytes.size,
             wasCompressed = true,
-            targetCapBytes = targetMaxBytes,
+            targetCapBytes = effectiveTargetBytes,
             pageCount = pageCount
         )
     }
@@ -168,12 +183,8 @@ object FileCompressor {
         val inHeight = boundsOpts.outHeight
         if (inWidth <= 0 || inHeight <= 0) return null
 
-        val maxDim = when {
-            totalPages == 1 -> 1200
-            totalPages == 2 -> 980
-            totalPages == 3 -> 840
-            else -> 720
-        }
+        // With dynamic n * 100 KB budget, keep 1440px dimension for sharp clinical/X-ray text
+        val maxDim = 1440
 
         val sampleSize = calculateInSampleSize(inWidth, inHeight, maxDim)
         val decodeOpts = BitmapFactory.Options().apply {
@@ -181,6 +192,28 @@ object FileCompressor {
             inPreferredConfig = Bitmap.Config.ARGB_8888
         }
         var bitmap = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, decodeOpts) ?: return null
+
+        // Auto-correct camera EXIF orientation
+        val orientation = try {
+            val exifInterface = ExifInterface(ByteArrayInputStream(rawBytes))
+            exifInterface.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        } catch (_: Exception) {
+            ExifInterface.ORIENTATION_NORMAL
+        }
+        val rotationAngle = when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+            else -> 0f
+        }
+        if (rotationAngle != 0f) {
+            val matrix = Matrix().apply { postRotate(rotationAngle) }
+            val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            if (rotated !== bitmap) {
+                bitmap.recycle()
+                bitmap = rotated
+            }
+        }
 
         val isMono = isImagePredominantlyMonochrome(bitmap)
 
@@ -197,7 +230,7 @@ object FileCompressor {
             }
         }
 
-        // Flatten onto RGB_565 canvas; if monochrome, apply contrast stretch for sharp medical text/X-ray
+        // Flatten onto RGB_565 canvas; if monochrome, apply subtle linear contrast stretch for sharp medical text/X-ray
         val flattened = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.RGB_565)
         val canvas = Canvas(flattened)
         canvas.drawColor(Color.WHITE)
@@ -221,7 +254,7 @@ object FileCompressor {
         bitmap.recycle()
         var currentBitmap = flattened
 
-        val qualities = intArrayOf(75, 62, 50, 40, 30, 22, 16)
+        val qualities = intArrayOf(90, 82, 75, 68, 60, 52, 45, 38, 30, 24, 18)
         var bestJpeg: ByteArray? = null
 
         for (scalePass in 0 until 4) {
@@ -491,6 +524,25 @@ object FileCompressor {
         }
     }
 
+    fun getPdfPageCount(rawBytes: ByteArray): Int {
+        var tempFile: File? = null
+        var pfd: ParcelFileDescriptor? = null
+        var renderer: PdfRenderer? = null
+        return try {
+            tempFile = File.createTempFile("dactor_pdf_cnt_", ".pdf")
+            tempFile.writeBytes(rawBytes)
+            pfd = ParcelFileDescriptor.open(tempFile, ParcelFileDescriptor.MODE_READ_ONLY)
+            renderer = PdfRenderer(pfd)
+            renderer.pageCount.coerceAtLeast(1)
+        } catch (_: Exception) {
+            1
+        } finally {
+            try { renderer?.close() } catch (_: Exception) {}
+            try { pfd?.close() } catch (_: Exception) {}
+            try { tempFile?.delete() } catch (_: Exception) {}
+        }
+    }
+
     private fun compressPdfBytes(rawBytes: ByteArray, maxBytes: Int): ByteArray? {
         var tempFile: File? = null
         var pfd: ParcelFileDescriptor? = null
@@ -500,27 +552,32 @@ object FileCompressor {
             tempFile.writeBytes(rawBytes)
             pfd = ParcelFileDescriptor.open(tempFile, ParcelFileDescriptor.MODE_READ_ONLY)
             renderer = PdfRenderer(pfd)
-            val pageCount = renderer.pageCount.coerceIn(1, 10)
-
-            val scales = if (maxBytes <= LAB_REPORT_MAX_BYTES) {
-                floatArrayOf(0.9f, 0.72f, 0.55f, 0.42f)
+            val pageCount = renderer.pageCount.coerceIn(1, 25)
+            val targetEffectiveCap = if (maxBytes <= LAB_REPORT_MAX_BYTES) {
+                calculateLabReportBudgetBytes(pageCount)
             } else {
-                floatArrayOf(1.1f, 0.85f, 0.65f)
+                maxBytes
+            }
+
+            val scales = if (targetEffectiveCap <= calculateLabReportBudgetBytes(pageCount)) {
+                floatArrayOf(1.5f, 1.2f, 1.0f, 0.80f, 0.60f, 0.45f)
+            } else {
+                floatArrayOf(1.25f, 1.0f, 0.80f, 0.60f)
             }
 
             for (scale in scales) {
                 val pageInfos = mutableListOf<JpegPageInfo>()
                 for (i in 0 until pageCount) {
                     val page = renderer.openPage(i)
-                    val renderW = (page.width * scale).roundToInt().coerceIn(240, 1100)
-                    val renderH = (page.height * scale).roundToInt().coerceIn(340, 1500)
+                    val renderW = (page.width * scale).roundToInt().coerceIn(240, 1440)
+                    val renderH = (page.height * scale).roundToInt().coerceIn(340, 1920)
                     val bmp = Bitmap.createBitmap(renderW, renderH, Bitmap.Config.ARGB_8888)
                     val canvas = Canvas(bmp)
                     canvas.drawColor(Color.WHITE)
                     page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
                     page.close()
 
-                    val q = if (maxBytes <= LAB_REPORT_MAX_BYTES) 45 else 55
+                    val q = if (targetEffectiveCap <= calculateLabReportBudgetBytes(pageCount)) 62 else 68
                     val jpegBaos = ByteArrayOutputStream()
                     bmp.compress(Bitmap.CompressFormat.JPEG, q, jpegBaos)
                     bmp.recycle()
@@ -530,7 +587,7 @@ object FileCompressor {
                 }
 
                 val built = PdfBuilder.buildPdfFromJpegs(pageInfos)
-                if (built.size <= maxBytes || scale == scales.last()) {
+                if (built.size <= targetEffectiveCap || scale == scales.last()) {
                     return built
                 }
             }

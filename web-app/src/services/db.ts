@@ -5311,10 +5311,9 @@ export function computeMultiSlotDailyPosition(params: {
   const approxAppointmentTimeMins = slotStartMins + staggerMinutes
   const approxTimeFormatted = formatMinutesTo12Hour(approxAppointmentTimeMins)
 
-  const halfSpread = Math.max(5, avgMins)
-  const approxAppointmentTimeText = `${approxTimeFormatted} (±${halfSpread} min)`
-  const windowStart = formatMinutesTo12Hour(approxAppointmentTimeMins - halfSpread)
-  const windowEnd = formatMinutesTo12Hour(approxAppointmentTimeMins + halfSpread)
+  const approxAppointmentTimeText = `${approxTimeFormatted} (±15 min)`
+  const windowStart = formatMinutesTo12Hour(approxAppointmentTimeMins - 15)
+  const windowEnd = formatMinutesTo12Hour(approxAppointmentTimeMins + 15)
   const timeWindowText = `${windowStart} – ${windowEnd}`
 
   return {

@@ -1,4 +1,4 @@
-﻿# DACTOR — Daily Prompt & Change Log
+# DACTOR — Daily Prompt & Change Log
 
 This file tracks user prompts and the exact changes applied across the codebase, organized chronologically by date.
 
@@ -43,22 +43,6 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-26
-
-### Prompt:
-> "ensure the expected time shown is not hardcoded but dynamic one"
-
-#### Changes Applied:
-1. **Patient & Clinic App Dynamic Queue Timing Engines ([`patient-app/.../QueueRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/repository/QueueRepository.kt), [`clinic-app/.../QueueRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/QueueRepository.kt))**:
-   - Fixed a critical `totalPeopleAhead` bug in `calculateLiveQueueTimingEstimate` where passing a 1-element `liveDelta` list (`entriesList = [target]`) caused `activeEntries.indexOfFirst(...) == 0` to override `fallbackPatientsAhead`, collapsing expected times to `now + 2m` regardless of patients ahead or active inside patient.
-   - Removed hardcoded `"02:00 PM"` unscheduled break end fallback; ad-hoc breaks now compute dynamic resumption from `now + max(15, avgMins)`.
-   - Replaced hardcoded `"Up Next (~2 min)"` with dynamic `"Up Next (~$diffMins min)"`, added away-doctor forward buffer for queued patients, and derived multi-slot spread from `avgConsultationMinutes`.
-2. **Patient App Tracker & Home UI ([`PatientMainScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt), [`QueueStatusScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt))**:
-   - Removed hardcoded `"10:00 AM"`, `"10:00 AM - 11:00 AM"`, `"Clinic starts at 08:00 AM"`, `"9:00 AM (±15 min)"`, `"< 5 min"`, and `"Soon, be ready"` overrides so all Home cards and Tracker cards display live-computed expected clock times and wait minutes.
-   - Removed stale `slotNotice` overwrite in `QueueStatusScreen`'s 1-second timer so live notices stay synchronized with clock ticks.
-3. **Web App Parity & Deployment (Rules 7 & 5) ([`queueTiming.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/utils/queueTiming.ts), [`ClinicPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/ClinicPortal.tsx), [`LiveQueue.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/LiveQueue.tsx), [`db.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/services/db.ts))**:
-   - Removed hardcoded `2:00 PM` break fallback, `'Up Next (~2 min)'`, `10 * 60000` break window, and static `(±15 min)` / `09:00 AM` fallbacks in favor of dynamic stagger & `avgMins`-based computation.
-
----
 
 ### Prompt:
 > "implement the sql urself"

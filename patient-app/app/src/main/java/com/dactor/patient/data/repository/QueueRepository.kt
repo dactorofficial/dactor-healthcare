@@ -724,17 +724,15 @@ class QueueRepository @Inject constructor(
                 )
             } else null
 
-            val syntheticInsideOffset = if (insideEntryFromList == null && insideEntry != null) 1 else 0
-            val fallbackAheadWithInside = fallbackPatientsAhead.coerceAtLeast(0) + syntheticInsideOffset
             val totalPeopleAhead = if (targetEntry != null) {
                 if (targetEntry.status in listOf("inside", "in_consultation")) {
                     0
                 } else {
                     val myIdx = activeEntries.indexOfFirst { it.id == targetEntry.id }
-                    if (myIdx >= 0) maxOf(myIdx, fallbackAheadWithInside) else fallbackAheadWithInside
+                    if (myIdx >= 0) myIdx else fallbackPatientsAhead.coerceAtLeast(0)
                 }
             } else {
-                fallbackAheadWithInside
+                fallbackPatientsAhead.coerceAtLeast(0)
             }
 
             // Parse slot details
@@ -807,7 +805,8 @@ class QueueRepository @Inject constructor(
                 val rawBreakEnd = if (hasBreakSchedule) {
                     ClinicScheduleHelper.parseTimeToLocalTime(todaySchedule!!.breakEnd)
                 } else {
-                    nowTime.plusMinutes(avgMins.coerceAtLeast(15).toLong())
+                    val def2pm = ClinicScheduleHelper.parseTimeToLocalTime("02:00 PM")
+                    if (nowTime.isBefore(def2pm)) def2pm else nowTime.plusMinutes(15)
                 }
 
                 // If scheduled break end has already passed (e.g. clinic still on break after scheduled end),
@@ -1032,7 +1031,7 @@ class QueueRepository @Inject constructor(
                     effectiveExpectedTime = if (dynamicExpectedTime.isAfter(minForwardTime)) dynamicExpectedTime else minForwardTime
                     val diffSec = java.time.Duration.between(nowTime, effectiveExpectedTime).seconds
                     val diffMins = kotlin.math.ceil(diffSec / 60.0).toInt().coerceAtLeast(1)
-                    effectiveTimeLeftText = if (diffMins <= 2) "Up Next (~$diffMins min)" else "~ $diffMins min"
+                    effectiveTimeLeftText = if (diffMins <= 2) "Up Next (~2 min)" else "~ $diffMins min"
                     effectiveExactTimeText = effectiveExpectedTime.format(timeFormatter)
                 }
             } else {
@@ -1052,9 +1051,8 @@ class QueueRepository @Inject constructor(
                     }
                     effectiveExactTimeText = effectiveExpectedTime.format(timeFormatter)
                 } else {
-                    // Overdue or active slot: strictly forward clamp >= now (+5m if doctor not yet in clinic)
-                    val awayBuffer = if (!isDoctorInClinic) 5L else 0L
-                    val minForwardTime = nowTime.plusMinutes((awayBuffer + totalPeopleAhead * avgMins).coerceAtLeast(1))
+                    // Overdue or active slot: strictly forward clamp >= now
+                    val minForwardTime = nowTime.plusMinutes((totalPeopleAhead * avgMins).toLong().coerceAtLeast(1))
                     effectiveExpectedTime = if (dynamicExpectedTime.isAfter(minForwardTime)) dynamicExpectedTime else minForwardTime
                     val diffSec = java.time.Duration.between(nowTime, effectiveExpectedTime).seconds
                     val diffMins = kotlin.math.ceil(diffSec / 60.0).toInt().coerceAtLeast(1)
@@ -1204,10 +1202,9 @@ class QueueRepository @Inject constructor(
             val approxAppointmentTime = baseStartTime.plusMinutes(staggerMinutes)
             val approxTimeFormatted = approxAppointmentTime.format(timeFormatter)
 
-            val halfSpread = avgConsultationMinutes.coerceAtLeast(5)
-            val approxAppointmentTimeText = "$approxTimeFormatted (±$halfSpread min)"
-            val windowStart = approxAppointmentTime.minusMinutes(halfSpread.toLong()).format(timeFormatter)
-            val windowEnd = approxAppointmentTime.plusMinutes(halfSpread.toLong()).format(timeFormatter)
+            val approxAppointmentTimeText = "$approxTimeFormatted (\u00B115 min)"
+            val windowStart = approxAppointmentTime.minusMinutes(15).format(timeFormatter)
+            val windowEnd = approxAppointmentTime.plusMinutes(15).format(timeFormatter)
             val timeWindowText = "$windowStart \u2013 $windowEnd"
 
             return MultiSlotPositionResult(

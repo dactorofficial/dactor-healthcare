@@ -209,7 +209,7 @@ import {
   requestAuthorizedDocumentUrl,
 } from '../services/db'
 import { compressImage } from '../utils/imageCompressor'
-import { convertImagesToPdf } from '../utils/imageToPdf'
+import { convertImagesToPdf, calculateLabReportBudgetBytes } from '../utils/imageToPdf'
 import { saveBlobLocally } from '../utils/reportFileManager'
 import { playClinicChime } from '../utils/audioChime'
 import {
@@ -422,7 +422,8 @@ function calculateLiveQueueTimingEstimate(
 
   // Check if clinic is on break
   if (clinic.isOnBreak) {
-    let breakEndDate: Date | null = null
+    let breakEndHours = 14
+    let breakEndMinutes = 0
 
     if (clinic.weeklyScheduleJson) {
       try {
@@ -440,17 +441,16 @@ function calculateLiveQueueTimingEstimate(
               const ampm = m[3]?.toUpperCase()
               if (ampm === 'PM' && h < 12) h += 12
               if (ampm === 'AM' && h === 12) h = 0
-              breakEndDate = new Date()
-              breakEndDate.setHours(h, min, 0, 0)
+              breakEndHours = h
+              breakEndMinutes = min
             }
           }
         }
       } catch {}
     }
 
-    if (!breakEndDate) {
-      breakEndDate = new Date(now.getTime() + Math.max(15, avgMins) * 60000)
-    }
+    const breakEndDate = new Date()
+    breakEndDate.setHours(breakEndHours, breakEndMinutes, 0, 0)
 
     const effectiveBreakEnd = now.getTime() > breakEndDate.getTime()
       ? new Date(now.getTime() + 5 * 60000)
@@ -470,7 +470,7 @@ function calculateLiveQueueTimingEstimate(
 
     const fmt = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     const startWin = new Date(finalExpected.getTime() - 5 * 60000)
-    const endWin = new Date(finalExpected.getTime() + Math.max(5, avgMins) * 60000)
+    const endWin = new Date(finalExpected.getTime() + 10 * 60000)
 
     return {
       statusText: patientsAhead === 0
@@ -515,7 +515,7 @@ function calculateLiveQueueTimingEstimate(
       finalExpectedTime = dynamicExpectedTime.getTime() > minForwardTime.getTime() ? dynamicExpectedTime : minForwardTime
       const diffSec = Math.max(0, Math.round((finalExpectedTime.getTime() - now.getTime()) / 1000))
       remainingMins = Math.max(1, Math.ceil(diffSec / 60))
-      waitStr = remainingMins <= 2 ? `Up Next (~${remainingMins} min)` : `~${remainingMins} mins`
+      waitStr = remainingMins <= 2 ? 'Up Next (~2 min)' : `~${remainingMins} mins`
     }
   } else {
     // Patient is at position 2, 3, etc. (patientsAhead > 0)
@@ -4043,7 +4043,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
       setReportImageFiles(files)
 
       const baseName = `Lab_Report_${targetLabAppt?.trackingCode10Digit || 'scan'}`
-      const converted = await convertImagesToPdf(files, 100 * 1024, baseName)
+      const dynamicBudget = calculateLabReportBudgetBytes(files.length)
+      const converted = await convertImagesToPdf(files, dynamicBudget, baseName)
       setReportFile(converted.file)
       setReportCompressionInfo(converted.summary)
     } catch (err) {
@@ -4100,7 +4101,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         } catch (saveErr) {
           console.warn('Local file save warning:', saveErr)
         }
-        const uploaded = await uploadReportFile(reportFile.name, reportFile)
+        const uploaded = await uploadReportFile(reportFile.name, reportFile, selectedClinic.id)
         if (uploaded) {
           fileUrl = uploaded
         }
@@ -13357,7 +13358,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
             <form onSubmit={handleUploadReportSubmit} className="space-y-4">
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Upload Diagnostic Report (Multi-Picture / X-Rays or PDF &le; 100 KB)
+                  Upload Diagnostic Report (Multi-Picture / X-Rays or PDF &le; n &times; 100 KB)
                 </label>
                 <input
                   type="file"
@@ -13368,7 +13369,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                 />
                 {isProcessingPdf && (
                   <p className="text-[11px] text-teal-700 font-bold bg-teal-50/85 p-2 rounded-lg border border-teal-200 mt-2 flex items-center gap-2">
-                    <span className="animate-spin text-sm">⏳</span> Compressing &amp; stitching into unified PDF (&le; 100 KB)...
+                    <span className="animate-spin text-sm">⏳</span> Compressing &amp; stitching into unified PDF (&le; {Math.max(1, reportImageFiles.length) * 100} KB)...
                   </p>
                 )}
                 {reportCompressionInfo && (
@@ -13445,7 +13446,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                   </div>
                 )}
                 <p className="text-[10.5px] text-slate-500 mt-1.5">
-                  💡 Select 1 or multiple pictures (X-rays, blood reports, urine panels). They will be automatically combined into a single diagnostic PDF and compressed to &le; 100 KB locally.
+                  💡 Select 1 or multiple pictures (X-rays, blood reports, urine panels). They will be automatically combined into a single diagnostic PDF and compressed to &le; 100 KB per page (n &times; 100 KB total) locally.
                 </p>
               </div>
 

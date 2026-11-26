@@ -280,9 +280,28 @@ open class LabReportRepository @Inject constructor(
         }
     }
 
-    suspend fun uploadReportDocument(reportId: String, fileName: String, bytes: ByteArray): String? = withContext(Dispatchers.IO) {
+    suspend fun uploadReportDocument(
+        reportId: String,
+        fileName: String,
+        bytes: ByteArray,
+        maxBytes: Int? = null,
+        skipRecompressionIfWithinBudget: Boolean = false
+    ): String? = withContext(Dispatchers.IO) {
         val candidateBuckets = listOf("lab-reports-private", "clinic-docs-private")
-        val compressed = com.dactor.clinic.domain.util.FileCompressor.compressBytes(bytes, fileName)
+        val effectiveMaxBytes = maxBytes ?: com.dactor.clinic.domain.util.FileCompressor.MAX_FILE_SIZE_BYTES
+        val compressed = if (skipRecompressionIfWithinBudget && bytes.size <= effectiveMaxBytes) {
+            val isPdf = com.dactor.clinic.domain.util.FileCompressor.isPdfHeader(bytes) || fileName.endsWith(".pdf", ignoreCase = true)
+            com.dactor.clinic.domain.util.CompressedFileResult(
+                bytes = bytes,
+                fileName = com.dactor.clinic.domain.util.FileCompressor.ensureExtension(fileName, if (isPdf) "pdf" else "jpg"),
+                originalSizeBytes = bytes.size,
+                compressedSizeBytes = bytes.size,
+                wasCompressed = false,
+                targetCapBytes = effectiveMaxBytes
+            )
+        } else {
+            com.dactor.clinic.domain.util.FileCompressor.compressBytes(bytes, fileName, effectiveMaxBytes)
+        }
         val cleanName = compressed.fileName.replace("\\s+".toRegex(), "_")
         val path = "lab_reports/${reportId}_$cleanName"
         for (bName in candidateBuckets) {

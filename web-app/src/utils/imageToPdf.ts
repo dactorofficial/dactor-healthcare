@@ -1,7 +1,7 @@
 /**
  * Client-side Multi-Image to PDF Converter & Compressor for Dactor Web Portal.
  * Automatically stitches multiple diagnostic images (X-rays, blood reports, urine panels, scans)
- * into a single unified multi-page PDF document, aggressively compressed to <= 100 KB.
+ * into a single unified multi-page PDF document, dynamically scaled to <= n * 100 KB.
  * Zero external dependencies: uses native HTML5 Canvas + raw DCTDecode PDF 1.4 stream encoding.
  */
 
@@ -20,7 +20,13 @@ export interface ConvertedPdfResult {
   summary: string
 }
 
-const LAB_REPORT_MAX_BYTES = 100 * 1024 // 100 KB strict ceiling
+const LAB_REPORT_MAX_BYTES = 100 * 1024 // 100 KB base budget per picture
+const MAX_UPLOAD_CAP_BYTES = 10 * 1024 * 1024 // 10 MB hard upload ceiling
+
+export function calculateLabReportBudgetBytes(pageCount: number): number {
+  const safePages = Math.max(1, Math.floor(pageCount))
+  return Math.min(MAX_UPLOAD_CAP_BYTES, safePages * LAB_REPORT_MAX_BYTES)
+}
 
 export function formatByteSize(bytes: number): string {
   if (bytes >= 1024 * 1024) {
@@ -274,14 +280,13 @@ async function compressImageToJpeg(
 
   const isMono = isCanvasMonochrome(ctx, width, height)
   if (isMono) {
-    // Apply grayscale + slight contrast boost for medical report text & X-ray bone visibility
+    // Apply grayscale + subtle linear contrast boost (matching Android ColorMatrix 1.12f)
     const imgData = ctx.getImageData(0, 0, width, height)
     const data = imgData.data
     const contrast = 1.12
-    const factor = (259 * (contrast * 100 + 255)) / (255 * (259 - contrast * 100))
     for (let i = 0; i < data.length; i += 4) {
       const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2])
-      const adjusted = Math.min(255, Math.max(0, Math.round(factor * (gray - 128) + 128)))
+      const adjusted = Math.min(255, Math.max(0, Math.round(contrast * (gray - 128) + 128)))
       data[i] = adjusted
       data[i + 1] = adjusted
       data[i + 2] = adjusted
@@ -289,27 +294,61 @@ async function compressImageToJpeg(
     ctx.putImageData(imgData, 0, 0)
   }
 
-  const qualities = [0.75, 0.62, 0.50, 0.40, 0.30, 0.22, 0.16]
+  const encodeBlob = (q: number) =>
+    new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', q))
+
+  const toPageData = async (blob: Blob): Promise<JpegPageData> => {
+    const buf = new Uint8Array(await blob.arrayBuffer())
+    const parsed = parseJpegInfo(buf) || {
+      width: canvas.width,
+      height: canvas.height,
+      isGrayscale: isMono,
+    }
+    return {
+      bytes: buf,
+      width: parsed.width,
+      height: parsed.height,
+      isGrayscale: parsed.isGrayscale,
+    }
+  }
 
   for (let pass = 0; pass < 4; pass++) {
-    for (const q of qualities) {
-      const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', q))
-      if (!blob) continue
-      if (blob.size <= maxBytes) {
-        const buf = new Uint8Array(await blob.arrayBuffer())
-        const parsed = parseJpegInfo(buf) || { width: canvas.width, height: canvas.height, isGrayscale: isMono }
-        return {
-          bytes: buf,
-          width: parsed.width,
-          height: parsed.height,
-          isGrayscale: parsed.isGrayscale,
+    // 1. Check highest quality first (0.90)
+    const highBlob = await encodeBlob(0.9)
+    if (highBlob && highBlob.size <= maxBytes) {
+      return toPageData(highBlob)
+    }
+
+    // 2. Check lower bound of sharp clinical range (0.42); binary search [0.42..0.90] if it fits
+    const lowSharpBlob = await encodeBlob(0.42)
+    if (lowSharpBlob && lowSharpBlob.size <= maxBytes) {
+      let low = 0.42
+      let high = 0.9
+      let bestBlob: Blob = lowSharpBlob
+      for (let step = 0; step < 4; step++) {
+        const mid = Number(((low + high) / 2).toFixed(2))
+        const midBlob = await encodeBlob(mid)
+        if (midBlob && midBlob.size <= maxBytes) {
+          bestBlob = midBlob
+          low = mid
+        } else {
+          high = mid
         }
+      }
+      return toPageData(bestBlob)
+    }
+
+    // 3. Fallback low qualities before downscaling dimensions
+    for (const q of [0.34, 0.26, 0.18]) {
+      const blob = await encodeBlob(q)
+      if (blob && blob.size <= maxBytes) {
+        return toPageData(blob)
       }
     }
 
     // Downscale by 75%
-    const nextW = Math.max(180, Math.round(canvas.width * 0.75))
-    const nextH = Math.max(180, Math.round(canvas.height * 0.75))
+    const nextW = Math.max(200, Math.round(canvas.width * 0.75))
+    const nextH = Math.max(200, Math.round(canvas.height * 0.75))
     if (nextW === canvas.width && nextH === canvas.height) break
 
     const tempCanvas = document.createElement('canvas')
@@ -327,7 +366,7 @@ async function compressImageToJpeg(
   }
 
   // Fallback at lowest quality
-  const fallbackBlob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.18))
+  const fallbackBlob = await encodeBlob(0.18)
   const buf = new Uint8Array(await (fallbackBlob || new Blob()).arrayBuffer())
   return {
     bytes: buf,
@@ -337,12 +376,44 @@ async function compressImageToJpeg(
   }
 }
 
+async function reduceJpegPageData(
+  page: JpegPageData,
+  scaleFactor: number,
+  quality: number
+): Promise<JpegPageData | null> {
+  try {
+    const img = await loadImage(new Blob([page.bytes.buffer as ArrayBuffer], { type: 'image/jpeg' }))
+    const newW = Math.max(180, Math.round(img.width * scaleFactor))
+    const newH = Math.max(180, Math.round(img.height * scaleFactor))
+    const canvas = document.createElement('canvas')
+    canvas.width = newW
+    canvas.height = newH
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    ctx.fillStyle = '#FFFFFF'
+    ctx.fillRect(0, 0, newW, newH)
+    ctx.drawImage(img, 0, 0, newW, newH)
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', quality))
+    if (!blob) return null
+    const buf = new Uint8Array(await blob.arrayBuffer())
+    const parsed = parseJpegInfo(buf) || { width: newW, height: newH, isGrayscale: page.isGrayscale }
+    return {
+      bytes: buf,
+      width: parsed.width,
+      height: parsed.height,
+      isGrayscale: parsed.isGrayscale,
+    }
+  } catch {
+    return null
+  }
+}
+
 /**
- * Main export: Converts multiple image files into a single unified PDF <= targetMaxBytes (default 100 KB).
+ * Main export: Converts multiple image files into a single unified PDF <= targetMaxBytes (default n * 100 KB).
  */
 export async function convertImagesToPdf(
   files: (File | Blob)[],
-  targetMaxBytes: number = LAB_REPORT_MAX_BYTES,
+  targetMaxBytes?: number,
   baseFileName: string = 'Lab_Report'
 ): Promise<ConvertedPdfResult> {
   if (files.length === 0) {
@@ -350,22 +421,50 @@ export async function convertImagesToPdf(
   }
 
   const pageCount = files.length
+  const effectiveTargetBytes =
+    targetMaxBytes && targetMaxBytes > 0
+      ? targetMaxBytes
+      : calculateLabReportBudgetBytes(pageCount)
   const totalOriginalBytes = files.reduce((acc, f) => acc + f.size, 0)
 
   const pdfOverhead = pageCount * 360 + 1200
-  const maxTotalJpegBytes = Math.max(12 * 1024, targetMaxBytes - pdfOverhead)
-  const perPageBudget = Math.max(8 * 1024, Math.floor(maxTotalJpegBytes / pageCount))
+  const maxTotalJpegBytes = Math.max(12 * 1024, effectiveTargetBytes - pdfOverhead)
 
-  const maxDim =
-    pageCount === 1 ? 1200 : pageCount === 2 ? 980 : pageCount === 3 ? 840 : 720
+  // Keep 1440px max dimension across all page counts since budget scales dynamically at n * 100 KB
+  const maxDim = 1440
 
+  let remainingJpegBudget = maxTotalJpegBytes
   const pages: JpegPageData[] = []
 
   for (let i = 0; i < files.length; i++) {
+    const remainingPages = files.length - i
+    const perPageBudget = Math.max(8 * 1024, Math.floor(remainingJpegBudget / remainingPages))
     const file = files[i]
     const img = await loadImage(file)
     const pageData = await compressImageToJpeg(img, perPageBudget, maxDim)
     pages.push(pageData)
+    remainingJpegBudget = Math.max(8 * 1024, remainingJpegBudget - pageData.bytes.length)
+  }
+
+  let currentTotalJpegBytes = pages.reduce((acc, p) => acc + p.bytes.length, 0)
+  if (currentTotalJpegBytes > maxTotalJpegBytes) {
+    for (let pass = 0; pass < 5; pass++) {
+      if (currentTotalJpegBytes <= maxTotalJpegBytes) break
+      let largestIdx = 0
+      for (let idx = 1; idx < pages.length; idx++) {
+        if (pages[idx].bytes.length > pages[largestIdx].bytes.length) {
+          largestIdx = idx
+        }
+      }
+      const largest = pages[largestIdx]
+      const reduced = await reduceJpegPageData(largest, 0.78, 0.32)
+      if (reduced && reduced.bytes.length < largest.bytes.length) {
+        pages[largestIdx] = reduced
+        currentTotalJpegBytes = pages.reduce((acc, p) => acc + p.bytes.length, 0)
+      } else {
+        break
+      }
+    }
   }
 
   const pdfBytes = buildPdfFromJpegs(pages)
@@ -378,7 +477,7 @@ export async function convertImagesToPdf(
 
   const origFormatted = formatByteSize(totalOriginalBytes)
   const compFormatted = formatByteSize(pdfBytes.length)
-  const capFormatted = formatByteSize(targetMaxBytes)
+  const capFormatted = formatByteSize(effectiveTargetBytes)
   const pagesLabel = pageCount > 1 ? ` • ${pageCount} pages` : ''
 
   const summary = `${origFormatted} → ${compFormatted} (≤ ${capFormatted}${pagesLabel})`

@@ -2,6 +2,10 @@
 # 1. Root user domain: dactorofficial/dactorofficial.github.io (main branch) -> https://dactorofficial.github.io/
 # 2. Repo mirror: dactorofficial/dactor (gh-pages branch) -> https://dactorofficial.github.io/dactor/
 
+param(
+    [string]$CommitMessage = "deploy: update live Dactor web portal"
+)
+
 $distPath = Resolve-Path "web-app/dist"
 $env:GIT_TERMINAL_PROMPT = "0"
 $env:GCM_INTERACTIVE = "never"
@@ -24,7 +28,7 @@ if (Test-Path "$rootTempDir\.git") {
     git config user.email "deploy@dactor.health"
     git add -A
     if (git status --porcelain) {
-        git commit -m "deploy: update live i18n quick language toggle and translations"
+        git commit -m $CommitMessage
         $pushRes = git push origin main 2>&1
         if ($LASTEXITCODE -eq 0) {
             Write-Output "SUCCESS: Published to https://dactorofficial.github.io/"
@@ -51,7 +55,7 @@ if (Test-Path "$mirrorTempDir\.git") {
     git config user.email "deploy@dactor.health"
     git add -A
     if (git status --porcelain) {
-        git commit -m "deploy: update live i18n quick language toggle and translations"
+        git commit -m $CommitMessage
         $pushRes = git push origin gh-pages 2>&1
         if ($LASTEXITCODE -eq 0) {
             Write-Output "SUCCESS: Published to https://dactorofficial.github.io/dactor/"

@@ -105,6 +105,16 @@ class PdfReportBuilderTest {
         assertTrue("Must contain Page 4 image ref /Im3", pdfString.contains("/Im3"))
         assertTrue("Must contain xref table", pdfString.contains("xref\n0 15"))
         assertTrue("Must contain trailer and EOF", pdfString.contains("%%EOF"))
-        assertTrue("4-page combined PDF size should be well under 100 KB ceiling", pdfBytes.size < 100 * 1024)
+        assertTrue("4-page combined PDF size should be well under 400 KB dynamic budget", pdfBytes.size < 400 * 1024)
+    }
+
+    @Test
+    fun calculateLabReportBudgetBytes_scalesLinearlyAndCapsAt10MB() {
+        assertEquals(100 * 1024, FileCompressor.calculateLabReportBudgetBytes(0))
+        assertEquals(100 * 1024, FileCompressor.calculateLabReportBudgetBytes(1))
+        assertEquals(200 * 1024, FileCompressor.calculateLabReportBudgetBytes(2))
+        assertEquals(400 * 1024, FileCompressor.calculateLabReportBudgetBytes(4))
+        assertEquals(1000 * 1024, FileCompressor.calculateLabReportBudgetBytes(10))
+        assertEquals(10 * 1024 * 1024, FileCompressor.calculateLabReportBudgetBytes(150))
     }
 }

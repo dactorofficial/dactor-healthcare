@@ -134,10 +134,11 @@ fun LabWorkflowScreen(
         isProcessingFiles = true
         coroutineScope.launch {
             try {
+                val dynamicBudget = com.dactor.clinic.domain.util.FileCompressor.calculateLabReportBudgetBytes(uris.size)
                 val result = com.dactor.clinic.domain.util.FileCompressor.createOptimizedPdfFromImages(
                     context = context,
                     uris = uris,
-                    targetMaxBytes = com.dactor.clinic.domain.util.FileCompressor.LAB_REPORT_MAX_BYTES,
+                    targetMaxBytes = dynamicBudget,
                     baseFileName = "Lab_Report_${targetCode.ifBlank { "scan" }}"
                 )
                 if (result != null) {
@@ -184,18 +185,21 @@ fun LabWorkflowScreen(
             isProcessingFiles = true
             coroutineScope.launch {
                 try {
-                    val resolvedName = com.dactor.clinic.domain.util.FileCompressor.resolveRealFileName(
-                        context = context,
-                        uri = uri,
-                        defaultBaseName = "Lab_Report_${code.ifBlank { "doc" }}"
-                    )
-                    val compressed = com.dactor.clinic.domain.util.FileCompressor.compressUri(
-                        context = context,
-                        uri = uri,
-                        fallbackFileName = resolvedName,
-                        maxBytes = com.dactor.clinic.domain.util.FileCompressor.LAB_REPORT_MAX_BYTES
-                    )
-                    if (compressed != null) {
+                    val rawBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    if (rawBytes != null && rawBytes.isNotEmpty()) {
+                        val pageCount = com.dactor.clinic.domain.util.FileCompressor.getPdfPageCount(rawBytes)
+                        val dynamicBudget = com.dactor.clinic.domain.util.FileCompressor.calculateLabReportBudgetBytes(pageCount)
+                        val resolvedName = com.dactor.clinic.domain.util.FileCompressor.resolveRealFileName(
+                            context = context,
+                            uri = uri,
+                            rawBytes = rawBytes,
+                            defaultBaseName = "Lab_Report_${code.ifBlank { "doc" }}"
+                        )
+                        val compressed = com.dactor.clinic.domain.util.FileCompressor.compressBytes(
+                            rawBytes = rawBytes,
+                            fileName = resolvedName,
+                            maxBytes = dynamicBudget
+                        )
                         selectedFileBytes = compressed.bytes
                         selectedFileName = compressed.fileName
                         selectedFileSizeInfo = compressed.formattedSummary
@@ -1239,13 +1243,14 @@ fun LabWorkflowScreen(
                                     }
 
                                     if (isProcessingFiles) {
+                                        val dynamicTargetKb = (selectedImageUris.size.coerceAtLeast(1) * 100)
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                                             modifier = Modifier.padding(top = 4.dp)
                                         ) {
                                             CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Color(0xFF059669))
-                                            Text("Generating unified PDF & compressing to ≤ 100 KB...", fontSize = 11.sp, color = Color(0xFF047857))
+                                            Text("Generating unified PDF & optimizing to ≤ $dynamicTargetKb KB...", fontSize = 11.sp, color = Color(0xFF047857))
                                         }
                                     }
                                 }
@@ -1280,7 +1285,7 @@ fun LabWorkflowScreen(
                                     }
                                 }
                                 Text(
-                                    text = "💡 Select 1 or multiple pictures (X-rays, blood reports, urine panels). They will be automatically stitched into a single diagnostic PDF and compressed to ≤ 100 KB locally.",
+                                    text = "💡 Select 1 or multiple pictures (X-rays, blood reports, urine panels). They will be automatically stitched into a single diagnostic PDF and compressed to ≤ 100 KB per page (n × 100 KB total) locally.",
                                     fontSize = 10.5.sp,
                                     color = Color(0xFF64748B)
                                 )
@@ -1307,7 +1312,20 @@ fun LabWorkflowScreen(
                                 var publicUrl: String? = null
                                 val targetReportId = if (order.id.startsWith("synthetic_")) UUID.randomUUID().toString() else order.id
                                 if (bytes != null && fName != null && labReportRepository != null) {
-                                    publicUrl = labReportRepository.uploadReportDocument(targetReportId, fName, bytes)
+                                    val effectivePageCount = when {
+                                        selectedImageUris.isNotEmpty() -> selectedImageUris.size
+                                        com.dactor.clinic.domain.util.FileCompressor.isPdfHeader(bytes) ->
+                                            com.dactor.clinic.domain.util.FileCompressor.getPdfPageCount(bytes)
+                                        else -> 1
+                                    }
+                                    val uploadBudget = com.dactor.clinic.domain.util.FileCompressor.calculateLabReportBudgetBytes(effectivePageCount)
+                                    publicUrl = labReportRepository.uploadReportDocument(
+                                        reportId = targetReportId,
+                                        fileName = fName,
+                                        bytes = bytes,
+                                        maxBytes = uploadBudget,
+                                        skipRecompressionIfWithinBudget = true
+                                    )
                                 }
 
                                 val finalUrl = when {

@@ -295,13 +295,7 @@ fun QueueStatusScreen(
                 currentInsideSince = inputs.currentInsideSince,
                 isAnyoneInsideOverride = inputs.isAnyoneInsideOverride
             )
-            liveTimingEstimate = if (
-                inputs.slotNotice.isNotBlank() &&
-                !updated.isClinicOnBreak &&
-                !updated.isPatientLate &&
-                !updated.isDoctorNotInside &&
-                !inputs.slotNotice.contains("ahead in live line", ignoreCase = true)
-            ) {
+            liveTimingEstimate = if (inputs.slotNotice.isNotBlank()) {
                 updated.copy(slotNoticeText = inputs.slotNotice)
             } else updated
         }
@@ -2120,14 +2114,7 @@ fun QueueStatusScreen(
                                         isLabClinic && isReportReady -> "Report Prepared \u2022 Verify Name/Phone to View"
                                         isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> "Sample Collected \u2022 Processing in Lab"
                                         isLabClinic && isPastDate -> "Diagnostic lab order from $resolvedDateLabel. Records saved below."
-                                        isTomorrow -> {
-                                            val tomOpen = clinicObj?.getTodaySchedule()?.openTime?.ifBlank { null }
-                                            val estStr = multiSlotResult?.approxAppointmentTimeText?.ifBlank { null }
-                                                ?: appointment?.appointmentTime?.ifBlank { null }
-                                                ?: tomOpen
-                                            if (!estStr.isNullOrBlank()) "Scheduled for Tomorrow \u2022 Expected $estStr"
-                                            else "Scheduled for Tomorrow"
-                                        }
+                                        isTomorrow -> "Scheduled for Tomorrow \u2022 Clinic starts at 08:00 AM"
                                         isFutureOrTomorrow -> "Scheduled for $resolvedDateLabel \u2022 Approx. ${multiSlotResult?.approxAppointmentTimeText ?: (appointment?.appointmentTime ?: "")}"
                                         isLabClinic && patientsAhead == 0 -> "Proceed for sample collection"
                                         isLabClinic -> "Waiting for sample collection"
@@ -2136,7 +2123,7 @@ fun QueueStatusScreen(
                                         isPastDate -> "Scheduled on $resolvedDateLabel. Live tracking is active on appointment day."
                                         !liveTimingEstimate?.slotNoticeText.isNullOrBlank() -> liveTimingEstimate!!.slotNoticeText
                                         patientsAhead == 0 -> "0 patients ahead in line \u2022 Stay close to the clinic"
-                                        else -> "$patientsAhead ahead in line \u2022 Est. wait: ~${(patientsAhead * clinicAvgTimeMinutes).coerceAtLeast(0)} mins (±${clinicAvgTimeMinutes.coerceAtLeast(5)} min)"
+                                        else -> "$patientsAhead ahead in line \u2022 Est. wait: ~${(patientsAhead * clinicAvgTimeMinutes).coerceAtLeast(0)} mins (±15 min)"
                                     },
                                     fontSize = 13.sp,
                                     color = if (isLate) Color(0xFFBE123C) else Color(0xFF64748B)
@@ -2399,10 +2386,7 @@ fun QueueStatusScreen(
                                                 }
                                             }
                                             isDataLoaded && appointment?.isWalkin == true -> "Live Turn"
-                                            isDataLoaded -> {
-                                                val fallbackOpen = clinicObj?.getTodaySchedule()?.openTime?.ifBlank { null } ?: "Booked Slot"
-                                                if (isFutureOrTomorrow) "${multiSlotResult?.dateLabel ?: resolvedDateLabel}, $fallbackOpen" else fallbackOpen
-                                            }
+                                            isDataLoaded -> if (isFutureOrTomorrow) "${multiSlotResult?.dateLabel ?: "Tomorrow"}, 9:00 AM (±15 min)" else "09:00 AM (±15 min)"
                                             else -> "Loading..."
                                         }
 
@@ -2454,33 +2438,7 @@ fun QueueStatusScreen(
                                     },
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    val timing = liveTimingEstimate ?: run {
-                                        if (!isFutureOrTomorrow && !isPastDate && !isNoShow && !showClinicClosedUI && appointment != null) {
-                                            QueueRepository.calculateLiveQueueTimingEstimate(
-                                                clinic = clinicObj,
-                                                isDoctorInClinic = if (isLabClinic) true else isDoctorInClinic,
-                                                allClinicQueueEntries = emptyList(),
-                                                targetEntry = null,
-                                                fallbackPatientsAhead = patientsAhead.coerceAtLeast(0),
-                                                appointmentTime = appointment?.appointmentTime,
-                                                optInEarlyCall = appointment?.optInEarlyCall ?: false,
-                                                appointmentDate = appointment?.appointmentDate,
-                                                avgMinutesOverride = clinicAvgTimeMinutes,
-                                                isAnyoneInsideOverride = isAnyoneInsideDoctorCabin
-                                            )
-                                        } else null
-                                    }
-                                    val futureDynamicFallback = remember(appointment?.appointmentTime, patientsAhead, clinicAvgTimeMinutes, multiSlotResult) {
-                                        val parsed = QueueRepository.parseSlotStartTime(appointment?.appointmentTime)
-                                        if (parsed != null) {
-                                            val fmt = java.time.format.DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.US)
-                                            val approx = parsed.plusMinutes((patientsAhead.coerceAtLeast(0) * clinicAvgTimeMinutes).toLong())
-                                            val spread = clinicAvgTimeMinutes.coerceAtLeast(5)
-                                            "${approx.format(fmt)} (±$spread min)"
-                                        } else {
-                                            appointment?.appointmentTime?.ifBlank { null } ?: "Scheduled Slot"
-                                        }
-                                    }
+                                    val timing = liveTimingEstimate
                                     val isArriveFast = !isLate && !isFutureOrTomorrow && (timing?.isClinicOnBreak != true) && (
                                         timing?.estimatedTimeLeftText?.contains("Arrive", ignoreCase = true) == true ||
                                         timing?.expectedExactTimeText?.contains("arrive", ignoreCase = true) == true
@@ -2495,11 +2453,13 @@ fun QueueStatusScreen(
                                         isLate -> "Arrive soon, you are late"
                                         isLabClinic && isReportReady -> "Report Ready"
                                         isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> "Sample in Lab"
-                                        isFutureOrTomorrow -> multiSlotResult?.approxAppointmentTimeText?.takeIf { it.isNotBlank() } ?: futureDynamicFallback
+                                        isFutureOrTomorrow && !multiSlotResult?.approxAppointmentTimeText.isNullOrBlank() -> {
+                                            multiSlotResult!!.approxAppointmentTimeText
+                                        }
                                         hasExactTime -> "Expected at ${timing.expectedExactTimeText}"
                                         isArriveFast -> "Your turn, arrive soon"
                                         else -> timing?.estimatedTimeLeftText?.takeIf { it.isNotBlank() }
-                                            ?: "~${(patientsAhead.coerceAtLeast(1) * clinicAvgTimeMinutes)} min"
+                                            ?: (if (patientsAhead > 0) "~${patientsAhead * clinicAvgTimeMinutes} min" else "< 5 min")
                                     }
                                     val displayWindow = when {
                                         showClinicClosedUI || isNoShow -> "Consultations ended for today"
@@ -2507,11 +2467,9 @@ fun QueueStatusScreen(
                                         isLabClinic && isReportReady -> "Verify below to view report"
                                         isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> "Processing laboratory tests"
                                         isFutureOrTomorrow && !multiSlotResult?.timeWindowText.isNullOrBlank() -> multiSlotResult!!.timeWindowText
-                                        isFutureOrTomorrow -> "Estimated arrival window"
+                                        patientsAhead == 0 -> "You're next in line • Please be near the cabin"
                                         timing?.isClinicOnBreak == true && !timing.timeWindowText.isNullOrBlank() -> timing.timeWindowText
                                         timing?.isClinicOnBreak == true && !timing.approxTimeText.isNullOrBlank() -> timing.approxTimeText
-                                        patientsAhead == 0 && !timing?.estimatedTimeLeftText.isNullOrBlank() -> "${timing!!.estimatedTimeLeftText} · Please be near the cabin"
-                                        patientsAhead == 0 -> "You're next in line • Please be near the cabin"
                                         !timing?.estimatedTimeLeftText.isNullOrBlank() && !timing.timeWindowText.isNullOrBlank() -> {
                                             "${timing.estimatedTimeLeftText} left · window ${timing.timeWindowText}"
                                         }
