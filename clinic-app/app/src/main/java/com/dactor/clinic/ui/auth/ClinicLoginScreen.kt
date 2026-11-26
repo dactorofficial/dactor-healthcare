@@ -332,7 +332,7 @@ fun ClinicLoginScreen(
                             if (clinic.verificationStatus.equals("approved", ignoreCase = true)) {
                                 val hasActiveAuthSession =
                                     FirebaseAuth.getInstance().currentUser != null ||
-                                        AppModule.supabaseClient.auth.currentSessionOrNull() != null
+                                        AppModule.provideSupabaseClient().auth.currentSessionOrNull() != null
                                 if (hasActiveAuthSession) {
                                     sessionManager.clearPendingVerification()
                                     clinicRepository?.clearCache()

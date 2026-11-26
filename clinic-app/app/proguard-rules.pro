@@ -19,6 +19,9 @@
 -keep class io.github.jan.supabase.** { *; }
 -keep interface io.github.jan.supabase.** { *; }
 -keep class io.ktor.** { *; }
+-dontwarn io.ktor.**
+-dontwarn java.lang.management.**
+-dontwarn org.slf4j.**
 
 # Android Jetpack Compose
 -keep class androidx.compose.** { *; }

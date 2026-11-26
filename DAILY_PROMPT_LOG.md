@@ -7,6 +7,23 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-25
 
 ### Prompt:
+> "generate apk for clinic app"
+
+#### Changes Applied:
+1. **Clinic App Version Bump (`clinic-app/app/build.gradle.kts`)**:
+   - Incremented `versionCode` from `91` to `92`.
+   - Incremented `versionName` from `"1.0.91"` to `"1.0.92"`.
+2. **Compiler Error Fixes**:
+   - `ClinicRepository.kt`: Added missing `import io.github.jan.supabase.postgrest.rpc`; corrected `paymentMerchantId` to `merchantId` and `paymentGatewaysConfigJson` to `paymentGatewaysJson` in `Clinic` copy block.
+   - `ClinicLoginScreen.kt`: Replaced direct `AppModule.supabaseClient` reference with `AppModule.provideSupabaseClient()`.
+3. **Build & Staging**:
+   - Assembled debug APK (`assembleDebug` exit code `0`).
+   - Staged to `APKs/Dactor-ClinicApp-v1.0.92.apk` (42,484,340 bytes).
+   - Updated `HANDOFF.md` APK Version Registry and Executive Summary table.
+
+---
+
+### Prompt:
 > "read it" (`c:\Users\dell\Downloads\walkthrough.md`) + "yes check what are left and solve them" (verify and resolve all 18 security audit findings VULN-001..VULN-018)
 
 #### Changes Applied:

@@ -9,6 +9,7 @@ import com.dactor.clinic.data.model.NotificationTemplate
 import com.dactor.clinic.data.model.NotificationType
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.functions.functions
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -951,9 +952,9 @@ open class ClinicRepository @Inject constructor(
                     val updatedClinic = current.copy(
                         isDirectPaymentEnabled = isDirectPaymentEnabled,
                         paymentGatewayProvider = gw,
-                        paymentMerchantId = merchantId ?: apiKey.orEmpty(),
+                        merchantId = merchantId ?: apiKey.orEmpty(),
                         paymentApiKey = apiKey.orEmpty(),
-                        paymentGatewaysConfigJson = updatedCfg.toJson()
+                        paymentGatewaysJson = updatedCfg.toJson()
                     )
                     val saved = updateClinic(clinicId, updatedClinic)
                     if (saved) {
