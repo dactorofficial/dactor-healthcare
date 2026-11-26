@@ -44,7 +44,8 @@ import {
 import {
   calculateLiveQueueTimingEstimate,
   parseSlotStartTime,
-  formatTime12H
+  formatTime12H,
+  formatTimeWindow
 } from '../utils/queueTiming'
 import {
   getAppointmentByTrackingCode,
@@ -1416,13 +1417,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       }
     }
 
-    // When appointment is tomorrow or on a future date, use multi-slot calculations directly
+    // When appointment is tomorrow or on a future date, use multi-slot or dynamic staggered calculation
     if (isFutureOrTomorrow) {
       if (multiSlotResult) {
         return {
           effectiveExpectedTime: now,
           expectedExactTimeText: multiSlotResult.approxAppointmentTimeText,
-          timeWindowText: `${multiSlotResult.timeWindowText} (±15 min)`,
+          timeWindowText: multiSlotResult.timeWindowText,
           approxTimeText: multiSlotResult.approxAppointmentTimeText,
           suggestedArrivalText: `Scheduled slot for ${multiSlotResult.dateLabel}`,
           slotNoticeText: `Scheduled for ${multiSlotResult.dateLabel} • Approx. ${multiSlotResult.approxAppointmentTimeText}`,
@@ -1430,13 +1431,17 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           isArriveSoon: false,
         }
       }
+      const fallbackBase = slotStartDate || now
+      const staggeredExpected = new Date(fallbackBase.getTime() + Math.max(0, patientsAhead) * clinicAvgMinutes * 60000)
+      const spread = Math.max(5, clinicAvgMinutes)
+      const dynamicApprox = slotStartDate ? `${formatTime12H(staggeredExpected)} (±${spread} min)` : `${slotStartTimeStr || 'Scheduled'}`
       return {
-        effectiveExpectedTime: now,
-        expectedExactTimeText: `${slotStartTimeStr} (±15 min)`,
-        timeWindowText: `${slotStartTimeStr} (±15 min)`,
-        approxTimeText: `Scheduled for ${dateLabel}`,
+        effectiveExpectedTime: staggeredExpected,
+        expectedExactTimeText: dynamicApprox,
+        timeWindowText: slotStartDate ? formatTimeWindow(staggeredExpected, spread * 2) : `Scheduled for ${dateLabel}`,
+        approxTimeText: dynamicApprox,
         suggestedArrivalText: `Scheduled slot for ${dateLabel}`,
-        slotNoticeText: `Scheduled for ${dateLabel} • Syncing queue line position...`,
+        slotNoticeText: `Scheduled for ${dateLabel} • Approx. ${dynamicApprox}`,
         displayWaitText: `Scheduled for ${dateLabel}`,
         isArriveSoon: false,
       }
@@ -2422,10 +2427,10 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                       </span>
                       <div className="text-base font-black text-slate-900 dark:text-white">
                         {isFutureOrTomorrow
-                          ? `${dateLabel}, ${slotStartTimeStr} (±15 min)`
+                          ? `${dateLabel}, ${multiSlotResult?.slotStartTimeText || slotStartTimeStr}`
                           : appointment.appointmentTime
-                          ? `${appointment.appointmentTime} (±15 min)`
-                          : '09:00 AM (±15 min)'}
+                          ? `${appointment.appointmentTime}`
+                          : 'Live Queue Slot'}
                       </div>
                       <span className="text-[11px] text-slate-500 dark:text-slate-400">
                         {isPastAppointment
@@ -2474,7 +2479,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           : isFutureOrTomorrow && multiSlotResult
                           ? multiSlotResult.approxAppointmentTimeText
                           : isFutureOrTomorrow
-                          ? `${slotStartTimeStr} (±15 min)`
+                          ? expectedExactTimeText
                           : `Expected at ${expectedExactTimeText || formatTime12H(effectiveExpectedTime)}`}
                       </div>
                       <span className={`text-[11px] ${showClinicClosedUI ? 'text-rose-700 dark:text-rose-400' : 'text-teal-700 dark:text-teal-400'}`}>
@@ -2483,11 +2488,11 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           : isPastAppointment
                           ? 'Live tracking closes after appointment date'
                           : isFutureOrTomorrow && multiSlotResult
-                          ? `${multiSlotResult.timeWindowText} (±15 min)`
+                          ? `${multiSlotResult.timeWindowText}`
                           : isFutureOrTomorrow
-                          ? 'Staggered arrival window'
+                          ? timeWindowText || 'Staggered arrival window'
                           : patientsAhead === 0
-                          ? 'You are next in line • Please be near the cabin'
+                          ? `${displayWaitText || 'Up next'} • Please be near the cabin`
                           : `${displayWaitText} left · window ${timeWindowText}`}
                       </span>
                     </div>

@@ -422,8 +422,7 @@ function calculateLiveQueueTimingEstimate(
 
   // Check if clinic is on break
   if (clinic.isOnBreak) {
-    let breakEndHours = 14
-    let breakEndMinutes = 0
+    let breakEndDate: Date | null = null
 
     if (clinic.weeklyScheduleJson) {
       try {
@@ -441,16 +440,17 @@ function calculateLiveQueueTimingEstimate(
               const ampm = m[3]?.toUpperCase()
               if (ampm === 'PM' && h < 12) h += 12
               if (ampm === 'AM' && h === 12) h = 0
-              breakEndHours = h
-              breakEndMinutes = min
+              breakEndDate = new Date()
+              breakEndDate.setHours(h, min, 0, 0)
             }
           }
         }
       } catch {}
     }
 
-    const breakEndDate = new Date()
-    breakEndDate.setHours(breakEndHours, breakEndMinutes, 0, 0)
+    if (!breakEndDate) {
+      breakEndDate = new Date(now.getTime() + Math.max(15, avgMins) * 60000)
+    }
 
     const effectiveBreakEnd = now.getTime() > breakEndDate.getTime()
       ? new Date(now.getTime() + 5 * 60000)
@@ -470,7 +470,7 @@ function calculateLiveQueueTimingEstimate(
 
     const fmt = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     const startWin = new Date(finalExpected.getTime() - 5 * 60000)
-    const endWin = new Date(finalExpected.getTime() + 10 * 60000)
+    const endWin = new Date(finalExpected.getTime() + Math.max(5, avgMins) * 60000)
 
     return {
       statusText: patientsAhead === 0
@@ -515,7 +515,7 @@ function calculateLiveQueueTimingEstimate(
       finalExpectedTime = dynamicExpectedTime.getTime() > minForwardTime.getTime() ? dynamicExpectedTime : minForwardTime
       const diffSec = Math.max(0, Math.round((finalExpectedTime.getTime() - now.getTime()) / 1000))
       remainingMins = Math.max(1, Math.ceil(diffSec / 60))
-      waitStr = remainingMins <= 2 ? 'Up Next (~2 min)' : `~${remainingMins} mins`
+      waitStr = remainingMins <= 2 ? `Up Next (~${remainingMins} min)` : `~${remainingMins} mins`
     }
   } else {
     // Patient is at position 2, 3, etc. (patientsAhead > 0)

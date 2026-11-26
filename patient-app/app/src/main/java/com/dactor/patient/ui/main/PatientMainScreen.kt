@@ -6180,7 +6180,7 @@ fun AppointmentsTab(
 
                     val isMissed = !isConsultationDone && (isNoShowStatus || isPastDate)
 
-                    // Calculate live queue timing estimate ONLY for today's appointment
+                    // Calculate live queue timing estimate (dynamically staggered for future dates too)
                     val timingEstimate = remember(clinic, doctor, qEntry, liveAhead, isInClinic, isClinicOnBreak, doctorEntries, isToday, clockTick15s) {
                         if (isToday) {
                             QueueRepository.calculateLiveQueueTimingEstimate(
@@ -6193,9 +6193,17 @@ fun AppointmentsTab(
                                 appointmentDate = appt.appointmentDate
                             )
                         } else {
+                            val clinicAvgMins = (clinic?.getEffectiveAvgMinutes() ?: 10).coerceAtLeast(1)
+                            val parsedStart = QueueRepository.parseSlotStartTime(appt.appointmentTime)
+                                ?: clinic?.getTodaySchedule()?.openTime?.let { ClinicScheduleHelper.parseTimeToLocalTime(it) }
+                            val staggeredTime = parsedStart?.plusMinutes((liveAhead.coerceAtLeast(0) * clinicAvgMins).toLong())
+                            val fmt = java.time.format.DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.US)
+                            val dynamicText = staggeredTime?.format(fmt)
+                                ?: appt.appointmentTime?.ifBlank { null }
+                                ?: "Scheduled"
                             com.dactor.patient.data.repository.LiveQueueTimingEstimate(
                                 estimatedTimeLeftText = "Scheduled",
-                                expectedExactTimeText = appt.appointmentTime ?: "10:00 AM",
+                                expectedExactTimeText = dynamicText,
                                 doctorStatusBanner = null,
                                 isDoctorNotInside = !isInClinic,
                                 isSoonBeReady = false
@@ -6895,12 +6903,9 @@ fun AppointmentsTab(
                                                         isLate -> "Arrive Soon"
                                                         isWithDoctor -> "In consultation"
                                                         isClinicOnBreak -> "Clinic on break"
-                                                        timingEstimate.doctorStatusBanner != null -> timingEstimate.estimatedTimeLeftText
-                                                        liveAhead == 0 -> {
-                                                            if (timingEstimate.estimatedTimeLeftText.isNotBlank()) timingEstimate.estimatedTimeLeftText else "Up Next"
-                                                        }
-                                                        timingEstimate.isSoonBeReady || timingEstimate.expectedExactTimeText == "Soon, be ready" -> "Soon, be ready"
-                                                        else -> timingEstimate.estimatedTimeLeftText
+                                                        timingEstimate.estimatedTimeLeftText.isNotBlank() -> timingEstimate.estimatedTimeLeftText
+                                                        liveAhead == 0 -> "Up Next"
+                                                        else -> "~ ${liveAhead * (clinic?.getEffectiveAvgMinutes() ?: 10)} min"
                                                     },
                                                     fontSize = 11.sp,
                                                     fontWeight = FontWeight.Bold,
@@ -6916,8 +6921,7 @@ fun AppointmentsTab(
                                                         isWithDoctor -> "Inside now"
                                                         isClinicOnBreak -> "Paused"
                                                         timingEstimate.expectedExactTimeText == "In Consultation" || timingEstimate.expectedExactTimeText == "Done" -> timingEstimate.expectedExactTimeText
-                                                        timingEstimate.expectedExactTimeText == "Soon, be ready" -> "Prepare to enter"
-                                                        timingEstimate.expectedExactTimeText.isNotBlank() -> "Exp: ${timingEstimate.expectedExactTimeText}"
+                                                        timingEstimate.expectedExactTimeText.isNotBlank() && timingEstimate.expectedExactTimeText != "Soon, be ready" -> "Exp: ${timingEstimate.expectedExactTimeText}"
                                                         else -> "Next in line"
                                                     },
                                                     fontSize = 10.sp,
@@ -6971,7 +6975,10 @@ fun AppointmentsTab(
                                                         color = Color(0xFF0F172A)
                                                     )
                                                     Text(
-                                                        text = appt.appointmentTime ?: "10:00 AM - 11:00 AM",
+                                                        text = appt.appointmentTime?.ifBlank { null }
+                                                            ?: timingEstimate.expectedExactTimeText.takeIf { it.isNotBlank() && it != "Scheduled" }
+                                                            ?: clinic?.getTodaySchedule()?.openTime
+                                                            ?: "Scheduled Slot",
                                                         fontSize = 14.sp,
                                                         fontWeight = FontWeight.ExtraBold,
                                                         color = Color(0xFF0284C7)

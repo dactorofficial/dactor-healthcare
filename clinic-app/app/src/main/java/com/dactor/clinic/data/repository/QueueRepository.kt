@@ -2477,8 +2477,7 @@ open class QueueRepository @Inject constructor(
                 val rawBreakEnd = if (hasBreakSchedule) {
                     ClinicScheduleHelper.parseTimeToLocalTime(todaySchedule!!.breakEnd)
                 } else {
-                    val def2pm = ClinicScheduleHelper.parseTimeToLocalTime("02:00 PM")
-                    if (nowTime.isBefore(def2pm)) def2pm else nowTime.plusMinutes(15)
+                    nowTime.plusMinutes(avgMins.coerceAtLeast(15).toLong())
                 }
 
                 // If scheduled break end has already passed (e.g. clinic still on break after scheduled end),
@@ -2658,7 +2657,7 @@ open class QueueRepository @Inject constructor(
                     effectiveExpectedTime = if (dynamicExpectedTime.isAfter(minForwardTime)) dynamicExpectedTime else minForwardTime
                     val diffSec = java.time.Duration.between(nowTime, effectiveExpectedTime).seconds
                     val diffMins = kotlin.math.ceil(diffSec / 60.0).toInt().coerceAtLeast(1)
-                    effectiveTimeLeftText = if (diffMins <= 2) "Up Next (~2 min)" else "~ $diffMins min"
+                    effectiveTimeLeftText = if (diffMins <= 2) "Up Next (~$diffMins min)" else "~ $diffMins min"
                     effectiveExactTimeText = effectiveExpectedTime.format(timeFormatter)
                 }
             } else {
@@ -2678,8 +2677,9 @@ open class QueueRepository @Inject constructor(
                     }
                     effectiveExactTimeText = effectiveExpectedTime.format(timeFormatter)
                 } else {
-                    // Overdue or active slot: strictly forward clamp >= now
-                    val minForwardTime = nowTime.plusMinutes((totalPeopleAhead * avgMins).toLong().coerceAtLeast(1))
+                    // Overdue or active slot: strictly forward clamp >= now (+5m if doctor not yet in clinic)
+                    val awayBuffer = if (!isDoctorInClinic) 5L else 0L
+                    val minForwardTime = nowTime.plusMinutes((awayBuffer + totalPeopleAhead * avgMins).coerceAtLeast(1))
                     effectiveExpectedTime = if (dynamicExpectedTime.isAfter(minForwardTime)) dynamicExpectedTime else minForwardTime
                     val diffSec = java.time.Duration.between(nowTime, effectiveExpectedTime).seconds
                     val diffMins = kotlin.math.ceil(diffSec / 60.0).toInt().coerceAtLeast(1)

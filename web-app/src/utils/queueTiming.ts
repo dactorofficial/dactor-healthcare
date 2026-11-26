@@ -145,10 +145,10 @@ export function calculateLiveQueueTimingEstimate(input: QueueTimingInput): Queue
         breakEndDate = new Date(now)
         breakEndDate.setHours(parsed.hours, parsed.minutes, 0, 0)
       } else {
-        breakEndDate = new Date(now.getTime() + 15 * 60000)
+        breakEndDate = new Date(now.getTime() + Math.max(15, avgMins) * 60000)
       }
     } else {
-      breakEndDate = new Date(now.getTime() + 15 * 60000)
+      breakEndDate = new Date(now.getTime() + Math.max(15, avgMins) * 60000)
     }
 
     // If break end already passed, forward clamp to now + 5m
@@ -260,7 +260,7 @@ export function calculateLiveQueueTimingEstimate(input: QueueTimingInput): Queue
 
       const diffSec = Math.max(0, Math.round((effectiveExpectedTime.getTime() - now.getTime()) / 1000))
       const diffMins = Math.max(1, Math.ceil(diffSec / 60))
-      effectiveTimeLeftText = diffMins <= 2 ? 'Up Next (~2 min)' : `~ ${diffMins} min`
+      effectiveTimeLeftText = diffMins <= 2 ? `Up Next (~${diffMins} min)` : `~ ${diffMins} min`
       effectiveExactTimeText = formatTime12H(effectiveExpectedTime)
     }
   } else {
