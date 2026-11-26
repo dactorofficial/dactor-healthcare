@@ -7,6 +7,23 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-25
 
 ### Prompt:
+> "/plan it is still transferring to the payment record not found site after the payment is done make the plan first and also when wrong info is put the error text is sink at the bottom so solve this as well"
+
+#### Changes Applied:
+1. **Payment Callback Investigation & Edge Function Hardening ([`supabase/functions/appointment-payment/index.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/functions/appointment-payment/index.ts))**:
+   - Probed live `https://ojfoofojcpabqegxmsab.supabase.co/functions/v1/appointment-payment?action=return&attempt_id=...` and confirmed the cloud deployment is still serving the stale `HTTP 404 Payment record not found` version (not yet deployed from local workspace).
+   - Hardened `Deno.serve` callback routing with `isFormCallback` (`POST` with `application/x-www-form-urlencoded`) so gateway form callbacks omitting `?action=return` route cleanly to `handleReturnOrWebhook`.
+   - Verified `node supabase/test_multi_gateway_payments.cjs` (`13/13` passed).
+   - Attempted `npx.cmd supabase functions deploy appointment-payment --project-ref ojfoofojcpabqegxmsab --no-verify-jwt`, blocked on `AccessTokenRequiredError` (requires user `supabase login` or `SUPABASE_ACCESS_TOKEN`).
+2. **Patient App Error Placement & Keyboard/Bottom-Bar Clearance**:
+   - [`BookingFormScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/booking/BookingFormScreen.kt): Pinned `AnimatedVisibility(visible = errorMessage != null)` directly inside `Scaffold`'s `bottomBar` above the fee summary & `"Proceed to Payment"` button so errors remain immediately visible regardless of scroll position; added `.imePadding()` and `24.dp` bottom spacing on the scrollable `Column`.
+   - [`LoginScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/auth/LoginScreen.kt): Replaced `positionInRoot().y` with container-relative `regCardOffsetY + positionInParent().y` for accurate invalid-field scrolling, added `.imePadding()`, and added an inline `errorMessage` banner directly above `"Complete Registration & Enter Dactor"`.
+   - [`TrackingLookupScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/TrackingLookupScreen.kt): Added `.imePadding()` to the scrollable container so lookup errors stay above the soft keyboard.
+   - [`ProfileScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/profile/ProfileScreen.kt): Added `.verticalScroll(rememberScrollState())` inside the `Edit Profile Details` dialog `Column` so validation errors never clip on smaller screens.
+
+---
+
+### Prompt:
 > "download through adb"
 
 #### Changes Applied:

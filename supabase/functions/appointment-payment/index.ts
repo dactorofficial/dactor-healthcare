@@ -1898,7 +1898,9 @@ Deno.serve(async (req) => {
     }
 
     // Both GET and POST supported for gateway return callbacks (ConnectIPS, Fonepay, Khalti, eSewa)
-    if ((req.method === "GET" || req.method === "POST") && isGatewayCallback) {
+    const contentType = (req.headers.get("content-type") || "").toLowerCase();
+    const isFormCallback = req.method === "POST" && contentType.includes("application/x-www-form-urlencoded");
+    if ((req.method === "GET" || req.method === "POST") && (isGatewayCallback || isFormCallback)) {
       return await handleReturnOrWebhook(req, url, corsHeaders, false);
     }
 

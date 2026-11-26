@@ -90,6 +90,7 @@ fun LoginScreen(
     val phoneFocusRequester = remember { FocusRequester() }
     val ageFocusRequester = remember { FocusRequester() }
 
+    var regCardOffsetY by remember { mutableIntStateOf(0) }
     var nameFieldY by remember { mutableIntStateOf(0) }
     var phoneFieldY by remember { mutableIntStateOf(0) }
     var ageFieldY by remember { mutableIntStateOf(0) }
@@ -418,7 +419,7 @@ fun LoginScreen(
         if (patientName.trim().length < 2) {
             errorMessage = "Please enter your full name (at least 2 characters)."
             coroutineScope.launch {
-                scrollState.animateScrollTo((nameFieldY - 200).coerceAtLeast(0))
+                scrollState.animateScrollTo((regCardOffsetY + nameFieldY - 80).coerceAtLeast(0))
                 runCatching { nameFocusRequester.requestFocus() }
             }
             return
@@ -426,7 +427,7 @@ fun LoginScreen(
         if (digits.length != 10 || !digits.startsWith("9")) {
             errorMessage = "Please enter a valid 10-digit mobile number starting with 9."
             coroutineScope.launch {
-                scrollState.animateScrollTo((phoneFieldY - 200).coerceAtLeast(0))
+                scrollState.animateScrollTo((regCardOffsetY + phoneFieldY - 80).coerceAtLeast(0))
                 runCatching { phoneFocusRequester.requestFocus() }
             }
             return
@@ -434,7 +435,7 @@ fun LoginScreen(
         if (cleanAge == null || cleanAge !in 1..120) {
             errorMessage = "Please enter a valid age between 1 and 120."
             coroutineScope.launch {
-                scrollState.animateScrollTo((ageFieldY - 200).coerceAtLeast(0))
+                scrollState.animateScrollTo((regCardOffsetY + ageFieldY - 80).coerceAtLeast(0))
                 runCatching { ageFocusRequester.requestFocus() }
             }
             return
@@ -442,14 +443,14 @@ fun LoginScreen(
         if (patientGender.isBlank()) {
             errorMessage = "Please select your gender."
             coroutineScope.launch {
-                scrollState.animateScrollTo((genderFieldY - 200).coerceAtLeast(0))
+                scrollState.animateScrollTo((regCardOffsetY + genderFieldY - 80).coerceAtLeast(0))
             }
             return
         }
         if (!patientTermsAccepted) {
             errorMessage = "Please review and accept the Terms & Conditions and Privacy Policy to register."
             coroutineScope.launch {
-                scrollState.animateScrollTo((termsFieldY - 200).coerceAtLeast(0))
+                scrollState.animateScrollTo((regCardOffsetY + termsFieldY - 80).coerceAtLeast(0))
             }
             return
         }
@@ -584,6 +585,7 @@ fun LoginScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .imePadding()
                 .background(MaterialTheme.colorScheme.background)
                 .verticalScroll(scrollState)
                 .padding(horizontal = 24.dp, vertical = 18.dp),
@@ -851,7 +853,9 @@ fun LoginScreen(
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onGloballyPositioned { regCardOffsetY = it.positionInParent().y.toInt() }
                 ) {
                     Column(
                         modifier = Modifier.padding(20.dp),
@@ -876,7 +880,7 @@ fun LoginScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .focusRequester(nameFocusRequester)
-                                .onGloballyPositioned { nameFieldY = it.positionInRoot().y.toInt() },
+                                .onGloballyPositioned { nameFieldY = it.positionInParent().y.toInt() },
                             shape = RoundedCornerShape(12.dp)
                         )
 
@@ -911,7 +915,7 @@ fun LoginScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .focusRequester(phoneFocusRequester)
-                                .onGloballyPositioned { phoneFieldY = it.positionInRoot().y.toInt() },
+                                .onGloballyPositioned { phoneFieldY = it.positionInParent().y.toInt() },
                             shape = RoundedCornerShape(12.dp)
                         )
 
@@ -934,14 +938,14 @@ fun LoginScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .focusRequester(ageFocusRequester)
-                                .onGloballyPositioned { ageFieldY = it.positionInRoot().y.toInt() },
+                                .onGloballyPositioned { ageFieldY = it.positionInParent().y.toInt() },
                             shape = RoundedCornerShape(12.dp)
                         )
 
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .onGloballyPositioned { genderFieldY = it.positionInRoot().y.toInt() },
+                                .onGloballyPositioned { genderFieldY = it.positionInParent().y.toInt() },
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
@@ -986,7 +990,7 @@ fun LoginScreen(
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .onGloballyPositioned { termsFieldY = it.positionInRoot().y.toInt() }
+                                .onGloballyPositioned { termsFieldY = it.positionInParent().y.toInt() }
                         ) {
                             Row(
                                 modifier = Modifier.padding(10.dp),
@@ -1025,6 +1029,34 @@ fun LoginScreen(
                                         fontSize = 10.sp,
                                         color = if (isTermsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                                         lineHeight = 14.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        AnimatedVisibility(visible = errorMessage != null) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.errorContainer,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.ErrorOutline,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        text = errorMessage ?: "",
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.weight(1f)
                                     )
                                 }
                             }
