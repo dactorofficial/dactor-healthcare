@@ -7,6 +7,47 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "we need to make a good plan for the quality of the lab report if 1 image is used put it upto 100 kb and in the same way n * 100 kb as per the number of pictures uploaded /plan"
+
+#### Changes Applied:
+1. **Clinic Mobile App (`clinic-app`)**:
+   - [`FileCompressor.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/FileCompressor.kt):
+     - Added `calculateLabReportBudgetBytes(pageCount: Int): Int` scaling dynamically at `n * 100 KB` (`100 * 1024` bytes per picture, capped at the 10 MB edge function upload limit).
+     - Upgraded `createOptimizedPdfFromImages` and `createOptimizedPdfFromImageBytes` to calculate budget dynamically when `targetMaxBytes <= 0` and distribute budgets with carry-forward pooling (`remainingJpegBudget / remainingPages`).
+     - Added auto-correction of camera EXIF orientation via `ExifInterface` and `Matrix.postRotate` to prevent sideways/rotated scans.
+     - Kept max image dimension at `1440px` across all page counts (removed aggressive drop to `720px` for multi-page scans).
+     - Extended JPEG quality search across fine-grained scale `[90, 82, 75, 68, 60, 52, 45, 38, 30, 24, 18]`.
+     - Added `getPdfPageCount(rawBytes: ByteArray): Int` and updated `compressPdfBytes` to dynamically allocate budget based on PDF page count.
+   - [`LabReportRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/LabReportRepository.kt):
+     - Updated `uploadReportDocument` with `maxBytes: Int?` and `skipRecompressionIfWithinBudget: Boolean = false`, fixing a bug where multi-page PDFs over 300 KB were re-crushed and degraded on storage upload.
+   - [`LabWorkflowScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/lab/LabWorkflowScreen.kt):
+     - Connected `processSelectedImages` and `singlePdfPickerLauncher` to dynamic budget calculations (`calculateLabReportBudgetBytes`).
+     - Passed dynamic upload budget and `skipRecompressionIfWithinBudget = true` to `uploadReportDocument`.
+     - Updated UI hints and progress text to display dynamic `≤ n * 100 KB` compression status.
+   - [`PdfReportBuilderTest.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/test/java/com/dactor/clinic/domain/util/PdfReportBuilderTest.kt):
+     - Added unit tests for `calculateLabReportBudgetBytes` verifying linear scaling up to 10 MB.
+
+2. **Web Portal & Progressive Web App (`web-app`)**:
+   - [`imageToPdf.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/utils/imageToPdf.ts):
+     - Exported `calculateLabReportBudgetBytes(pageCount: number): number`.
+     - Updated `convertImagesToPdf` to default to dynamic `n * 100 KB` budget with pooled carry-forward redistribution.
+     - Fixed `2.54x` contrast blowout bug on monochrome medical scans to a subtle `1.12` linear contrast adjustment matching Android.
+     - Kept `maxDim = 1440` across all page counts and implemented binary search JPEG quality `[0.42..0.90]` with progressive fallback reduction.
+   - [`ClinicPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/ClinicPortal.tsx):
+     - Connected multi-picture conversion to `calculateLabReportBudgetBytes(files.length)`.
+     - Passed `selectedClinic.id` to `uploadReportFile`.
+     - Updated upload modal labels, spinners, and help texts to reflect dynamic budget `≤ n * 100 KB`.
+
+3. **Web Production Build & Live Deployment**:
+   - Type-checked web app with zero errors (`tsc --noEmit`).
+   - Built production bundle (`npm run build` / `vite build`).
+   - Ran live deployment script [`scripts/deploy_ghpages.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/deploy_ghpages.ps1) publishing `web-app/dist/` to GitHub Pages.
+
+---
+
+## 2026-11-26
+
+### Prompt:
 > "/plan why is the expected time a hard coded not dynamic yet for the first patient as well like if the person is the first and the expected time is 6 and if its already 7 it is not supposed to show 6 still solve this make a plan only" & "but you remeber the logic right that if a patient has booked for 9-10 and the current time is in between 8-9 and no patient it will still show time for 9 not the in between time of 8-9"
 
 #### Changes Applied:
