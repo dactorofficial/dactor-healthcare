@@ -7,6 +7,24 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-25
 
 ### Prompt:
+> "generate clinic apk" / "generate now"
+
+#### Changes Applied:
+1. **Clinic App Version Bump (`clinic-app/app/build.gradle.kts`)**:
+   - Incremented `versionCode` from `92` to `93`.
+   - Incremented `versionName` from `"1.0.92"` to `"1.0.93"`.
+2. **Bugfixes Resolved During Compilation**:
+   - [`PatientDirectoryScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/patients/PatientDirectoryScreen.kt): Fixed duplicate `else` block on appointment schedule confirmation failure.
+   - [`PaymentLedgerHelper.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/PaymentLedgerHelper.kt): Added null-safety guards for `appt.status` and `appt.checkinStatus`, and updated `InvoiceItem.copy(...)` calls to map `rawItemName`, `camelItemName`, and `plainName`.
+3. **APK Generation**:
+   - Assembled `clinic-app` debug APK using Gradle (`./gradlew.bat assembleDebug`).
+   - Copied output APK to [`APKs/Dactor-ClinicApp-v1.0.93.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-ClinicApp-v1.0.93.apk) (42.98 MB).
+4. **Handoff Tracking**:
+   - Updated `HANDOFF.md` version registry with `Dactor-ClinicApp-v1.0.93.apk`.
+
+---
+
+### Prompt:
 > "when i booked an new appoinment through esewa online appoinment it didnt transfer my appoinment to live queue except this it marked my new appoinment as follow up and also it put the payment mode as cash wtf fix these"
 
 #### Changes Applied:

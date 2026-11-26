@@ -411,8 +411,8 @@ object PaymentLedgerHelper {
     }
 
     private fun isValidClinicalVisitForHistory(appt: Appointment): Boolean {
-        val st = appt.status.trim().lowercase(Locale.US)
-        val ck = appt.checkinStatus.trim().lowercase(Locale.US)
+        val st = (appt.status ?: "").trim().lowercase(Locale.US)
+        val ck = (appt.checkinStatus ?: "").trim().lowercase(Locale.US)
         if (st in setOf("cancelled", "rejected", "pending_payment", "waiting_for_approval", "unapproved", "expired")) {
             return false
         }
@@ -1373,7 +1373,13 @@ object PaymentLedgerHelper {
                 } else {
                     item.itemName
                 }
-                allItems.add(item.copy(itemName = taggedName))
+                allItems.add(
+                    item.copy(
+                        rawItemName = taggedName,
+                        camelItemName = taggedName,
+                        plainName = taggedName
+                    )
+                )
             }
 
             // Collect actual payments (never synthesize payment on unbilled free follow-up!)

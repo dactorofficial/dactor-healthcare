@@ -2774,8 +2774,6 @@ fun PatientDirectoryScreen(
                                             loadData()
                                             showScheduleDialogForPatient = null
                                         } else {
-                                            actionMessage = "Failed to schedule appointment. Please try again."
-                                        } else {
                                             actionMessage = "Failed to schedule appointment. Please check clinic connection and try again."
                                         }
                                     }
