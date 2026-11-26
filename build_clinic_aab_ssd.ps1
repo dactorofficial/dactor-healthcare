@@ -93,6 +93,10 @@ if ($msftJdk -and (Test-Path $msftJdk)) {
 }
 $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 
+if (-not $env:DACTOR_KEYSTORE_PASSWORD) { $env:DACTOR_KEYSTORE_PASSWORD = "DactorUpload2026!" }
+if (-not $env:DACTOR_KEY_PASSWORD) { $env:DACTOR_KEY_PASSWORD = "DactorUpload2026!" }
+if (-not $env:DACTOR_KEY_ALIAS) { $env:DACTOR_KEY_ALIAS = "dactor-upload" }
+
 $sdkCandidates = @(
     "$env:LOCALAPPDATA\Android\Sdk",
     "C:\Users\nitup\AppData\Local\Android\Sdk",

@@ -34,6 +34,7 @@ data class Appointment(
     @SerialName("expires_at") val expiresAt: String? = null,
     @SerialName("approved_at") val approvedAt: String? = null,
     @SerialName("rejected_at") val rejectedAt: String? = null,
+    @SerialName("consultation_completed_at") val consultationCompletedAt: String? = null,
     @SerialName("created_at") val createdAt: String? = null
 ) {
     val effectiveTokenNumber: Int

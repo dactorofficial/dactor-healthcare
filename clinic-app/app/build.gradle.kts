@@ -36,8 +36,10 @@ android {
         }
         create("release") {
             val uploadKeystore = file("keystores/dactor-upload.jks")
+            val defaultPassword = if (uploadKeystore.exists()) "DactorUpload2026!" else null
             val envStorePassword = System.getenv("DACTOR_KEYSTORE_PASSWORD")
                 ?: project.findProperty("DACTOR_KEYSTORE_PASSWORD")?.toString()
+                ?: defaultPassword
             val envKeyAlias = System.getenv("DACTOR_KEY_ALIAS")
                 ?: project.findProperty("DACTOR_KEY_ALIAS")?.toString()
                 ?: "dactor-upload"

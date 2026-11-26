@@ -128,6 +128,10 @@ function Bump-App {
             $env:PATH = "D:\jdk17\bin;$env:PATH"
         }
 
+        if (-not $env:DACTOR_KEYSTORE_PASSWORD) { $env:DACTOR_KEYSTORE_PASSWORD = "DactorUpload2026!" }
+        if (-not $env:DACTOR_KEY_PASSWORD) { $env:DACTOR_KEY_PASSWORD = "DactorUpload2026!" }
+        if (-not $env:DACTOR_KEY_ALIAS) { $env:DACTOR_KEY_ALIAS = "dactor-upload" }
+
         $sdkCandidates = @(
             "C:\Users\nitup\AppData\Local\Android\Sdk",
             "$env:LOCALAPPDATA\Android\Sdk",

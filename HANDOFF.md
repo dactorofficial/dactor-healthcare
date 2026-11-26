@@ -32,7 +32,7 @@ The DACTOR platform consists of three tightly coupled applications operating on 
 |---|---|---|---|---|
 | **Super Admin Console** | React 18 + Vite + TypeScript + Tailwind | `admin-panel/` | [Live Site on GitHub Pages](https://dactorofficial.github.io/admin-portal/) <br> GitHub: `https://github.com/dactorofficial/admin-portal` | v1.0 |
 | **Clinic & Doctor App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `clinic-app/` | `APKs/Dactor-ClinicApp-v1.0.92.apk`<br>`AABs/Dactor-ClinicApp-v1.0.90.aab` | **v1.0.92 (Code 92)** |
-| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.41-debug.apk`<br>`AABs/Dactor-PatientApp-v1.0.41.aab` | **v1.0.41 (Code 141)** |
+| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.42.apk`<br>`AABs/Dactor-PatientApp-v1.0.41.aab` | **v1.0.42 (Code 142)** |
 | **Cloud Backend & Storage** | Supabase (PostgreSQL + Auth + Storage + Realtime) | `supabase/` | Project URL: `https://ojfoofojcpabqegxmsab.supabase.co` | Cloud Live |
 
 ---
@@ -1634,6 +1634,30 @@ Google Play flagged the app with:
    - Maintained in [`DAILY_PROMPT_LOG.md`](file:///g:/My%20Drive/New%20folder/DAILY_PROMPT_LOG.md) organized chronologically by date.
 3. **Mandatory Rule 3: APK Versioning & Placement**:
    - Strict version bump (`versionCode + 1`, semantic `versionName`) and versioned naming in `APKs/` when commanded.
+
+---
+
+## 35. Production Release APK for Patient App — Version 142 (November 25, 2026)
+
+### A. Release Overview & Version Alignment
+- **App**: `patient-app` (Dactor Patient App)
+- **Target Version**: `versionCode = 142`, `versionName = "1.0.42"`
+- **Target Platform**: Android API 36 (`compileSdk = 36`, `targetSdk = 36`, `minSdk = 24`)
+- **Signing Keystore**: Production Release key `keystores/dactor-upload.jks` (`dactor-upload`)
+  - **Certificate DN**: `CN=Dactor Health, OU=Mobile Engineering, O=Dactor Health Technologies, L=Kathmandu, ST=Bagmati, C=NP`
+  - **SHA-1 Fingerprint**: `b9ed0f4e0534880d1b5f9b8ca8ed9e7ffb7defe7`
+  - **SHA-256 Fingerprint**: `716efa2da681c9647d9b3917645316badaac783290b8e0358f0e6950d05905b0`
+- **Output Artifacts**:
+  - `APKs/Dactor-PatientApp-v1.0.42.apk` (11.24 MB)
+  - `APKs/Dactor-PatientApp-release.apk` (11.24 MB)
+- **Build Method**: `build_apks.ps1 -App Patient -NoBump` via Gradle `assembleRelease` with R8 minification and resource shrinking enabled.
+
+### B. Changes & Bug Fixes Applied:
+1. **Model Synchronization (`Appointment.kt`)**: Added `@SerialName("consultation_completed_at") val consultationCompletedAt: String? = null` to resolve reference in `BookingScreen.kt`.
+2. **Import Cleanliness (`QueueStatusScreen.kt`)**: Moved `import java.time.LocalDate` to top import block.
+3. **ProGuard / R8 Rules (`proguard-rules.pro`)**: Added `-dontwarn io.ktor.**`, `-dontwarn java.lang.management.**`, and `-dontwarn org.slf4j.**` to suppress desktop Java runtime warnings during R8 optimization.
+4. **Signing Configuration Fallback**: Set default keystore credentials to use `dactor-upload.jks` whenever the file exists, ensuring consistent SHA-1/SHA-256 release signatures across all environments.
+
 
 
 

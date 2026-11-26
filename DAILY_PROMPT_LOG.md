@@ -7,6 +7,28 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-25
 
 ### Prompt:
+> "generate apk for patient app"
+
+#### Changes Applied:
+1. **Patient App Version Bump (`patient-app/app/build.gradle.kts`)**:
+   - Incremented `versionCode` from `141` to `142`.
+   - Incremented `versionName` from `"1.0.41"` to `"1.0.42"`.
+2. **Compilation & Model Fixes**:
+   - `patient-app/app/src/main/java/com/dactor/patient/data/model/Appointment.kt`: Added missing `@SerialName("consultation_completed_at") val consultationCompletedAt: String? = null` field required by `BookingScreen.kt`.
+   - `patient-app/app/src/main/java/com/dactor/patient/ui/queue/QueueStatusScreen.kt`: Relocated mispositioned `import java.time.LocalDate` to top import declarations.
+3. **ProGuard / R8 Rules (`patient-app/app/proguard-rules.pro` & `clinic-app/app/proguard-rules.pro`)**:
+   - Added `-dontwarn io.ktor.**`, `-dontwarn java.lang.management.**`, and `-dontwarn org.slf4j.**` to suppress missing desktop Java runtime class warnings during R8 optimization.
+4. **Release Signing Configuration (`build_apks.ps1`, `build_patient_aab_ssd.ps1`, `build_clinic_aab_ssd.ps1`, `build.gradle.kts`)**:
+   - Configured release signing to default to `dactor-upload.jks` (`dactor-upload` / `DactorUpload2026!`) whenever the upload keystore file is present.
+   - Verified APK signature using `apksigner.bat verify --verbose --print-certs`: confirmed valid v2 signature with SHA-1 `b9ed0f4e0534880d1b5f9b8ca8ed9e7ffb7defe7` and SHA-256 `716efa2da681c9647d9b3917645316badaac783290b8e0358f0e6950d05905b0`.
+5. **Artifact Generation**:
+   - Successfully generated and verified signed release APK: `APKs/Dactor-PatientApp-v1.0.42.apk` (11.24 MB).
+   - Mirrored to `APKs/Dactor-PatientApp-release.apk` and SSD staging `C:\Users\dell\Dactor-APKs\Dactor-PatientApp-v1.0.42.apk`.
+   - Updated `HANDOFF.md` Executive Summary table and added Section 35.
+
+---
+
+### Prompt:
 > "generate apk for clinic app"
 
 #### Changes Applied:
