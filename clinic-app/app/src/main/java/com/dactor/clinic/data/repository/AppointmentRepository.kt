@@ -993,6 +993,83 @@ open class AppointmentRepository @Inject constructor(
         }
     }
 
+    /**
+     * Creates a standalone completed billing visit record for a Patient Directory patient
+     * who does not have any prior appointment yet, without adding them into the active Waiting Queue.
+     */
+    open suspend fun createCompletedBillingVisit(
+        clinicId: String,
+        patientName: String,
+        patientAge: Int?,
+        patientGender: String?,
+        patientMobile: String,
+        patientEmail: String?,
+        trackingCode: String,
+        userId: String?,
+        doctorId: String? = null
+    ): Appointment? = withContext(Dispatchers.IO) {
+        try {
+            val todayDate = java.time.LocalDate.now().toString()
+            val nowTimeStr = try {
+                java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a", java.util.Locale.US))
+            } catch (_: Exception) {
+                "10:00 AM"
+            }
+            val effectiveCode = trackingCode.takeIf { it.isNotBlank() && it.length == 10 }
+                ?: devicePrefixManager?.generateTrackingCode()
+                ?: TrackingCodeGenerator.generate()
+            val validUserId = userId?.takeIf { isValidUuid(it) }
+            val validDocId = doctorId?.takeIf { isValidUuid(it) }
+            val apptId = UUID.randomUUID().toString()
+            val dto = AppointmentInsertDto(
+                id = apptId,
+                trackingCode10Digit = effectiveCode,
+                slotId = null,
+                clinicId = clinicId,
+                doctorId = validDocId,
+                userId = validUserId,
+                patientName = patientName.trim().ifBlank { "Directory Patient" },
+                patientAge = patientAge ?: 30,
+                patientGender = patientGender?.takeIf { it.isNotBlank() } ?: "Male",
+                patientMobile = patientMobile.trim(),
+                patientEmail = patientEmail?.trim()?.ifBlank { null },
+                paymentStatus = "pending",
+                checkinStatus = "completed",
+                appointmentDate = todayDate,
+                appointmentTime = normalizeTimeForPostgres(nowTimeStr),
+                feeAmount = 0.0,
+                isWalkin = true,
+                paymentMode = "CASH",
+                status = "APPROVED",
+                attemptNumber = 1,
+                tokenNumber = null,
+                totalAmount = 0.0,
+                selectedLabTests = null,
+                notes = "Direct Patient Directory Billing"
+            )
+            val created = try {
+                supabaseClient.postgrest["appointments"]
+                    .insert(dto) { select() }
+                    .decodeSingleOrNull<Appointment>()
+            } catch (_: Exception) {
+                val noUserDto = dto.copy(userId = null)
+                supabaseClient.postgrest["appointments"]
+                    .insert(noUserDto) { select() }
+                    .decodeSingleOrNull<Appointment>()
+            }
+            if (created != null) {
+                clinicAppointmentsCache.remove(clinicId)
+                try {
+                    appointmentDao?.upsert(AppointmentEntity.fromDomainModel(created, syncStatus = "synced"))
+                } catch (_: Exception) {}
+            }
+            created
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
     private fun isMissingRescheduleRpcError(err: Throwable): Boolean {
         val msg = (err.message ?: "").lowercase()
         return msg.contains("pgrst202") ||

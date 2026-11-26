@@ -58,6 +58,10 @@ import com.dactor.patient.data.model.ClinicScheduleHelper
 import com.dactor.patient.data.repository.LiveQueueTimingEstimate
 import com.dactor.patient.domain.util.CurrencyFormatter
 import com.dactor.patient.domain.util.DateTimePickers
+import com.dactor.patient.ui.components.QuickLanguageButton
+import com.dactor.patient.ui.i18n.AppLanguage
+import com.dactor.patient.ui.i18n.LocalAppLanguage
+import com.dactor.patient.ui.i18n.LocalAppStrings
 import com.dactor.patient.ui.navigation.NavRoutes
 import com.dactor.patient.util.DiagnosticLabPolicy
 import kotlinx.coroutines.async
@@ -94,6 +98,8 @@ fun QueueStatusScreen(
     sessionManager: UserSessionManager? = null
 ) {
     val context = LocalContext.current
+    val strings = LocalAppStrings.current
+    val isNepali = LocalAppLanguage.current == AppLanguage.NEPALI
     val coroutineScope = rememberCoroutineScope()
 
     val cachedMaster = remember(appointmentIdOrCode) {
@@ -1122,12 +1128,13 @@ fun QueueStatusScreen(
                     .padding(top = 16.dp, bottom = 32.dp, start = 18.dp, end = 18.dp)
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    // Top Bar: Circular Refresh Action
+                    // Top Bar: Language Toggle + Circular Refresh Action
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        QuickLanguageButton(compact = true)
                         // Right circular refresh action button
                         Surface(
                             shape = CircleShape,
@@ -1156,7 +1163,7 @@ fun QueueStatusScreen(
                                     } else {
                                         Icon(
                                             Icons.Default.Refresh,
-                                            contentDescription = "Refresh Queue",
+                                            contentDescription = strings.common.refresh,
                                             tint = Color.White,
                                             modifier = Modifier.size(20.dp)
                                         )
@@ -1179,7 +1186,7 @@ fun QueueStatusScreen(
                         ) {
                             Icon(
                                 Icons.Default.ArrowBack,
-                                contentDescription = "Back",
+                                contentDescription = strings.common.back,
                                 tint = Color.White,
                                 modifier = Modifier.size(24.dp)
                             )
@@ -1187,13 +1194,13 @@ fun QueueStatusScreen(
 
                         Column {
                             Text(
-                                text = "Live Queue Position",
+                                text = strings.queueRecords.queueStatusTitle,
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
                             )
                             Text(
-                                text = "Your health, our priority",
+                                text = strings.queueRecords.queueTrackPrompt,
                                 fontSize = 12.5.sp,
                                 color = Color.White.copy(alpha = 0.85f)
                             )
@@ -1248,21 +1255,21 @@ fun QueueStatusScreen(
                             }
                             Column {
                                 Text(
-                                    text = "BOOKING CODE",
+                                    text = strings.queueRecords.queueTrackingCodeLabel.uppercase(),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFF64748B),
                                     letterSpacing = 0.5.sp
                                 )
                                 Text(
-                                    text = displayTrackingCode.ifBlank { if (isDataLoaded) "--" else "Loading..." },
+                                    text = displayTrackingCode.ifBlank { if (isDataLoaded) "--" else strings.common.loading },
                                     fontSize = 18.sp,
                                     fontWeight = FontWeight.Black,
                                     color = Color(0xFF0F172A)
                                 )
                                 if ((appointment?.attemptNumber ?: 1) > 1) {
                                     Text(
-                                        text = "Follow-Up (Visit #${appointment?.attemptNumber})",
+                                        text = if (isNepali) "फलो-अप (भ्रमण #${appointment?.attemptNumber})" else "Follow-Up (Visit #${appointment?.attemptNumber})",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF0D9488)
@@ -2009,26 +2016,26 @@ fun QueueStatusScreen(
                                         verticalArrangement = Arrangement.Center
                                     ) {
                                         val topBadgeLabel = when {
-                                            showClinicClosedUI -> "CLOSED"
-                                            isNoShow -> "NO SHOW"
-                                            isCancelled -> "CANCELLED"
-                                            isLate -> "LATE"
-                                            isLabClinic && isReportReady -> "REPORT"
-                                            isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> "IN LAB"
-                                            queueStatus == "inside" -> "CURRENT"
-                                            queueStatus == "done" || isConsultancyCompleted -> "VISIT"
-                                            isTomorrow -> "TOMORROW"
-                                            isFutureOrTomorrow -> "RANK"
-                                            isPastDate -> "PAST"
-                                            patientsAhead == 0 -> "UP NEXT"
-                                            else -> "POSITION"
+                                            showClinicClosedUI -> if (isNepali) "बन्द" else "CLOSED"
+                                            isNoShow -> if (isNepali) "अनुपस्थित" else "NO SHOW"
+                                            isCancelled -> if (isNepali) "रद्द" else "CANCELLED"
+                                            isLate -> if (isNepali) "ढिलो" else "LATE"
+                                            isLabClinic && isReportReady -> if (isNepali) "रिपोर्ट" else "REPORT"
+                                            isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> if (isNepali) "ल्याबमा" else "IN LAB"
+                                            queueStatus == "inside" -> if (isNepali) "भित्री कक्ष" else "CURRENT"
+                                            queueStatus == "done" || isConsultancyCompleted -> if (isNepali) "सम्पन्न" else "VISIT"
+                                            isTomorrow -> if (isNepali) "भोलि" else "TOMORROW"
+                                            isFutureOrTomorrow -> if (isNepali) "स्थान" else "RANK"
+                                            isPastDate -> if (isNepali) "विगत" else "PAST"
+                                            patientsAhead == 0 -> if (isNepali) "अर्को पालो" else "UP NEXT"
+                                            else -> if (isNepali) "अगाडि" else "POSITION"
                                         }
                                         val mainBadgeText = when {
                                             showClinicClosedUI || isNoShow || isCancelled -> "\u2715"
                                             isLate -> "!"
-                                            isLabClinic && isReportReady -> "READY"
+                                            isLabClinic && isReportReady -> if (isNepali) "तयार" else "READY"
                                             isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> "LAB"
-                                            queueStatus == "inside" -> "NOW"
+                                            queueStatus == "inside" -> if (isNepali) "अहिले" else "NOW"
                                             queueStatus == "done" || isConsultancyCompleted -> "✓"
                                             isFutureOrTomorrow -> "$resolvedRankNumber"
                                             isPastDate -> "\u2014"
@@ -2064,25 +2071,25 @@ fun QueueStatusScreen(
                                 ) {
                                     Text(
                                         text = when {
-                                            showClinicClosedUI -> "Clinic is Closed for Today"
-                                            isNoShow -> "Visit Concluded as No-Show"
-                                            isCancelled -> "Appointment Cancelled in Live Queue"
-                                            isLate -> "Arrive soon, you are late"
-                                            !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow && !isPastDate) -> "Loading queue status..."
-                                            isLabClinic && isReportReady -> "Status: Prepared"
-                                            isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> "Status: Processing"
-                                            isLabClinic && isPastDate -> "Past Lab Order \u2022 $resolvedDateLabel"
-                                            isPastDate -> "Past Visit \u2022 $resolvedDateLabel"
-                                            isTomorrow -> "Tomorrow \u2022 Position #$resolvedRankNumber in line"
-                                            isFutureOrTomorrow -> "$resolvedDateLabel \u2022 Position #$resolvedRankNumber in line"
-                                            isLabClinic && patientsAhead == 0 -> "Next for Sample Collection!"
-                                            isLabClinic && patientsAhead > 0 -> "$patientsAhead Patients Ahead"
-                                            isLabClinic -> "Waiting for Sample Collection"
-                                            queueStatus == "inside" -> "You are in OPD session"
-                                            queueStatus == "done" || isConsultancyCompleted -> "Consultation completed"
-                                            patientsAhead == 0 -> "You're next in line"
-                                            patientsAhead == 1 && isAnyoneInsideDoctorCabin -> "Doctor is consulting with a patient \u2022 You are up next"
-                                            else -> "$patientsAhead patients ahead"
+                                            showClinicClosedUI -> if (isNepali) "आजको लागि क्लिनिक बन्द छ" else "Clinic is Closed for Today"
+                                            isNoShow -> if (isNepali) "अनुपस्थित (No-Show) मा सरेको" else "Visit Concluded as No-Show"
+                                            isCancelled -> if (isNepali) "अपोइन्टमेन्ट रद्द गरिएको छ" else "Appointment Cancelled in Live Queue"
+                                            isLate -> if (isNepali) "तुरुन्त आउनुहोस्, तपाईंको पालो गइसकेको छ" else "Arrive soon, you are late"
+                                            !isDataLoaded || (patientsAhead < 0 && !isFutureOrTomorrow && !isPastDate) -> strings.common.loading
+                                            isLabClinic && isReportReady -> if (isNepali) "स्थिति: रिपोर्ट तयार" else "Status: Prepared"
+                                            isLabClinic && (isSampleProcessing || isSampleCollectedOrFurther) -> if (isNepali) "स्थिति: परीक्षण हुँदै" else "Status: Processing"
+                                            isLabClinic && isPastDate -> if (isNepali) "विगतको ल्याब परीक्षण • $resolvedDateLabel" else "Past Lab Order \u2022 $resolvedDateLabel"
+                                            isPastDate -> if (isNepali) "विगतको भ्रमण • $resolvedDateLabel" else "Past Visit \u2022 $resolvedDateLabel"
+                                            isTomorrow -> if (isNepali) "भोलि • लाममा स्थान #$resolvedRankNumber" else "Tomorrow \u2022 Position #$resolvedRankNumber in line"
+                                            isFutureOrTomorrow -> if (isNepali) "$resolvedDateLabel • लाममा स्थान #$resolvedRankNumber" else "$resolvedDateLabel \u2022 Position #$resolvedRankNumber in line"
+                                            isLabClinic && patientsAhead == 0 -> if (isNepali) "नमुना संकलनको लागि अर्को पालो!" else "Next for Sample Collection!"
+                                            isLabClinic && patientsAhead > 0 -> if (isNepali) "$patientsAhead जना अगाडि छन्" else "$patientsAhead Patients Ahead"
+                                            isLabClinic -> if (isNepali) "नमुना संकलनको प्रतीक्षामा" else "Waiting for Sample Collection"
+                                            queueStatus == "inside" -> strings.queueRecords.queueStageInConsult
+                                            queueStatus == "done" || isConsultancyCompleted -> strings.queueRecords.queueStageCompleted
+                                            patientsAhead == 0 -> if (isNepali) "अर्को पालो तपाईंको छ" else "You're next in line"
+                                            patientsAhead == 1 && isAnyoneInsideDoctorCabin -> if (isNepali) "डाक्टर परामर्श कक्षमा हुनुहुन्छ • अर्को पालो तपाईंको हो" else "Doctor is consulting with a patient \u2022 You are up next"
+                                            else -> if (isNepali) "$patientsAhead जना अगाडि छन्" else "$patientsAhead patients ahead"
                                         },
                                         fontSize = 17.sp,
                                         fontWeight = FontWeight.Bold,
@@ -2109,7 +2116,7 @@ fun QueueStatusScreen(
                                             modifier = Modifier.wrapContentSize()
                                         ) {
                                             Text(
-                                                text = "Token #$tokenNumber",
+                                                text = if (isNepali) "टोकन #$tokenNumber" else "Token #$tokenNumber",
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = Color(0xFF334155),
@@ -2186,9 +2193,9 @@ fun QueueStatusScreen(
                         // Stepper Progress Row: 4 Steps (Pixel-Perfect Alignment with background line connecting circle centers)
                         val isLab = isLabClinic
                         val stepNames = if (isLab) {
-                            listOf("Booked", "Collected", "Processing", "Prepared")
+                            if (isNepali) listOf("दर्ता", "संकलित", "परीक्षण", "तयार") else listOf("Booked", "Collected", "Processing", "Prepared")
                         } else {
-                            listOf("Booked", "Waiting", "In OPD", "Done")
+                            if (isNepali) listOf("दर्ता", "प्रतीक्षा", "परामर्श", "सम्पन्न") else listOf("Booked", "Waiting", "In OPD", "Done")
                         }
 
                         val stepIcons = if (isLab) {
@@ -2520,11 +2527,11 @@ fun QueueStatusScreen(
                                             )
                                             Text(
                                                 text = when {
-                                                    isLate -> "URGENT ACTION"
-                                                    timing?.isClinicOnBreak == true -> "Clinic on Break"
-                                                    timing?.canOfferEarlyArrival == true -> "Doctor Free Early"
-                                                    isFutureOrTomorrow -> "Expected Slot"
-                                                    else -> "Expected window"
+                                                    isLate -> if (isNepali) "तत्काल सूचना" else "URGENT ACTION"
+                                                    timing?.isClinicOnBreak == true -> if (isNepali) "क्लिनिक विश्राममा" else "Clinic on Break"
+                                                    timing?.canOfferEarlyArrival == true -> if (isNepali) "डाक्टर चाँडै खाली" else "Doctor Free Early"
+                                                    isFutureOrTomorrow -> if (isNepali) "अपेक्षित स्लट" else "Expected Slot"
+                                                    else -> strings.queueRecords.queueExpectedWindow
                                                 },
                                                 fontSize = 12.sp,
                                                 color = when {
@@ -2794,7 +2801,7 @@ fun QueueStatusScreen(
                                         ) {
                                             Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(15.dp))
                                             Spacer(Modifier.width(4.dp))
-                                            Text("Download Bill PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text(strings.queueRecords.downloadOfficialBillPdf, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                         }
 
                                         OutlinedButton(
@@ -4196,7 +4203,7 @@ fun QueueStatusScreen(
                                                         ) {
                                                             Icon(Icons.Default.DateRange, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(14.dp))
                                                             Spacer(Modifier.width(4.dp))
-                                                            Text("Reschedule Visit", fontSize = 11.sp, color = Color(0xFF0284C7), fontWeight = FontWeight.Bold)
+                                                            Text(strings.queueRecords.queueRescheduleBtn, fontSize = 11.sp, color = Color(0xFF0284C7), fontWeight = FontWeight.Bold)
                                                         }
                                                     }
                                                 }

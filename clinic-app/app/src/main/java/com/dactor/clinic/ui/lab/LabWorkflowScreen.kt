@@ -33,6 +33,10 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import coil.compose.AsyncImage
+import com.dactor.clinic.ui.components.ClinicQuickLanguageButton
+import com.dactor.clinic.ui.i18n.ClinicLanguage
+import com.dactor.clinic.ui.i18n.LocalClinicLanguage
+import com.dactor.clinic.ui.i18n.LocalClinicStrings
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -81,6 +85,9 @@ fun LabWorkflowScreen(
     clinicRepository: ClinicRepository? = null
 ) {
     val context = LocalContext.current
+    val strings = LocalClinicStrings.current
+    val currentLang = LocalClinicLanguage.current
+    val isNepali = currentLang == ClinicLanguage.NEPALI
     val clipboardManager = LocalClipboardManager.current
     val sessionManager = remember { UserSessionManager(context) }
     val effectiveClinicId = remember(clinicId) {
@@ -468,18 +475,24 @@ fun LabWorkflowScreen(
                                 )
                             }
                             Text(
-                                text = "Lab Processing & Reports",
+                                text = strings.billingLab.labWorkflowTitle,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 19.sp,
                                 color = Color(0xFF0F172A)
                             )
                         }
 
-                        IconButton(
-                            onClick = { coroutineScope.launch { knownLabReports = null; loadLabOrders() } },
-                            modifier = Modifier.size(36.dp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color(0xFF475569))
+                            ClinicQuickLanguageButton(compact = true)
+                            IconButton(
+                                onClick = { coroutineScope.launch { knownLabReports = null; loadLabOrders() } },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color(0xFF475569))
+                            }
                         }
                     }
                 }
@@ -1285,7 +1298,10 @@ fun LabWorkflowScreen(
                                     }
                                 }
                                 Text(
-                                    text = "💡 Select 1 or multiple pictures (X-rays, blood reports, urine panels). They will be automatically stitched into a single diagnostic PDF and compressed to ≤ 100 KB per page (n × 100 KB total) locally.",
+                                    text = if (isNepali)
+                                        "💡 १ वा सोभन्दा बढी तस्बिरहरू (एक्स-रे, रगत रिपोर्ट, पिसाब परीक्षण) छान्नुहोस्। तिनीहरू स्वतः एकल डायग्नोस्टिक PDF मा परिणत भई प्रति पृष्ठ बढीमा १०० KB (n × १०० KB) मा कम्प्रेस हुनेछन्।"
+                                    else
+                                        "💡 Select 1 or multiple pictures (X-rays, blood reports, urine panels). They will be automatically stitched into a single diagnostic PDF and compressed to ≤ 100 KB per page (n × 100 KB total) locally.",
                                     fontSize = 10.5.sp,
                                     color = Color(0xFF64748B)
                                 )
@@ -1293,7 +1309,10 @@ fun LabWorkflowScreen(
                         }
 
                         Text(
-                            text = "Marking Prepared updates the live queue status to 'Prepared' and immediately sends a notification to ${order.patientName} (and any device tracking #${order.trackingCode}). To view or download the report, the patient must verify their Name or Mobile Number.",
+                            text = if (isNepali)
+                                "तयार भएको रिपोर्ट मार्क गर्दा प्रत्यक्ष लामको स्थिति 'तयार' मा अपडेट हुन्छ र ${order.patientName} (तथा #${order.trackingCode} ट्र्याक गर्ने उपकरण) लाई तुरुन्तै सूचना पठाइन्छ। रिपोर्ट हेर्न वा डाउनलोड गर्न बिरामीले आफ्नो नाम वा मोबाइल नम्बर प्रमाणित गर्नुपर्नेछ।"
+                            else
+                                "Marking Prepared updates the live queue status to 'Prepared' and immediately sends a notification to ${order.patientName} (and any device tracking #${order.trackingCode}). To view or download the report, the patient must verify their Name or Mobile Number.",
                             fontSize = 11.sp,
                             color = Color(0xFF065F46),
                             fontWeight = FontWeight.Medium

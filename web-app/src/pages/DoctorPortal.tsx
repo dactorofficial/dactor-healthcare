@@ -112,6 +112,7 @@ import {
   onFirebaseAuthStateChanged,
 } from '../lib/firebase'
 import { clearAllAppCache } from '../utils/cacheCleaner'
+import { useLanguage } from '../utils/i18n'
 import dactorLogo from '../assets/logo.svg'
 
 interface DoctorPortalProps {
@@ -119,6 +120,8 @@ interface DoctorPortalProps {
 }
 
 export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
+  const { language, strings } = useLanguage()
+  const isNe = language === 'ne'
   // Current Authenticated Doctor & Affiliated Clinic
   const [currentDoctor, setCurrentDoctor] = useState<Doctor | null>(null)
   const [affiliatedClinics, setAffiliatedClinics] = useState<Clinic[]>([])
@@ -1835,10 +1838,10 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
               Official Dactor Practitioner Network
             </span>
             <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
-              Doctor Consultation Desk
+              {strings.portalTitle}
             </h2>
             <p className="text-xs text-slate-600 dark:text-slate-300 max-w-md mx-auto leading-relaxed">
-              Dedicated portal for licensed medical doctors & practitioners. Manage live cabin presence, review today's patient queue, call tokens, and maintain consultation history.
+              {strings.portalSubtitle}
             </p>
           </div>
 
@@ -2647,14 +2650,14 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                 ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/25'
                 : 'bg-rose-500/15 border-rose-500/30 text-rose-700 dark:text-rose-300 hover:bg-rose-500/25'
             }`}
-            title="Click to toggle In-Cabin Presence. Live queues update immediately across website and mobile apps."
+            title={strings.toggleStatusPrompt}
           >
             <span
               className={`w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full ${
                 isInCabin ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
               }`}
             />
-            <span className="truncate">{isInCabin ? 'Doctor is In Cabin' : 'Doctor is Away (Out)'}</span>
+            <span className="truncate">{isInCabin ? strings.doctorStatusIn : strings.doctorStatusAway}</span>
           </button>
 
           <button
@@ -2662,7 +2665,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
             className="flex items-center space-x-1 px-2.5 sm:px-3 py-2 liquid-glass-card hover:bg-rose-500/20 hover:text-rose-600 dark:hover:text-rose-400 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-bold transition-colors cursor-pointer border border-white/40 dark:border-white/10"
           >
             <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            <span>Logout</span>
+            <span>{strings.signOut}</span>
           </button>
         </div>
       </div>
@@ -2737,7 +2740,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           }`}
         >
           <Activity className="w-4 h-4" />
-          <span>Today's Consultation Queue ({waitingPatients.length} Waiting)</span>
+          <span>{strings.tabLiveDesk} ({waitingPatients.length} {isNe ? 'प्रतीक्षारत' : 'Waiting'})</span>
         </button>
 
         <button
@@ -2749,7 +2752,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           }`}
         >
           <Calendar className="w-4 h-4" />
-          <span>Upcoming Schedule & Dates</span>
+          <span>{strings.tabFuture}</span>
         </button>
 
         <button
@@ -2761,7 +2764,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           }`}
         >
           <Users className="w-4 h-4" />
-          <span>Patient Directory</span>
+          <span>{isNe ? 'बिरामी डाइरेक्टरी' : 'Patient Directory'}</span>
         </button>
 
         <button
@@ -2773,7 +2776,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           }`}
         >
           <Receipt className="w-4 h-4" />
-          <span>Invoices & Rx Fee</span>
+          <span>{strings.tabBilling}</span>
         </button>
 
         <button
@@ -2785,7 +2788,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           }`}
         >
           <Sliders className="w-4 h-4" />
-          <span>Practitioner Profile & Fees</span>
+          <span>{strings.tabKycProfile}</span>
         </button>
       </div>
 
@@ -3281,7 +3284,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                               className="flex-1 min-w-[120px] py-2 px-3.5 rounded-xl bg-[#16A34A] hover:bg-[#15803D] text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center space-x-1.5 active:scale-[0.98]"
                             >
                               <Check className="w-4 h-4" />
-                              <span>Mark Done</span>
+                              <span>{strings.markCompleted}</span>
                             </button>
 
                             <button
@@ -3290,7 +3293,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                               className="py-2 px-3.5 rounded-xl bg-gradient-to-r from-blue-600 via-blue-700 to-sky-600 hover:brightness-110 text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center space-x-1.5 active:scale-[0.98]"
                             >
                               <FileText className="w-3.5 h-3.5" />
-                              <span>Write Rx & Complete</span>
+                              <span>{isNe ? 'Rx लेखी सम्पन्न गर्नुहोस्' : 'Write Rx & Complete'}</span>
                             </button>
                           </>
                         ) : (
@@ -3300,7 +3303,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                             className="flex-1 min-w-[120px] py-2 px-3.5 rounded-xl bg-[#0284C7] hover:bg-[#0369A1] text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center space-x-1.5 active:scale-[0.98]"
                           >
                             <Play className="w-3.5 h-3.5 fill-current" />
-                            <span>Call Inside</span>
+                            <span>{strings.callNextPatient}</span>
                           </button>
                         )}
 
@@ -3312,7 +3315,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                           title="View Patient's Past Visits"
                         >
                           <FileText className="w-3.5 h-3.5" />
-                          <span>History</span>
+                          <span>{isNe ? 'इतिहास' : 'History'}</span>
                         </button>
 
                         {/* Skip / No-Show Action */}
@@ -3322,7 +3325,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                           className="py-2 px-3 rounded-xl border border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/40 text-xs font-semibold transition-colors cursor-pointer active:scale-[0.98]"
                           title="Mark patient as absent / no-show"
                         >
-                          Skip / No-Show
+                          {strings.markNoShow}
                         </button>
                       </div>
 
@@ -4191,7 +4194,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                   </span>
                 </div>
                 <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white mt-1">
-                  Clinical Diagnosis & Prescription
+                  {strings.rxEditor}
                 </h3>
                 <p className="text-xs text-slate-600 dark:text-slate-400">
                   Patient: <strong className="text-slate-900 dark:text-white">{rxTargetAppt.patientName}</strong>{' '}
@@ -4211,8 +4214,8 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
             {/* Diagnosis Input */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
-                <span>Clinical Diagnosis / Impression *</span>
-                <span className="text-[10px] text-slate-400 font-normal">Primary medical diagnosis</span>
+                <span>{strings.diagnosisNotes} *</span>
+                <span className="text-[10px] text-slate-400 font-normal">{isNe ? 'मुख्य स्वास्थ्य निदान' : 'Primary medical diagnosis'}</span>
               </label>
               <input
                 type="text"
@@ -4359,12 +4362,12 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                 {savingRx ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Saving Prescription to Database...</span>
+                    <span>{strings.pleaseWait}</span>
                   </>
                 ) : (
                   <>
                     <CheckCircle2 className="w-4 h-4" />
-                    <span>Save Rx & Complete Consultation</span>
+                    <span>{strings.completeConsultationBtn}</span>
                   </>
                 )}
               </button>

@@ -16,6 +16,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.dactor.clinic.ui.i18n.ClinicLanguage
+import com.dactor.clinic.ui.i18n.LocalClinicLanguage
 
 @Composable
 fun QueueStatCards(
@@ -24,6 +26,8 @@ fun QueueStatCards(
     completedCount: Int,
     modifier: Modifier = Modifier
 ) {
+    val currentLang = LocalClinicLanguage.current
+    val isNepali = currentLang == ClinicLanguage.NEPALI
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -67,7 +71,7 @@ fun QueueStatCards(
                         color = Color(0xFF1351B4)
                     )
                     Text(
-                        text = "In Consultation",
+                        text = if (isNepali) "परामर्श कक्षमा" else "In Consultation",
                         fontSize = 10.sp,
                         lineHeight = 12.sp,
                         color = Color(0xFF3362A8),
@@ -109,7 +113,7 @@ fun QueueStatCards(
                         color = Color(0xFFB45B10)
                     )
                     Text(
-                        text = "Waiting in Lobby",
+                        text = if (isNepali) "प्रतीक्षारत" else "Waiting in Lobby",
                         fontSize = 10.sp,
                         lineHeight = 12.sp,
                         color = Color(0xFF9E5417),
@@ -151,7 +155,7 @@ fun QueueStatCards(
                         color = Color(0xFF0F8A50)
                     )
                     Text(
-                        text = "Completed Today",
+                        text = if (isNepali) "आज सम्पन्न" else "Completed Today",
                         fontSize = 10.sp,
                         lineHeight = 12.sp,
                         color = Color(0xFF137747),

@@ -82,6 +82,8 @@ import { printAppointmentBill, printPrescription } from '../utils/medicalDocPrin
 import { supabase } from '../lib/supabase'
 import { playChimeSound } from '../utils/audioChime'
 import { updatePageSEO } from '../utils/seo'
+import { useLanguage } from '../utils/i18n'
+import { localizedStatus } from '../utils/i18nHelpers'
 import { getStaticOnce, saveStatic } from '../utils/staticEntityCache'
 import {
   buildReportFileName,
@@ -103,6 +105,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   onNavigateHome,
   onNavigate,
 }) => {
+  const { language, strings } = useLanguage()
+  const isNe = language === 'ne'
   const [inputCode, setInputCode] = useState(initialCode)
   const [activeCode, setActiveCode] = useState(initialCode)
 
@@ -1487,8 +1491,9 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
       isOnBreak: !!(clinic?.isOnBreak && isAppointmentToday),
       breakEnd: breakEndStr,
       optInEarlyCall: appointment?.optInEarlyCall,
+      language,
     })
-  }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, clinic?.isOpen, isNoShow, showClinicClosedUI, isLabClinic, effectiveLabStatus, isSampleCollectedOrFurther, clinic?.weeklyScheduleJson, clinicAvgMinutes, patientsAhead, estimatedWaitMinutes, isFutureOrTomorrow, multiSlotResult, dateLabel, slotStartTimeStr, isAppointmentToday, currentEpochSecond, appointment?.appointmentTime, appointment?.appointmentDate, appointment?.optInEarlyCall])
+  }, [slotStartDate, isDoctorInClinic, inConsultationPatient, clinic?.isOnBreak, clinic?.isOpen, isNoShow, showClinicClosedUI, isLabClinic, effectiveLabStatus, isSampleCollectedOrFurther, clinic?.weeklyScheduleJson, clinicAvgMinutes, patientsAhead, estimatedWaitMinutes, isFutureOrTomorrow, multiSlotResult, dateLabel, slotStartTimeStr, isAppointmentToday, currentEpochSecond, appointment?.appointmentTime, appointment?.appointmentDate, appointment?.optInEarlyCall, language])
 
   // Formatted expected call time
   const formattedExpectedTime = approxTimeText
@@ -1591,8 +1596,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
               </button>
             )}
             <div>
-              <h1 className="text-xl sm:text-3xl font-black tracking-tight text-white">Live Queue Position</h1>
-              <p className="text-[11px] sm:text-xs text-teal-300/90 font-medium">Your health, our priority</p>
+              <h1 className="text-xl sm:text-3xl font-black tracking-tight text-white">{strings.track10DigitTitle}</h1>
+              <p className="text-[11px] sm:text-xs text-teal-300/90 font-medium">{strings.track10DigitSub}</p>
             </div>
           </div>
         </div>
@@ -1644,7 +1649,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                 type="text"
                 value={inputCode}
                 onChange={(e) => setInputCode(e.target.value)}
-                placeholder="Enter 10-Digit Code..."
+                placeholder={strings.enterCodePlaceholder}
                 maxLength={10}
                 className="w-full pl-9 sm:pl-11 pr-2 sm:pr-4 py-2 sm:py-2.5 bg-transparent text-sm sm:text-lg font-black tracking-wider text-slate-900 dark:text-white placeholder:text-slate-400 placeholder:font-normal placeholder:tracking-normal outline-none"
               />
@@ -1653,7 +1658,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
               type="submit"
               className="px-4 sm:px-6 py-2.5 sm:py-3 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white text-xs font-bold rounded-2xl shadow-glass-base transition cursor-pointer shrink-0 active:scale-95 border-t border-white/20"
             >
-              {loading ? 'Tracking...' : 'Track'}
+              {loading ? strings.loading : strings.trackBtn}
             </button>
           </form>
 
@@ -2169,12 +2174,14 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                 />
                 <span className="font-bold">
                   {isFutureOrTomorrow
-                    ? `Doctor session scheduled for ${dateLabel} • Starts at ${slotStartTimeStr} (±15 min)`
+                    ? (isNe
+                        ? `डाक्टर परामर्श ${dateLabel} मा तय गरिएको छ • सुरु समय ${slotStartTimeStr} (±15 मिनेट)`
+                        : `Doctor session scheduled for ${dateLabel} • Starts at ${slotStartTimeStr} (±15 min)`)
                     : isDoctorInClinic
                     ? inConsultationPatient
-                      ? `Doctor is inside the clinic cabin • Attending active OPD tokens`
-                      : `Doctor is inside and available • Consultations proceeding smoothly`
-                    : `Doctor Temporarily Away • Will resume consultations shortly`}
+                      ? `${strings.inClinic} • ${strings.queueStatusActive}`
+                      : `${strings.inClinic} • ${strings.queueStatusActive}`
+                    : strings.away}
                 </span>
               </div>
             )}
@@ -2296,37 +2303,37 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                       }`}
                     >
                       {showClinicClosedUI
-                        ? 'Clinic is Closed for Today'
+                        ? (isNe ? 'आजको लागि क्लिनिक बन्द छ' : 'Clinic is Closed for Today')
                         : isNoShow
-                        ? 'Visit Concluded as No-Show'
+                        ? (isNe ? 'अनुपस्थित (No-Show) मा सरेको' : 'Visit Concluded as No-Show')
                         : isLabClinic && effectiveLabStatus === 'prepared'
-                        ? 'Status: Report Prepared'
+                        ? (isNe ? `स्थिति: ${strings.labReportReady}` : 'Status: Report Prepared')
                         : isLabClinic && (effectiveLabStatus === 'processing' || isSampleCollectedOrFurther)
-                        ? 'Status: Sample Processing'
+                        ? (isNe ? `स्थिति: ${strings.labReportPending}` : 'Status: Sample Processing')
                         : isLabClinic && effectiveLabStatus === 'inside'
-                        ? 'Called Inside Phlebotomy Booth!'
+                        ? (isNe ? 'नमुना संकलन कक्षमा बोलाइयो!' : 'Called Inside Phlebotomy Booth!')
                         : isPastAppointment
-                        ? (isLabClinic ? `Past Lab Order • ${dateLabel}` : `Past Visit • ${dateLabel}`)
+                        ? (isLabClinic ? (isNe ? `विगतको ल्याब परीक्षण • ${dateLabel}` : `Past Lab Order • ${dateLabel}`) : (isNe ? `विगतको भ्रमण • ${dateLabel}` : `Past Visit • ${dateLabel}`))
                         : isFutureOrTomorrow && patientsAhead === 0
-                        ? `1st in line for ${dateLabel}`
+                        ? (isNe ? `${dateLabel} को लागि १ नम्बरमा` : `1st in line for ${dateLabel}`)
                         : isFutureOrTomorrow
-                        ? `${patientsAhead} patients ahead for ${dateLabel}`
+                        ? (isNe ? `${dateLabel} को लागि ${patientsAhead} जना अगाडि` : `${patientsAhead} patients ahead for ${dateLabel}`)
                         : isLabClinic && patientsAhead === 0
-                        ? 'Next for Sample Collection!'
+                        ? (isNe ? 'नमुना संकलनको अर्को पालो!' : 'Next for Sample Collection!')
                         : isLabClinic
-                        ? `${patientsAhead} Ahead for Phlebotomy`
+                        ? (isNe ? `नमुना संकलनमा ${patientsAhead} जना अगाडि` : `${patientsAhead} Ahead for Phlebotomy`)
                         : isInsideChamber
-                        ? 'You are in OPD session'
+                        ? (isNe ? 'तपाईं परामर्श कक्षमा हुनुहुन्छ' : 'You are in OPD session')
                         : isConsultancyCompleted
-                        ? 'Consultation completed'
+                        ? localizedStatus('completed', language)
                         : patientsAhead === 0
-                        ? "You're next in line!"
-                        : `${patientsAhead} patients ahead`}
+                        ? (isNe ? 'अर्को पालो तपाईंको छ!' : "You're next in line!")
+                        : (isNe ? `${patientsAhead} जना बिरामी अगाडि छन्` : `${patientsAhead} patients ahead`)}
                     </h3>
 
                     {(!isPastAppointment || isConsultancyCompleted) && (
                       <span className="px-2 sm:px-2.5 py-0.5 rounded-md liquid-glass-subtle text-slate-700 dark:text-slate-300 text-[11px] sm:text-xs font-bold">
-                        Token #{displayTokenNumber}{doctor?.fullName && !isLabClinic ? ` • ${doctor.fullName}` : ''}
+                        {strings.tokenBadge}{displayTokenNumber}{doctor?.fullName && !isLabClinic ? ` • ${doctor.fullName}` : ''}
                       </span>
                     )}
                   </div>
@@ -2378,8 +2385,8 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                   <div className="absolute top-1/2 left-4 sm:left-6 right-4 sm:right-6 -translate-y-1/2 h-0.5 bg-slate-200/60 dark:bg-white/10 -z-0" />
 
                   {(isLabClinic
-                    ? ['Booked', 'Collected', 'Processing', 'Prepared']
-                    : ['Booked', 'Waiting', 'In OPD', 'Done']
+                    ? (isNe ? ['दर्ता', 'संकलित', 'परीक्षण', 'तयार'] : ['Booked', 'Collected', 'Processing', 'Prepared'])
+                    : (isNe ? ['दर्ता', 'प्रतीक्षा', 'परामर्श', 'सम्पन्न'] : ['Booked', 'Waiting', 'In OPD', 'Done'])
                   ).map((stepName, idx) => {
                     const isLab = isLabClinic
                     const isDone = isLab
@@ -2434,7 +2441,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="p-4 rounded-2xl liquid-glass-subtle space-y-0.5">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                        {isPastAppointment ? 'Past Slot' : isFutureOrTomorrow ? 'Your Slot' : 'Your Booked Window'}
+                        {isPastAppointment ? (isNe ? 'विगतको स्लट' : 'Past Slot') : isFutureOrTomorrow ? (isNe ? 'तपाईंको स्लट' : 'Your Slot') : (isNe ? 'बुक गरिएको समय' : 'Your Booked Window')}
                       </span>
                       <div className="text-base font-black text-slate-900 dark:text-white">
                         {isFutureOrTomorrow
@@ -2467,14 +2474,14 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           : 'text-teal-700 dark:text-teal-300'
                       }`}>
                         {showClinicClosedUI
-                          ? 'Clinic Status'
+                          ? (isNe ? 'क्लिनिक स्थिति' : 'Clinic Status')
                           : (clinic?.isOnBreak && isAppointmentToday)
-                          ? 'Clinic on Break'
+                          ? strings.clinicBreak
                           : isPastAppointment
-                          ? 'Tracking Status'
+                          ? (isNe ? 'ट्र्याकिङ स्थिति' : 'Tracking Status')
                           : isFutureOrTomorrow
-                          ? 'Scheduled Window'
-                          : 'Expected Window'}
+                          ? (isNe ? 'अपेक्षित समय' : 'Scheduled Window')
+                          : strings.estWaitTime}
                       </span>
                       <div className={`text-base font-black ${
                         showClinicClosedUI
@@ -2789,14 +2796,14 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                   className="font-bold text-slate-600 dark:text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 transition cursor-pointer flex items-center space-x-1 active:scale-95"
                 >
                   <Calendar className="w-3.5 h-3.5" />
-                  <span>Reschedule Visit</span>
+                  <span>{strings.rescheduleBtn}</span>
                 </button>
 
                 <button
                   onClick={() => handleActionWithAuth('cancel')}
                   className="font-bold text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 transition cursor-pointer active:scale-95"
                 >
-                  Cancel Appointment
+                  {strings.cancelApptBtn}
                 </button>
               </div>
             ) : appointment?.clinicId ? (

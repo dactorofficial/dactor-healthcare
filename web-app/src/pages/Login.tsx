@@ -32,6 +32,7 @@ import {
 } from '../services/db'
 import { Clinic, Doctor, PatientProfile } from '../types'
 import dactorLogo from '../assets/logo.svg'
+import { useLanguage } from '../utils/i18n'
 
 interface LoginProps {
   onNavigate: (tab: string, params?: any) => void
@@ -40,6 +41,8 @@ interface LoginProps {
 }
 
 export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
+  const { language, strings } = useLanguage()
+  const isNe = language === 'ne'
   const [currentView, setCurrentView] = useState<'auth_choice' | 'register_form'>('auth_choice')
   const [isLoading, setIsLoading] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
@@ -473,7 +476,7 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
                     />
                   </svg>
                 )}
-                <span>Continue with Google</span>
+                <span>{strings.signInGoogle}</span>
               </button>
 
               <p className="text-[11px] text-center text-slate-500 dark:text-slate-400">

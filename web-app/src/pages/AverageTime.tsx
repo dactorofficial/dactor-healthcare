@@ -14,6 +14,7 @@ import { getClinics, getDoctors, getAppointmentsByClinic } from '../services/db'
 import { supabase } from '../lib/supabase'
 import { RealtimeManager } from '../services/realtimeManager'
 import { setDefaultTabSEO } from '../utils/seo'
+import { useLanguage } from '../utils/i18n'
 
 interface AverageTimeProps {
   onSelectClinic?: (clinicId: string) => void
@@ -30,6 +31,8 @@ interface ClinicWaitTelemetry {
 }
 
 export const AverageTime: React.FC<AverageTimeProps> = ({ onSelectClinic }) => {
+  const { language, strings } = useLanguage()
+  const isNe = language === 'ne'
   const [telemetry, setTelemetry] = useState<ClinicWaitTelemetry[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -115,13 +118,13 @@ export const AverageTime: React.FC<AverageTimeProps> = ({ onSelectClinic }) => {
         <div className="space-y-2">
           <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-teal-500/10 dark:bg-teal-400/10 text-teal-800 dark:text-teal-300 text-[11px] sm:text-xs font-bold uppercase tracking-wider border border-teal-500/20 backdrop-blur-md">
             <Clock className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-            <span>Live Queue Telemetry</span>
+            <span>{strings.navAverageTime}</span>
           </div>
           <h1 className="text-2xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight leading-tight">
-            Real-Time Clinic Wait Times & Queue Speed
+            {strings.avgTimeHeader}
           </h1>
           <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 font-medium max-w-2xl leading-relaxed">
-            Live consultation speed, waiting queue length, break status, and doctor physical presence synced directly from cloud records.
+            {strings.avgTimeSub}
           </p>
         </div>
 
@@ -130,7 +133,7 @@ export const AverageTime: React.FC<AverageTimeProps> = ({ onSelectClinic }) => {
           className="w-full sm:w-auto justify-center px-4 py-2.5 liquid-glass-subtle hover:bg-white/80 dark:hover:bg-slate-800/80 rounded-2xl text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center space-x-2 shadow-glass-sm cursor-pointer active:scale-95 transition"
         >
           <RefreshCw className={`w-4 h-4 text-teal-600 dark:text-teal-400 ${loading ? 'animate-spin' : ''}`} />
-          <span>Refresh Live Telemetry</span>
+          <span>{strings.refresh}</span>
         </button>
       </div>
 
@@ -141,11 +144,11 @@ export const AverageTime: React.FC<AverageTimeProps> = ({ onSelectClinic }) => {
             <Clock className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2]" />
           </div>
           <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
-            {telemetry.length > 0 ? `${overallAvgMins} min` : '—'}
+            {telemetry.length > 0 ? `${overallAvgMins} ${isNe ? 'मिनेट' : 'min'}` : '—'}
           </div>
-          <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">Live Avg Consultation Time</h3>
+          <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">{isNe ? 'प्रत्यक्ष औसत परामर्श समय' : 'Live Avg Consultation Time'}</h3>
           <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-            Calculated across {telemetry.length} registered clinic{telemetry.length === 1 ? '' : 's'}.
+            {isNe ? `${telemetry.length} वटा दर्ता भएका क्लिनिकहरूको औसत।` : `Calculated across ${telemetry.length} registered clinic${telemetry.length === 1 ? '' : 's'}.`}
           </p>
         </div>
 
@@ -154,9 +157,9 @@ export const AverageTime: React.FC<AverageTimeProps> = ({ onSelectClinic }) => {
             <Stethoscope className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2]" />
           </div>
           <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">{totalDoctorsInClinicNow}</div>
-          <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">Doctors In Clinic Now</h3>
+          <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">{strings.inClinic}</h3>
           <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-            Real-time physical presence toggled by doctors and clinic desks.
+            {isNe ? 'डाक्टर र क्लिनिक डेस्कबाट अद्यावधिक गरिएको प्रत्यक्ष उपस्थिति।' : 'Real-time physical presence toggled by doctors and clinic desks.'}
           </p>
         </div>
 
@@ -165,7 +168,7 @@ export const AverageTime: React.FC<AverageTimeProps> = ({ onSelectClinic }) => {
             <Users className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2]" />
           </div>
           <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">{totalWaitingAllClinics}</div>
-          <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">Patients Waiting Today</h3>
+          <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">{isNe ? 'आज प्रतीक्षारत बिरामीहरू' : 'Patients Waiting Today'}</h3>
           <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
             Live queue count across all active OPD and diagnostic centers today.
           </p>

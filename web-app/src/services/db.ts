@@ -3682,6 +3682,94 @@ export async function saveOrUpdateInvoicePayment(params: {
   }
 }
 
+export async function createCompletedBillingVisit(params: {
+  clinicId: string
+  doctorId?: string | null
+  userId?: string | null
+  patientName: string
+  patientAge?: number | null
+  patientGender?: string | null
+  patientMobile?: string
+  patientEmail?: string | null
+  trackingCode10Digit?: string
+}): Promise<Appointment | null> {
+  try {
+    const cleanClinicId = params.clinicId?.trim()
+    if (!cleanClinicId) return null
+
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    const validDoctorId = params.doctorId && uuidRegex.test(params.doctorId.trim()) ? params.doctorId.trim() : null
+    let resolvedUserId = params.userId && uuidRegex.test(params.userId.trim()) ? params.userId.trim() : null
+    const cleanEmail = params.patientEmail?.trim().toLowerCase() || null
+    const cleanMobile = (params.patientMobile || '').trim().replace(/\D/g, '') || '9800000000'
+    const patientNameClean = params.patientName?.trim() || 'Patient'
+
+    if (!resolvedUserId && (cleanEmail || cleanMobile)) {
+      try {
+        if (cleanEmail) {
+          const { data } = await supabase.from('profiles').select('id').ilike('email', cleanEmail).maybeSingle()
+          if (data?.id) resolvedUserId = data.id
+        }
+        if (!resolvedUserId && cleanMobile && cleanMobile !== '9800000000') {
+          const { data } = await supabase.from('profiles').select('id').eq('phone', cleanMobile).maybeSingle()
+          if (data?.id) resolvedUserId = data.id
+        }
+      } catch (e) {
+        console.warn('Profile lookup during completed billing visit:', e)
+      }
+    }
+
+    const code10 = params.trackingCode10Digit?.trim() || (await generateGuaranteedUniqueTrackingCode())
+    const apptId = crypto.randomUUID()
+    const now = new Date()
+    const todayDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    const nowTimeFormatted = formatTimeForPostgres(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+
+    const dbPayload: any = {
+      id: apptId,
+      tracking_code_10_digit: code10,
+      user_id: resolvedUserId,
+      clinic_id: cleanClinicId,
+      doctor_id: validDoctorId,
+      patient_name: patientNameClean,
+      patient_age: Number(params.patientAge) || 28,
+      patient_gender: params.patientGender || 'Other',
+      patient_mobile: cleanMobile,
+      patient_email: cleanEmail,
+      appointment_date: todayDate,
+      appointment_time: nowTimeFormatted,
+      checkin_status: 'completed',
+      payment_status: 'pending',
+      payment_mode: 'CASH',
+      visit_type: 'new',
+      status: 'APPROVED',
+      attempt_number: 1,
+      token_number: null,
+      service_charge_amount: 0,
+      total_amount: 0,
+      fee_amount: 0,
+      is_walkin: false,
+      slot_id: null,
+      notes: 'Direct Billing Record',
+    }
+
+    const { data, error } = await supabase
+      .from('appointments')
+      .insert(dbPayload)
+      .select('*, clinic:clinics(*), doctor:doctors(*)')
+      .single()
+
+    if (error) {
+      console.error('createCompletedBillingVisit insert error:', error)
+      return null
+    }
+    return data ? mapAppointment(data) : null
+  } catch (err) {
+    console.error('createCompletedBillingVisit exception:', err)
+    return null
+  }
+}
+
 export async function uploadReceiptFile(fileName: string, fileBlob: Blob): Promise<string | null> {
   try {
     const bucket = 'clinic_files'

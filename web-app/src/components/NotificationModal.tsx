@@ -13,6 +13,7 @@ import {
 } from '../services/db'
 import { supabase } from '../lib/supabase'
 import { DactorNotification } from '../types'
+import { useLanguage } from '../utils/i18n'
 
 interface NotificationModalProps {
   isOpen: boolean
@@ -26,6 +27,8 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
   onClose,
   onNotificationsChanged,
 }) => {
+  const { language } = useLanguage()
+  const isNe = language === 'ne'
   const [notifications, setNotifications] = useState<DactorNotification[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -109,9 +112,9 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
               <Bell className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-base sm:text-lg font-black text-slate-900 tracking-tight truncate">Notifications & Alerts</h3>
+              <h3 className="text-base sm:text-lg font-black text-slate-900 tracking-tight truncate">{isNe ? 'सूचना तथा अलर्टहरू' : 'Notifications & Alerts'}</h3>
               <p className="text-[11px] sm:text-xs text-slate-500 font-medium truncate">
-                Live queue alerts & confirmations
+                {isNe ? 'प्रत्यक्ष लाम अलर्ट र बुकिङ सूचनाहरू' : 'Live queue alerts & confirmations'}
               </p>
             </div>
           </div>

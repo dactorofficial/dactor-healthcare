@@ -49,6 +49,8 @@ import com.dactor.clinic.data.model.Slot
 import com.dactor.clinic.data.repository.*
 import com.dactor.clinic.domain.util.DateTimePickers
 import com.dactor.clinic.domain.util.TrackingCodeGenerator
+import com.dactor.clinic.ui.billing.QuickBillPatientFallback
+import com.dactor.clinic.ui.billing.QuickPushEditBillDialog
 import com.dactor.clinic.ui.navigation.NavRoutes
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -330,6 +332,24 @@ fun PatientDirectoryScreen(
     var generatedApptIdPreview by remember { mutableStateOf(TrackingCodeGenerator.generate()) }
     var isRegistering by remember { mutableStateOf(false) }
     var registerError by remember { mutableStateOf<String?>(null) }
+
+    // In-Place Push / Edit Bill Popup State (for specific patient without navigating to BillingScreen)
+    var billPopupTargetAppt by remember { mutableStateOf<Appointment?>(null) }
+    var billPopupFallback by remember { mutableStateOf<QuickBillPatientFallback?>(null) }
+
+    fun openPatientBillPopup(detailItem: PatientDetailItem, appt: Appointment?) {
+        billPopupFallback = QuickBillPatientFallback(
+            patientName = detailItem.patientName,
+            patientAge = detailItem.age,
+            patientGender = detailItem.gender,
+            patientMobile = detailItem.phone,
+            patientEmail = detailItem.email,
+            trackingCode10Digit = detailItem.trackingCode,
+            userId = detailItem.userId,
+            doctorId = appt?.doctorId
+        )
+        billPopupTargetAppt = appt
+    }
 
     val today = remember { LocalDate.now().toString() }
     val coroutineScope = rememberCoroutineScope()
@@ -1206,7 +1226,7 @@ fun PatientDirectoryScreen(
                                         }
                                     },
                                     onOpenBilling = {
-                                        navController.navigate("${NavRoutes.BillingScreen}/${appt.id}")
+                                        openPatientBillPopup(detailItem, appt)
                                     }
                                 )
                             }
@@ -1353,8 +1373,7 @@ fun PatientDirectoryScreen(
                                         }
                                     },
                                     onOpenBilling = {
-                                        val targetId = thisAppt?.id ?: assignedApptId
-                                        navController.navigate("${NavRoutes.BillingScreen}/$targetId")
+                                        openPatientBillPopup(detailItem, thisAppt)
                                     }
                                 )
                             }
@@ -1834,7 +1853,7 @@ fun PatientDirectoryScreen(
                                                 }
 
                                                 Button(
-                                                    onClick = { navController.navigate("${NavRoutes.BillingScreen}/${appt.id}") },
+                                                    onClick = { openPatientBillPopup(detailItem, appt) },
                                                     shape = RoundedCornerShape(8.dp),
                                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E)),
                                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
@@ -1844,7 +1863,7 @@ fun PatientDirectoryScreen(
                                                 ) {
                                                     Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
                                                     Spacer(Modifier.width(4.dp))
-                                                    Text("Billing", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                                    Text("Push / Edit Bill", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
                                                 }
                                             }
                                         }
@@ -1931,6 +1950,9 @@ fun PatientDirectoryScreen(
                     newVisitTimeInput = appt.appointmentTime
                     rescheduleDoctorId = appt.doctorId ?: affiliatedDoctors.firstOrNull()?.id ?: ""
                     selectedRescheduleSlotId = appt.slotId
+                },
+                onOpenBilling = { appt ->
+                    openPatientBillPopup(patientItem, appt)
                 },
                 onScheduleNewVisit = {
                     if (!isLabClinic) {
@@ -3012,6 +3034,47 @@ fun PatientDirectoryScreen(
                 }
             )
         }
+
+        if (billPopupTargetAppt != null || billPopupFallback != null) {
+            QuickPushEditBillDialog(
+                targetAppointment = billPopupTargetAppt,
+                targetPatientFallback = billPopupFallback,
+                clinicId = effectiveClinicId,
+                billingRepository = billingRepository,
+                appointmentRepository = appointmentRepository,
+                clinicRepository = clinicRepository,
+                doctorRepository = doctorRepository,
+                knownClinicAppointments = appointments,
+                knownDoctors = affiliatedDoctors,
+                loadedClinicHint = currentClinic,
+                onDismiss = {
+                    billPopupTargetAppt = null
+                    billPopupFallback = null
+                },
+                onBillSaved = { updatedAppt, savedInvoice ->
+                    appointments = if (appointments.any { it.id == updatedAppt.id }) {
+                        appointments.map { if (it.id == updatedAppt.id) updatedAppt else it }
+                    } else {
+                        listOf(updatedAppt) + appointments
+                    }
+                    if (selectedPatientForDetails != null) {
+                        patientFullHistoryAppts = if (patientFullHistoryAppts.any { it.id == updatedAppt.id }) {
+                            patientFullHistoryAppts.map { if (it.id == updatedAppt.id) updatedAppt else it }
+                        } else {
+                            listOf(updatedAppt) + patientFullHistoryAppts
+                        }
+                    }
+                    val cleanSavedRem = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(savedInvoice.remarks)
+                    if (cleanSavedRem.isNotBlank()) {
+                        remarksMap = remarksMap + (updatedAppt.id to cleanSavedRem)
+                    }
+                    actionMessage = "✓ Bill updated for ${updatedAppt.patientName} (Total: Rs. ${savedInvoice.totalAmount.toInt()}, Paid: Rs. ${savedInvoice.paidAmount.toInt()})"
+                    billPopupTargetAppt = null
+                    billPopupFallback = null
+                    coroutineScope.launch { loadData(forceRefresh = true) }
+                }
+            )
+        }
     }
 }
 
@@ -3409,6 +3472,7 @@ private fun PatientFullHistoryModalDialog(
     onCallPatient: (String) -> Unit,
     onEditRemark: (Appointment, String) -> Unit,
     onEditSchedule: (Appointment) -> Unit,
+    onOpenBilling: ((Appointment) -> Unit)? = null,
     onScheduleNewVisit: () -> Unit
 ) {
     Dialog(
@@ -3748,6 +3812,23 @@ private fun PatientFullHistoryModalDialog(
                                                 fontSize = 11.sp,
                                                 color = Color(0xFF94A3B8)
                                             )
+                                        }
+
+                                        if (onOpenBilling != null) {
+                                            Spacer(Modifier.height(6.dp))
+                                            Button(
+                                                onClick = { onOpenBilling(appt) },
+                                                shape = RoundedCornerShape(8.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E)),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(34.dp)
+                                            ) {
+                                                Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                                Spacer(Modifier.width(6.dp))
+                                                Text("Push / Edit Bill", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                            }
                                         }
                                     }
                                 }

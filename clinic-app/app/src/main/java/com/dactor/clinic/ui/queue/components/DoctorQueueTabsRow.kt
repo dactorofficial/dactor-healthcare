@@ -15,6 +15,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.dactor.clinic.ui.i18n.ClinicLanguage
+import com.dactor.clinic.ui.i18n.LocalClinicLanguage
 
 @Composable
 fun DoctorQueueTabsRow(
@@ -26,6 +28,8 @@ fun DoctorQueueTabsRow(
     onToggleBreak: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val currentLang = LocalClinicLanguage.current
+    val isNepali = currentLang == ClinicLanguage.NEPALI
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.background
@@ -52,7 +56,7 @@ fun DoctorQueueTabsRow(
                     modifier = Modifier.clickable { onTabSelected(0) }
                 ) {
                     Text(
-                        text = "Live ($liveCount)",
+                        text = if (isNepali) "प्रत्यक्ष ($liveCount)" else "Live ($liveCount)",
                         fontSize = 12.sp,
                         fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Medium,
                         color = if (selectedTab == 0) Color.White else Color(0xFF64748B),
@@ -67,7 +71,7 @@ fun DoctorQueueTabsRow(
                     modifier = Modifier.clickable { onTabSelected(1) }
                 ) {
                     Text(
-                        text = "Completed ($completedCount)",
+                        text = if (isNepali) "सम्पन्न ($completedCount)" else "Completed ($completedCount)",
                         fontSize = 12.sp,
                         fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium,
                         color = if (selectedTab == 1) Color.White else Color(0xFF64748B),
@@ -95,7 +99,7 @@ fun DoctorQueueTabsRow(
                         modifier = Modifier.size(15.dp)
                     )
                     Text(
-                        text = if (isOnBreak) "Break: ON" else "Break: OFF",
+                        text = if (isOnBreak) (if (isNepali) "ब्रेक: चालु" else "Break: ON") else (if (isNepali) "ब्रेक: बन्द" else "Break: OFF"),
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (isOnBreak) Color(0xFFB45309) else Color(0xFF475569)

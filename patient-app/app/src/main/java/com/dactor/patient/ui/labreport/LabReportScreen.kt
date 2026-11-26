@@ -38,6 +38,10 @@ import com.dactor.patient.data.local.UserSessionManager
 import com.dactor.patient.data.model.LabReport
 import com.dactor.patient.data.repository.AppointmentRepository
 import com.dactor.patient.data.repository.LabReportRepository
+import com.dactor.patient.ui.components.QuickLanguageButton
+import com.dactor.patient.ui.i18n.AppLanguage
+import com.dactor.patient.ui.i18n.LocalAppLanguage
+import com.dactor.patient.ui.i18n.LocalAppStrings
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -50,6 +54,8 @@ fun LabReportScreen(
     sessionManager: UserSessionManager? = null
 ) {
     val context = LocalContext.current
+    val strings = LocalAppStrings.current
+    val isNepali = LocalAppLanguage.current == AppLanguage.NEPALI
     val clipboardManager = LocalClipboardManager.current
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
@@ -252,10 +258,14 @@ fun LabReportScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Diagnostic Lab Reports", fontWeight = FontWeight.Bold) },
+                title = { Text(strings.queueRecords.labReportsTitle, fontWeight = FontWeight.Bold) },
+                actions = {
+                    QuickLanguageButton(compact = true)
+                    Spacer(Modifier.width(8.dp))
+                },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.Default.ArrowBack, contentDescription = strings.common.back)
                     }
                 }
             )

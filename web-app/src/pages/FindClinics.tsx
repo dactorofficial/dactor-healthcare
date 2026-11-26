@@ -26,6 +26,7 @@ import {
   saveRecentSearch,
 } from '../utils/searchEngine'
 import { updatePageSEO } from '../utils/seo'
+import { useLanguage } from '../utils/i18n'
 import { MapLibreLocationViewer } from '../components/MapLibreLocationViewer'
 
 function shuffleArray<T>(items: T[]): T[] {
@@ -46,6 +47,8 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
   onSelectClinic,
   initialFilter = 'all',
 }) => {
+  const { language, strings } = useLanguage()
+  const isNe = language === 'ne'
   const [clinics, setClinics] = useState<Clinic[]>([])
   const [allDoctors, setAllDoctors] = useState<Doctor[]>([])
   const [loading, setLoading] = useState(true)
@@ -200,13 +203,15 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
       <div className="space-y-2 sm:space-y-3">
         <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-teal-500/10 dark:bg-teal-400/10 border border-teal-500/20 text-teal-800 dark:text-teal-300 text-[11px] sm:text-xs font-bold uppercase tracking-wider backdrop-blur-md">
           <Sparkles className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-          <span>Intelligent Medical Search</span>
+          <span>{isNe ? 'स्मार्ट स्वास्थ्य खोज' : 'Intelligent Medical Search'}</span>
         </div>
         <h1 className="text-2xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight">
-          Verified Clinics & Diagnostic Labs
+          {strings.featuredClinics}
         </h1>
         <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 font-medium max-w-2xl">
-          Search polyclinics for specialist OPD consultations, single-doctor chambers, or diagnostic pathology labs for tests and packages.
+          {isNe
+            ? 'विशेषज्ञ ओपीडी परामर्श, एकल-डाक्टर क्लिनिक वा परीक्षणका लागि प्रमाणित ल्याबहरू खोज्नुहोस् र अनलाइन पालो बुक गर्नुहोस्।'
+            : 'Search polyclinics for specialist OPD consultations, single-doctor chambers, or diagnostic pathology labs for tests and packages.'}
         </p>
       </div>
 
@@ -218,7 +223,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
             type="text"
             value={searchTerm}
             onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search symptoms (skin, heart, fever), doctors, or labs..."
+            placeholder={strings.searchPlaceholder}
             className="w-full px-4 py-3 sm:py-3.5 pl-11 pr-10 liquid-glass-input rounded-2xl text-sm sm:text-base font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all placeholder:font-normal placeholder:text-slate-400"
           />
           <Search className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -254,7 +259,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
         {/* Quick Specialty Suggestions Chips */}
         <div className="flex items-center space-x-1.5 sm:space-x-2 overflow-x-auto pb-1 text-xs scrollbar-none -mx-1 px-1 sm:mx-0 sm:px-0">
           <span className="font-bold text-slate-400 dark:text-slate-500 shrink-0 text-[10px] sm:text-[11px] uppercase tracking-wider">
-            Quick Symptoms:
+            {isNe ? 'प्रमुख लक्षण:' : 'Quick Symptoms:'}
           </span>
           {QUICK_SPECIALTY_SUGGESTIONS.map((suggestion) => (
             <button
@@ -270,11 +275,11 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
         {/* 5 Clinic Category & Availability Filter Tabs */}
         <div className="pt-2 border-t border-slate-200/40 dark:border-white/10 flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none -mx-1 px-1 sm:mx-0 sm:px-0">
           {[
-            { id: 'all', label: `All Centers (${clinics.length})`, icon: Building2 },
-            { id: 'doctor_in_clinic', label: 'Doctor In Clinic Now', icon: Stethoscope },
-            { id: 'single_doctor', label: 'Single-Visit OPD Clinics', icon: Stethoscope },
-            { id: 'polyclinic', label: 'Multi-Specialty Polyclinics', icon: Users },
-            { id: 'diagnostic_lab', label: 'Diagnostic Pathology Labs', icon: FlaskConical },
+            { id: 'all', label: `${strings.tabAll} (${clinics.length})`, icon: Building2 },
+            { id: 'doctor_in_clinic', label: strings.inClinic, icon: Stethoscope },
+            { id: 'single_doctor', label: isNe ? 'एकल-डाक्टर क्लिनिक' : 'Single-Visit OPD Clinics', icon: Stethoscope },
+            { id: 'polyclinic', label: isNe ? 'बहु-विशेषज्ञ पोलिक्लिनिक' : 'Multi-Specialty Polyclinics', icon: Users },
+            { id: 'diagnostic_lab', label: isNe ? 'निदान प्याथोलोजी ल्याब' : 'Diagnostic Pathology Labs', icon: FlaskConical },
           ].map((pill) => {
             const Icon = pill.icon
             const isSelected = filterType === pill.id
@@ -306,9 +311,9 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
       ) : scoredClinics.length === 0 ? (
         <div className="p-12 text-center liquid-glass-card rounded-3xl space-y-3">
           <Building2 className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto" />
-          <h3 className="text-lg font-bold text-slate-800 dark:text-white">No medical centers matched</h3>
+          <h3 className="text-lg font-bold text-slate-800 dark:text-white">{strings.noClinicsFound}</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Try adjusting your symptom keyword or clearing category filters.
+            {isNe ? 'कृपया अर्को शब्द वा श्रेणी छान्नुहोस्।' : 'Try adjusting your symptom keyword or clearing category filters.'}
           </p>
           <button
             onClick={() => {
@@ -317,7 +322,7 @@ export const FindClinics: React.FC<FindClinicsProps> = ({
             }}
             className="px-4 py-2 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl text-xs font-bold hover:shadow-glass-brand active:scale-95 transition cursor-pointer"
           >
-            Reset Search
+            {strings.resetFilters}
           </button>
         </div>
       ) : (

@@ -784,6 +784,8 @@ fun HomeTab(
     sessionManager: UserSessionManager? = null
 ) {
     val context = LocalContext.current
+    val strings = com.dactor.patient.ui.i18n.LocalAppStrings.current
+    val isNepali = com.dactor.patient.ui.i18n.LocalAppLanguage.current == com.dactor.patient.ui.i18n.AppLanguage.NEPALI
     val coroutineScope = rememberCoroutineScope()
 
     val today = remember { LocalDate.now() }
@@ -1452,7 +1454,7 @@ fun HomeTab(
                     decorationBox = { innerTextField ->
                         if (searchQuery.isEmpty()) {
                             Text(
-                                text = "Search doctor, clinic or symptom...",
+                                text = strings.homeSearchPlaceholder,
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -1605,9 +1607,9 @@ fun HomeTab(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         listOf(
-                            "all" to "All (${displayedDoctors.size + displayedClinics.size})",
-                            "doctors" to "Doctors (${displayedDoctors.size})",
-                            "clinics" to "Clinics (${displayedClinics.size})"
+                            "all" to "${strings.homeFilterAll} (${displayedDoctors.size + displayedClinics.size})",
+                            "doctors" to "${strings.homeFilterDoctors} (${displayedDoctors.size})",
+                            "clinics" to "${strings.homeFilterClinics} (${displayedClinics.size})"
                         ).forEach { (key, label) ->
                             val isSel = selectedEntityFilter == key
                             Surface(
@@ -1629,10 +1631,10 @@ fun HomeTab(
 
                     Box {
                         val sortLabel = when (selectedSort) {
-                            "in_clinic" -> "Inside"
-                            "fee_asc" -> "Low Fee"
-                            "name" -> "A-Z"
-                            else -> "Sort"
+                            "in_clinic" -> strings.commonInClinic
+                            "fee_asc" -> strings.homeSortLowFee
+                            "name" -> strings.homeSortName
+                            else -> strings.homeSortLabel
                         }
                         val isCustomSort = selectedSort != "default"
 
@@ -1674,22 +1676,22 @@ fun HomeTab(
                         ) {
                             DropdownMenuItem(
                                 leadingIcon = { Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(18.dp), tint = if (selectedSort == "default") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) },
-                                text = { Text("Default (Recommended)", fontWeight = if (selectedSort == "default") FontWeight.Bold else FontWeight.Normal) },
+                                text = { Text(strings.homeSortRecommended, fontWeight = if (selectedSort == "default") FontWeight.Bold else FontWeight.Normal) },
                                 onClick = { selectedSort = "default"; showSortMenu = false }
                             )
                             DropdownMenuItem(
                                 leadingIcon = { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(0xFF16A34A)) },
-                                text = { Text("Doctor Inside Clinic First", fontWeight = if (selectedSort == "in_clinic") FontWeight.Bold else FontWeight.Normal) },
+                                text = { Text(strings.homeSortInClinic, fontWeight = if (selectedSort == "in_clinic") FontWeight.Bold else FontWeight.Normal) },
                                 onClick = { selectedSort = "in_clinic"; showSortMenu = false }
                             )
                             DropdownMenuItem(
                                 leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                                text = { Text("Consultation Fee (Low to High)", fontWeight = if (selectedSort == "fee_asc") FontWeight.Bold else FontWeight.Normal) },
+                                text = { Text(strings.homeSortLowFee, fontWeight = if (selectedSort == "fee_asc") FontWeight.Bold else FontWeight.Normal) },
                                 onClick = { selectedSort = "fee_asc"; showSortMenu = false }
                             )
                             DropdownMenuItem(
                                 leadingIcon = { Icon(Icons.Default.SortByAlpha, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                                text = { Text("Name (A to Z)", fontWeight = if (selectedSort == "name") FontWeight.Bold else FontWeight.Normal) },
+                                text = { Text(strings.homeSortName, fontWeight = if (selectedSort == "name") FontWeight.Bold else FontWeight.Normal) },
                                 onClick = { selectedSort = "name"; showSortMenu = false }
                             )
                         }
@@ -1959,7 +1961,7 @@ fun HomeTab(
                                             .background(Color(0xFF10B981).copy(alpha = pulseAlpha), CircleShape)
                                     )
                                     Text(
-                                        text = "In Clinic Right Now",
+                                        text = strings.commonInClinic,
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                         color = Color(0xFF0F172A)
@@ -1971,7 +1973,7 @@ fun HomeTab(
                                     border = BorderStroke(1.dp, Color(0xFF86EFAC))
                                 ) {
                                     Text(
-                                        text = "Walk-In Available",
+                                        text = if (isNepali) "वाक-इन उपलब्ध" else "Walk-In Available",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF15803D),
@@ -2046,7 +2048,7 @@ fun HomeTab(
                                                     color = Color(0xFFDCFCE7)
                                                 ) {
                                                     Text(
-                                                        text = "Present",
+                                                        text = if (isNepali) "उपस्थित" else "Present",
                                                         fontSize = 9.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = Color(0xFF15803D),
@@ -2128,13 +2130,13 @@ fun HomeTab(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = "Consultations & Diagnostics",
+                                    text = if (isNepali) "परामर्श तथा निदान सेवाहरू" else "Consultations & Diagnostics",
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = Color(0xFF0F172A)
                                 )
                                 Text(
-                                    text = "Scroll across",
+                                    text = if (isNepali) "दायाँ-बायाँ सार्नुहोस्" else "Scroll across",
                                     fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFF0284C7)
@@ -3620,6 +3622,8 @@ fun RecordsTab(
     sessionManager: UserSessionManager?
 ) {
     val context = LocalContext.current
+    val strings = com.dactor.patient.ui.i18n.LocalAppStrings.current
+    val isNepali = com.dactor.patient.ui.i18n.LocalAppLanguage.current == com.dactor.patient.ui.i18n.AppLanguage.NEPALI
     val coroutineScope = rememberCoroutineScope()
 
     val cachedInitialRecords = remember {
@@ -3896,15 +3900,15 @@ fun RecordsTab(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Patient Directory & Records",
+                            text = strings.recordsHeaderTitle,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = Color.White
                         )
                         Text(
-                            text = "Consultations, Doctors, Clinic Bills & Lab Reports",
+                            text = strings.recordsHeaderSub,
                             fontSize = 12.sp,
                             color = Color.White.copy(alpha = 0.85f)
                         )
@@ -3914,6 +3918,7 @@ fun RecordsTab(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        com.dactor.patient.ui.components.QuickLanguageButton(compact = true)
                         Button(
                             onClick = {
                                 addMode = "code"
@@ -3927,7 +3932,7 @@ fun RecordsTab(
                         ) {
                             Icon(Icons.Default.AddLink, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("+ Link Code", fontSize = 11.5.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF0284C7))
+                            Text(strings.recordsLinkCodeBtn, fontSize = 11.5.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF0284C7))
                         }
 
                         IconButton(
@@ -3936,7 +3941,7 @@ fun RecordsTab(
                                 .size(34.dp)
                                 .background(Color.White.copy(alpha = 0.18f), CircleShape)
                         ) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.White, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Refresh, contentDescription = strings.commonRefresh, tint = Color.White, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
@@ -3987,9 +3992,9 @@ fun RecordsTab(
             verticalAlignment = Alignment.CenterVertically
         ) {
             listOf(
-                "All" to "All Records (${allRecords.size})",
-                "Completed" to "Completed (${allRecords.count { DiagnosticLabPolicy.isLabReportReadyOrCompleted(it, labReports = labReportMap[it.id].orEmpty()) }})",
-                "With Bills" to "Bills & Receipts (${allRecords.count { invoiceMap.containsKey(it.id) || (it.feeAmount ?: 0.0) > 0.0 }})"
+                "All" to "${strings.recordsFilterAll} (${allRecords.size})",
+                "Completed" to "${strings.recordsFilterCompleted} (${allRecords.count { DiagnosticLabPolicy.isLabReportReadyOrCompleted(it, labReports = labReportMap[it.id].orEmpty()) }})",
+                "With Bills" to "${strings.recordsFilterWithBills} (${allRecords.count { invoiceMap.containsKey(it.id) || (it.feeAmount ?: 0.0) > 0.0 }})"
             ).forEach { (key, label) ->
                 FilterChip(
                     selected = selectedFilter == key,
@@ -5609,6 +5614,8 @@ fun AppointmentsTab(
     sessionManager: UserSessionManager?
 ) {
     val context = LocalContext.current
+    val strings = com.dactor.patient.ui.i18n.LocalAppStrings.current
+    val isNepali = com.dactor.patient.ui.i18n.LocalAppLanguage.current == com.dactor.patient.ui.i18n.AppLanguage.NEPALI
     val coroutineScope = rememberCoroutineScope()
 
     var trackingInput by remember { mutableStateOf("") }
@@ -5864,43 +5871,53 @@ fun AppointmentsTab(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        text = "Active Appointments",
+                        text = if (isNepali) "सक्रिय अपोइन्टमेन्टहरू" else "Active Appointments",
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
                     Text(
-                        text = "Your health, our priority",
+                        text = if (isNepali) "तपाईंको स्वास्थ्य, हाम्रो प्राथमिकता" else "Your health, our priority",
                         fontSize = 12.sp,
                         color = Color.White.copy(alpha = 0.85f)
                     )
                 }
 
-                // Top Right Pill Badge (Reflects live queue vs scheduled)
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color.White.copy(alpha = 0.18f),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    com.dactor.patient.ui.components.QuickLanguageButton(compact = true)
+                    // Top Right Pill Badge (Reflects live queue vs scheduled)
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color.White.copy(alpha = 0.18f),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f))
                     ) {
-                        Icon(
-                            Icons.Default.People,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = if (todayInQueueCount > 0) "$todayInQueueCount in queue" else "${activeAppts.size} scheduled",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.People,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = if (todayInQueueCount > 0) {
+                                    if (isNepali) "$todayInQueueCount लाममा" else "$todayInQueueCount in queue"
+                                } else {
+                                    if (isNepali) "${activeAppts.size} तालिकाबद्ध" else "${activeAppts.size} scheduled"
+                                },
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
                     }
                 }
             }
@@ -5947,13 +5964,13 @@ fun AppointmentsTab(
 
                             Column {
                                 Text(
-                                    text = "Track Appointment",
+                                    text = strings.queueRecords.trackingLookupTitle,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp,
                                     color = Color(0xFF0F172A)
                                 )
                                 Text(
-                                    text = "Enter your 10 digit appointment code",
+                                    text = strings.queueRecords.enterTrackingCodePlaceholder,
                                     fontSize = 11.sp,
                                     color = Color(0xFF64748B)
                                 )
@@ -6058,7 +6075,7 @@ fun AppointmentsTab(
                                 enabled = trackingInput.isNotBlank() && !isAddingCode,
                                 modifier = Modifier.height(52.dp)
                             ) {
-                                Text(if (isAddingCode) "..." else "Track", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Text(if (isAddingCode) "..." else strings.queueRecords.trackNowBtn, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 Spacer(Modifier.width(4.dp))
                                 Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(15.dp))
                             }
@@ -6112,9 +6129,10 @@ fun AppointmentsTab(
                                 tint = Color(0xFF0284C7).copy(alpha = 0.5f),
                                 modifier = Modifier.size(54.dp)
                             )
-                            Text("No Active Appointments", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text(if (isNepali) "कुनै सक्रिय अपोइन्टमेन्ट छैन" else "No Active Appointments", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             Text(
-                                "You don't have any waiting or upcoming consultations right now. Book a slot or enter your 10-digit code above to track live.",
+                                if (isNepali) "तपाईंको हाल कुनै प्रतीक्षारत वा आगामी अपोइन्टमेन्ट छैन। नयाँ स्लट बुक गर्नुहोस् वा माथि १०-अङ्के कोड राखी प्रत्यक्ष लाम हेर्नुहोस्।"
+                                else "You don't have any waiting or upcoming consultations right now. Book a slot or enter your 10-digit code above to track live.",
                                 fontSize = 12.sp,
                                 color = Color(0xFF64748B),
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -8812,6 +8830,8 @@ fun ProfileTab(
     sessionManager: UserSessionManager?
 ) {
     val context = LocalContext.current
+    val strings = com.dactor.patient.ui.i18n.LocalAppStrings.current
+    val isNepali = com.dactor.patient.ui.i18n.LocalAppLanguage.current == com.dactor.patient.ui.i18n.AppLanguage.NEPALI
     val coroutineScope = rememberCoroutineScope()
 
     var isUserLoggedIn by remember {
@@ -8831,11 +8851,15 @@ fun ProfileTab(
                 TopAppBar(
                     title = {
                         Text(
-                            "Account",
+                            strings.navProfile,
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp,
                             color = Color(0xFF0F172A)
                         )
+                    },
+                    actions = {
+                        com.dactor.patient.ui.components.QuickLanguageButton(compact = true)
+                        Spacer(Modifier.width(8.dp))
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
                 )
@@ -9069,13 +9093,13 @@ fun ProfileTab(
                 title = {
                     Column {
                         Text(
-                            "Patient Profile",
+                            strings.navProfile,
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp,
                             color = Color(0xFF0F172A)
                         )
                         Text(
-                            "Your health record, bills & account",
+                            if (isNepali) "तपाईंको स्वास्थ्य विवरण, रसिद तथा खाता" else "Your health record, bills & account",
                             fontSize = 12.sp,
                             color = Color(0xFF64748B)
                         )
@@ -9921,14 +9945,14 @@ fun ProfileTab(
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "Notifications & Broadcasts",
+                                strings.profileAuth.notificationsScreenTitle,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
                                 color = Color(0xFF0F172A)
                             )
                             Spacer(Modifier.height(2.dp))
                             Text(
-                                "Get updates about your appointments, health tips and more.",
+                                strings.profileAuth.pushNotifSub,
                                 fontSize = 11.sp,
                                 color = Color(0xFF64748B)
                             )
@@ -9978,14 +10002,14 @@ fun ProfileTab(
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "Transaction History",
+                                strings.txHistoryTitle,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
                                 color = Color(0xFF0F172A)
                             )
                             Spacer(Modifier.height(2.dp))
                             Text(
-                                "View all payment amounts, times, and transaction IDs.",
+                                strings.txHistorySub,
                                 fontSize = 11.sp,
                                 color = Color(0xFF64748B)
                             )
@@ -10032,14 +10056,14 @@ fun ProfileTab(
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "Terms & Conditions (Nepal Law)",
+                                strings.termsPolicyTitle,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
                                 color = Color(0xFF0F172A)
                             )
                             Spacer(Modifier.height(2.dp))
                             Text(
-                                "Read our policies and user agreement.",
+                                strings.termsPolicySub,
                                 fontSize = 11.sp,
                                 color = Color(0xFF64748B)
                             )

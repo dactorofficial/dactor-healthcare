@@ -39,6 +39,10 @@ import com.dactor.patient.data.repository.ClinicRepository
 import com.dactor.patient.data.repository.DoctorRepository
 import com.dactor.patient.data.repository.SlotRepository
 import com.dactor.patient.domain.util.CurrencyFormatter
+import com.dactor.patient.ui.components.QuickLanguageButton
+import com.dactor.patient.ui.i18n.AppLanguage
+import com.dactor.patient.ui.i18n.LocalAppLanguage
+import com.dactor.patient.ui.i18n.LocalAppStrings
 import com.dactor.patient.ui.navigation.NavRoutes
 import java.time.LocalDate
 import java.time.YearMonth
@@ -121,6 +125,8 @@ fun BookingScreen(
     sessionManager: com.dactor.patient.data.local.UserSessionManager? = null
 ) {
     val context = LocalContext.current
+    val strings = LocalAppStrings.current
+    val isNepali = LocalAppLanguage.current == AppLanguage.NEPALI
     val coroutineScope = rememberCoroutineScope()
     val todayDate = remember { LocalDate.now(java.time.ZoneId.of("Asia/Kathmandu")) }
     val today = remember { todayDate.toString() }
@@ -403,18 +409,31 @@ fun BookingScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text(if (isLabClinic) "Book Lab Test Appointment" else "Book Appointment", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                         Text(
-                            if (isLabClinic) "Select a time slot & choose diagnostic tests on next step"
-                            else "Choose a doctor and select a published clinic slot",
+                            if (isLabClinic) {
+                                if (isNepali) "ल्याब परीक्षण अपोइन्टमेन्ट" else "Book Lab Test Appointment"
+                            } else strings.discoveryBooking.bookingScreenTitle,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
+                        )
+                        Text(
+                            if (isLabClinic) {
+                                if (isNepali) "समय छान्नुहोस् र अर्को चरणमा परीक्षण चयन गर्नुहोस्" else "Select a time slot & choose diagnostic tests on next step"
+                            } else {
+                                if (isNepali) "डाक्टर र उपलब्ध समय स्लट चयन गर्नुहोस्" else "Choose a doctor and select a published clinic slot"
+                            },
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
+                actions = {
+                    QuickLanguageButton(compact = true)
+                    Spacer(Modifier.width(8.dp))
+                },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = strings.common.back)
                     }
                 }
             )

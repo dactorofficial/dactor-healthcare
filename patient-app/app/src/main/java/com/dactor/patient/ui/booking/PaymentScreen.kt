@@ -39,6 +39,10 @@ import com.dactor.patient.data.repository.AppointmentRepository
 import com.dactor.patient.data.repository.ClinicRepository
 import com.dactor.patient.data.repository.SlotRepository
 import com.dactor.patient.domain.util.CurrencyFormatter
+import com.dactor.patient.ui.components.QuickLanguageButton
+import com.dactor.patient.ui.i18n.AppLanguage
+import com.dactor.patient.ui.i18n.LocalAppLanguage
+import com.dactor.patient.ui.i18n.LocalAppStrings
 import com.dactor.patient.ui.navigation.NavRoutes
 import androidx.compose.ui.text.style.TextAlign
 import kotlinx.coroutines.delay
@@ -57,6 +61,8 @@ fun PaymentScreen(
     sessionManager: UserSessionManager? = null
 ) {
     val context = LocalContext.current
+    val strings = LocalAppStrings.current
+    val isNepali = LocalAppLanguage.current == AppLanguage.NEPALI
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
@@ -406,21 +412,22 @@ fun PaymentScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Appointment Payment", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+                title = { Text(strings.discoveryBooking.paymentTitle, fontWeight = FontWeight.Bold, fontSize = 18.sp) },
                 navigationIcon = {
                     IconButton(
                         onClick = { showCancelConfirmDialog = true },
                         enabled = !isProcessing && !isCancelling
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = strings.common.back)
                     }
                 },
                 actions = {
+                    QuickLanguageButton(compact = true)
                     TextButton(
                         onClick = { showCancelConfirmDialog = true },
                         enabled = !isProcessing && !isCancelling
                     ) {
-                        Text("Cancel", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                        Text(strings.common.cancelBtn, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
                     }
                 }
             )
@@ -557,37 +564,37 @@ fun PaymentScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Payment Summary", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(if (isNepali) "भुक्तानी सारांश" else "Payment Summary", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     if (clinic != null) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Clinic", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(if (isNepali) "क्लिनिक" else "Clinic", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(clinic?.name ?: "", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                     if (appointment != null) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Appointment Date", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(if (isNepali) "अपोइन्टमेन्ट मिति" else "Appointment Date", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("${appointment?.appointmentDate} (${appointment?.appointmentTime})", fontSize = 12.sp, fontWeight = FontWeight.Medium)
                         }
                     }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Consultation Fee", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(strings.discoveryBooking.consultationFee, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(CurrencyFormatter.formatNPR(effectiveFee), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
                     if (selectedPaymentMethod == "pay_at_desk") {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Platform Service Charge (5%)", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(if (isNepali) "प्लेटफर्म सेवा शुल्क (5%)" else "Platform Service Charge (5%)", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(CurrencyFormatter.formatNPR(serviceCharge), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
                     } else {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Queue Reservation Fee", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("FREE", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF059669))
+                            Text(if (isNepali) "लाम आरक्षण शुल्क" else "Queue Reservation Fee", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(strings.common.free.uppercase(), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF059669))
                         }
                     }
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Total Amount Due", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(strings.discoveryBooking.totalPayable, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         Text(
                             CurrencyFormatter.formatNPR(if (selectedPaymentMethod == "pay_at_desk") totalAtDesk else effectiveFee),
                             fontWeight = FontWeight.ExtraBold,
@@ -599,7 +606,7 @@ fun PaymentScreen(
             }
 
             // ── 3. REAL PAYMENT GATEWAYS SELECTION (STRICT CLINIC OWNER KEY RULE) ─────
-            Text("Select Payment Option", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(strings.discoveryBooking.selectPaymentMethod, fontWeight = FontWeight.Bold, fontSize = 14.sp)
 
             val isDirectPaymentEnabled = clinic?.isDirectPaymentEnabled == true
             val availableGateways = remember(clinic, clinicGatewaysConfig, serverPaymentMethods) {

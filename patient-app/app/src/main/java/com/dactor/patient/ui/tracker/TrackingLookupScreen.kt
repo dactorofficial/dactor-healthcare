@@ -31,6 +31,10 @@ import com.dactor.patient.data.model.Appointment
 import com.dactor.patient.data.repository.AppointmentRepository
 import com.dactor.patient.data.repository.AuthRepository
 import kotlinx.coroutines.launch
+import com.dactor.patient.ui.components.QuickLanguageButton
+import com.dactor.patient.ui.i18n.AppLanguage
+import com.dactor.patient.ui.i18n.LocalAppLanguage
+import com.dactor.patient.ui.i18n.LocalAppStrings
 import com.dactor.patient.ui.navigation.NavRoutes
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -47,6 +51,8 @@ fun TrackingLookupScreen(
     var linkedLiveAppointments by remember { mutableStateOf<List<Appointment>>(emptyList()) }
 
     val focusManager = LocalFocusManager.current
+    val strings = LocalAppStrings.current
+    val isNepali = LocalAppLanguage.current == AppLanguage.NEPALI
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
 
@@ -176,10 +182,14 @@ fun TrackingLookupScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Track Live Appointment", fontWeight = FontWeight.Bold) },
+                title = { Text(strings.queueRecords.trackingLookupTitle, fontWeight = FontWeight.Bold) },
+                actions = {
+                    QuickLanguageButton(compact = true)
+                    Spacer(Modifier.width(8.dp))
+                },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.Default.ArrowBack, contentDescription = strings.common.back)
                     }
                 }
             )

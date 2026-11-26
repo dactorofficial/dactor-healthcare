@@ -27,6 +27,9 @@ import com.dactor.patient.data.model.MedicalSpecialty
 import com.dactor.patient.data.repository.ClinicRepository
 import com.dactor.patient.data.repository.DoctorRepository
 import com.dactor.patient.domain.util.CurrencyFormatter
+import com.dactor.patient.ui.i18n.AppLanguage
+import com.dactor.patient.ui.i18n.LocalAppLanguage
+import com.dactor.patient.ui.i18n.LocalAppStrings
 import com.dactor.patient.ui.navigation.NavRoutes
 import com.dactor.patient.util.MedicalSearchEngine
 import com.dactor.patient.util.OpenRouteSpatialEngine
@@ -51,6 +54,8 @@ fun DiscoveryScreen(
     doctorRepository: DoctorRepository? = null
 ) {
     val coroutineScope = rememberCoroutineScope()
+    val strings = LocalAppStrings.current
+    val isNepali = LocalAppLanguage.current == AppLanguage.NEPALI
     var searchQuery by remember { mutableStateOf("") }
     var searchCategory by remember { mutableStateOf("all") } // "all", "clinic", "doctor", "service"
 
@@ -298,10 +303,10 @@ fun DiscoveryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Find Clinics & Doctors", fontWeight = FontWeight.Bold) },
+                title = { Text(if (isNepali) "क्लिनिक र डाक्टर खोज्नुहोस्" else "Find Clinics & Doctors", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.Default.ArrowBack, contentDescription = strings.common.back)
                     }
                 },
                 actions = {

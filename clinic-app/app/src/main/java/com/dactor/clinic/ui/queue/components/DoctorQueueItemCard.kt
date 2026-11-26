@@ -18,6 +18,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.dactor.clinic.ui.i18n.ClinicLanguage
+import com.dactor.clinic.ui.i18n.LocalClinicLanguage
 import com.dactor.clinic.ui.queue.QueueItemUi
 
 @Composable
@@ -42,6 +44,7 @@ fun DoctorQueueItemCard(
     onCallInAlertClick: ((QueueItemUi) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val isNepali = LocalClinicLanguage.current == ClinicLanguage.NEPALI
     val cooldownUntil = cooldownUntilEpoch ?: 0L
     val nowEpoch = currentEpochSecond * 1000L
     val cooldownRemainingSec = ((cooldownUntil - nowEpoch) / 1000L).coerceAtLeast(0L).toInt()
@@ -467,7 +470,7 @@ fun DoctorQueueItemCard(
                                         strokeWidth = 2.dp
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Sending...", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(if (isNepali) "पठाउँदैछ..." else "Sending...", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                 } else if (isCoolingDown) {
                                     Icon(
                                         Icons.Default.Schedule,
@@ -476,7 +479,7 @@ fun DoctorQueueItemCard(
                                         modifier = Modifier.size(13.dp)
                                     )
                                     Spacer(modifier = Modifier.width(3.dp))
-                                    Text("Walk In (${cooldownRemainingSec}s)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text(if (isNepali) "भित्र बोलाउनुहोस् (${cooldownRemainingSec}s)" else "Walk In (${cooldownRemainingSec}s)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 } else {
                                     Icon(
                                         Icons.Default.DirectionsRun,
@@ -485,7 +488,7 @@ fun DoctorQueueItemCard(
                                         modifier = Modifier.size(14.dp)
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Walk In", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                    Text(if (isNepali) "भित्र बोलाउनुहोस्" else "Walk In", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -514,7 +517,7 @@ fun DoctorQueueItemCard(
                                         strokeWidth = 2.dp
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Sending...", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(if (isNepali) "पठाउँदैछ..." else "Sending...", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                                 } else if (isCoolingDown) {
                                     Icon(
                                         Icons.Default.Schedule,
@@ -523,7 +526,7 @@ fun DoctorQueueItemCard(
                                         modifier = Modifier.size(13.dp)
                                     )
                                     Spacer(modifier = Modifier.width(3.dp))
-                                    Text("Call In (${cooldownRemainingSec}s)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text(if (isNepali) "पालो बोलाउनुहोस् (${cooldownRemainingSec}s)" else "Call In (${cooldownRemainingSec}s)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 } else {
                                     Icon(
                                         Icons.Default.Campaign,
@@ -532,7 +535,7 @@ fun DoctorQueueItemCard(
                                         modifier = Modifier.size(14.dp)
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Call In", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                    Text(if (isNepali) "पालो बोलाउनुहोस्" else "Call In", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -565,7 +568,7 @@ fun DoctorQueueItemCard(
                             ) {
                                 Icon(Icons.Default.ArrowUpward, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(3.dp))
-                                Text("Move Up", fontSize = 11.sp)
+                                Text(if (isNepali) "माथि सार्नुहोस्" else "Move Up", fontSize = 11.sp)
                             }
                             OutlinedButton(
                                 onClick = { onMovePosition(item, 1) },
@@ -575,7 +578,7 @@ fun DoctorQueueItemCard(
                             ) {
                                 Icon(Icons.Default.ArrowDownward, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(3.dp))
-                                Text("Move Down", fontSize = 11.sp)
+                                Text(if (isNepali) "तल सार्नुहोस्" else "Move Down", fontSize = 11.sp)
                             }
                         }
 
@@ -592,7 +595,7 @@ fun DoctorQueueItemCard(
                                 Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(3.dp))
                                 Text(
-                                    text = if (isAccountlessWalkin) "No App Acct" else "Alert Patient",
+                                    text = if (isAccountlessWalkin) (if (isNepali) "खाता छैन" else "No App Acct") else (if (isNepali) "अलर्ट पठाउनुहोस्" else "Alert Patient"),
                                     fontSize = 11.sp
                                 )
                             }

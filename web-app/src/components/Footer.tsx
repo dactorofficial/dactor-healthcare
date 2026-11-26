@@ -11,12 +11,15 @@ import {
   Headphones,
 } from 'lucide-react'
 import dactorLogo from '../assets/logo.svg'
+import { useLanguage } from '../utils/i18n'
 
 interface FooterProps {
   onNavigate: (tab: string, params?: any) => void
 }
 
 export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
+  const { language, strings } = useLanguage()
+  const isNe = language === 'ne'
   return (
     <footer className="relative bg-slate-950/85 backdrop-blur-2xl text-slate-300 pt-12 sm:pt-16 pb-28 lg:pb-12 border-t border-white/10 shadow-2xl overflow-hidden">
       {/* Specular Perimeter Line */}
@@ -230,11 +233,11 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
 
         {/* Legal & Regulatory Policies Bar */}
         <div className="pt-4 flex flex-wrap items-center justify-center gap-3 text-xs text-slate-400 border-t border-white/5 mt-4">
-          <a href="./privacy-patient.html" className="hover:text-cyan-400 transition">Patient Privacy Policy</a>
+          <a href="./privacy-patient.html" className="hover:text-cyan-400 transition">{isNe ? 'बिरामी गोपनीयता नीति' : strings.footerPrivacy}</a>
           <span>•</span>
-          <a href="./privacy-clinic.html" className="hover:text-cyan-400 transition">Clinic &amp; Provider Privacy Policy</a>
+          <a href="./privacy-clinic.html" className="hover:text-cyan-400 transition">{isNe ? 'क्लिनिक तथा प्रदायक गोपनीयता नीति' : 'Clinic & Provider Privacy Policy'}</a>
           <span>•</span>
-          <a href="https://dactorofficial.github.io/support" className="hover:text-cyan-400 transition">Healthcare Helpdesk</a>
+          <a href="https://dactorofficial.github.io/support" className="hover:text-cyan-400 transition">{strings.navSupport}</a>
         </div>
       </div>
     </footer>

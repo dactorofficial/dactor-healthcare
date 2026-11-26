@@ -146,6 +146,7 @@ import {
   getInvoiceForAppointment,
   getInvoicesForAppointments,
   saveOrUpdateInvoicePayment,
+  createCompletedBillingVisit,
   uploadReceiptFile,
   updateDoctorPresence,
   updateClinicBreak,
@@ -218,6 +219,7 @@ import {
   buildCombinedRemarks,
   inferPaymentMethodFromText,
   computeCombinedBillingSummary,
+  CombinedBillingSummary,
   WebPaymentRecord,
 } from '../utils/paymentLedger'
 import { supabase } from '../lib/supabase'
@@ -229,6 +231,7 @@ import {
   onFirebaseAuthStateChanged,
 } from '../lib/firebase'
 import { clearAllAppCache } from '../utils/cacheCleaner'
+import { useLanguage } from '../utils/i18n'
 
 interface ClinicPortalProps {
   onLogout?: () => void
@@ -557,6 +560,8 @@ function calculateLiveQueueTimingEstimate(
 }
 
 export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
+  const { language, strings } = useLanguage()
+  const isNe = language === 'ne'
   // Authentication & Profile State
   const [clinics, setClinics] = useState<Clinic[]>([])
   const [selectedClinic, setSelectedClinic] = useState<Clinic | null>(null)
@@ -1006,6 +1011,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
   const [billNewPaymentNote, setBillNewPaymentNote] = useState<string>('')
   const [billNewPaymentDate, setBillNewPaymentDate] = useState<string>('')
   const [billNewPaymentTime, setBillNewPaymentTime] = useState<string>('')
+  const [billPriorSummary, setBillPriorSummary] = useState<CombinedBillingSummary | null>(null)
+  const [billConfirmOpen, setBillConfirmOpen] = useState(false)
   const [savingBill, setSavingBill] = useState(false)
   const [showPrintableInvoice, setShowPrintableInvoice] = useState(false)
 
@@ -3428,14 +3435,57 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     setBillReceiptFile(null)
     setBillReceiptCompressionInfo(null)
     setShowPrintableInvoice(false)
+    setBillConfirmOpen(false)
     setBillNewPaymentInput('')
     setBillNewPaymentNote('')
     setBillNewPaymentDate(new Date().toISOString().split('T')[0])
     setBillNewPaymentTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+
+    const isFollowUpAppt =
+      Number(appt.attemptNumber || 1) > 1 ||
+      String((appt as any).visitType || '').toLowerCase().includes('follow') ||
+      Boolean((appt as any).followUpOfAppointmentId) ||
+      (Number(appt.feeAmount || 0) <= 0 &&
+        Number(appt.totalAmount || 0) <= 0 &&
+        (String(appt.paymentMode || '').toUpperCase() === 'FREE' ||
+          /follow/i.test(appt.notes || '')))
+
+    const cleanCode = (appt.trackingCode10Digit || '').trim()
+    const isSyntheticAppt = !appointments.some((a) => a.id === appt.id)
+    const siblingVisits = cleanCode
+      ? appointments.filter(
+          (a) =>
+            (a.trackingCode10Digit || '').trim() === cleanCode &&
+            a.id !== appt.id
+        )
+      : []
+
+    const invByApptId: Record<string, BillingInvoice> = {}
+    for (const inv of invoices) {
+      invByApptId[inv.appointmentId] = inv
+    }
+    setBillPriorSummary(
+      siblingVisits.length > 0 ? computeCombinedBillingSummary(siblingVisits, invByApptId) : null
+    )
     setBillModalOpen(true)
 
     try {
-      const existing = await getInvoiceForAppointment(appt.id)
+      if (siblingVisits.length > 0) {
+        const missingIds = siblingVisits.map((v) => v.id).filter((id) => !invByApptId[id])
+        if (missingIds.length > 0) {
+          try {
+            const fetchedSibs = await getInvoicesForAppointments(missingIds)
+            for (const sInv of Object.values(fetchedSibs)) {
+              invByApptId[sInv.appointmentId] = sInv
+            }
+            setBillPriorSummary(computeCombinedBillingSummary(siblingVisits, invByApptId))
+          } catch (sibErr) {
+            console.warn('Could not fetch sibling invoices:', sibErr)
+          }
+        }
+      }
+
+      const existing = isSyntheticAppt ? null : (await getInvoiceForAppointment(appt.id)) || invByApptId[appt.id] || null
       if (existing) {
         if (existing.items && existing.items.length > 0) {
           const normalizedItems = getEffectiveInvoiceItems(appt, existing.items)
@@ -3447,12 +3497,21 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
               quantity: Number(it.quantity || 1),
             }))
           )
+        } else if (isFollowUpAppt && Number(appt.feeAmount || 0) <= 0 && Number(existing.totalAmount || 0) <= 0) {
+          setBillItems([
+            {
+              id: 'initial_consult',
+              name: 'Follow-Up Consultation (Free)',
+              price: 0,
+              quantity: 1,
+            },
+          ])
         } else {
-          const baseFee = Number(appt.feeAmount || 0)
-          const deskCharge = getEffectiveServiceCharge(appt)
-          const effectiveTotal = getEffectiveAppointmentTotal(appt)
+          const baseFee = isFollowUpAppt ? 0 : Number(appt.feeAmount || 0)
+          const deskCharge = isFollowUpAppt ? 0 : getEffectiveServiceCharge(appt)
+          const effectiveTotal = isFollowUpAppt ? 0 : getEffectiveAppointmentTotal(appt)
           const initialFee = Math.max(Number(existing.totalAmount || 0), effectiveTotal || 0)
-          if (String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK' && baseFee > 0 && deskCharge > 0) {
+          if (!isFollowUpAppt && String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK' && baseFee > 0 && deskCharge > 0) {
             setBillItems([
               {
                 id: 'initial_consult',
@@ -3471,7 +3530,9 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
             setBillItems([
               {
                 id: 'initial_consult',
-                name: `${appt.doctor?.fullName || selectedDoctor?.fullName || 'Doctor'} Consultation Fee`,
+                name: isFollowUpAppt && initialFee <= 0
+                  ? 'Follow-Up Consultation (Free)'
+                  : `${appt.doctor?.fullName || selectedDoctor?.fullName || 'Doctor'} Consultation Fee`,
                 price: initialFee,
                 quantity: 1,
               },
@@ -3479,8 +3540,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }
         }
 
-        const calcTotal = getEffectiveInvoiceTotal(appt, existing)
-        const isFreeFu = Number(appt.attemptNumber || 1) > 1 && Number(appt.feeAmount || 0) <= 0 && String(appt.paymentMode || '').toUpperCase() === 'FREE'
+        const calcTotal = isFollowUpAppt && Number(appt.feeAmount || 0) <= 0 && Number(existing.totalAmount || 0) <= 0
+          ? 0
+          : getEffectiveInvoiceTotal(appt, existing)
+        const isFreeFu = isFollowUpAppt && Number(appt.feeAmount || 0) <= 0 && Number(existing.totalAmount || 0) <= 0
         const calcPaid =
           existing.paymentStatus === 'paid' || (!isFreeFu && appt.paymentStatus === 'paid' && calcTotal > 0)
             ? Math.max(Number(existing.paidAmount || 0), calcTotal)
@@ -3497,10 +3560,19 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         setBillPaidAmount(String(calcPaid))
         setBillRemarks(extractCleanClinicalRemarks(existing.remarks) || appt.notes || '')
       } else {
-        const baseFee = Number(appt.feeAmount) || 0
-        const deskCharge = getEffectiveServiceCharge(appt)
-        const initialTotal = getEffectiveAppointmentTotal(appt) || baseFee
-        if (String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK' && deskCharge > 0) {
+        const baseFee = isFollowUpAppt ? 0 : (Number(appt.feeAmount) || 0)
+        const deskCharge = isFollowUpAppt ? 0 : getEffectiveServiceCharge(appt)
+        const initialTotal = isFollowUpAppt ? 0 : (getEffectiveAppointmentTotal(appt) || baseFee)
+        if (isFollowUpAppt && initialTotal === 0) {
+          setBillItems([
+            {
+              id: 'initial_consult',
+              name: 'Follow-Up Consultation (Free)',
+              price: 0,
+              quantity: 1,
+            },
+          ])
+        } else if (String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK' && deskCharge > 0) {
           setBillItems([
             {
               id: 'initial_consult',
@@ -3525,7 +3597,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
             },
           ])
         }
-        const initialPaid = appt.paymentStatus === 'paid' ? initialTotal : 0
+        const initialPaid = !isFollowUpAppt && appt.paymentStatus === 'paid' ? initialTotal : 0
         const inferredInitMethod = inferPaymentMethodFromText(
           appt.notes,
           appt.paymentMode,
@@ -3574,12 +3646,41 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     }
   }
 
-  const handleSaveBill = async (e: React.FormEvent) => {
+  const handleSaveBill = (e: React.FormEvent) => {
     e.preventDefault()
+    if (!billTargetAppt || !selectedClinic) return
+    setBillConfirmOpen(true)
+  }
+
+  const executeCommitBill = async () => {
     if (!billTargetAppt || !selectedClinic) return
 
     setSavingBill(true)
     try {
+      let resolvedTargetAppt = billTargetAppt
+      const hasRealAppt = appointments.some((a) => a.id === billTargetAppt.id)
+      if (!hasRealAppt) {
+        const createdVisit = await createCompletedBillingVisit({
+          clinicId: selectedClinic.id,
+          doctorId: billTargetAppt.doctorId || selectedDoctor?.id || null,
+          userId: billTargetAppt.userId || null,
+          patientName: billTargetAppt.patientName,
+          patientAge: billTargetAppt.patientAge,
+          patientGender: billTargetAppt.patientGender,
+          patientMobile: billTargetAppt.patientMobile,
+          patientEmail: billTargetAppt.patientEmail,
+          trackingCode10Digit: billTargetAppt.trackingCode10Digit,
+        })
+        if (!createdVisit) {
+          alert('Could not create billing record for this patient. Please check your connection and try again.')
+          setSavingBill(false)
+          return
+        }
+        resolvedTargetAppt = createdVisit
+        setAppointments((prev) => [createdVisit, ...prev.filter((a) => a.id !== createdVisit.id)])
+        setBillTargetAppt(createdVisit)
+      }
+
       let receiptUrl: string | undefined = undefined
       if (billReceiptFile) {
         try {
@@ -3592,7 +3693,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
 
       const itemsTotal = billItems.reduce((acc, it) => acc + it.price * (it.quantity || 1), 0)
       const inputTotal = Number(billTotalAmount) || 0
-      const finalTotalAmount = itemsTotal > 0 ? (inputTotal > itemsTotal ? inputTotal : itemsTotal) : (inputTotal > 0 ? inputTotal : (Number(billTargetAppt.feeAmount) || 0))
+      const finalTotalAmount = itemsTotal > 0 ? (inputTotal > itemsTotal ? inputTotal : itemsTotal) : (inputTotal > 0 ? inputTotal : (Number(resolvedTargetAppt.feeAmount) || 0))
 
       // If user typed a larger total than items sum, add a reconciling item so itemized list reflects the total
       let itemsToPersist = [...billItems]
@@ -3600,7 +3701,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         itemsToPersist = [
           {
             id: 'consultation',
-            name: `${billTargetAppt.doctor?.fullName || selectedDoctor?.fullName || 'Doctor'} Consultation Fee`,
+            name: `${resolvedTargetAppt.doctor?.fullName || selectedDoctor?.fullName || 'Doctor'} Consultation Fee`,
             price: finalTotalAmount,
             quantity: 1,
           }
@@ -3626,8 +3727,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           dateTime: `${payDate} ${payTime}`,
           paymentMethod: inferPaymentMethodFromText(
             billNewPaymentNote,
-            billTargetAppt.paymentMode,
-            String(billTargetAppt.paymentMode || '').toUpperCase() === 'ONLINE' ? 'ONLINE' : 'CASH'
+            resolvedTargetAppt.paymentMode,
+            String(resolvedTargetAppt.paymentMode || '').toUpperCase() === 'ONLINE' ? 'ONLINE' : 'CASH'
           ),
           note: billNewPaymentNote.trim() || 'Payment Received',
         })
@@ -3643,8 +3744,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
 
       const localInvoice: BillingInvoice = {
         id: invoiceId,
-        appointmentId: billTargetAppt.id,
-        clinicId: billTargetAppt.clinicId || selectedClinic.id,
+        appointmentId: resolvedTargetAppt.id,
+        clinicId: resolvedTargetAppt.clinicId || selectedClinic.id,
         totalAmount: finalTotalAmount,
         paidAmount: finalPaidAmount,
         balanceDue: Math.max(0, finalTotalAmount - finalPaidAmount),
@@ -3660,7 +3761,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
       try {
         await putRecord('invoices', {
           id: localInvoice.id,
-          appointment_id: billTargetAppt.id,
+          appointment_id: resolvedTargetAppt.id,
           clinic_id: localInvoice.clinicId,
           total_amount: finalTotalAmount,
           paid_amount: finalPaidAmount,
@@ -3696,7 +3797,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           entityId: localInvoice.id,
           payload: {
             id: localInvoice.id,
-            appointment_id: billTargetAppt.id,
+            appointment_id: resolvedTargetAppt.id,
             clinic_id: localInvoice.clinicId,
             total_amount: finalTotalAmount,
             paid_amount: finalPaidAmount,
@@ -3716,7 +3817,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
 
       // 2. Optimistic UI state updates (zero delay, zero freeze)
       setInvoices((prev) => {
-        const idx = prev.findIndex((i) => i.appointmentId === billTargetAppt.id)
+        const idx = prev.findIndex((i) => i.appointmentId === resolvedTargetAppt.id)
         if (idx >= 0) {
           const updated = [...prev]
           updated[idx] = { ...prev[idx], ...localInvoice }
@@ -3727,20 +3828,21 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
 
       setAppointments((prev) =>
         prev.map((a) =>
-          a.id === billTargetAppt.id
+          a.id === resolvedTargetAppt.id
             ? { ...a, feeAmount: finalTotalAmount, paymentStatus: derivedApptStatus as any }
             : a
         )
       )
 
+      setBillConfirmOpen(false)
       setBillModalOpen(false)
       setRefreshKey((k) => k + 1)
 
       // 3. Background cloud sync if online (network failure alerts strictly suppressed)
       if (typeof navigator === 'undefined' || navigator.onLine) {
         saveOrUpdateInvoicePayment({
-          appointmentId: billTargetAppt.id,
-          clinicId: billTargetAppt.clinicId || selectedClinic.id,
+          appointmentId: resolvedTargetAppt.id,
+          clinicId: resolvedTargetAppt.clinicId || selectedClinic.id,
           totalAmount: finalTotalAmount,
           paidAmount: finalPaidAmount,
           remarks: billRemarks.trim() || undefined,
@@ -3756,7 +3858,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         }).then((savedInvoice) => {
           if (savedInvoice) {
             setInvoices((prev) => {
-              const idx = prev.findIndex((i) => i.appointmentId === billTargetAppt.id)
+              const idx = prev.findIndex((i) => i.appointmentId === resolvedTargetAppt.id)
               if (idx >= 0) {
                 const updated = [...prev]
                 updated[idx] = savedInvoice
@@ -5420,10 +5522,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
               Official Dactor Facility Network
             </span>
             <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
-              Clinic & Diagnostic Facility Portal
+              {strings.portalTitle}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
-              Manage live OPD reception tokens, walk-in registrations, doctor schedules, diagnostic pathology reports, and facility billing.
+              {isNe
+                ? 'प्रत्यक्ष ओपीडी टोकन, वाक-इन दर्ता, डाक्टर समय तालिका, ल्याब परीक्षण र बिलिङ सहजै व्यवस्थापन गर्नुहोस्।'
+                : 'Manage live OPD reception tokens, walk-in registrations, doctor schedules, diagnostic pathology reports, and facility billing.'}
             </p>
           </div>
 
@@ -5878,7 +5982,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }`}
         >
           <Activity className="w-4 h-4" />
-          <span>{isLabClinic ? 'Live Lab Collection Queue' : 'Live OPD Queue'} ({queueWaitingCount})</span>
+          <span>{isLabClinic ? (isNe ? 'प्रत्यक्ष ल्याब लाम' : 'Live Lab Collection Queue') : strings.tabLiveQueue} ({queueWaitingCount})</span>
         </button>
 
         <button
@@ -5890,7 +5994,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }`}
         >
           <CreditCard className="w-4 h-4" />
-          <span>View Requests</span>
+          <span>{strings.tabPayAtDesk}</span>
           {payAtDeskCount > 0 && (
             <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-900 animate-pulse">
               {payAtDeskCount}
@@ -5907,7 +6011,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }`}
         >
           <Users className="w-4 h-4" />
-          <span>Reception Walk-In</span>
+          <span>{strings.tabWalkin}</span>
         </button>
 
         <button
@@ -5919,7 +6023,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }`}
         >
           <CalendarClock className="w-4 h-4" />
-          <span>{isLabClinic ? 'Lab Collection Slots' : 'Timed Slots Publisher'}</span>
+          <span>{isLabClinic ? (isNe ? 'ल्याब स्लटहरू' : 'Lab Collection Slots') : strings.tabSlots}</span>
         </button>
 
         <button
@@ -5931,7 +6035,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }`}
         >
           <Calendar className="w-4 h-4" />
-          <span>Future Appointments & Holidays</span>
+          <span>{strings.tabFuture}</span>
         </button>
 
         <button
@@ -5943,7 +6047,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }`}
         >
           <AlertTriangle className="w-4 h-4" />
-          <span>No-Show Patients ({noShowAppointments.length})</span>
+          <span>{strings.tabNoShow} ({noShowAppointments.length})</span>
         </button>
 
         <button
@@ -5955,7 +6059,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }`}
         >
           <CreditCard className="w-4 h-4" />
-          <span>Consultation Fees</span>
+          <span>{strings.consultationFee}</span>
         </button>
 
         <button
@@ -5967,7 +6071,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }`}
         >
           <UserCheck className="w-4 h-4" />
-          <span>Doctor & Staff Invitations</span>
+          <span>{strings.tabInvitations}</span>
         </button>
 
         <button
@@ -5979,7 +6083,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }`}
         >
           <Clock className="w-4 h-4" />
-          <span>Working Hours & Break Schedule</span>
+          <span>{strings.tabWorkingHours}</span>
         </button>
 
         <button
@@ -5991,7 +6095,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }`}
         >
           <Stethoscope className="w-4 h-4" />
-          <span>Doctors & Staff ({clinicDoctors.length})</span>
+          <span>{isNe ? 'डाक्टर तथा कर्मचारी' : 'Doctors & Staff'} ({clinicDoctors.length})</span>
         </button>
 
         <button
@@ -6003,7 +6107,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }`}
         >
           <Receipt className="w-4 h-4" />
-          <span>Patient &amp; Billing (Date-Wise)</span>
+          <span>{strings.tabBilling}</span>
         </button>
 
         <button
@@ -6015,7 +6119,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }`}
         >
           <DollarSign className="w-4 h-4" />
-          <span>Payment Logs</span>
+          <span>{strings.tabPaymentLogs}</span>
         </button>
 
         <button
@@ -6027,7 +6131,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }`}
         >
           <Search className="w-4 h-4" />
-          <span>Patient Directory</span>
+          <span>{isNe ? 'बिरामी डाइरेक्टरी' : 'Patient Directory'}</span>
         </button>
 
         {isDiagnosticLab && (
@@ -6040,7 +6144,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
             }`}
           >
             <FlaskConical className="w-4 h-4" />
-            <span>Diagnostic Lab Pipeline</span>
+            <span>{strings.tabLabWorkflow}</span>
           </button>
         )}
 
@@ -6054,7 +6158,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
             }`}
           >
             <FileText className="w-4 h-4" />
-            <span>Lab Tests & Rates</span>
+            <span>{strings.tabServices}</span>
           </button>
         )}
 
@@ -6067,7 +6171,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }`}
         >
           <Bell className="w-4 h-4" />
-          <span>Broadcast Alerts</span>
+          <span>{isNe ? 'सार्वजनिक सूचना' : 'Broadcast Alerts'}</span>
         </button>
 
 
@@ -6080,7 +6184,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }`}
         >
           <Settings className="w-4 h-4" />
-          <span>Clinic Settings</span>
+          <span>{strings.tabSettings}</span>
         </button>
       </div>
 
@@ -6410,7 +6514,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
                 }`}
               >
-                Live ({queueWaitingCount + queueInsideCount})
+                {isNe ? 'प्रत्यक्ष' : 'Live'} ({queueWaitingCount + queueInsideCount})
               </button>
               {(isLabClinic || queueProcessingCount > 0) && (
                 <button
@@ -6426,7 +6530,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                   }`}
                 >
                   <FlaskConical className="w-3.5 h-3.5" />
-                  <span>Processing ({queueProcessingCount})</span>
+                  <span>{strings.inAnalysis} ({queueProcessingCount})</span>
                 </button>
               )}
               <button
@@ -6441,7 +6545,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
                 }`}
               >
-                Completed (
+                {strings.completedList} (
                 {todayAppointments.filter(
                   (a) =>
                     a.checkinStatus === 'completed' ||
@@ -6489,12 +6593,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                 <table className="w-full text-left text-xs">
                   <thead className="sticky top-0 z-10 liquid-glass-subtle border-b border-white/40 dark:border-white/10 text-slate-600 dark:text-slate-300 uppercase tracking-wider font-bold backdrop-blur-md bg-white/95 dark:bg-slate-900/95 shadow-xs">
                     <tr>
-                      <th className="py-3 px-4 w-12 text-center">Turn</th>
-                      <th className="py-3 px-4">Patient</th>
-                      <th className="py-3 px-4">{isLabClinic ? 'Diagnostic Service' : 'Doctor'}</th>
-                      <th className="py-3 px-4">Status</th>
-                      <th className="py-3 px-4">Payment</th>
-                      <th className="py-3 px-4 text-right">Action</th>
+                      <th className="py-3 px-4 w-12 text-center">{isNe ? 'पालो' : 'Turn'}</th>
+                      <th className="py-3 px-4">{isNe ? 'बिरामी' : 'Patient'}</th>
+                      <th className="py-3 px-4">{isLabClinic ? (isNe ? 'ल्याब सेवा' : 'Diagnostic Service') : (isNe ? 'डाक्टर' : 'Doctor')}</th>
+                      <th className="py-3 px-4">{strings.status}</th>
+                      <th className="py-3 px-4">{strings.paymentMethod}</th>
+                      <th className="py-3 px-4 text-right">{strings.actions}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/30 dark:divide-white/5 font-medium">
@@ -6659,7 +6763,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                       className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-sky-600 hover:from-blue-700 hover:to-sky-700 text-white rounded-lg font-bold text-xs shadow-sm cursor-pointer active:scale-[0.98] inline-flex items-center space-x-1"
                                     >
                                       <Bell className="w-3.5 h-3.5" />
-                                      <span>{isDiagAppt ? 'Call' : 'Call Inside'}</span>
+                                      <span>{isDiagAppt ? (isNe ? 'बोलाउनुहोस्' : 'Call') : strings.callNextPatient}</span>
                                     </button>
                                     {isDiagAppt && (
                                       <button
@@ -6671,7 +6775,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                         className="px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg font-bold text-xs shadow-sm cursor-pointer active:scale-[0.98] inline-flex items-center space-x-1"
                                       >
                                         <CheckCircle2 className="w-3.5 h-3.5" />
-                                        <span>Mark Done (Processing)</span>
+                                        <span>{isNe ? 'सम्पन्न (प्रशोधनमा)' : 'Mark Done (Processing)'}</span>
                                       </button>
                                     )}
                                   </div>
@@ -6691,7 +6795,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                     className="px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg font-bold text-xs shadow-sm cursor-pointer active:scale-[0.98] inline-flex items-center space-x-1"
                                   >
                                     <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span>{isDiagAppt ? 'Mark Done (Processing)' : 'Mark Done'}</span>
+                                    <span>{isDiagAppt ? (isNe ? 'सम्पन्न (प्रशोधनमा)' : 'Mark Done (Processing)') : strings.markCompleted}</span>
                                   </button>
                                 )}
 
@@ -6714,19 +6818,35 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                   </button>
                                 )}
 
-                                {appt.checkinStatus === 'no_show' && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleStatusChange(appt.id, 'waiting')
-                                    }}
-                                    className="px-2.5 py-1.5 bg-blue-500/15 hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 border border-blue-400/40 rounded-lg font-bold text-xs cursor-pointer inline-flex items-center space-x-1"
-                                  >
-                                    <RefreshCw className="w-3 h-3" />
-                                    <span>Re-Queue</span>
-                                  </button>
-                                )}
+                                <div className="inline-flex items-center gap-1.5">
+                                  {appt.checkinStatus === 'no_show' && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleStatusChange(appt.id, 'waiting')
+                                      }}
+                                      className="px-2.5 py-1.5 bg-blue-500/15 hover:bg-blue-500/25 text-blue-700 dark:text-blue-300 border border-blue-400/40 rounded-lg font-bold text-xs cursor-pointer inline-flex items-center space-x-1"
+                                    >
+                                      <RefreshCw className="w-3 h-3" />
+                                      <span>Re-Queue</span>
+                                    </button>
+                                  )}
+
+                                  {(queueSubTab === 'past' || isDone) && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleOpenBillModal(appt)
+                                      }}
+                                      className="px-3 py-1.5 bg-gradient-to-r from-teal-700 to-emerald-700 hover:from-teal-800 hover:to-emerald-800 text-white rounded-lg font-bold text-xs shadow-sm cursor-pointer active:scale-[0.98] inline-flex items-center space-x-1"
+                                    >
+                                      <Receipt className="w-3.5 h-3.5" />
+                                      <span>Push / Edit Bill</span>
+                                    </button>
+                                  )}
+                                </div>
                               </td>
                             </tr>
 
@@ -6822,7 +6942,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                         <span>Remark</span>
                                       </button>
 
-                                      {/* Push Bill / Update Payment */}
+                                      {/* Push / Edit Bill */}
                                       <button
                                         type="button"
                                         onClick={(e) => {
@@ -6832,7 +6952,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                         className="px-2.5 py-1.5 bg-sky-500/15 hover:bg-sky-500/25 text-sky-800 dark:text-sky-200 border border-sky-300/50 rounded-xl font-bold text-xs cursor-pointer inline-flex items-center space-x-1"
                                       >
                                         <Receipt className="w-3.5 h-3.5" />
-                                        <span>Bill</span>
+                                        <span>Push / Edit Bill</span>
                                       </button>
 
                                       {/* Push Alert */}
@@ -10085,7 +10205,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                             onClick={() => handleOpenBillModal(res)}
                             className="px-2.5 py-1 bg-blue-50/85 text-blue-700 hover:bg-blue-100 rounded-lg text-[11px] font-bold cursor-pointer"
                           >
-                            View / Push Bill
+                            Push / Edit Bill
                           </button>
                         </td>
                       </tr>
@@ -10162,26 +10282,33 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                   <tbody className="divide-y divide-slate-200/50 font-medium">
                     {displayedPatientDirectory.map((pat) => {
                       const isExpanded = expandedPatientId === pat.id
-                      const matchingAppt = appointments.find(
-                        (a) =>
-                          (pat.trackingCodes && pat.trackingCodes.includes(a.trackingCode10Digit)) ||
-                          (pat.phone && pat.phone !== 'N/A' && a.patientMobile === pat.phone) ||
-                          a.patientName.toLowerCase() === pat.fullName.toLowerCase()
-                      ) || ({
-                        id: pat.id,
-                        trackingCode10Digit: pat.trackingCodes[0] || '1000000000',
-                        clinicId: selectedClinic?.id || '',
-                        patientName: pat.fullName,
-                        patientMobile: pat.phone !== 'N/A' ? pat.phone : '',
-                        patientGender: pat.gender,
-                        patientAge: pat.age,
-                        appointmentDate: pat.lastVisitDate || new Date().toISOString().slice(0, 10),
-                        appointmentTime: '10:00 AM',
-                        checkinStatus: 'waiting',
-                        paymentStatus: 'unpaid',
-                        feeAmount: 0,
-                        clinic: selectedClinic || undefined,
-                      } as unknown as Appointment)
+                      const matchedApptsForPat = appointments
+                        .filter(
+                          (a) =>
+                            (pat.trackingCodes && pat.trackingCodes.includes(a.trackingCode10Digit)) ||
+                            (pat.phone && pat.phone !== 'N/A' && a.patientMobile === pat.phone) ||
+                            (!pat.phone || pat.phone === 'N/A' ? a.patientName.toLowerCase() === pat.fullName.toLowerCase() : false)
+                        )
+                        .sort((a, b) => (b.appointmentDate || '').localeCompare(a.appointmentDate || ''))
+                      const matchingAppt =
+                        matchedApptsForPat.find((a) => pat.trackingCodes?.includes(a.trackingCode10Digit)) ||
+                        matchedApptsForPat[0] ||
+                        ({
+                          id: pat.id,
+                          trackingCode10Digit: pat.trackingCodes[0] || '',
+                          clinicId: selectedClinic?.id || '',
+                          patientName: pat.fullName,
+                          patientMobile: pat.phone !== 'N/A' ? pat.phone : '',
+                          patientEmail: pat.email || undefined,
+                          patientGender: pat.gender,
+                          patientAge: pat.age,
+                          appointmentDate: pat.lastVisitDate || new Date().toISOString().slice(0, 10),
+                          appointmentTime: '10:00 AM',
+                          checkinStatus: 'completed',
+                          paymentStatus: 'unpaid',
+                          feeAmount: 0,
+                          clinic: selectedClinic || undefined,
+                        } as unknown as Appointment)
 
                       const cleanPhone = pat.phone ? pat.phone.replace(/\D/g, '') : ''
 
@@ -10255,10 +10382,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                   type="button"
                                   onClick={() => handleOpenBillModal(matchingAppt)}
                                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold text-[11px] shadow-xs transition-colors cursor-pointer"
-                                  title="Push / Update Billing Invoice"
+                                  title="Push / Edit Billing Invoice"
                                 >
                                   <Receipt className="w-3 h-3" />
-                                  <span>Push Bill</span>
+                                  <span>Push / Edit Bill</span>
                                 </button>
                                 {matchingAppt.checkinStatus !== 'completed' && matchingAppt.checkinStatus !== 'done' && (
                                   <button
@@ -10456,7 +10583,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                                 onClick={() => handleOpenBillModal(consultAppt)}
                                                 className="px-2 py-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white font-bold text-[10px] cursor-pointer"
                                               >
-                                                Push Bill
+                                                Push / Edit Bill
                                               </button>
                                               {consultAppt.checkinStatus !== 'completed' && consultAppt.checkinStatus !== 'done' && (
                                                 <button
@@ -12510,23 +12637,72 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
             <div className="flex items-center justify-between pb-3 border-b border-white/60">
               <div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-brand-600">
-                  Billing & Payment Desk
+                  Billing &amp; Payment Desk
                 </span>
                 <h3 className="text-lg font-black text-slate-900">
-                  Push Bill & Invoice to Patient
+                  Push / Edit Bill &amp; Invoice
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Patient: <strong className="text-slate-900">{billTargetAppt.patientName}</strong> • Token #{billTargetAppt.trackingCode10Digit}
+                  Patient: <strong className="text-slate-900">{billTargetAppt.patientName}</strong>
+                  {billTargetAppt.trackingCode10Digit ? ` • ID #${billTargetAppt.trackingCode10Digit}` : ' • Direct Directory Bill'}
+                  {billTargetAppt.patientMobile ? ` • ${billTargetAppt.patientMobile}` : ''}
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setBillModalOpen(false)}
+                onClick={() => {
+                  setBillConfirmOpen(false)
+                  setBillModalOpen(false)
+                }}
                 className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white/80 rounded-full cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {(() => {
+              const itemsSum = billItems.reduce((acc, it) => acc + it.price * (it.quantity || 1), 0)
+              const inputSum = Number(billTotalAmount) || 0
+              const curTotal = itemsSum > 0 ? Math.max(inputSum, itemsSum) : (inputSum > 0 ? inputSum : (Number(billTargetAppt.feeAmount) || 0))
+              const curPaid =
+                billPaymentRecords.length > 0 || (Number(billNewPaymentInput) || 0) > 0
+                  ? billPaymentRecords.reduce((acc, p) => acc + p.amount, 0) + (Number(billNewPaymentInput) || 0)
+                  : (Number(billPaidAmount) || 0)
+              const curDue = Math.max(0, curTotal - curPaid)
+              return (
+                <div className="space-y-2.5">
+                  {billPriorSummary && billPriorSummary.visitsCount > 0 && (
+                    <div className="p-3 rounded-2xl bg-sky-50/80 border border-sky-200 text-xs flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <span className="font-bold text-sky-900 block">
+                          Linked Tracking History ({billPriorSummary.visitsCount} prior {billPriorSummary.visitsCount === 1 ? 'visit' : 'visits'})
+                        </span>
+                        <span className="text-[11px] text-sky-700">
+                          Prior Billed: Rs. {billPriorSummary.totalBill} • Prior Paid: Rs. {billPriorSummary.totalPaid}
+                        </span>
+                      </div>
+                      <span className={`px-2.5 py-1 rounded-lg font-mono font-black text-[11px] ${billPriorSummary.balanceDue > 0 ? 'bg-rose-100 text-rose-800 border border-rose-200' : 'bg-emerald-100 text-emerald-800 border border-emerald-200'}`}>
+                        Prior Due: Rs. {billPriorSummary.balanceDue}
+                      </span>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="p-2.5 rounded-xl bg-slate-50/90 border border-slate-200/80">
+                      <span className="text-[10px] font-bold uppercase text-slate-500 block">Current Bill</span>
+                      <span className="font-mono font-black text-sm text-slate-900">Rs. {curTotal}</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-emerald-50/80 border border-emerald-200/80">
+                      <span className="text-[10px] font-bold uppercase text-emerald-700 block">Total Paid</span>
+                      <span className="font-mono font-black text-sm text-emerald-800">Rs. {curPaid}</span>
+                    </div>
+                    <div className={`p-2.5 rounded-xl border ${curDue > 0 ? 'bg-rose-50/80 border-rose-200/80' : 'bg-emerald-50/60 border-emerald-200/70'}`}>
+                      <span className={`text-[10px] font-bold uppercase block ${curDue > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>Balance Due</span>
+                      <span className={`font-mono font-black text-sm ${curDue > 0 ? 'text-rose-800' : 'text-emerald-800'}`}>Rs. {curDue}</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
 
             <form onSubmit={handleSaveBill} className="space-y-4">
               {/* Direct Catalog 1-Click Quick Chips */}
@@ -12949,7 +13125,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                   variant="secondary"
                   size="md"
                   className="flex-1"
-                  onClick={() => setBillModalOpen(false)}
+                  onClick={() => {
+                    setBillConfirmOpen(false)
+                    setBillModalOpen(false)
+                  }}
                 >
                   Cancel
                 </GlassButton>
@@ -12960,13 +13139,95 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                   className="flex-1"
                   disabled={savingBill}
                 >
-                  {savingBill ? 'Saving & Recording...' : 'Push Bill to Patient'}
+                  {savingBill ? 'Saving & Recording...' : 'Push / Update Bill'}
                 </GlassButton>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* ========================================================= */}
+      {/* OVERLAPPING CONFIRMATION DIALOG: PUSH / UPDATE BILL */}
+      {/* ========================================================= */}
+      {billConfirmOpen && billModalOpen && billTargetAppt && (() => {
+        const itemsSum = billItems.reduce((acc, it) => acc + it.price * (it.quantity || 1), 0)
+        const inputSum = Number(billTotalAmount) || 0
+        const finalBill = itemsSum > 0 ? Math.max(inputSum, itemsSum) : (inputSum > 0 ? inputSum : (Number(billTargetAppt.feeAmount) || 0))
+        const existingPaidSum = billPaymentRecords.reduce((acc, p) => acc + p.amount, 0)
+        const pendingPayAmt = Number(billNewPaymentInput) || 0
+        const finalPaid = billPaymentRecords.length > 0 || pendingPayAmt > 0
+          ? existingPaidSum + pendingPayAmt
+          : (Number(billPaidAmount) || 0)
+        const finalDue = Math.max(0, finalBill - finalPaid)
+        return (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+              <div className="flex items-start space-x-3">
+                <div className="p-2.5 rounded-xl bg-teal-50 dark:bg-teal-900/40 border border-teal-200 dark:border-teal-700 text-teal-700 dark:text-teal-300 shrink-0">
+                  <Receipt className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-base font-black text-slate-900 dark:text-white">
+                    Confirm Push / Update Bill
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Push this updated bill &amp; invoice directly to{' '}
+                    <strong className="text-slate-800 dark:text-slate-200">{billTargetAppt.patientName}</strong>
+                    {billTargetAppt.trackingCode10Digit ? ` (#${billTargetAppt.trackingCode10Digit})` : ''}?
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-600 dark:text-slate-300 font-medium">Total Bill Amount:</span>
+                  <span className="font-mono font-black text-slate-900 dark:text-white">Rs. {finalBill}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600 dark:text-slate-300 font-medium">Paid Amount:</span>
+                  <span className="font-mono font-black text-emerald-700 dark:text-emerald-400">Rs. {finalPaid}</span>
+                </div>
+                <div className="flex justify-between pt-1.5 border-t border-slate-200 dark:border-slate-700">
+                  <span className="text-slate-700 dark:text-slate-200 font-bold">Remaining Balance Due:</span>
+                  <span className="font-mono font-black text-rose-700 dark:text-rose-400">Rs. {finalDue}</span>
+                </div>
+                {billPriorSummary && billPriorSummary.visitsCount > 0 && (
+                  <div className="pt-1.5 border-t border-dashed border-slate-200 dark:border-slate-700 text-[11px] text-teal-800 dark:text-teal-300 flex justify-between font-bold">
+                    <span>Combined Across {billPriorSummary.visitsCount + 1} Visits:</span>
+                    <span className="font-mono">
+                      Rs. {billPriorSummary.totalBill + finalBill} (Due Rs. {billPriorSummary.balanceDue + finalDue})
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-3 pt-1">
+                <GlassButton
+                  type="button"
+                  variant="secondary"
+                  size="md"
+                  className="flex-1"
+                  disabled={savingBill}
+                  onClick={() => setBillConfirmOpen(false)}
+                >
+                  Cancel
+                </GlassButton>
+                <GlassButton
+                  type="button"
+                  variant="primary"
+                  size="md"
+                  className="flex-1"
+                  disabled={savingBill}
+                  onClick={() => executeCommitBill()}
+                >
+                  {savingBill ? 'Saving...' : 'Confirm'}
+                </GlassButton>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ========================================================= */}
       {/* MODAL: SHIFT APPOINTMENT DATE / RESCHEDULE */}
@@ -13642,7 +13903,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                   </div>
                 )}
                 <p className="text-[10.5px] text-slate-500 mt-1.5">
-                  💡 Select 1 or multiple pictures (X-rays, blood reports, urine panels). They will be automatically combined into a single diagnostic PDF and compressed to &le; 100 KB per page (n &times; 100 KB total) locally.
+                  💡 {strings.reportCompressionNotice}
                 </p>
               </div>
 

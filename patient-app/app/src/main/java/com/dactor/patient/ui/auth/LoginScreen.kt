@@ -39,6 +39,10 @@ import androidx.navigation.NavController
 import com.dactor.patient.data.local.RegistrationDraftManager
 import com.dactor.patient.data.local.UserSessionManager
 import com.dactor.patient.data.repository.AuthRepository
+import com.dactor.patient.ui.components.QuickLanguageButton
+import com.dactor.patient.ui.i18n.AppLanguage
+import com.dactor.patient.ui.i18n.LocalAppLanguage
+import com.dactor.patient.ui.i18n.LocalAppStrings
 import com.dactor.patient.ui.navigation.NavRoutes
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
@@ -62,6 +66,8 @@ fun LoginScreen(
     appointmentRepository: com.dactor.patient.data.repository.AppointmentRepository? = null
 ) {
     val context = LocalContext.current
+    val strings = LocalAppStrings.current
+    val isNepali = LocalAppLanguage.current == AppLanguage.NEPALI
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
@@ -567,9 +573,17 @@ fun LoginScreen(
             TopAppBar(
                 title = {
                     Text(
-                        if (currentView == "register_form") "Patient Registration" else "Patient Sign In",
+                        if (currentView == "register_form") {
+                            if (isNepali) "बिरामी दर्ता" else "Patient Registration"
+                        } else {
+                            if (isNepali) "बिरामी साइन इन" else "Patient Sign In"
+                        },
                         fontWeight = FontWeight.Bold
                     )
+                },
+                actions = {
+                    QuickLanguageButton(compact = false)
+                    Spacer(Modifier.width(8.dp))
                 },
                 navigationIcon = {
                     if (currentView == "register_form") {
@@ -577,14 +591,14 @@ fun LoginScreen(
                             currentView = "auth_choice"
                             errorMessage = null
                         }) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                            Icon(Icons.Default.ArrowBack, contentDescription = strings.common.back)
                         }
                     } else {
                         IconButton(onClick = {
                             sessionManager?.clearPendingBookingRedirect()
                             navController.popBackStack()
                         }) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                            Icon(Icons.Default.ArrowBack, contentDescription = strings.common.back)
                         }
                     }
                 }
@@ -622,13 +636,14 @@ fun LoginScreen(
                         )
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Sign In Required to Book Appointment",
+                                text = if (isNepali) "अपोइन्टमेन्ट बुक गर्न साइन इन आवश्यक छ" else "Sign In Required to Book Appointment",
                                 color = Color(0xFF0F172A),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Your selected clinic, doctor, date, and slot position are saved. You'll return right where you left off after signing in.",
+                                text = if (isNepali) "तपाईंले छान्नुभएको क्लिनिक, डाक्टर, मिति र समय सुरक्षित छ। साइन इन पछि सिधै त्यहीँ फर्कनुहुनेछ।"
+                                else "Your selected clinic, doctor, date, and slot position are saved. You'll return right where you left off after signing in.",
                                 color = Color(0xFF1565C0),
                                 fontSize = 11.sp,
                                 lineHeight = 15.sp
@@ -729,14 +744,15 @@ fun LoginScreen(
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "Welcome to Dactor Nepal",
+                        text = strings.profileAuth.welcomeTitle,
                         fontSize = 24.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onBackground
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Connect securely with your Google account. All your medical appointments, live token queues, and diagnostic lab reports will be linked.",
+                        text = if (isNepali) "तपाईंको गुगल खाता सुरक्षित रूपमा जोड्नुहोस्। तपाईंका सबै अपोइन्टमेन्ट, प्रत्यक्ष टोकन र ल्याब रिपोर्टहरू स्वतः लिंक हुनेछन्।"
+                        else "Connect securely with your Google account. All your medical appointments, live token queues, and diagnostic lab reports will be linked.",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -770,7 +786,7 @@ fun LoginScreen(
                         ) {
                             Icon(Icons.Default.AccountCircle, contentDescription = "Google", modifier = Modifier.size(24.dp))
                             Spacer(Modifier.width(10.dp))
-                            Text("Continue with Google", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text(strings.profileAuth.signInWithGoogle, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         }
 
                         // Terms & Conditions and Privacy Policy Disclosure Button
@@ -782,7 +798,7 @@ fun LoginScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                "By continuing, you accept Dactor's ",
+                                if (isNepali) "अगाडि बढेर, तपाईं स्वीकार गर्नुहुन्छ " else "By continuing, you accept Dactor's ",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -791,7 +807,7 @@ fun LoginScreen(
                                 contentPadding = PaddingValues(0.dp)
                             ) {
                                 Text(
-                                    "Terms & Privacy Policy",
+                                    strings.profileAuth.termsPolicyTitle,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary
@@ -816,7 +832,7 @@ fun LoginScreen(
                     ) {
                         Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Continue as Guest (Browse Only)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        Text(strings.profileAuth.continueAsGuest, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     }
                 }
             } else {
@@ -871,7 +887,7 @@ fun LoginScreen(
                         modifier = Modifier.padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        Text("Patient Profile Details", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                        Text(strings.discoveryBooking.patientDetailsStep, fontWeight = FontWeight.Bold, fontSize = 17.sp)
 
                         OutlinedTextField(
                             value = patientName,
@@ -879,8 +895,8 @@ fun LoginScreen(
                                 patientName = it
                                 if (errorMessage != null) errorMessage = null
                             },
-                            label = { Text("Full Name *") },
-                            placeholder = { Text("Enter your full name") },
+                            label = { Text("${strings.discoveryBooking.patientFullName} *") },
+                            placeholder = { Text(if (isNepali) "आफ्नो पूरा नाम लेख्नुहोस्" else "Enter your full name") },
                             leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
                             isError = isNameError,
                             supportingText = if (isNameError) {

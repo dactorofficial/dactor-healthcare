@@ -521,7 +521,9 @@ fun ClinicLoginScreen(
                 } else {
                     // DOCTOR / SPECIALIST PORTAL
                     // 0a. Block if Google account is already associated with Clinic Portal
-                    if (existingClinic != null || (existingDoctor == null && existingProfile?.role?.lowercase() in listOf("clinic_admin", "clinic"))) {
+                    val isClinicEmailMatch = existingClinic != null &&
+                        (existingClinic.contactEmail.isNullOrBlank() || existingClinic.contactEmail.trim().equals(trimmedEmail, ignoreCase = true))
+                    if (isClinicEmailMatch || (existingDoctor == null && existingProfile?.role?.lowercase() in listOf("clinic_admin", "clinic"))) {
                         runCatching { googleSignInClient.signOut() }
                         runCatching { FirebaseAuth.getInstance().signOut() }
                         verifiedEmail = ""

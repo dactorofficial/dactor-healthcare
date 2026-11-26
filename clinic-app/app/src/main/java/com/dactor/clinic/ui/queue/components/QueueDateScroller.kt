@@ -23,6 +23,8 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.TextStyle
 import java.util.Locale
+import com.dactor.clinic.ui.i18n.ClinicLanguage
+import com.dactor.clinic.ui.i18n.LocalClinicLanguage
 
 @Composable
 fun QueueDateScroller(
@@ -30,6 +32,8 @@ fun QueueDateScroller(
     onDateSelected: (LocalDate) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val currentLang = LocalClinicLanguage.current
+    val isNepali = currentLang == ClinicLanguage.NEPALI
     val coroutineScope = rememberCoroutineScope()
     val parsedSelectedDate = remember(selectedDate) {
         try {
@@ -143,7 +147,7 @@ fun QueueDateScroller(
                     }
                 ) {
                     Text(
-                        text = "Today",
+                        text = if (isNepali) "आज" else "Today",
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = if (isTodaySelected) Color(0xFF0284C7) else Color(0xFF475569),

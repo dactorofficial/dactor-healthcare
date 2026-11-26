@@ -44,10 +44,17 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.dactor.clinic.R
 import com.dactor.clinic.data.model.Appointment
+import com.dactor.clinic.data.model.BillingInvoice
 import com.dactor.clinic.data.model.Clinic
 import com.dactor.clinic.data.model.Doctor
 import com.dactor.clinic.data.model.NotificationTemplate
 import com.dactor.clinic.data.model.NotificationType
+import com.dactor.clinic.ui.billing.QuickBillPatientFallback
+import com.dactor.clinic.ui.billing.QuickPushEditBillDialog
+import com.dactor.clinic.ui.components.ClinicQuickLanguageButton
+import com.dactor.clinic.ui.i18n.ClinicLanguage
+import com.dactor.clinic.ui.i18n.LocalClinicLanguage
+import com.dactor.clinic.ui.i18n.LocalClinicStrings
 import com.dactor.clinic.data.model.QueueEntry
 import com.dactor.clinic.data.repository.AppointmentRepository
 import com.dactor.clinic.data.repository.BillingRepository
@@ -109,6 +116,9 @@ fun QueueBoardScreen(
     labReportRepository: LabReportRepository? = null
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val strings = LocalClinicStrings.current
+    val currentLang = LocalClinicLanguage.current
+    val isNepali = currentLang == ClinicLanguage.NEPALI
     val sessionManager = remember { com.dactor.clinic.data.local.UserSessionManager(context) }
     var effectiveClinicId by remember(clinicId) {
         mutableStateOf(
@@ -336,6 +346,46 @@ fun QueueBoardScreen(
     var remarkTargetItem by remember { mutableStateOf<QueueItemUi?>(null) }
     var remarkInputText by remember { mutableStateOf("") }
     var isSavingRemark by remember { mutableStateOf(false) }
+
+    // Billing & In-Place Push / Edit Bill Popup State
+    var rawClinicAppointments by remember(effectiveClinicId) { mutableStateOf<List<Appointment>>(cachedInitialAppts) }
+    var queueInvoicesMap by remember(effectiveClinicId) { mutableStateOf<Map<String, BillingInvoice>>(emptyMap()) }
+    var billPopupTargetAppt by remember { mutableStateOf<Appointment?>(null) }
+    var billPopupFallback by remember { mutableStateOf<QuickBillPatientFallback?>(null) }
+
+    fun openBillPopupForItem(item: QueueItemUi) {
+        val matchedAppt = rawClinicAppointments.find { it.id == item.appointmentId }
+        billPopupFallback = QuickBillPatientFallback(
+            patientName = item.patientName,
+            patientAge = item.patientAge.takeIf { it > 0 },
+            patientGender = item.patientGender,
+            patientMobile = item.patientMobile,
+            trackingCode10Digit = item.trackingCode,
+            userId = item.userId,
+            doctorId = item.doctorId
+        )
+        billPopupTargetAppt = matchedAppt ?: Appointment(
+            id = item.appointmentId,
+            trackingCode10Digit = item.trackingCode,
+            slotId = null,
+            clinicId = effectiveClinicId,
+            doctorId = item.doctorId,
+            userId = item.userId,
+            patientName = item.patientName,
+            patientAge = item.patientAge,
+            patientGender = item.patientGender,
+            patientMobile = item.patientMobile,
+            paymentStatus = item.paymentStatus ?: "pending",
+            checkinStatus = if (item.status == "done") "completed" else item.status,
+            appointmentDate = item.appointmentDate.ifBlank { selectedQueueDate },
+            appointmentTime = item.appointmentTime,
+            feeAmount = item.totalAmount,
+            isWalkin = item.isWalkin,
+            paymentMode = item.paymentMode ?: "CASH",
+            tokenNumber = item.tokenNumber,
+            totalAmount = item.totalAmount
+        )
+    }
 
     // Queue Average Time Calculation State
     var avgCalculationDetails by remember(effectiveClinicId) { mutableStateOf<QueueRepository.ClinicAverageCalculationResult?>(null) }
@@ -705,6 +755,7 @@ fun QueueBoardScreen(
                     } catch (_: Exception) {}
                 }
                 val apptMap = currentApptMap
+                rawClinicAppointments = apptMap.values.toList()
 
                 val nowMs = System.currentTimeMillis()
                 val activeOverrides = pendingStatusOverrides.filterValues { it.second > nowMs }
@@ -812,11 +863,20 @@ fun QueueBoardScreen(
                 }
 
                 val pastApptIds = mappedItems.filter { it.status in allFinishedStatuses }.map { it.appointmentId }
+                val allQueueApptIds = mappedItems.map { it.appointmentId }.filter { it.isNotBlank() }.distinct()
                 if (billingRepository != null && pastApptIds.isNotEmpty()) {
                     try {
                         val map = billingRepository.getRemarksForAppointments(pastApptIds)
                         if (map.isNotEmpty()) {
                             remarksMap = map
+                        }
+                    } catch (ignored: Exception) {}
+                }
+                if (billingRepository != null && allQueueApptIds.isNotEmpty()) {
+                    try {
+                        val invMap = billingRepository.getInvoicesForAppointments(allQueueApptIds)
+                        if (invMap.isNotEmpty()) {
+                            queueInvoicesMap = queueInvoicesMap + invMap
                         }
                     } catch (ignored: Exception) {}
                 }
@@ -954,9 +1014,9 @@ fun QueueBoardScreen(
             TopAppBar(
                 title = {
                     val topBarTitle = when (selectedQueueTab) {
-                        2 -> "Processing"
-                        1 -> "Completed"
-                        else -> "Live Patient Queue Board"
+                        2 -> strings.authDashboard.tileLabWorkflow
+                        1 -> strings.queueOps.tabCompleted
+                        else -> strings.queueOps.queueBoardTitle
                     }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -991,12 +1051,13 @@ fun QueueBoardScreen(
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(
                             Icons.Default.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = strings.common.back,
                             tint = Color(0xFF0F172A)
                         )
                     }
                 },
                 actions = {
+                    ClinicQuickLanguageButton(compact = true)
                     IconButton(
                         onClick = { showAutoNoShowDialog = true },
                         enabled = !isAutoNoShowProcessing
@@ -1012,7 +1073,7 @@ fun QueueBoardScreen(
                     }) {
                         Icon(
                             Icons.Default.Refresh,
-                            contentDescription = "Refresh",
+                            contentDescription = strings.common.refresh,
                             tint = Color(0xFF0F172A)
                         )
                     }
@@ -1070,7 +1131,7 @@ fun QueueBoardScreen(
                                         color = Color(0xFF1351B4)
                                     )
                                     Text(
-                                        text = "In Consultation",
+                                        text = if (isNepali) "परामर्श कक्षमा" else "In Consultation",
                                         fontSize = 10.sp,
                                         lineHeight = 12.sp,
                                         color = Color(0xFF3362A8),
@@ -1112,7 +1173,7 @@ fun QueueBoardScreen(
                                         color = Color(0xFFB45B10)
                                     )
                                     Text(
-                                        text = "Waiting in Lobby",
+                                        text = if (isNepali) "प्रतीक्षारत" else "Waiting in Lobby",
                                         fontSize = 10.sp,
                                         lineHeight = 12.sp,
                                         color = Color(0xFF9E5417),
@@ -1154,7 +1215,7 @@ fun QueueBoardScreen(
                                         color = Color(0xFF0F8A50)
                                     )
                                     Text(
-                                        text = "Completed Today",
+                                        text = if (isNepali) "आज सम्पन्न" else "Completed Today",
                                         fontSize = 10.sp,
                                         lineHeight = 12.sp,
                                         color = Color(0xFF137747),
@@ -1269,7 +1330,7 @@ fun QueueBoardScreen(
                             }
                         ) {
                             Text(
-                                text = "Today",
+                                text = if (isNepali) "आज" else "Today",
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = if (isTodaySelected) Color(0xFF0284C7) else Color(0xFF475569),
@@ -2125,6 +2186,72 @@ fun QueueBoardScreen(
                                                 maxLines = 2,
                                                 overflow = TextOverflow.Ellipsis
                                             )
+                                        }
+                                    }
+                                }
+
+                                if (selectedQueueTab == 1) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    val itemInv = queueInvoicesMap[item.appointmentId]
+                                    val rawAppt = rawClinicAppointments.find { it.id == item.appointmentId }
+                                    val isFollowUpItem = rawAppt != null && (
+                                        rawAppt.attemptNumber > 1 ||
+                                            rawAppt.visitType.equals("follow_up", ignoreCase = true) ||
+                                            !rawAppt.followUpOfAppointmentId.isNullOrBlank() ||
+                                            (rawAppt.feeAmount <= 0.0 && rawAppt.notes?.contains("follow", ignoreCase = true) == true)
+                                    )
+                                    val displayBillAmt = when {
+                                        itemInv != null && itemInv.totalAmount > 0.0 -> itemInv.totalAmount
+                                        isFollowUpItem -> 0.0
+                                        else -> item.totalAmount
+                                    }
+                                    val paidAmt = itemInv?.effectivePaidAmount ?: if (!isFollowUpItem && item.paymentStatus.equals("paid", ignoreCase = true)) displayBillAmt else 0.0
+                                    val dueAmt = (displayBillAmt - paidAmt).coerceAtLeast(0.0)
+                                    val billStatusLabel = when {
+                                        itemInv == null && displayBillAmt <= 0.0 -> if (isFollowUpItem) "Follow-Up • Unbilled" else "No Bill Yet"
+                                        dueAmt <= 0.0 && displayBillAmt > 0.0 -> "Rs. ${displayBillAmt.toInt()} • Paid"
+                                        paidAmt > 0.0 -> "Rs. ${displayBillAmt.toInt()} • Due Rs. ${dueAmt.toInt()}"
+                                        else -> "Rs. ${displayBillAmt.toInt()} • Unpaid"
+                                    }
+                                    val billPillBg = when {
+                                        dueAmt <= 0.0 && displayBillAmt > 0.0 -> Color(0xFFDCFCE7)
+                                        displayBillAmt > 0.0 -> Color(0xFFFEF3C7)
+                                        else -> Color(0xFFF1F5F9)
+                                    }
+                                    val billPillFg = when {
+                                        dueAmt <= 0.0 && displayBillAmt > 0.0 -> Color(0xFF15803D)
+                                        displayBillAmt > 0.0 -> Color(0xFFB45309)
+                                        else -> Color(0xFF475569)
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = billPillBg
+                                        ) {
+                                            Text(
+                                                text = billStatusLabel,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = billPillFg,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        Button(
+                                            onClick = { openBillPopupForItem(item) },
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E)),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                            modifier = Modifier.height(34.dp)
+                                        ) {
+                                            Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(5.dp))
+                                            Text("Push / Edit Bill", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
                                         }
                                     }
                                 }
@@ -2995,7 +3122,7 @@ fun QueueBoardScreen(
                                                     label = "Bill",
                                                     icon = Icons.Default.Receipt,
                                                     onClick = {
-                                                        navController.navigate("${NavRoutes.BillingScreen}/${item.appointmentId}")
+                                                        openBillPopupForItem(item)
                                                     },
                                                     modifier = Modifier.weight(1f),
                                                     contentColor = Color(0xFF00796B),
@@ -3419,6 +3546,44 @@ fun QueueBoardScreen(
             },
             containerColor = Color.White,
             shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    if (billPopupTargetAppt != null || billPopupFallback != null) {
+        QuickPushEditBillDialog(
+            targetAppointment = billPopupTargetAppt,
+            targetPatientFallback = billPopupFallback,
+            clinicId = effectiveClinicId,
+            billingRepository = billingRepository,
+            appointmentRepository = appointmentRepository,
+            clinicRepository = clinicRepository,
+            doctorRepository = doctorRepository,
+            knownClinicAppointments = rawClinicAppointments,
+            knownDoctors = clinicDoctors,
+            loadedClinicHint = currentClinic,
+            onDismiss = {
+                billPopupTargetAppt = null
+                billPopupFallback = null
+            },
+            onBillSaved = { updatedAppt, savedInvoice ->
+                queueInvoicesMap = queueInvoicesMap + (updatedAppt.id to savedInvoice)
+                rawClinicAppointments = rawClinicAppointments.map {
+                    if (it.id == updatedAppt.id) updatedAppt else it
+                }
+                queueItems = queueItems.map { q ->
+                    if (q.appointmentId == updatedAppt.id) {
+                        q.copy(totalAmount = savedInvoice.totalAmount, paymentStatus = savedInvoice.paymentStatus)
+                    } else q
+                }
+                val cleanSavedRem = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(savedInvoice.remarks)
+                if (cleanSavedRem.isNotBlank()) {
+                    remarksMap = remarksMap + (updatedAppt.id to cleanSavedRem)
+                }
+                notificationSentMessage = "✓ Bill updated for ${updatedAppt.patientName} (Total: Rs. ${savedInvoice.totalAmount.toInt()}, Paid: Rs. ${savedInvoice.paidAmount.toInt()})"
+                billPopupTargetAppt = null
+                billPopupFallback = null
+                coroutineScope.launch { loadQueue(isDeltaOnly = true) }
+            }
         )
     }
 

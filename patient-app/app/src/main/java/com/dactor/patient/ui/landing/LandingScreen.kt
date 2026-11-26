@@ -24,10 +24,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import com.dactor.patient.R
+import com.dactor.patient.ui.components.QuickLanguageButton
+import com.dactor.patient.ui.i18n.AppLanguage
+import com.dactor.patient.ui.i18n.LocalAppLanguage
+import com.dactor.patient.ui.i18n.LocalAppStrings
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LandingScreen(navController: NavController) {
+    val strings = LocalAppStrings.current
+    val isNepali = LocalAppLanguage.current == AppLanguage.NEPALI
     var trackingCodeInput by remember { mutableStateOf("") }
     val scrollState = rememberScrollState()
 
@@ -44,10 +50,11 @@ fun LandingScreen(navController: NavController) {
                                 .clip(RoundedCornerShape(8.dp)),
                             contentScale = ContentScale.Fit
                         )
-                        Text("Dactor Nepal", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+                        Text(if (isNepali) "डाक्टर नेपाल (Dactor)" else "Dactor Nepal", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
                     }
                 },
                 actions = {
+                    QuickLanguageButton(compact = true)
                     IconButton(onClick = { navController.navigate(NavRoutes.Notifications.route) }) {
                         Icon(Icons.Default.Notifications, contentDescription = "Notifications")
                     }
@@ -79,7 +86,8 @@ fun LandingScreen(navController: NavController) {
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "Smart Clinic Appointments & Live Queue Tracking in Nepal",
+                        text = if (isNepali) "नेपालमा स्मार्ट क्लिनिक अपोइन्टमेन्ट र प्रत्यक्ष लाम ट्र्याकिङ"
+                        else "Smart Clinic Appointments & Live Queue Tracking in Nepal",
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 19.sp,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -87,7 +95,8 @@ fun LandingScreen(navController: NavController) {
                     )
 
                     Text(
-                        text = "Book in-person doctor appointments online, track your exact token position in real-time, and download diagnostic lab reports without waiting in crowded clinic lobbies.",
+                        text = if (isNepali) "अनलाइनबाट डाक्टरको पालो लिनुहोस्, प्रत्यक्ष टोकन स्थिति हेर्नुहोस्, र भिडभाड बिना नै ल्याब रिपोर्ट डाउनलोड गर्नुहोस्।"
+                        else "Book in-person doctor appointments online, track your exact token position in real-time, and download diagnostic lab reports without waiting in crowded clinic lobbies.",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 18.sp
@@ -102,7 +111,10 @@ fun LandingScreen(navController: NavController) {
                     ) {
                         Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Search Services, Clinics & Doctors", fontWeight = FontWeight.Bold)
+                        Text(
+                            if (isNepali) "सेवा, क्लिनिक र डाक्टर खोज्नुहोस्" else "Search Services, Clinics & Doctors",
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -122,11 +134,12 @@ fun LandingScreen(navController: NavController) {
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Icon(Icons.Default.TrackChanges, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Text("Instant Live Queue Tracker", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text(strings.queueRecords.trackingLookupTitle, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
 
                     Text(
-                        text = "No login required! Enter your 10-digit appointment code to view how many patients are ahead of you and whether your doctor has arrived.",
+                        text = if (isNepali) "लगइन बिना नै आफ्नो १०-अङ्के कोड राखी अगाडि कति बिरामी छन् र डाक्टर कक्षको स्थिति हेर्नुहोस्।"
+                        else "No login required! Enter your 10-digit appointment code to view how many patients are ahead of you and whether your doctor has arrived.",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -138,8 +151,8 @@ fun LandingScreen(navController: NavController) {
                                 trackingCodeInput = it
                             }
                         },
-                        label = { Text("10-Digit Tracking Code") },
-                        placeholder = { Text("Enter 10-digit code") },
+                        label = { Text(strings.queueRecords.queueTrackingCodeLabel) },
+                        placeholder = { Text(strings.queueRecords.enterTrackingCodePlaceholder) },
                         leadingIcon = { Icon(Icons.Default.Numbers, contentDescription = null) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth(),
@@ -161,7 +174,7 @@ fun LandingScreen(navController: NavController) {
                     ) {
                         Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Track Queue Position Now", fontWeight = FontWeight.Bold)
+                        Text(strings.queueRecords.trackNowBtn, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -181,8 +194,8 @@ fun LandingScreen(navController: NavController) {
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(Icons.Default.Bookmarks, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Text("Saved Codes", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Your appointments", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (isNepali) "सुरक्षित कोडहरू" else "Saved Codes", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(if (isNepali) "तपाईंका अपोइन्टमेन्ट" else "Your appointments", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
 
@@ -196,8 +209,8 @@ fun LandingScreen(navController: NavController) {
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(Icons.Default.Login, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Text("Patient Account", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Lean email sign-in", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (isNepali) "बिरामी खाता" else "Patient Account", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(if (isNepali) "गुगल साइन इन" else "Lean email sign-in", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -216,8 +229,8 @@ fun LandingScreen(navController: NavController) {
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(Icons.Default.Biotech, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Text("Lab Reports", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Test results & PDFs", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(strings.queueRecords.labReportsTitle, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
+                        Text(if (isNepali) "परीक्षण नतिजा र PDF" else "Test results & PDFs", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
 
@@ -231,8 +244,8 @@ fun LandingScreen(navController: NavController) {
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Text("Notifications", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("FCM alerts & queue turns", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (isNepali) "सूचनाहरू" else "Notifications", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(if (isNepali) "लाम तथा पालो अलर्ट" else "FCM alerts & queue turns", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }

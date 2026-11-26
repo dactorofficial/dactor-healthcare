@@ -214,6 +214,7 @@ open class ClinicRepository @Inject constructor(
 
     fun clearCache() {
         cachedClinicsById.clear()
+        prefs?.edit()?.remove("last_active_clinic")?.apply()
     }
 
     fun clearAllPersistentCache() {
@@ -329,7 +330,7 @@ open class ClinicRepository @Inject constructor(
             enriched
         } catch (e: Exception) {
             e.printStackTrace()
-            getCachedClinicById(id) ?: getLastCachedClinic()
+            getCachedClinicById(id) ?: getLastCachedClinic()?.takeIf { it.id == id }
         }
     }
 
@@ -346,10 +347,10 @@ open class ClinicRepository @Inject constructor(
             if (enriched != null) {
                 saveClinicToPersistentCache(enriched)
             }
-            enriched ?: getCachedClinicByEmail(targetEmail) ?: getLastCachedClinic()
+            enriched
         } catch (e: Exception) {
             e.printStackTrace()
-            getCachedClinicByEmail(targetEmail) ?: getLastCachedClinic()
+            getCachedClinicByEmail(targetEmail)
         }
     }
 

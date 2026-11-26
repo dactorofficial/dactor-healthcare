@@ -3365,7 +3365,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           {[
             {
               id: 'appointments',
-              label: 'Track / Queue',
+              label: strings.tabBookings,
               icon: Activity,
               badge: myAppointments.filter(
                 (a) => a.checkinStatus !== 'completed' && a.checkinStatus !== 'cancelled'
@@ -3373,7 +3373,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             },
             {
               id: 'records',
-              label: 'Records',
+              label: strings.tabRecords,
               icon: FileText,
               badge:
                 myAppointments.filter((a) => a.checkinStatus === 'completed').length +
@@ -3381,13 +3381,13 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             },
             {
               id: 'account',
-              label: 'Account & Profile',
+              label: strings.tabProfile,
               icon: User,
               badge: unreadCount > 0 ? unreadCount : undefined,
             },
             {
               id: 'book',
-              label: 'Book Appointment',
+              label: strings.bookAppointment,
               icon: Sparkles,
             },
           ].map((tab) => {
@@ -3461,7 +3461,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
-                  Active & Upcoming
+                  {strings.upcomingBookings}
                 </button>
                 <button
                   onClick={() => setAppointmentFilter('past')}
@@ -3471,7 +3471,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
-                  Past & History
+                  {strings.pastBookings}
                 </button>
               </div>
 
@@ -3485,14 +3485,14 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   className="flex items-center space-x-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 liquid-glass-card hover:bg-white/80 dark:hover:bg-slate-800/80 border border-white/40 dark:border-white/10 px-3.5 py-2 rounded-xl transition shadow-2xs cursor-pointer active:scale-[0.98]"
                 >
                   <KeyRound className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-                  <span>Claim 10-Digit Code</span>
+                  <span>{strings.link10DigitCode}</span>
                 </button>
                 <button
                   onClick={() => handleOpenBookingCalendar()}
                   className="flex items-center space-x-1.5 text-xs font-bold text-teal-700 dark:text-teal-300 bg-teal-500/10 hover:bg-teal-500/20 px-3.5 py-2 rounded-xl transition cursor-pointer border border-teal-500/20 active:scale-[0.98]"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>+ Book Another</span>
+                  <span>+ {strings.bookAppointment}</span>
                 </button>
               </div>
             </div>
@@ -5684,10 +5684,10 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     <span>Dactor Health Records & Medical Vault</span>
                   </div>
                   <h3 className="text-xl sm:text-2xl font-black text-white">
-                    Patient Directory & Records
+                    {strings.tabRecords}
                   </h3>
                   <p className="text-xs sm:text-sm text-blue-100/90 mt-1 max-w-xl">
-                    Access your completed doctor consultations, digital prescriptions (Rx), clinical receipts, and diagnostic pathology lab reports anytime.
+                    {strings.portalSubtitle}
                   </p>
                 </div>
 
@@ -5702,7 +5702,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     className="flex items-center space-x-1.5 px-4 py-2.5 bg-white text-blue-700 hover:bg-blue-50 font-bold text-xs rounded-xl shadow-md transition cursor-pointer active:scale-95"
                   >
                     <KeyRound className="w-4 h-4 text-blue-600" />
-                    <span>Claim 10-Digit Code</span>
+                    <span>{strings.link10DigitCode}</span>
                   </button>
                   <button
                     type="button"
@@ -6259,10 +6259,10 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                 </div>
                 <div className="max-w-md mx-auto space-y-2">
                   <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
-                    Dactor Patient Account
+                    {strings.patientPortal}
                   </h3>
                   <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-                    Sign in with Google to sync all your clinic visits, live queue tokens, digital prescriptions, and lab test reports seamlessly across your phone, tablet, and PC.
+                    {strings.welcomeSubtitle}
                   </p>
                 </div>
 
@@ -6316,7 +6316,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                     ) : (
                       <>
                         <LogIn className="w-4 h-4" />
-                        <span>Sign in with Google</span>
+                        <span>{strings.signInGoogle}</span>
                       </>
                     )}
                   </button>

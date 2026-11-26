@@ -38,6 +38,8 @@ import com.dactor.clinic.data.model.Doctor
 import com.dactor.clinic.data.model.Slot
 import com.dactor.clinic.data.repository.*
 import com.dactor.clinic.domain.util.TrackingCodeGenerator
+import com.dactor.clinic.ui.billing.QuickBillPatientFallback
+import com.dactor.clinic.ui.billing.QuickPushEditBillDialog
 import com.dactor.clinic.ui.navigation.NavRoutes
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -94,6 +96,7 @@ fun PatientDetailScreen(
     var isLabClinicState by remember { mutableStateOf(false) }
 
     var actionMessage by remember { mutableStateOf<String?>(null) }
+    var showQuickBillPopup by remember { mutableStateOf(false) }
 
     val currentClinic = clinicsMap[appointment.clinicId]
         ?: (if (appointment.clinicId.isNotBlank()) clinicRepository?.getCachedClinicById(appointment.clinicId) else null)
@@ -604,14 +607,14 @@ fun PatientDetailScreen(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Button(
-                    onClick = { navController.navigate("${NavRoutes.BillingScreen}/${appointment.id}") },
+                    onClick = { showQuickBillPopup = true },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0097A7)),
                     modifier = Modifier.weight(1f).height(48.dp),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(Icons.Default.ReceiptLong, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
                     Spacer(Modifier.width(6.dp))
-                    Text("Generate Bill", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("Push / Edit Bill", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
 
                 if (isLabClinic) {
@@ -1191,6 +1194,38 @@ fun PatientDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showScheduleFollowUpDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showQuickBillPopup) {
+        QuickPushEditBillDialog(
+            targetAppointment = appointment,
+            targetPatientFallback = QuickBillPatientFallback(
+                patientName = appointment.patientName,
+                patientAge = appointment.patientAge,
+                patientGender = appointment.patientGender,
+                patientMobile = appointment.patientMobile,
+                patientEmail = appointment.patientEmail,
+                trackingCode10Digit = appointment.trackingCode10Digit,
+                userId = appointment.userId,
+                doctorId = appointment.doctorId
+            ),
+            clinicId = appointment.clinicId,
+            billingRepository = billingRepository,
+            appointmentRepository = appointmentRepository,
+            clinicRepository = clinicRepository,
+            doctorRepository = doctorRepository,
+            knownClinicAppointments = pastVisitsForPatient + listOf(appointment),
+            knownDoctors = doctorsList,
+            loadedClinicHint = currentClinic,
+            onDismiss = { showQuickBillPopup = false },
+            onBillSaved = { updatedAppt, savedInvoice ->
+                appointment = updatedAppt
+                val cleanRem = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(savedInvoice.remarks)
+                if (cleanRem.isNotBlank()) clinicalNotes = cleanRem
+                actionMessage = "✓ Bill updated (Total: Rs. ${savedInvoice.totalAmount.toInt()}, Paid: Rs. ${savedInvoice.paidAmount.toInt()})"
+                showQuickBillPopup = false
             }
         )
     }

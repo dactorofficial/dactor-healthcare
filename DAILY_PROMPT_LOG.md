@@ -7,6 +7,28 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "add a button in live queue completed section in all the patients such that when tapped allows to push / edit bill directly . this button should not transfer to the patient billing section directly should be like a popup show me the ui /plan /generative_ui also for the push / edit bill in the patient directory it should also give me pop up for editing bill of that specific user now show me first the ui"
+> "no like it should be a like a dialog overlapping message didnt you understand i am talking the way when we tap confirm once then again confirm or cancel selction message comes overlapping the screen ins uch manner i want"
+> "better be everything working properly continue"
+
+#### Changes Applied:
+1. **Clinic Mobile App (`clinic-app`)**:
+   - [`AppointmentRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt): Added `createCompletedBillingVisit(...)` creating a standalone `completed` (`feeAmount = 0.0`, non-queued) billing appointment when pushing a bill for a Patient Directory record that has no prior appointments.
+   - [`QuickPushEditBillDialog.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/QuickPushEditBillDialog.kt): Added reusable overlapping modal popup for pushing/editing a specific patient's bill in-place (with linked `trackingCode10Digit` combined ledger summary via `PaymentLedgerHelper.computeCombinedBillingSummary`, free follow-up guard, Pay at Desk 5% preservation, quick catalog chips, custom items, timestamped payments + `Clear Due`, PDF download, and a second overlapping **`Confirm Push / Update Bill`** `AlertDialog` with **`Confirm`** / **`Cancel`**).
+   - [`QueueBoardScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/QueueBoardScreen.kt): Added a bill status pill and direct **`Push / Edit Bill`** button to every patient card in the Live Queue → **Completed** tab, wired Live Queue drawer `"Bill"` to `openBillPopupForItem`, and mounted `QuickPushEditBillDialog` in-place.
+   - [`PatientDirectoryScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/patients/PatientDirectoryScreen.kt): Wired Today's Queue, All Patients, Datewise Visits, and `PatientFullHistoryModalDialog` visit cards to open `QuickPushEditBillDialog` in-place via `openPatientBillPopup` without navigating away to `BillingScreen`.
+   - [`PatientDetailScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/patients/PatientDetailScreen.kt): Replaced navigation to `BillingScreen` with in-place `QuickPushEditBillDialog`.
+2. **Web Portal (`web-app`) — Rule 7 Parity**:
+   - [`db.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/services/db.ts): Added `createCompletedBillingVisit(...)` for direct directory billing records without queue enrollment.
+   - [`ClinicPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/ClinicPortal.tsx): Added direct **`Push / Edit Bill`** button to every row in Live Queue → **Completed** (`queueSubTab === 'past'`), unified Patient Directory labels to **`Push / Edit Bill`**, added linked `trackingCode10Digit` prior summary (`computeCombinedBillingSummary`) + live 3-metric KPI bar, guarded free follow-ups, handled 0-visit synthetic directory creation, and added the second overlapping `z-[60]` **`Confirm Push / Update Bill`** **`Confirm` / `Cancel`** dialog on submit.
+3. **Automated Tests**:
+   - [`test_push_edit_bill_popup.cjs`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/tests/test_push_edit_bill_popup.cjs): Added TypeScript-executed billing math tests (Pay at Desk 5%, multi-visit linked `trackingCode10Digit` combined ledger, free follow-up guard, timestamped ledger round-trip) and cross-platform Android + Web popup parity checks.
+
+---
+
+## 2026-11-26
+
+### Prompt:
 > "add a button in clinic operational management section to acess patient and billing directory date wise directly and also change the ui"
 
 #### Changes Applied:

@@ -32,6 +32,10 @@ import androidx.navigation.NavController
 import com.dactor.clinic.data.model.Appointment
 import com.dactor.clinic.data.repository.AppointmentRepository
 import com.dactor.clinic.domain.util.TrackingCodeGenerator
+import com.dactor.clinic.ui.components.ClinicQuickLanguageButton
+import com.dactor.clinic.ui.i18n.ClinicLanguage
+import com.dactor.clinic.ui.i18n.LocalClinicLanguage
+import com.dactor.clinic.ui.i18n.LocalClinicStrings
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -317,17 +321,22 @@ fun WalkinBookingScreen(
     var confirmedTokenNumber by remember { mutableStateOf<Int?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
+    val strings = LocalClinicStrings.current
+    val isNepali = LocalClinicLanguage.current == ClinicLanguage.NEPALI
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Reception Desk Walk-In Booking", fontWeight = FontWeight.Bold) },
+                title = { Text(strings.authDashboard.tileWalkinToken, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.Default.ArrowBack, contentDescription = strings.common.back)
                     }
+                },
+                actions = {
+                    ClinicQuickLanguageButton(modifier = Modifier.padding(end = 8.dp))
                 }
             )
         }

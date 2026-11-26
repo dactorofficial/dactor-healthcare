@@ -495,7 +495,7 @@ fun ProfileScreen(
             TopAppBar(
                 title = {
                     Text(
-                        if (!isLoggedIn) "Account" else if (isArchived) "Account Status (Archive)" else "Patient Account & Profile",
+                        if (!isLoggedIn) strings.navProfile else if (isArchived) (if (currentLanguage == com.dactor.patient.ui.i18n.AppLanguage.NEPALI) "खाता अवस्था (आर्काइभ)" else "Account Status (Archive)") else strings.navProfile,
                         fontWeight = FontWeight.Bold
                     )
                 },
@@ -1143,8 +1143,8 @@ fun ProfileScreen(
                                             }
                                         }
                                         Column {
-                                            Text("Edit Profile Details", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                            Text("Name, phone, age, gender", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text(strings.editProfileTitle, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                            Text(strings.editProfileSub, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     }
                                     Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))
@@ -1169,12 +1169,12 @@ fun ProfileScreen(
                                         }
                                     }
                                     Column {
-                                        Text("Push Notifications (FCM)", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                        Text("Real-time live queue alerts & calls", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(strings.pushNotifTitle, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                        Text(strings.pushNotifSub, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                                 Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFDCFCE7)) {
-                                    Text("Active", fontSize = 11.sp, color = Color(0xFF15803D), fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                                    Text(strings.pushNotifActive, fontSize = 11.sp, color = Color(0xFF15803D), fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
                                 }
                             }
 
@@ -1201,8 +1201,8 @@ fun ProfileScreen(
                                     }
                                 }
                                 Column {
-                                    Text("Clear Saved Tracking Codes", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                    Text("Reset local tracking codes on this device", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(strings.clearCacheTitle, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(strings.clearCacheSub, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
 
@@ -1227,8 +1227,8 @@ fun ProfileScreen(
                                         }
                                     }
                                     Column {
-                                        Text("Transaction History", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                        Text("All appointment payments, times, and transaction IDs", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(strings.txHistoryTitle, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                        Text(strings.txHistorySub, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                                 Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))
@@ -1252,8 +1252,8 @@ fun ProfileScreen(
                                         }
                                     }
                                     Column {
-                                        Text("Terms & Privacy Policy", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                        Text("NMC healthcare compliance, data privacy & archive terms", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(strings.termsPolicyTitle, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                        Text(strings.termsPolicySub, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                                 Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))

@@ -26,6 +26,7 @@ import {
 } from '../services/db'
 import { LabReport, Appointment } from '../types'
 import { updatePageSEO } from '../utils/seo'
+import { useLanguage } from '../utils/i18n'
 import {
   buildReportFileName,
   downloadAndCacheReport,
@@ -34,6 +35,8 @@ import {
 } from '../utils/reportFileManager'
 
 export const LabReports: React.FC = () => {
+  const { language, strings } = useLanguage()
+  const isNe = language === 'ne'
   const [code, setCode] = useState('')
   const [loading, setLoading] = useState(false)
   const [reports, setReports] = useState<LabReport[]>([])
@@ -231,10 +234,10 @@ export const LabReports: React.FC = () => {
           <span>Pathology & Lab Diagnostics</span>
         </div>
         <h1 className="text-2xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight leading-tight">
-          Retrieve Diagnostic Lab Reports
+          {strings.labReportsHeader}
         </h1>
         <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 font-medium max-w-xl mx-auto leading-relaxed">
-          Track 3-stage status and securely access verified lab test reports with patient identity verification.
+          {strings.labReportsSub}
         </p>
       </div>
 
@@ -249,7 +252,7 @@ export const LabReports: React.FC = () => {
               type="text"
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase())}
-              placeholder="Enter 10-Digit Code (e.g. 1234567890 or 982DCE95B6)..."
+              placeholder={strings.enterCodePlaceholder}
               maxLength={10}
               className="w-full px-3 sm:px-4 py-2.5 sm:py-3 pl-9 sm:pl-11 text-sm sm:text-lg font-black tracking-wider text-slate-900 dark:text-white bg-transparent focus:outline-none placeholder:text-slate-400 placeholder:font-normal placeholder:tracking-normal"
             />
@@ -259,7 +262,7 @@ export const LabReports: React.FC = () => {
             type="submit"
             className="px-4 sm:px-6 py-2.5 sm:py-3.5 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-700 hover:to-cyan-700 text-white text-xs sm:text-sm font-bold rounded-xl sm:rounded-2xl shadow-glass-base transition-all shrink-0 cursor-pointer active:scale-95 border-t border-white/20"
           >
-            {loading ? 'Checking...' : 'Check Status'}
+            {loading ? strings.loading : (isNe ? 'स्थिति हेर्नुहोस्' : 'Check Status')}
           </button>
         </form>
 

@@ -38,6 +38,10 @@ import com.dactor.patient.data.model.Appointment
 import com.dactor.patient.data.model.Slot
 import com.dactor.patient.data.repository.AppointmentRepository
 import com.dactor.patient.domain.util.TrackingCodeGenerator
+import com.dactor.patient.ui.components.QuickLanguageButton
+import com.dactor.patient.ui.i18n.AppLanguage
+import com.dactor.patient.ui.i18n.LocalAppLanguage
+import com.dactor.patient.ui.i18n.LocalAppStrings
 import com.dactor.patient.ui.navigation.NavRoutes
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -66,6 +70,8 @@ fun BookingFormScreen(
     doctorRepository: com.dactor.patient.data.repository.DoctorRepository? = null
 ) {
     val context = LocalContext.current
+    val strings = LocalAppStrings.current
+    val isNepali = LocalAppLanguage.current == AppLanguage.NEPALI
     val isUserLoggedIn = sessionManager?.isLoggedIn() == true ||
             (authRepository?.isLoggedIn() ?: false) ||
             (try { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null } catch (e: Exception) { false })
@@ -573,24 +579,28 @@ fun BookingFormScreen(
                     title = {
                         Column {
                             Text(
-                                "Patient Appointment Form",
+                                strings.discoveryBooking.patientDetailsStep,
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 18.sp,
                                 color = SlateDark
                             )
                             Text(
-                                "Step 2 of 2 \u2022 Confirm Patient Details",
+                                if (isNepali) "चरण २ / २ • बिरामीको विवरण पुष्टि गर्नुहोस्" else "Step 2 of 2 \u2022 Confirm Patient Details",
                                 fontSize = 11.sp,
                                 color = SlateMuted,
                                 fontWeight = FontWeight.Medium
                             )
                         }
                     },
+                    actions = {
+                        QuickLanguageButton(compact = true)
+                        Spacer(Modifier.width(8.dp))
+                    },
                     navigationIcon = {
                         IconButton(onClick = { navController.popBackStack() }) {
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
+                                contentDescription = strings.common.back,
                                 tint = SlateDark
                             )
                         }
@@ -757,9 +767,9 @@ fun BookingFormScreen(
                             ) {
                                 Text(
                                     text = when {
-                                        isReturningPatient && isRetainedCancelled -> "Confirm Reschedule"
-                                        isReturningPatient -> "Confirm Follow-Up"
-                                        else -> "Proceed to Payment"
+                                        isReturningPatient && isRetainedCancelled -> if (isNepali) "पुनः तालिका पुष्टि गर्नुहोस्" else "Confirm Reschedule"
+                                        isReturningPatient -> if (isNepali) "फलो-अप पुष्टि गर्नुहोस्" else "Confirm Follow-Up"
+                                        else -> if (isNepali) "भुक्तानीमा जानुहोस्" else "Proceed to Payment"
                                     },
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.5.sp,
@@ -1685,13 +1695,13 @@ fun BookingFormScreen(
                                 }
                                 Column {
                                     Text(
-                                        "Patient Details",
+                                        strings.discoveryBooking.patientDetailsStep,
                                         fontWeight = FontWeight.ExtraBold,
                                         fontSize = 15.sp,
                                         color = SlateDark
                                     )
                                     Text(
-                                        "Used for your OPD queue token & prescription slip",
+                                        if (isNepali) "ओपीडी लाम टोकन र प्रेस्क्रिप्सन स्लिपको लागि प्रयोग गरिनेछ" else "Used for your OPD queue token & prescription slip",
                                         fontSize = 11.sp,
                                         color = SlateMuted
                                     )
@@ -1845,8 +1855,8 @@ fun BookingFormScreen(
                                 fullName = it
                                 if (errorMessage != null) errorMessage = null
                             },
-                            label = { Text("Patient Full Name *") },
-                            placeholder = { Text("Enter patient's full name") },
+                            label = { Text("${strings.discoveryBooking.patientFullName} *") },
+                            placeholder = { Text(if (isNepali) "बिरामीको पूरा नाम लेख्नुहोस्" else "Enter patient's full name") },
                             leadingIcon = {
                                 Icon(
                                     Icons.Default.Person,
@@ -1856,7 +1866,7 @@ fun BookingFormScreen(
                             },
                             isError = isNameError,
                             supportingText = if (isNameError) {
-                                { Text("Required: Enter full name (at least 2 letters).", color = ErrorRed, fontSize = 11.sp) }
+                                { Text(if (isNepali) "अनिवार्य: पूरा नाम (कम्तीमा २ अक्षर) लेख्नुहोस्।" else "Required: Enter full name (at least 2 letters).", color = ErrorRed, fontSize = 11.sp) }
                             } else null,
                             singleLine = true,
                             modifier = Modifier
@@ -1880,8 +1890,8 @@ fun BookingFormScreen(
                                 mobile = filtered
                                 if (errorMessage != null) errorMessage = null
                             },
-                            label = { Text("Mobile Number (+977) *") },
-                            placeholder = { Text("10-digit mobile number (98XXXXXXXX)") },
+                            label = { Text("${strings.discoveryBooking.patientPhone} *") },
+                            placeholder = { Text("98XXXXXXXX") },
                             leadingIcon = {
                                 Icon(
                                     Icons.Default.Phone,
@@ -1891,7 +1901,7 @@ fun BookingFormScreen(
                             },
                             isError = isMobileError,
                             supportingText = if (isMobileError) {
-                                { Text("Required: Must be a 10-digit number starting with 9 (${cleanMobileDigits.length}/10).", color = ErrorRed, fontSize = 11.sp) }
+                                { Text(if (isNepali) "अनिवार्य: ९ बाट सुरु हुने १०-अङ्के नम्बर (${cleanMobileDigits.length}/10)।" else "Required: Must be a 10-digit number starting with 9 (${cleanMobileDigits.length}/10).", color = ErrorRed, fontSize = 11.sp) }
                             } else null,
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
@@ -1924,7 +1934,7 @@ fun BookingFormScreen(
                                         if (errorMessage != null) errorMessage = null
                                     }
                                 },
-                                label = { Text("Age (Yrs) *") },
+                                label = { Text("${strings.discoveryBooking.patientAge} *") },
                                 placeholder = { Text("1-120") },
                                 leadingIcon = {
                                     Icon(
@@ -1936,7 +1946,7 @@ fun BookingFormScreen(
                                 },
                                 isError = isAgeError,
                                 supportingText = if (isAgeError) {
-                                    { Text("Enter valid age (1\u2013120)", color = ErrorRed, fontSize = 10.sp) }
+                                    { Text(if (isNepali) "वैध उमेर (१–१२०) राख्नुहोस्" else "Enter valid age (1\u2013120)", color = ErrorRed, fontSize = 10.sp) }
                                 } else null,
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -1957,7 +1967,7 @@ fun BookingFormScreen(
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 Text(
-                                    text = if (isGenderError) "Gender * (Required)" else "Gender *",
+                                    text = if (isGenderError) "${strings.discoveryBooking.patientGender} * (${strings.common.required})" else "${strings.discoveryBooking.patientGender} *",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = if (isGenderError) ErrorRed else SlateMuted
@@ -1968,6 +1978,12 @@ fun BookingFormScreen(
                                 ) {
                                     listOf("Male", "Female", "Other").forEach { g ->
                                         val isSelected = selectedGender == g
+                                        val gLabel = when {
+                                            !isNepali -> g
+                                            g == "Male" -> "पुरुष"
+                                            g == "Female" -> "महिला"
+                                            else -> "अन्य"
+                                        }
                                         Surface(
                                             shape = RoundedCornerShape(10.dp),
                                             color = if (isSelected) FormTeal else if (isGenderError) Color(0xFFFEF2F2) else Color(0xFFF8FAFC),
@@ -1986,7 +2002,7 @@ fun BookingFormScreen(
                                         ) {
                                             Box(contentAlignment = Alignment.Center) {
                                                 Text(
-                                                    text = g,
+                                                    text = gLabel,
                                                     fontSize = 12.sp,
                                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                                     color = if (isSelected) Color.White else if (isGenderError) ErrorRed else SlateDark
@@ -2005,8 +2021,8 @@ fun BookingFormScreen(
                                 email = it
                                 if (errorMessage != null) errorMessage = null
                             },
-                            label = { Text("Email Address (Optional)") },
-                            placeholder = { Text("Enter email address") },
+                            label = { Text(if (isNepali) "इमेल ठेगाना (${strings.common.optional})" else "Email Address (Optional)") },
+                            placeholder = { Text(if (isNepali) "इमेल लेख्नुहोस्" else "Enter email address") },
                             leadingIcon = {
                                 Icon(
                                     Icons.Default.Email,
@@ -2016,7 +2032,7 @@ fun BookingFormScreen(
                             },
                             isError = isEmailError,
                             supportingText = if (isEmailError) {
-                                { Text("Enter a valid email address or leave blank.", color = ErrorRed, fontSize = 11.sp) }
+                                { Text(if (isNepali) "वैध इमेल लेख्नुहोस् वा खाली छाड्नुहोस्।" else "Enter a valid email address or leave blank.", color = ErrorRed, fontSize = 11.sp) }
                             } else null,
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
@@ -2037,7 +2053,7 @@ fun BookingFormScreen(
                         OutlinedTextField(
                             value = visitNotes,
                             onValueChange = { visitNotes = it },
-                            label = { Text("Symptoms or Reason for Visit (Optional)") },
+                            label = { Text("${strings.discoveryBooking.appointmentReason} (${strings.common.optional})") },
                             placeholder = { Text("Briefly describe symptoms or questions for the doctor...") },
                             leadingIcon = {
                                 Icon(Icons.Default.MedicalInformation, contentDescription = null, tint = FormTeal)

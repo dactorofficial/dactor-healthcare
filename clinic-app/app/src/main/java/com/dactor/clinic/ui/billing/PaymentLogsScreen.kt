@@ -41,6 +41,10 @@ import com.dactor.clinic.domain.util.BillPdfDownloader
 import com.dactor.clinic.domain.util.CurrencyFormatter
 import com.dactor.clinic.domain.util.PaymentLedgerHelper
 import com.dactor.clinic.ui.common.ShimmerCard
+import com.dactor.clinic.ui.components.ClinicQuickLanguageButton
+import com.dactor.clinic.ui.i18n.ClinicLanguage
+import com.dactor.clinic.ui.i18n.LocalClinicLanguage
+import com.dactor.clinic.ui.i18n.LocalClinicStrings
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.time.LocalDate
@@ -68,6 +72,9 @@ fun PaymentLogsScreen(
     clinicRepository: ClinicRepository? = null
 ) {
     val context = LocalContext.current
+    val strings = LocalClinicStrings.current
+    val currentLang = LocalClinicLanguage.current
+    val isNepali = currentLang == ClinicLanguage.NEPALI
     val coroutineScope = rememberCoroutineScope()
 
     var isLoading by remember { mutableStateOf(true) }
@@ -488,7 +495,7 @@ fun PaymentLogsScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "Payment Logs",
+                        text = strings.billingLab.paymentAuditLogsTitle,
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp,
                         maxLines = 1
@@ -500,6 +507,7 @@ fun PaymentLogsScreen(
                     }
                 },
                 actions = {
+                    ClinicQuickLanguageButton(compact = true)
                     IconButton(onClick = { refreshAll() }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }

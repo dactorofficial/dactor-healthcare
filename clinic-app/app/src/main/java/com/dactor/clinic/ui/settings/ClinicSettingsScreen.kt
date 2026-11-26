@@ -43,6 +43,11 @@ import com.dactor.clinic.data.model.Clinic
 import com.dactor.clinic.data.remote.EdgeFunctionException
 import com.dactor.clinic.data.repository.ClinicRepository
 import com.dactor.clinic.domain.util.ArchiveDateUtils
+import com.dactor.clinic.ui.components.ClinicQuickLanguageButton
+import com.dactor.clinic.ui.i18n.ClinicLanguage
+import com.dactor.clinic.ui.i18n.LocalClinicLanguage
+import com.dactor.clinic.ui.i18n.LocalClinicStrings
+import com.dactor.clinic.ui.i18n.LocalUpdateClinicLanguage
 import com.dactor.clinic.ui.legal.ClinicTermsAndConditionsDialog
 import com.dactor.clinic.ui.navigation.NavRoutes
 import com.google.firebase.auth.FirebaseAuth
@@ -56,6 +61,8 @@ fun ClinicSettingsScreen(
     clinicRepository: ClinicRepository? = null
 ) {
     val context = LocalContext.current
+    val strings = LocalClinicStrings.current
+    val updateClinicLanguage = LocalUpdateClinicLanguage.current
     val sessionManager = remember { UserSessionManager(context) }
     val effectiveClinicId = remember(clinicId) {
         if (!clinicId.isNullOrBlank() && clinicId != "c1") clinicId
@@ -442,14 +449,17 @@ fun ClinicSettingsScreen(
             TopAppBar(
                 title = {
                     Text(
-                        if (isArchived) "Clinic Archive Status" else "Clinic Configuration",
+                        if (isArchived) "Clinic Archive Status" else strings.authDashboard.tileSettings,
                         fontWeight = FontWeight.Bold
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = strings.common.back)
                     }
+                },
+                actions = {
+                    ClinicQuickLanguageButton(modifier = Modifier.padding(end = 8.dp))
                 }
             )
         }
@@ -2330,7 +2340,7 @@ fun ClinicSettingsScreen(
                             .fillMaxWidth()
                             .clickable {
                                 appLanguage = "en"
-                                sessionManager.setAppLanguage("en")
+                                updateClinicLanguage(ClinicLanguage.ENGLISH)
                                 showLanguageDialog = false
                             }
                             .padding(vertical = 8.dp),
@@ -2346,7 +2356,7 @@ fun ClinicSettingsScreen(
                             .fillMaxWidth()
                             .clickable {
                                 appLanguage = "ne"
-                                sessionManager.setAppLanguage("ne")
+                                updateClinicLanguage(ClinicLanguage.NEPALI)
                                 showLanguageDialog = false
                             }
                             .padding(vertical = 8.dp),

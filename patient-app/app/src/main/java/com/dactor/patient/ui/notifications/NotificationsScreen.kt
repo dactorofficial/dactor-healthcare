@@ -35,6 +35,10 @@ import com.dactor.patient.data.model.DactorNotification
 import com.dactor.patient.data.repository.AppointmentRepository
 import com.dactor.patient.data.repository.AuthRepository
 import com.dactor.patient.data.repository.NotificationRepository
+import com.dactor.patient.ui.components.QuickLanguageButton
+import com.dactor.patient.ui.i18n.AppLanguage
+import com.dactor.patient.ui.i18n.LocalAppLanguage
+import com.dactor.patient.ui.i18n.LocalAppStrings
 import com.dactor.patient.ui.navigation.NavRoutes
 import kotlinx.coroutines.launch
 
@@ -318,6 +322,8 @@ fun NotificationsScreen(
     appointmentRepository: AppointmentRepository? = null
 ) {
     var selectedFilter by remember { mutableStateOf("All") }
+    val strings = LocalAppStrings.current
+    val isNepali = LocalAppLanguage.current == AppLanguage.NEPALI
     var notifications by remember { mutableStateOf<List<DactorNotification>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
@@ -365,13 +371,13 @@ fun NotificationsScreen(
         loadNotifications()
     }
 
-    val filterItems = remember {
+    val filterItems = remember(isNepali) {
         listOf(
-            NotifFilterItem("All", "All", Icons.Default.Notifications),
-            NotifFilterItem("Queue", "Live Queue", Icons.Default.ConfirmationNumber),
-            NotifFilterItem("Doctor Alerts", "Doctor Alerts", Icons.Default.Campaign),
-            NotifFilterItem("Lab", "Lab Reports", Icons.Default.Biotech),
-            NotifFilterItem("Announcements", "Updates", Icons.Default.Info)
+            NotifFilterItem("All", if (isNepali) "सबै" else "All", Icons.Default.Notifications),
+            NotifFilterItem("Queue", if (isNepali) "प्रत्यक्ष लाम" else "Live Queue", Icons.Default.ConfirmationNumber),
+            NotifFilterItem("Doctor Alerts", if (isNepali) "डाक्टर अलर्ट" else "Doctor Alerts", Icons.Default.Campaign),
+            NotifFilterItem("Lab", if (isNepali) "ल्याब रिपोर्ट" else "Lab Reports", Icons.Default.Biotech),
+            NotifFilterItem("Announcements", if (isNepali) "सूचनाहरू" else "Updates", Icons.Default.Info)
         )
     }
 
@@ -419,7 +425,7 @@ fun NotificationsScreen(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         Text(
-                                            "Notifications",
+                                            strings.profileAuth.notificationsScreenTitle,
                                             fontWeight = FontWeight.ExtraBold,
                                             fontSize = 18.sp,
                                             color = NotifSlateDark
@@ -430,7 +436,7 @@ fun NotificationsScreen(
                                                 color = NotifTeal
                                             ) {
                                                 Text(
-                                                    text = "$unreadCount new",
+                                                    text = if (isNepali) "$unreadCount नयाँ" else "$unreadCount new",
                                                     color = Color.White,
                                                     fontSize = 10.sp,
                                                     fontWeight = FontWeight.ExtraBold,
@@ -440,7 +446,7 @@ fun NotificationsScreen(
                                         }
                                     }
                                     Text(
-                                        "Queue turns, doctor alerts & lab reports",
+                                        strings.profileAuth.pushNotifSub,
                                         fontSize = 11.sp,
                                         color = NotifSlateMuted,
                                         maxLines = 1,
@@ -453,12 +459,14 @@ fun NotificationsScreen(
                             IconButton(onClick = { navController.popBackStack() }) {
                                 Icon(
                                     Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back",
+                                    contentDescription = strings.common.back,
                                     tint = NotifSlateDark
                                 )
                             }
                         },
                         actions = {
+                            QuickLanguageButton(compact = true)
+                            Spacer(Modifier.width(4.dp))
                             if (unreadCount > 0) {
                                 Surface(
                                     shape = RoundedCornerShape(20.dp),

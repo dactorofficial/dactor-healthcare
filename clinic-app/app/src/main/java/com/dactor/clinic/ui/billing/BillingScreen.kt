@@ -42,6 +42,10 @@ import com.dactor.clinic.domain.util.BillPdfDownloader
 import com.dactor.clinic.domain.util.CurrencyFormatter
 import com.dactor.clinic.domain.util.DateTimePickers
 import com.dactor.clinic.domain.util.PaymentLedgerHelper
+import com.dactor.clinic.ui.components.ClinicQuickLanguageButton
+import com.dactor.clinic.ui.i18n.ClinicLanguage
+import com.dactor.clinic.ui.i18n.LocalClinicLanguage
+import com.dactor.clinic.ui.i18n.LocalClinicStrings
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -75,6 +79,9 @@ fun BillingScreen(
     doctorRepository: DoctorRepository? = null
 ) {
     val context = LocalContext.current
+    val strings = LocalClinicStrings.current
+    val currentLang = LocalClinicLanguage.current
+    val isNepali = currentLang == ClinicLanguage.NEPALI
     val coroutineScope = rememberCoroutineScope()
     val sessionManager = remember { com.dactor.clinic.data.local.UserSessionManager(context) }
     val effectiveClinicId = remember(clinicId) {
@@ -394,9 +401,10 @@ fun BillingScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("Date-Wise Billing & Patient Ledger", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                        Text(strings.billingLab.billingHeaderTitle, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                         Text(
-                            "Directory by Date \u2022 Quick Paid Push \u2022 On-Demand Bill PDF",
+                            if (isNepali) "मिति अनुसार डाइरेक्टरी • तत्काल भुक्तानी • आधिकारिक बिल PDF"
+                            else "Directory by Date \u2022 Quick Paid Push \u2022 On-Demand Bill PDF",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -408,6 +416,7 @@ fun BillingScreen(
                     }
                 },
                 actions = {
+                    ClinicQuickLanguageButton(compact = true)
                     IconButton(onClick = { coroutineScope.launch { loadAppointmentsAndInvoices() } }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
