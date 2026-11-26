@@ -7,6 +7,17 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "i want a complete language change setting like if one changes the language should change everything to nepali" (and "continue")
+
+### Changes Applied:
+- **Clinic App (`clinic-app`)**:
+  - Updated `clinic-app/app/src/main/java/com/dactor/clinic/ui/lab/LabWorkflowScreen.kt`, `clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/BillingScreen.kt`, and `clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/PaymentLogsScreen.kt` (alongside the already-committed clinic i18n dictionaries, login, dashboard, doctor queue, queue board, walk-in booking, settings, and bilingual `BillPdfDownloader.kt`) to wire `ClinicQuickLanguageButton(compact = true)` in top app bars and localize headers, `n * 100 KB` lab upload notices, billing labels, and audit views.
+- **Patient App (`patient-app`)**:
+  - Updated `patient-app/app/src/main/java/com/dactor/patient/ui/auth/LoginScreen.kt`, `LandingScreen.kt`, `BookingScreen.kt`, `BookingFormScreen.kt`, `PaymentScreen.kt`, `QueueStatusScreen.kt`, `TrackingLookupScreen.kt`, `DiscoveryScreen.kt`, `LabReportScreen.kt`, `ProfileScreen.kt`, `NotificationsScreen.kt`, and `PatientMainScreen.kt` (extending the committed `PatientI18n*` dictionaries, `QuickLanguageButton.kt`, `PatientLocalizationHelpers.kt`, and `BillPdfDownloader.kt`) to add direct 1-tap `QuickLanguageButton` toggles in top bars and localize navigation tabs, search/filter controls, booking/payment forms, live queue stepper/timing cards, lab reports, notifications, and profile settings.
+- **Web App (`web-app`)**:
+  - Updated `web-app/src/pages/FindClinics.tsx`, `LabReports.tsx`, `PatientPortal.tsx`, `DoctorPortal.tsx`, `ClinicPortal.tsx`, `LiveQueue.tsx`, `Login.tsx`, `AverageTime.tsx`, `web-app/src/components/Footer.tsx`, `NotificationModal.tsx`, and `LiveTrackerModal.tsx` (alongside `src/locales/{en,ne}/*`, `src/utils/i18n.ts`, `src/utils/i18nHelpers.ts`, `src/utils/queueTiming.ts`, and `medicalDocPrinter.ts`) so switching `EN` / `नेपाली` translates public pages, portals, modals, queue estimates, and bilingual printouts/receipts end-to-end.
+
+### Prompt:
 > "add a button in live queue completed section in all the patients such that when tapped allows to push / edit bill directly . this button should not transfer to the patient billing section directly should be like a popup show me the ui /plan /generative_ui also for the push / edit bill in the patient directory it should also give me pop up for editing bill of that specific user now show me first the ui"
 > "no like it should be a like a dialog overlapping message didnt you understand i am talking the way when we tap confirm once then again confirm or cancel selction message comes overlapping the screen ins uch manner i want"
 > "better be everything working properly continue"
