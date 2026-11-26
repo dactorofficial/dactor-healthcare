@@ -7,6 +7,17 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-25
 
 ### Prompt:
+> "download the app into the mobile through adb"
+
+#### Changes Applied:
+1. **ADB Device Discovery & Installation**:
+   - Detected connected physical Android device: `R9ZY504BE6M`.
+   - Executed streamed install via ADB (`adb -s R9ZY504BE6M install -r -d "APKs/Dactor-PatientApp-v1.0.43.apk"`).
+   - Confirmed successful deployment and verified running package version via `dumpsys package com.dactor.patient`: `versionCode=143`, `versionName=1.0.43`.
+
+---
+
+### Prompt:
 > "generate patient apk"
 
 #### Changes Applied:
