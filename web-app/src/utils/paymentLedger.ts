@@ -248,10 +248,43 @@ export function formatListDayHeader(dateStr: string, todayStr: string, yesterday
   return d.toLocaleDateString('en-US', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase()
 }
 
+export function inferPaymentMethodFromText(
+  text?: string | null,
+  paymentMode?: string | null,
+  fallbackMethod?: string | null
+): string {
+  const lower = String(text || '').toLowerCase()
+  if (lower.includes('esewa')) return 'ESEWA'
+  if (lower.includes('khalti')) return 'KHALTI'
+  if (lower.includes('fonepay')) return 'FONEPAY'
+  if (lower.includes('connectips')) return 'CONNECTIPS'
+  if (lower.includes('pay at desk') || lower.includes('pay_at_desk') || lower.includes('desk')) return 'PAY_AT_DESK'
+  if (lower.includes('bank') || lower.includes('qr')) return 'BANK_TRANSFER'
+  if (lower.includes('free follow') || lower.includes('waived')) return 'FREE'
+  if (lower.includes('cash')) return 'CASH'
+
+  const modeUpper = String(paymentMode || '').trim().toUpperCase()
+  if (modeUpper === 'PAY_AT_DESK' || modeUpper === 'DESK') return 'PAY_AT_DESK'
+  if (modeUpper === 'FREE') return 'FREE'
+  if (modeUpper === 'ONLINE') return 'ONLINE'
+  if (modeUpper === 'CASH') return 'CASH'
+
+  const fb = String(fallbackMethod || '').trim().toUpperCase()
+  return fb || 'CASH'
+}
+
+export function extractProviderReference(rawRemarks?: string | null): string | undefined {
+  const txt = String(rawRemarks || '')
+  const m = txt.match(/(?:provider\s*reference|reference|ref|txn)\s*[:#]\s*([A-Za-z0-9_-]+)/i)
+  return m?.[1]?.trim() || undefined
+}
+
 export function parsePaymentRecords(
   rawRemarks?: string | null,
   fallbackPaidAmount = 0,
-  fallbackDate?: string | null
+  fallbackDate?: string | null,
+  fallbackMethod?: string | null,
+  defaultNote?: string | null
 ): WebPaymentRecord[] {
   if (rawRemarks && rawRemarks.includes(START_TAG) && rawRemarks.includes(END_TAG)) {
     try {
@@ -264,7 +297,7 @@ export function parsePaymentRecords(
             amount: Number(item.amount || 0),
             dateTime: item.dateTime || item.date_time || 'Recorded',
             note: item.note || 'Payment Received',
-            paymentMethod: item.paymentMethod || item.payment_method || 'CASH',
+            paymentMethod: item.paymentMethod || item.payment_method || inferPaymentMethodFromText(item.note, undefined, fallbackMethod || 'CASH'),
             referenceId: item.referenceId || item.reference_id || undefined,
             category: item.category || 'CONSULTATION',
           }))
@@ -286,7 +319,7 @@ export function parsePaymentRecords(
             amount: Number(item.amount || 0),
             dateTime: item.dateTime || item.date_time || 'Recorded',
             note: item.note || 'Payment Received',
-            paymentMethod: item.paymentMethod || item.payment_method || 'CASH',
+            paymentMethod: item.paymentMethod || item.payment_method || inferPaymentMethodFromText(item.note, undefined, fallbackMethod || 'CASH'),
             referenceId: item.referenceId || item.reference_id || undefined,
             category: item.category || 'CONSULTATION',
           }))
@@ -299,13 +332,19 @@ export function parsePaymentRecords(
 
   if (fallbackPaidAmount > 0) {
     const dStr = fallbackDate ? fallbackDate.slice(0, 16).replace('T', ' ') : new Date().toISOString().slice(0, 10)
+    const inferredMethod = inferPaymentMethodFromText(rawRemarks, undefined, fallbackMethod || 'CASH')
+    const refId = extractProviderReference(rawRemarks)
+    const cleanNote = rawRemarks && /paid\s+via|esewa|khalti|fonepay|connectips|desk/i.test(rawRemarks)
+      ? rawRemarks.trim()
+      : (defaultNote || 'Payment Received')
     return [
       {
         id: 'initial',
         amount: fallbackPaidAmount,
         dateTime: dStr,
-        note: 'Payment Received',
-        paymentMethod: 'CASH',
+        note: cleanNote,
+        paymentMethod: inferredMethod,
+        referenceId: refId,
         category: 'CONSULTATION',
       },
     ]
@@ -362,7 +401,7 @@ export function buildCombinedRemarks(cleanRemarks: string, paymentRecords: WebPa
     amount: r.amount,
     date_time: r.dateTime,
     note: r.note || 'Payment Received',
-    payment_method: r.paymentMethod || 'CASH',
+    payment_method: r.paymentMethod || inferPaymentMethodFromText(r.note, undefined, 'CASH'),
     reference_id: r.referenceId || '',
     category: r.category || 'CONSULTATION',
   }))
@@ -449,6 +488,19 @@ export function parseLabTestItems(
   return results
 }
 
+function isValidClinicalVisitForHistory(appt: any): boolean {
+  if (!appt) return false
+  const st = String(appt.status || '').toLowerCase()
+  const ck = String(appt.checkinStatus || appt.checkin_status || '').toLowerCase()
+  if (['cancelled', 'rejected', 'pending_payment', 'waiting_for_approval', 'unapproved', 'expired'].includes(st)) {
+    return false
+  }
+  if (ck === 'cancelled' || (ck === 'no_show' && String(appt.paymentStatus || '').toLowerCase() !== 'paid')) {
+    return false
+  }
+  return true
+}
+
 function resolveVisitType(
   appt: any,
   earliestVisitsByDoctor: Map<string, string>,
@@ -467,6 +519,9 @@ function resolveVisitType(
   const notesLower = String(appt.notes || '').toLowerCase()
   if (notesLower.includes('follow-up') || notesLower.includes('followup')) {
     return 'follow_up'
+  }
+  if (Number(appt.feeAmount || 0) > 0 && Number(appt.attemptNumber || 1) === 1) {
+    return 'new'
   }
   if (appt.doctorId) {
     const pKey = derivePatientKey(appt)
@@ -515,12 +570,7 @@ export function buildUnifiedClinicPaymentLogs(
 
   const earliestVisitsByDoctor = new Map<string, string>()
   const validAppts = [...safeAppts]
-    .filter(
-      (a) =>
-        String(a.status || '').toLowerCase() !== 'cancelled' &&
-        String(a.status || '').toLowerCase() !== 'rejected' &&
-        String(a.checkinStatus || '').toLowerCase() !== 'cancelled'
-    )
+    .filter((a) => isValidClinicalVisitForHistory(a))
     .sort((a, b) => {
       const d1 = `${a.appointmentDate || '1970-01-01'} ${a.appointmentTime || '00:00'}`
       const d2 = `${b.appointmentDate || '1970-01-01'} ${b.appointmentTime || '00:00'}`
@@ -589,13 +639,20 @@ export function buildUnifiedClinicPaymentLogs(
     const tests = isLabClinic ? parseLabTestItems(appt, inv, clinicServices).map((t) => t.name) : []
     const followUpOrigId = appt.followUpOfAppointmentId || appt.follow_up_of_appointment_id
     const followUpOrig = followUpOrigId ? apptMap.get(followUpOrigId) : undefined
+    const txMethodUpper = String(tx.payment_method || '').trim().toUpperCase()
+    const isOnlineMode = String(appt.paymentMode || '').toUpperCase() === 'ONLINE'
+    const inferredOnlineMethod = isOnlineMode
+      ? inferPaymentMethodFromText(inv?.remarks || tx.notes, appt.paymentMode, 'ONLINE')
+      : ''
     const methodUpper = isRefundTx
       ? String(tx.payment_method || 'REFUND').toUpperCase()
       : effectiveTxAmount === 0
       ? 'FREE'
-      : isPad && String(tx.payment_method || '').toUpperCase() === 'CASH'
+      : isPad && txMethodUpper === 'CASH'
       ? 'PAY_AT_DESK'
-      : String(tx.payment_method || (isPad ? 'PAY_AT_DESK' : 'CASH')).toUpperCase()
+      : isOnlineMode && (txMethodUpper === '' || txMethodUpper === 'CASH')
+      ? inferredOnlineMethod
+      : String(tx.payment_method || (isPad ? 'PAY_AT_DESK' : isOnlineMode ? 'ONLINE' : 'CASH')).toUpperCase()
 
     entries.push({
       id: tx.id || uniqueKey,
@@ -652,7 +709,8 @@ export function buildUnifiedClinicPaymentLogs(
         ? Math.max(Number(inv.paidAmount || 0), effInvTotal)
         : Number(inv.paidAmount || 0)
 
-    const parsedRecords = parsePaymentRecords(inv.remarks, effectivePaidAmt, inv.paidAt || inv.updatedAt)
+    const defaultInvMethod = isPad ? 'PAY_AT_DESK' : String(appt.paymentMode || '').toUpperCase() === 'ONLINE' ? 'ONLINE' : 'CASH'
+    const parsedRecords = parsePaymentRecords(inv.remarks, effectivePaidAmt, inv.paidAt || inv.updatedAt, defaultInvMethod)
     const tests = isLabClinic ? parseLabTestItems(appt, inv, clinicServices).map((t) => t.name) : []
     const followUpOrigId = appt.followUpOfAppointmentId || appt.follow_up_of_appointment_id
     const followUpOrig = followUpOrigId ? apptMap.get(followUpOrigId) : undefined
@@ -708,7 +766,11 @@ export function buildUnifiedClinicPaymentLogs(
           ? 'REFUND'
           : effPrAmt === 0
           ? 'FREE'
-          : String(pr.paymentMethod || (isPad ? 'PAY_AT_DESK' : 'CASH')).toUpperCase(),
+          : inferPaymentMethodFromText(
+              pr.note || inv.remarks,
+              appt.paymentMode,
+              pr.paymentMethod || (isPad ? 'PAY_AT_DESK' : String(appt.paymentMode || '').toUpperCase() === 'ONLINE' ? 'ONLINE' : 'CASH')
+            ),
         paymentMode: appt.paymentMode || (effPrAmt === 0 ? 'FREE' : 'CASH'),
         referenceId: pr.referenceId,
         category: isRefundRec ? 'REFUND' : pr.category || 'CONSULTATION',
@@ -782,7 +844,13 @@ export function buildUnifiedClinicPaymentLogs(
       isRefund: false,
       type: 'PAYMENT',
       amount: effTotal,
-      paymentMethod: effTotal === 0 ? 'FREE' : String(isPad ? 'PAY_AT_DESK' : appt.paymentMethod || appt.paymentMode || 'CASH').toUpperCase(),
+      paymentMethod: effTotal === 0
+        ? 'FREE'
+        : inferPaymentMethodFromText(
+            appt.notes,
+            appt.paymentMode,
+            isPad ? 'PAY_AT_DESK' : appt.paymentMethod || appt.paymentMode || 'CASH'
+          ),
       paymentMode: effTotal === 0 ? 'FREE' : appt.paymentMode || 'ONLINE',
       referenceId: effTotal === 0 ? 'FOLLOWUP-WAIVED' : undefined,
       category: isFollowUp && effTotal === 0 ? 'FREE_FOLLOWUP' : 'CONSULTATION',
@@ -834,12 +902,7 @@ export function buildPendingBills(
   })
 
   const validAppts = [...appointments]
-    .filter(
-      (a) =>
-        String(a.status || '').toLowerCase() !== 'cancelled' &&
-        String(a.status || '').toLowerCase() !== 'rejected' &&
-        String(a.checkinStatus || '').toLowerCase() !== 'cancelled'
-    )
+    .filter((a) => isValidClinicalVisitForHistory(a))
     .sort((a, b) => `${a.appointmentDate || ''} ${a.appointmentTime || ''}`.localeCompare(`${b.appointmentDate || ''} ${b.appointmentTime || ''}`))
 
   const earliestVisitsByDoctor = new Map<string, string>()
@@ -956,12 +1019,7 @@ export function computeDoctorPeriodStats(
 
   const earliestVisitsByDoctor = new Map<string, string>()
   const validAll = [...allAppointments]
-    .filter(
-      (a) =>
-        String(a.status || '').toLowerCase() !== 'cancelled' &&
-        String(a.status || '').toLowerCase() !== 'rejected' &&
-        String(a.checkinStatus || '').toLowerCase() !== 'cancelled'
-    )
+    .filter((a) => isValidClinicalVisitForHistory(a))
     .sort((a, b) => `${a.appointmentDate || ''} ${a.appointmentTime || ''}`.localeCompare(`${b.appointmentDate || ''} ${b.appointmentTime || ''}`))
 
   for (const a of validAll) {
