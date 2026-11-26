@@ -8,6 +8,8 @@ import io.github.jan.supabase.gotrue.auth
 import io.github.jan.supabase.gotrue.providers.builtin.Email
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -23,6 +25,11 @@ class AuthRepository @Inject constructor(
         val portalLabel: String, // "Patient Portal", "Clinic Portal", "Doctor / Specialist Portal"
         val entityName: String,
         val email: String
+    )
+
+    data class GooglePortalResolution(
+        val portalAssociation: PortalAssociation?,
+        val profile: Profile?
     )
 
     sealed class SignUpResult {
@@ -122,11 +129,12 @@ class AuthRepository @Inject constructor(
         fullName: String,
         phone: String = "",
         gender: String? = null,
-        age: Int? = null
+        age: Int? = null,
+        preloadedProfile: Profile? = null
     ): Result<Boolean> = withContext(Dispatchers.IO) {
         try {
             val trimmedEmail = email.trim().lowercase()
-            val existing = try {
+            val existing = preloadedProfile ?: try {
                 supabaseClient.postgrest["profiles"].select {
                     filter {
                         ilike("email", trimmedEmail)
@@ -328,102 +336,89 @@ class AuthRepository @Inject constructor(
         getProfileByEmail(email)
     }
 
-    suspend fun checkPortalAssociation(email: String): PortalAssociation? = withContext(Dispatchers.IO) {
+    suspend fun resolveGoogleAccountPortalStatus(email: String): GooglePortalResolution = withContext(Dispatchers.IO) {
         val cleanEmail = email.trim().lowercase()
-        if (cleanEmail.isBlank()) return@withContext null
+        if (cleanEmail.isBlank()) return@withContext GooglePortalResolution(null, null)
 
-        // 1. Check if associated with a Clinic (clinics.contact_email)
-        val existingClinic = try {
-            supabaseClient.postgrest["clinics"]
-                .select {
-                    filter {
-                        ilike("contact_email", cleanEmail)
+        coroutineScope {
+            val clinicDef = async {
+                try {
+                    supabaseClient.postgrest["clinics"]
+                        .select { filter { ilike("contact_email", cleanEmail) } }
+                        .decodeList<Clinic>().firstOrNull()
+                } catch (_: Exception) {
+                    try {
+                        supabaseClient.postgrest["clinics"]
+                            .select { filter { eq("contact_email", cleanEmail) } }
+                            .decodeList<Clinic>().firstOrNull()
+                    } catch (_: Exception) { null }
+                }
+            }
+            val doctorDef = async {
+                try {
+                    supabaseClient.postgrest["doctors"]
+                        .select { filter { ilike("email", cleanEmail) } }
+                        .decodeList<Doctor>().firstOrNull()
+                } catch (_: Exception) {
+                    try {
+                        supabaseClient.postgrest["doctors"]
+                            .select { filter { eq("email", cleanEmail) } }
+                            .decodeList<Doctor>().firstOrNull()
+                    } catch (_: Exception) { null }
+                }
+            }
+            val profileDef = async { getProfileByEmail(cleanEmail) }
+
+            val existingClinic = clinicDef.await()
+            val existingDoctor = doctorDef.await()
+            val existingProfile = profileDef.await()
+
+            val portalAssoc = when {
+                existingClinic != null -> PortalAssociation(
+                    portal = "clinic",
+                    portalLabel = "Clinic Portal",
+                    entityName = existingClinic.name,
+                    email = cleanEmail
+                )
+                existingDoctor != null -> PortalAssociation(
+                    portal = "doctor",
+                    portalLabel = "Doctor / Specialist Portal",
+                    entityName = existingDoctor.fullName,
+                    email = cleanEmail
+                )
+                existingProfile != null -> {
+                    val role = existingProfile.role.trim().lowercase()
+                    when {
+                        role == "clinic_admin" || role == "clinic" -> PortalAssociation(
+                            portal = "clinic",
+                            portalLabel = "Clinic Portal",
+                            entityName = existingProfile.fullName.orEmpty(),
+                            email = cleanEmail
+                        )
+                        role == "doctor" || role == "lab_technician" -> PortalAssociation(
+                            portal = "doctor",
+                            portalLabel = "Doctor / Specialist Portal",
+                            entityName = existingProfile.fullName.orEmpty(),
+                            email = cleanEmail
+                        )
+                        role == "patient" && (!existingProfile.fullName.isNullOrBlank() || !existingProfile.phone.isNullOrBlank()) -> PortalAssociation(
+                            portal = "patient",
+                            portalLabel = "Patient Portal",
+                            entityName = existingProfile.fullName.orEmpty(),
+                            email = cleanEmail
+                        )
+                        else -> null
                     }
-                }.decodeList<Clinic>().firstOrNull()
-        } catch (e: Exception) {
-            try {
-                supabaseClient.postgrest["clinics"]
-                    .select {
-                        filter {
-                            eq("contact_email", cleanEmail)
-                        }
-                    }.decodeList<Clinic>().firstOrNull()
-            } catch (e2: Exception) {
-                null
-            }
-        }
-        if (existingClinic != null) {
-            return@withContext PortalAssociation(
-                portal = "clinic",
-                portalLabel = "Clinic Portal",
-                entityName = existingClinic.name,
-                email = cleanEmail
-            )
-        }
-
-        // 2. Check if associated with a Doctor / Specialist (doctors.email)
-        val existingDoctor = try {
-            supabaseClient.postgrest["doctors"]
-                .select {
-                    filter {
-                        ilike("email", cleanEmail)
-                    }
-                }.decodeList<Doctor>().firstOrNull()
-        } catch (e: Exception) {
-            try {
-                supabaseClient.postgrest["doctors"]
-                    .select {
-                        filter {
-                            eq("email", cleanEmail)
-                        }
-                    }.decodeList<Doctor>().firstOrNull()
-            } catch (e2: Exception) {
-                null
-            }
-        }
-        if (existingDoctor != null) {
-            return@withContext PortalAssociation(
-                portal = "doctor",
-                portalLabel = "Doctor / Specialist Portal",
-                entityName = existingDoctor.fullName,
-                email = cleanEmail
-            )
-        }
-
-        // 3. Check profiles table for role association
-        val existingProfile = getProfileByEmail(cleanEmail)
-        if (existingProfile != null) {
-            val role = existingProfile.role.trim().lowercase()
-            when {
-                role == "clinic_admin" || role == "clinic" -> {
-                    return@withContext PortalAssociation(
-                        portal = "clinic",
-                        portalLabel = "Clinic Portal",
-                        entityName = existingProfile.fullName.orEmpty(),
-                        email = cleanEmail
-                    )
                 }
-                role == "doctor" || role == "lab_technician" -> {
-                    return@withContext PortalAssociation(
-                        portal = "doctor",
-                        portalLabel = "Doctor / Specialist Portal",
-                        entityName = existingProfile.fullName.orEmpty(),
-                        email = cleanEmail
-                    )
-                }
-                role == "patient" && (!existingProfile.fullName.isNullOrBlank() || !existingProfile.phone.isNullOrBlank()) -> {
-                    return@withContext PortalAssociation(
-                        portal = "patient",
-                        portalLabel = "Patient Portal",
-                        entityName = existingProfile.fullName.orEmpty(),
-                        email = cleanEmail
-                    )
-                }
+                else -> null
             }
-        }
 
-        null
+            GooglePortalResolution(portalAssoc, existingProfile)
+        }
     }
+
+    suspend fun checkPortalAssociation(email: String): PortalAssociation? =
+        resolveGoogleAccountPortalStatus(email).portalAssociation
 
     suspend fun getProfileByEmail(email: String): Profile? = withContext(Dispatchers.IO) {
         val cleanEmail = email.trim().lowercase()

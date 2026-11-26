@@ -135,12 +135,13 @@ fun LoginScreen(
 
         coroutineScope.launch {
             try {
-                // 0. Enforce 1 Google Account = 1 Portal Role rule (cannot use Doctor or Clinic email in Patient Portal)
-                val portalAssoc = try {
-                    authRepository?.checkPortalAssociation(trimmedEmail)
+                // 0+1. Parallel check: Portal association + existing patient profile in 1 round-trip
+                val resolution = try {
+                    authRepository?.resolveGoogleAccountPortalStatus(trimmedEmail)
                 } catch (e: Exception) {
                     null
                 }
+                val portalAssoc = resolution?.portalAssociation
 
                 if (portalAssoc != null && portalAssoc.portal != "patient") {
                     runCatching { googleSignInClient.signOut() }
@@ -156,27 +157,26 @@ fun LoginScreen(
                     return@launch
                 }
 
-                // 1. Check existing patient profile in Supabase
-                val existingProfile = try {
-                    authRepository?.getProfileByEmail(trimmedEmail)
-                } catch (e: Exception) {
-                    null
-                }
-
-                val linkedAppts = try {
-                    appointmentRepository?.getAllPatientAppointments(
-                        userId = existingProfile?.id,
-                        email = trimmedEmail,
-                        phone = existingProfile?.phone
-                    ).orEmpty()
-                } catch (e: Exception) {
-                    emptyList()
-                }
-
-                val latestAppt = linkedAppts.firstOrNull()
+                val existingProfile = resolution?.profile
                 val hasCompletedProfile = existingProfile != null &&
                         !existingProfile.fullName.isNullOrBlank() &&
                         !existingProfile.phone.isNullOrBlank()
+
+                // Fast path: returning patient with completed profile enters Home immediately;
+                // profile/appointment linking runs in background without blocking UI.
+                val linkedAppts = if (!hasCompletedProfile) {
+                    try {
+                        appointmentRepository?.getAllPatientAppointments(
+                            userId = existingProfile?.id,
+                            email = trimmedEmail,
+                            phone = existingProfile?.phone
+                        ).orEmpty()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                } else emptyList()
+
+                val latestAppt = linkedAppts.firstOrNull()
                 val hasKnownIdentity = hasCompletedProfile ||
                         (latestAppt != null && latestAppt.patientName.isNotBlank() && latestAppt.patientMobile.isNotBlank())
 
@@ -189,35 +189,11 @@ fun LoginScreen(
                     val resolvedGender = existingProfile?.gender?.takeIf { it.isNotBlank() }
                         ?: latestAppt?.patientGender
                     val resolvedAge = existingProfile?.age ?: latestAppt?.patientAge
-
-                    // Retroactively link any appointments booked with this email/phone
-                    try {
-                        authRepository?.syncPatientProfile(
-                            userId = profileId,
-                            email = trimmedEmail,
-                            fullName = resolvedName,
-                            phone = resolvedPhone,
-                            gender = resolvedGender,
-                            age = resolvedAge
-                        )
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-
-                    val allLinkedAppts = try {
-                        appointmentRepository?.getAllPatientAppointments(
-                            userId = profileId,
-                            email = trimmedEmail,
-                            phone = resolvedPhone
-                        ).orEmpty()
-                    } catch (e: Exception) {
-                        linkedAppts
-                    }
+                    val isArchived = existingProfile?.isArchived == true
 
                     sessionManager?.clearSavedTrackingCodes()
                     appointmentRepository?.clearCache()
-
-                    for (appt in allLinkedAppts) {
+                    for (appt in linkedAppts) {
                         if (appt.trackingCode10Digit.isNotBlank()) {
                             sessionManager?.saveTrackingCode(
                                 appt.trackingCode10Digit,
@@ -226,8 +202,8 @@ fun LoginScreen(
                         }
                     }
 
-                    val isArchived = existingProfile?.isArchived == true
-
+                    // Returning/existing user: already accepted Terms on account creation
+                    sessionManager?.setTermsAccepted(true)
                     sessionManager?.savePatientSession(
                         patientId = profileId,
                         email = trimmedEmail,
@@ -238,6 +214,38 @@ fun LoginScreen(
                         isArchived = isArchived,
                         deletionScheduledAt = existingProfile?.deletionScheduledAt
                     )
+
+                    // Sync profile + backfill tracking codes asynchronously after entering app
+                    kotlinx.coroutines.CoroutineScope(
+                        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+                    ).launch {
+                        try {
+                            authRepository?.syncPatientProfile(
+                                userId = profileId,
+                                email = trimmedEmail,
+                                fullName = resolvedName,
+                                phone = resolvedPhone,
+                                gender = resolvedGender,
+                                age = resolvedAge,
+                                preloadedProfile = existingProfile
+                            )
+                        } catch (_: Exception) {}
+                        try {
+                            val allLinked = appointmentRepository?.getAllPatientAppointments(
+                                userId = profileId,
+                                email = trimmedEmail,
+                                phone = resolvedPhone
+                            ).orEmpty()
+                            for (appt in allLinked) {
+                                if (appt.trackingCode10Digit.isNotBlank()) {
+                                    sessionManager?.saveTrackingCode(
+                                        appt.trackingCode10Digit,
+                                        "${appt.patientName} \u2022 ${appt.appointmentDate}"
+                                    )
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
 
                     isLoading = false
                     statusInfo = null
@@ -518,6 +526,7 @@ fun LoginScreen(
                     }
                 }
 
+                sessionManager?.setTermsAccepted(true)
                 sessionManager?.savePatientSession(
                     patientId = finalProfileId,
                     email = email,

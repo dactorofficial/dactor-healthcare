@@ -193,9 +193,10 @@ fun OnboardingScreen(
 
         coroutineScope.launch {
             try {
-                val portalAssoc = try {
-                    authRepository?.checkPortalAssociation(email)
+                val resolution = try {
+                    authRepository?.resolveGoogleAccountPortalStatus(email)
                 } catch (_: Exception) { null }
+                val portalAssoc = resolution?.portalAssociation
 
                 if (portalAssoc != null && portalAssoc.portal != "patient") {
                     isGoogleLoading = false
@@ -205,17 +206,20 @@ fun OnboardingScreen(
                 }
 
                 sessionManager?.setHasSeenOnboarding(true)
-                val existingProfile = try {
-                    authRepository?.getProfileByEmail(email)
-                } catch (_: Exception) { null }
+                val existingProfile = resolution?.profile
+                val hasCompletedProfile = existingProfile != null &&
+                    !existingProfile.fullName.isNullOrBlank() &&
+                    !existingProfile.phone.isNullOrBlank()
 
-                val linkedAppts = try {
-                    appointmentRepository?.getAllPatientAppointments(
-                        userId = existingProfile?.id,
-                        email = email,
-                        phone = existingProfile?.phone
-                    ).orEmpty()
-                } catch (_: Exception) { emptyList() }
+                val linkedAppts = if (!hasCompletedProfile) {
+                    try {
+                        appointmentRepository?.getAllPatientAppointments(
+                            userId = existingProfile?.id,
+                            email = email,
+                            phone = existingProfile?.phone
+                        ).orEmpty()
+                    } catch (_: Exception) { emptyList() }
+                } else emptyList()
 
                 sessionManager?.clearSavedTrackingCodes()
                 appointmentRepository?.clearCache()
@@ -237,28 +241,53 @@ fun OnboardingScreen(
 
                 if (effectiveName.isNotBlank() && effectivePhone.isNotBlank()) {
                     val profileId = existingProfile?.id ?: UUID.randomUUID().toString()
-                    try {
-                        authRepository?.syncPatientProfile(
-                            userId = profileId,
-                            email = email,
-                            fullName = effectiveName,
-                            phone = effectivePhone,
-                            gender = existingProfile?.gender ?: latestAppt?.patientGender,
-                            age = existingProfile?.age ?: latestAppt?.patientAge
-                        )
-                    } catch (_: Exception) {}
+                    val resolvedGender = existingProfile?.gender ?: latestAppt?.patientGender
+                    val resolvedAge = existingProfile?.age ?: latestAppt?.patientAge
 
+                    sessionManager?.setTermsAccepted(true)
                     sessionManager?.savePatientSession(
                         patientId = profileId,
                         email = email,
                         name = effectiveName,
                         phone = effectivePhone,
-                        gender = existingProfile?.gender ?: latestAppt?.patientGender,
-                        age = existingProfile?.age ?: latestAppt?.patientAge,
+                        gender = resolvedGender,
+                        age = resolvedAge,
                         isArchived = existingProfile?.isArchived == true,
                         deletionScheduledAt = existingProfile?.deletionScheduledAt
                     )
                     sessionManager?.setGuestMode(false)
+
+                    kotlinx.coroutines.CoroutineScope(
+                        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+                    ).launch {
+                        try {
+                            authRepository?.syncPatientProfile(
+                                userId = profileId,
+                                email = email,
+                                fullName = effectiveName,
+                                phone = effectivePhone,
+                                gender = resolvedGender,
+                                age = resolvedAge,
+                                preloadedProfile = existingProfile
+                            )
+                        } catch (_: Exception) {}
+                        try {
+                            val allLinked = appointmentRepository?.getAllPatientAppointments(
+                                userId = profileId,
+                                email = email,
+                                phone = effectivePhone
+                            ).orEmpty()
+                            for (appt in allLinked) {
+                                if (appt.trackingCode10Digit.isNotBlank()) {
+                                    sessionManager?.saveTrackingCode(
+                                        appt.trackingCode10Digit,
+                                        "${appt.patientName} | ${appt.appointmentDate}"
+                                    )
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+
                     isGoogleLoading = false
                     navController.navigate(NavRoutes.PatientMain.route) {
                         popUpTo(0) { inclusive = true }

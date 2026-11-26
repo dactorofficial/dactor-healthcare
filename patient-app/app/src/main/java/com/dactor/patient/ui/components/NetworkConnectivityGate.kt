@@ -88,7 +88,11 @@ fun isInternetAvailable(context: Context): Boolean {
 
 fun openInternetSettings(context: Context) {
     try {
-        val intent = Intent(Settings.ACTION_WIRELESS_SETTINGS).apply {
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY)
+        } else {
+            Intent(Settings.ACTION_WIRELESS_SETTINGS)
+        }.apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(intent)

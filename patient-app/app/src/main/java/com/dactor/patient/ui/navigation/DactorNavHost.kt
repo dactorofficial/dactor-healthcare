@@ -37,7 +37,8 @@ fun DactorNavHost(
     draftManager: com.dactor.patient.data.local.RegistrationDraftManager? = null,
     sessionManager: com.dactor.patient.data.local.UserSessionManager? = null,
     confirmedPaymentTrackingFlow: kotlinx.coroutines.flow.StateFlow<String?>? = null,
-    onConsumeConfirmedPayment: (() -> Unit)? = null
+    onConsumeConfirmedPayment: (() -> Unit)? = null,
+    isOverlayBlockingHome: Boolean = false
 ) {
     val observedConfirmedCode = confirmedPaymentTrackingFlow?.collectAsState()?.value
 
@@ -99,7 +100,8 @@ fun DactorNavHost(
                 notificationRepository = notificationRepository,
                 authRepository = authRepository,
                 sessionManager = sessionManager,
-                initialTab = 0
+                initialTab = 0,
+                isOverlayBlockingHome = isOverlayBlockingHome
             )
         }
         composable(NavRoutes.PatientMain.route) {
@@ -114,7 +116,8 @@ fun DactorNavHost(
                 notificationRepository = notificationRepository,
                 authRepository = authRepository,
                 sessionManager = sessionManager,
-                initialTab = 0
+                initialTab = 0,
+                isOverlayBlockingHome = isOverlayBlockingHome
             )
         }
         composable("patient_main?tab={tab}") { backStackEntry ->
@@ -130,7 +133,8 @@ fun DactorNavHost(
                 notificationRepository = notificationRepository,
                 authRepository = authRepository,
                 sessionManager = sessionManager,
-                initialTab = tab
+                initialTab = tab,
+                isOverlayBlockingHome = isOverlayBlockingHome
             )
         }
         composable(

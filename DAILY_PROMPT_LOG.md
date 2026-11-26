@@ -7,6 +7,23 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "add a button in clinic operational management section to acess patient and billing directory date wise directly and also change the ui"
+
+#### Changes Applied:
+1. **Clinic Mobile App (`clinic-app`)**:
+   - [`NavRoutes.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/navigation/NavRoutes.kt): Added `NavRoutes.BillingDirectory` (`"billing_directory"`) for clinic-wide direct navigation.
+   - [`DactorClinicNavHost.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/navigation/DactorClinicNavHost.kt): Registered `NavRoutes.BillingDirectory` and `"${NavRoutes.BillingDirectory}/{clinicId}"` routes opening `BillingScreen` with `appointmentId = ""`.
+   - [`DashboardScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/dashboard/DashboardScreen.kt): Added **"Patient & Billing Directory"** module button inside **5. Operational Management** pointing to `NavRoutes.BillingDirectory`.
+   - [`BillingScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/BillingScreen.kt): Upgraded **Section 1 (Date-Wise Patient & Bill Directory)** UI with a `Pick Date` calendar jump (`DateTimePickers.showDatePicker`), `All Dates` / `Today` / `Yesterday` quick chips, 4-card Date Summary KPI strip (`Visits`, `Billed`, `Paid`, `Due`), payment status filter chips (`ALL`, `PAID`, `PARTIAL`, `UNPAID`, `NO BILL`), filter reset prompt, and upgraded patient-billing cards while preserving Sections 2–7 (Bill Editor UI) intact.
+
+2. **Web Portal (`web-app`) — Rule 7 Parity**:
+   - [`ClinicPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/ClinicPortal.tsx): Renamed `billing` desk tab to **"Patient & Billing (Date-Wise)"**, added a quick-jump `"Date-Wise Billing Directory"` button in the Patient Directory header, and upgraded the `billing` view with date-wise appointment + combined billing summary (`computeCombinedBillingSummary`), `All Dates` / `Today` / `Yesterday` / calendar picker controls, 4-card KPI strip, payment status filters, search, and `"Manage Bill / PDF"` action opening the existing Bill Editor modal.
+
+---
+
+## 2026-11-26
+
+### Prompt:
 > "download through adb"
 
 #### Changes Applied:
@@ -143,6 +160,24 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-26
+
+### Prompt:
+> "a small thing to add when a user choses account and logs into the device the user has to wait there for few seconds why would that be so first tell me /plan" + "and before that also do that you ask to tick for terms and condition even to old users it should be only for those who is loggin in for the first time /plan and also it opens wifi automatically sometimes in patient app except this wait till the home screen opens for asking to turn on the location"
+
+#### Changes Applied:
+1. **Fast Parallel Google Sign-In & Background Sync**:
+   - [`AuthRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/repository/AuthRepository.kt): Added `resolveGoogleAccountPortalStatus(email)` running `clinics`, `doctors`, and `profiles` queries concurrently (`coroutineScope { async ... }`) in 1 round-trip and returning both `PortalAssociation?` and `Profile?`; updated `syncPatientProfile` to accept `preloadedProfile`.
+   - [`LoginScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/auth/LoginScreen.kt), [`OnboardingScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/onboarding/OnboardingScreen.kt), [`GuestAccountView.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/components/GuestAccountView.kt): Switched to `resolveGoogleAccountPortalStatus`, skipped pre-navigation appointment waterfall for returning patients with completed profiles, and moved `syncPatientProfile` + tracking-code backfill to background `Dispatchers.IO`.
+   - [`ClinicLoginScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/auth/ClinicLoginScreen.kt): Parallelized `FirebaseAuth.signInWithCredential` with `getClinicByEmail`, `getDoctorByEmail`, and `getProfileByEmail`, and moved `syncProfile` post-navigation onto background `Dispatchers.IO`.
+2. **Terms & Conditions Only for First-Time Users**:
+   - Auto-marked `sessionManager?.setTermsAccepted(true)` for returning patients and newly registered patients (`LoginScreen`, `OnboardingScreen`, `GuestAccountView`, `PatientMainScreen`).
+   - Updated [`PatientMainScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt) so logged-in returning users never see `showMandatoryTermsDialog`.
+3. **Wi-Fi Prevention & Home Location Prompt Timing**:
+   - [`PatientMainScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt) & [`OpenStreetMapPicker.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/components/OpenStreetMapPicker.kt): Removed `WifiManager` calls and switched to passive `ConnectivityManager` `TRANSPORT_WIFI` checks.
+   - [`NetworkConnectivityGate.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/components/NetworkConnectivityGate.kt): Switched `"Connect"` action on Android 10+ to inline `Settings.Panel.ACTION_INTERNET_CONNECTIVITY`.
+   - [`MainActivity.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/MainActivity.kt), [`DactorNavHost.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/navigation/DactorNavHost.kt), [`PatientMainScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt): Delayed proactive location permission / GPS prompt until `selectedTab == 0 && !showMandatoryTermsDialog && !isOverlayBlockingHome` + `800ms` settle delay.
+
+---
 
 ### Prompt:
 > "implement the sql urself"

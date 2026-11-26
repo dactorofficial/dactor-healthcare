@@ -249,7 +249,8 @@ class MainActivity : ComponentActivity() {
                                 draftManager = draftManager,
                                 sessionManager = sessionManager,
                                 confirmedPaymentTrackingFlow = confirmedPaymentTrackingFlow,
-                                onConsumeConfirmedPayment = { confirmedPaymentTrackingFlow.value = null }
+                                onConsumeConfirmedPayment = { confirmedPaymentTrackingFlow.value = null },
+                                isOverlayBlockingHome = showFirstLaunchLanguagePrompt
                             )
 
                             if (showFirstLaunchLanguagePrompt) {

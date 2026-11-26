@@ -313,13 +313,15 @@ fun fetchCurrentLocation(
             }
         }
 
-        val isWifiOn = try {
-            val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
-            wm?.isWifiEnabled == true
-        } catch (e: Exception) { false }
+        val hasActiveWifi = try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            val net = cm?.activeNetwork
+            val caps = if (net != null) cm.getNetworkCapabilities(net) else null
+            caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
+        } catch (_: Exception) { false }
 
-        // Phase 1: Check fresh last-known location for sub-5ms instant delivery
-        val providers = if (isWifiOn) {
+        // Phase 1: Check fresh last-known location for sub-5ms instant delivery (never touch WifiManager)
+        val providers = if (hasActiveWifi) {
             listOf(
                 android.location.LocationManager.GPS_PROVIDER,
                 android.location.LocationManager.NETWORK_PROVIDER,
@@ -347,18 +349,18 @@ fun fetchCurrentLocation(
             resolveAndDeliver(bestCachedLoc)
         }
 
-        // Phase 2: Rapid lock using GPS (clean, never wakes Wi-Fi) or fallback to Network only if Wi-Fi already active
+        // Phase 2: Rapid lock using GPS (never wakes Wi-Fi) or Network only when Wi-Fi transport is already active
         try {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                 val fastProvider = when {
                     hasGps -> android.location.LocationManager.GPS_PROVIDER
-                    hasNet && isWifiOn -> android.location.LocationManager.NETWORK_PROVIDER
+                    hasNet && hasActiveWifi -> android.location.LocationManager.NETWORK_PROVIDER
                     else -> android.location.LocationManager.PASSIVE_PROVIDER
                 }
                 lm.getCurrentLocation(fastProvider, null, context.mainExecutor) { liveLoc ->
                     if (liveLoc != null) {
                         resolveAndDeliver(liveLoc)
-                    } else if (fastProvider == android.location.LocationManager.GPS_PROVIDER && hasNet && isWifiOn) {
+                    } else if (fastProvider == android.location.LocationManager.GPS_PROVIDER && hasNet && hasActiveWifi) {
                         lm.getCurrentLocation(android.location.LocationManager.NETWORK_PROVIDER, null, context.mainExecutor) { netLoc ->
                             if (netLoc != null) resolveAndDeliver(netLoc)
                         }
@@ -377,7 +379,7 @@ fun fetchCurrentLocation(
                 }
                 if (hasGps) {
                     lm.requestSingleUpdate(android.location.LocationManager.GPS_PROVIDER, listener, android.os.Looper.getMainLooper())
-                } else if (hasNet && isWifiOn) {
+                } else if (hasNet && hasActiveWifi) {
                     lm.requestSingleUpdate(android.location.LocationManager.NETWORK_PROVIDER, listener, android.os.Looper.getMainLooper())
                 }
             }
@@ -401,7 +403,8 @@ fun PatientMainScreen(
     notificationRepository: NotificationRepository? = null,
     authRepository: AuthRepository? = null,
     sessionManager: UserSessionManager? = null,
-    initialTab: Int = 0
+    initialTab: Int = 0,
+    isOverlayBlockingHome: Boolean = false
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(initialTab.coerceIn(0, 3)) }
 
@@ -411,9 +414,14 @@ fun PatientMainScreen(
     var todayDoctorName by remember { mutableStateOf<String?>(null) }
     var showTodayPopup by remember { mutableStateOf(true) }
 
-    // ── Mandatory Non-Skippable Terms & Privacy Policy Gate ───────────────
+    // ── Mandatory Non-Skippable Terms & Privacy Policy Gate (Guests / First-Time Only) ──
+    val isLoggedInUser = sessionManager?.isLoggedIn() == true || (authRepository?.isLoggedIn() == true)
     var showMandatoryTermsDialog by remember {
-        mutableStateOf(sessionManager?.hasAcceptedTerms() == false)
+        val needsTerms = !isLoggedInUser && sessionManager?.hasAcceptedTerms() == false
+        if (isLoggedInUser && sessionManager?.hasAcceptedTerms() == false) {
+            sessionManager.setTermsAccepted(true)
+        }
+        mutableStateOf(needsTerms)
     }
 
     if (showMandatoryTermsDialog) {
@@ -846,9 +854,10 @@ fun HomeTab(
         }
     }
 
-    // Proactively ask for location permission on launch if not granted, or fetch location if granted
-    LaunchedEffect(Unit) {
-        if (!hasInitializedGps) {
+    // Wait until Home screen is visibly open (selectedTab == 0) and blocking overlays are cleared before asking for location
+    LaunchedEffect(selectedTab, showMandatoryTermsDialog, isOverlayBlockingHome) {
+        if (!hasInitializedGps && selectedTab == 0 && !showMandatoryTermsDialog && !isOverlayBlockingHome) {
+            delay(800L)
             hasInitializedGps = true
             val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
             val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED

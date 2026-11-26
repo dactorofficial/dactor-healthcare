@@ -383,7 +383,12 @@ fun ClinicLoginScreen(
         }
     }
 
-    fun processLoginForEmail(email: String, displayName: String = "", accountId: String? = null) {
+    fun processLoginForEmail(
+        email: String,
+        displayName: String = "",
+        accountId: String? = null,
+        firebaseIdToken: String? = null
+    ) {
         val trimmedEmail = email.trim().lowercase()
         if (trimmedEmail.isBlank()) {
             isLoading = false
@@ -398,20 +403,24 @@ fun ClinicLoginScreen(
 
         coroutineScope.launch {
             try {
-                val existingClinic = try {
-                    clinicRepository?.getClinicByEmail(trimmedEmail)
-                } catch (e: Exception) {
-                    null
-                }
-                val existingDoctor = try {
-                    doctorRepository?.getDoctorByEmail(trimmedEmail)
-                } catch (e: Exception) {
-                    null
-                }
-                val existingProfile = try {
-                    authRepository?.getProfileByEmail(trimmedEmail)
-                } catch (e: Exception) {
-                    null
+                val (existingClinic, existingDoctor, existingProfile) = kotlinx.coroutines.coroutineScope {
+                    val firebaseDef = if (!firebaseIdToken.isNullOrBlank()) {
+                        kotlinx.coroutines.async {
+                            val credential = GoogleAuthProvider.getCredential(firebaseIdToken, null)
+                            FirebaseAuth.getInstance().signInWithCredential(credential).await()
+                        }
+                    } else null
+                    val clinicDef = kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
+                        try { clinicRepository?.getClinicByEmail(trimmedEmail) } catch (_: Exception) { null }
+                    }
+                    val doctorDef = kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
+                        try { doctorRepository?.getDoctorByEmail(trimmedEmail) } catch (_: Exception) { null }
+                    }
+                    val profileDef = kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
+                        try { authRepository?.getProfileByEmail(trimmedEmail) } catch (_: Exception) { null }
+                    }
+                    firebaseDef?.await()
+                    Triple(clinicDef.await(), doctorDef.await(), profileDef.await())
                 }
 
                 if (selectedTab == 0) {
@@ -465,9 +474,13 @@ fun ClinicLoginScreen(
                             clinicRepository?.clearCache()
                             doctorRepository?.clearCache()
                             sessionManager?.saveClinicSession(clinicId, existingClinic.contactEmail ?: trimmedEmail, existingClinic.name)
-                            try {
-                                authRepository?.syncProfile(accountId ?: clinicId, trimmedEmail, existingClinic.name, "clinic_admin")
-                            } catch (ignored: Exception) {}
+                            kotlinx.coroutines.CoroutineScope(
+                                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+                            ).launch {
+                                try {
+                                    authRepository?.syncProfile(accountId ?: clinicId, trimmedEmail, existingClinic.name, "clinic_admin")
+                                } catch (_: Exception) {}
+                            }
 
                             isLoading = false
                             statusMessage = null
@@ -549,9 +562,13 @@ fun ClinicLoginScreen(
                             clinicRepository?.clearCache()
                             doctorRepository?.clearCache()
                             sessionManager?.saveDoctorSession(doctorId, existingDoctor.email, existingDoctor.fullName)
-                            try {
-                                authRepository?.syncProfile(accountId ?: doctorId, trimmedEmail, existingDoctor.fullName, "doctor")
-                            } catch (ignored: Exception) {}
+                            kotlinx.coroutines.CoroutineScope(
+                                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+                            ).launch {
+                                try {
+                                    authRepository?.syncProfile(accountId ?: doctorId, trimmedEmail, existingDoctor.fullName, "doctor")
+                                } catch (_: Exception) {}
+                            }
 
                             isLoading = false
                             statusMessage = null
@@ -612,19 +629,7 @@ fun ClinicLoginScreen(
             errorMessage = "Google sign-in did not return an ID token. Please sign in again."
             return
         }
-        coroutineScope.launch {
-            try {
-                isLoading = true
-                statusMessage = "Verifying Google session..."
-                val credential = GoogleAuthProvider.getCredential(idToken, null)
-                FirebaseAuth.getInstance().signInWithCredential(credential).await()
-                processLoginForEmail(email, "", account.id)
-            } catch (e: Exception) {
-                isLoading = false
-                statusMessage = null
-                errorMessage = "Firebase authentication failed: ${e.message ?: "Please sign in again."}"
-            }
-        }
+        processLoginForEmail(email, "", account.id, idToken)
     }
 
     val accountPickerLauncher = rememberLauncherForActivityResult(
