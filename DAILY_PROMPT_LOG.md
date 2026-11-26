@@ -184,6 +184,21 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "hey listen check the logs through the adb so i just logged out of clinic and tried to login to doctor it shows that the account is associated with clinic portal but i am trying to log in with the account with doctor account logged in so solve it first gve me plan and the reason of this error i think session id is not getting removed /plan"
+
+#### Changes Applied:
+1. **ADB Logcat Root Cause Diagnosis**:
+   - Confirmed via `adb logcat` (`14:37:20.903` FirebaseAuth sign-in -> `14:37:21.426` sign-out) that the Doctor Google account authenticated cleanly, then was rejected because `ClinicRepository.getClinicByEmail()` fell back to `getLastCachedClinic()` (`last_active_clinic` on disk from the previous Clinic session).
+2. **Clinic Cache Isolation ([`ClinicRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/ClinicRepository.kt))**:
+   - Removed `?: getLastCachedClinic()` from `getClinicByEmail()` (returns `null` when Supabase finds no matching clinic, and only falls back to `getCachedClinicByEmail(targetEmail)` on network exception).
+   - Guarded `getClinicById(id)` fallback with `.takeIf { it.id == id }`.
+   - Updated `clearCache()` to remove `last_active_clinic` from `clinic_cache_prefs` on sign-out.
+3. **Doctor Portal Conflict Safeguard ([`ClinicLoginScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/auth/ClinicLoginScreen.kt))**:
+   - Added email-matching safeguard `isClinicEmailMatch` before blocking a Doctor Portal login.
+
+---
+
+### Prompt:
 > "a small thing to add when a user choses account and logs into the device the user has to wait there for few seconds why would that be so first tell me /plan" + "and before that also do that you ask to tick for terms and condition even to old users it should be only for those who is loggin in for the first time /plan and also it opens wifi automatically sometimes in patient app except this wait till the home screen opens for asking to turn on the location"
 
 #### Changes Applied:
