@@ -7,6 +7,32 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-25
 
 ### Prompt:
+> "read it" (`c:\Users\dell\Downloads\walkthrough.md`) + "yes check what are left and solve them" (verify and resolve all 18 security audit findings VULN-001..VULN-018)
+
+#### Changes Applied:
+1. **Patient App Security (`patient-app/`, VULN-001–006)**:
+   - `VULN-001` & `VULN-006` ([`patient-app/app/build.gradle.kts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/build.gradle.kts)): Replaced hardcoded release keystore passwords (`DactorUpload2026!`) with `DACTOR_KEYSTORE_PASSWORD` / `DACTOR_KEY_ALIAS` / `DACTOR_KEY_PASSWORD` env/property lookups, enabled `isMinifyEnabled = true` and `isShrinkResources = true`, and added `androidx.security:security-crypto:1.1.0-alpha06`.
+   - `VULN-002` ([`patient-app/.../UserSessionManager.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/local/UserSessionManager.kt)): Migrated `dactor_patient_session` to hardware-backed `EncryptedSharedPreferences` (`dactor_patient_session_enc`) with one-time migration and cleanup of legacy plaintext prefs.
+   - `VULN-003` ([`patient-app/.../ClinicMapView.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/components/ClinicMapView.kt)): Replaced `popupLabel.innerHTML` concatenation with safe DOM node creation using `.textContent`.
+   - `VULN-004` ([`MainActivity.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/MainActivity.kt), [`NotificationHelper.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/service/NotificationHelper.kt)): Added per-install `internal_nav_token` validation and strict `^[A-Za-z0-9_-]{6,64}$` route argument filtering on `navigate_to` deep-link intents.
+   - `VULN-005` ([`patient-app/.../file_paths.xml`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/res/xml/file_paths.xml)): Removed broad `path="."` and cache root exposures; restricted FileProvider paths to `Download/`, `Download/Dactor Reports/`, `downloads/`, and `Dactor Reports/`.
+2. **Clinic App Security (`clinic-app/`, VULN-007–011)**:
+   - `VULN-007` & `VULN-011` ([`clinic-app/app/build.gradle.kts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/build.gradle.kts)): Externalized release keystore credentials to environment/Gradle properties and enabled `isMinifyEnabled = true` + `isShrinkResources = true`.
+   - `VULN-008` ([`DatabaseKeyManager.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/local/security/DatabaseKeyManager.kt)): Removed plaintext `dactor_vault_db_sec_fb` SharedPreferences fallback and threw `SecurityException` if `EncryptedSharedPreferences` cannot be initialized.
+   - `VULN-009` ([`clinic-app/.../UserSessionManager.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/local/UserSessionManager.kt)): Migrated `dactor_user_session` to `EncryptedSharedPreferences` (`dactor_user_session_enc`) with one-time migration and deletion of legacy plaintext prefs.
+   - `VULN-010` ([`clinic-app/.../file_paths.xml`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/res/xml/file_paths.xml)): Restricted FileProvider paths to `Download/`, `Download/Dactor Reports/`, `downloads/`, and `Dactor Reports/`.
+3. **Website & Web Portal (`web-app/`, VULN-012–016)**:
+   - `VULN-012` ([`PatientPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/PatientPortal.tsx), [`medicalDocPrinter.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/utils/medicalDocPrinter.ts)): Verified all string fields in print `document.write` sinks already use `escapeHtml()`.
+   - `VULN-013` & `VULN-014` ([`web-app/index.html`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/index.html), [`web-app/src/lib/firebase.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/lib/firebase.ts), [`web-app/package.json`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/package.json)): Added `<meta http-equiv="Content-Security-Policy">`, removed external `gstatic.com` Firebase `<script>` tags, and bundled `firebase@^10.12.0` via Vite.
+   - `VULN-015` ([`authStorage.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/utils/authStorage.ts), [`App.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/App.tsx), [`firebase.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/lib/firebase.ts), portal/auth callers, [`web-app/index.html`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/index.html)): Migrated auth session flags, tokens, and profile caches from persistent `localStorage` to `sessionStorage` with automatic one-time legacy key cleanup.
+   - `VULN-016` ([`web-app/package.json`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/package.json)): Upgraded `vite` to `^6.2.0` (`esbuild@0.25.12`) and `@vitejs/plugin-react` to `^4.3.4`; verified `npm.cmd run build` (`vite build` exit code `0` in `10.65s`).
+4. **CI/CD Workflows (`.github/workflows/`, VULN-017–018)**:
+   - `VULN-017` ([`cloud_backup_to_drive.yml`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/.github/workflows/cloud_backup_to_drive.yml)): Passed `github.event.inputs.clinic_id` and `dry_run` via quoted `env` variables (`INPUT_CLINIC_ID`, `INPUT_DRY_RUN`) instead of raw shell interpolation.
+   - `VULN-018` ([`auto_seo_sync.yml`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/.github/workflows/auto_seo_sync.yml)): Scoped top-level `permissions` to `contents: read` and assigned `contents: write` / `pages: write` + `id-token: write` strictly to `sync-seo` / `deploy-pages` jobs.
+
+---
+
+### Prompt:
 > "clinic-payment-signin-fix-plan.md /plan continue"
 
 #### Changes Applied:

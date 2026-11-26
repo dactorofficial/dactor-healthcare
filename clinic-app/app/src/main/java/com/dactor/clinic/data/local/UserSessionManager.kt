@@ -1,6 +1,10 @@
 package com.dactor.clinic.data.local
 
 import android.content.Context
+import android.content.SharedPreferences
+import android.os.Build
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -18,7 +22,60 @@ data class PendingSubmission(
 class UserSessionManager @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    private val prefs = context.getSharedPreferences("dactor_user_session", Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences = createEncryptedPrefsAndMigrate(context)
+
+    private fun createEncryptedPrefsAndMigrate(ctx: Context): SharedPreferences {
+        val encName = "dactor_user_session_enc"
+        val legacyName = "dactor_user_session"
+
+        fun buildEncrypted(): SharedPreferences {
+            val masterKey = MasterKey.Builder(ctx)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            return EncryptedSharedPreferences.create(
+                ctx,
+                encName,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        }
+
+        val encrypted = try {
+            buildEncrypted()
+        } catch (_: Throwable) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                ctx.deleteSharedPreferences(encName)
+            } else {
+                ctx.getSharedPreferences(encName, Context.MODE_PRIVATE).edit().clear().apply()
+            }
+            buildEncrypted()
+        }
+
+        val legacy = ctx.getSharedPreferences(legacyName, Context.MODE_PRIVATE)
+        val legacyEntries = legacy.all
+        if (!legacyEntries.isNullOrEmpty()) {
+            val editor = encrypted.edit()
+            for ((k, v) in legacyEntries) {
+                when (v) {
+                    is String -> editor.putString(k, v)
+                    is Boolean -> editor.putBoolean(k, v)
+                    is Int -> editor.putInt(k, v)
+                    is Long -> editor.putLong(k, v)
+                    is Float -> editor.putFloat(k, v)
+                    is Set<*> -> @Suppress("UNCHECKED_CAST") editor.putStringSet(k, v as Set<String>)
+                }
+            }
+            editor.apply()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                ctx.deleteSharedPreferences(legacyName)
+            } else {
+                legacy.edit().clear().apply()
+            }
+        }
+
+        return encrypted
+    }
 
     fun saveCachedClinicJson(jsonString: String) {
         prefs.edit().putString("last_cached_clinic_json", jsonString).apply()

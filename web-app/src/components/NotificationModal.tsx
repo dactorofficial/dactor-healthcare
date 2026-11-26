@@ -1,3 +1,4 @@
+import { getAuthStorageItem, setAuthStorageItem, removeAuthStorageItem } from '../utils/authStorage'
 import React, { useState, useEffect } from 'react'
 import {
   X,
@@ -35,7 +36,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
       let userId: string | undefined = undefined
       try {
         trackingCodes = JSON.parse(localStorage.getItem('dactor_patient_tracking_codes') || '[]')
-        const sessionRaw = localStorage.getItem('dactor_patient_session')
+        const sessionRaw = getAuthStorageItem('dactor_patient_session')
         if (sessionRaw) {
           const parsed = JSON.parse(sessionRaw)
           if (parsed?.id) userId = parsed.id

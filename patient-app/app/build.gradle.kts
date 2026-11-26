@@ -36,11 +36,20 @@ android {
         }
         create("release") {
             val uploadKeystore = file("keystores/dactor-upload.jks")
-            if (uploadKeystore.exists()) {
+            val envStorePassword = System.getenv("DACTOR_KEYSTORE_PASSWORD")
+                ?: project.findProperty("DACTOR_KEYSTORE_PASSWORD")?.toString()
+            val envKeyAlias = System.getenv("DACTOR_KEY_ALIAS")
+                ?: project.findProperty("DACTOR_KEY_ALIAS")?.toString()
+                ?: "dactor-upload"
+            val envKeyPassword = System.getenv("DACTOR_KEY_PASSWORD")
+                ?: project.findProperty("DACTOR_KEY_PASSWORD")?.toString()
+                ?: envStorePassword
+
+            if (uploadKeystore.exists() && !envStorePassword.isNullOrBlank() && !envKeyPassword.isNullOrBlank()) {
                 storeFile = uploadKeystore
-                storePassword = "DactorUpload2026!"
-                keyAlias = "dactor-upload"
-                keyPassword = "DactorUpload2026!"
+                storePassword = envStorePassword
+                keyAlias = envKeyAlias
+                keyPassword = envKeyPassword
             } else {
                 storeFile = file("keystores/debug.keystore")
                 storePassword = "android"
@@ -52,7 +61,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             isCrunchPngs = false
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
@@ -135,6 +145,9 @@ dependencies {
 
     // WorkManager for background notification sync when app is closed
     implementation("androidx.work:work-runtime-ktx:2.9.0")
+
+    // Security Crypto (EncryptedSharedPreferences)
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

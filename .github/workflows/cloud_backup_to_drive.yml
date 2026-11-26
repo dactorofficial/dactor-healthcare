@@ -37,13 +37,19 @@ jobs:
           GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
           GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
           GDRIVE_PARENT_FOLDER_ID: ${{ secrets.GDRIVE_PARENT_FOLDER_ID || '1eXKtRRgCubw7rDLKQjIEP3zezEZDZUXi' }}
+          INPUT_CLINIC_ID: ${{ github.event.inputs.clinic_id }}
+          INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
-          ARGS="--all"
-          if [ -n "${{ github.event.inputs.clinic_id }}" ]; then
-            ARGS="--clinic-id ${{ github.event.inputs.clinic_id }}"
+          if [ -n "$INPUT_CLINIC_ID" ]; then
+            if [ "$INPUT_DRY_RUN" = "true" ]; then
+              node scripts/sync_cloud_to_drive.mjs --clinic-id "$INPUT_CLINIC_ID" --dry-run
+            else
+              node scripts/sync_cloud_to_drive.mjs --clinic-id "$INPUT_CLINIC_ID"
+            fi
+          else
+            if [ "$INPUT_DRY_RUN" = "true" ]; then
+              node scripts/sync_cloud_to_drive.mjs --all --dry-run
+            else
+              node scripts/sync_cloud_to_drive.mjs --all
+            fi
           fi
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
-            ARGS="$ARGS --dry-run"
-          fi
-          
-          node scripts/sync_cloud_to_drive.mjs $ARGS

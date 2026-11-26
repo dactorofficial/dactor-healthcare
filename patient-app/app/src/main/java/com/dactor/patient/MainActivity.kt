@@ -480,12 +480,19 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleDeepLink(intent: Intent?) {
-        // 1. Process notification deep links with navigate_to == "tracker"
+        // 1. Process trusted internal notification deep links with navigate_to == "tracker"
         if (intent != null) {
+            val callerToken = intent.getStringExtra("internal_nav_token")
+            val isTrustedInternalCaller =
+                (!callerToken.isNullOrBlank() && callerToken == NotificationHelper.getInternalNavToken(this)) ||
+                    callingActivity?.packageName == packageName
             val navigateTo = intent.getStringExtra("navigate_to")
-            if (navigateTo.equals("tracker", ignoreCase = true)) {
-                val appointmentId = intent.getStringExtra("appointment_id")
+            if (isTrustedInternalCaller && navigateTo.equals("tracker", ignoreCase = true)) {
+                val rawAppointmentId = intent.getStringExtra("appointment_id")
                     ?: intent.getStringExtra("tracking_code")
+                val appointmentId = rawAppointmentId?.trim()?.takeIf {
+                    it.matches(Regex("^[A-Za-z0-9_-]{6,64}$"))
+                }
                 if (!appointmentId.isNullOrBlank()) {
                     val targetRoute = com.dactor.patient.ui.navigation.NavRoutes.QueueStatus.createRoute(appointmentId)
                     val activeNav = navHostControllerRef

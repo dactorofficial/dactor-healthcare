@@ -1,3 +1,4 @@
+import { getAuthStorageItem, setAuthStorageItem, removeAuthStorageItem } from '../utils/authStorage'
 import React, { useState, useEffect } from 'react'
 import {
   Lock,
@@ -135,9 +136,9 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
           ...profile,
           photoUrl: photo || profile.photoUrl,
         }
-        localStorage.setItem('dactor_patient_email', profile.email)
-        localStorage.setItem('dactor_patient_session', JSON.stringify(fullProfile))
-        localStorage.setItem('dactor_patient_logged_in', 'true')
+        setAuthStorageItem('dactor_patient_email', profile.email)
+        setAuthStorageItem('dactor_patient_session', JSON.stringify(fullProfile))
+        setAuthStorageItem('dactor_patient_logged_in', 'true')
         try {
           sessionStorage.removeItem('dactor_explicit_home')
           sessionStorage.removeItem('dactor_allow_home')
@@ -174,12 +175,12 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
       try {
         const targetPortal =
           sessionStorage.getItem('dactor_oauth_target_portal') ||
-          localStorage.getItem('dactor_oauth_target_portal')
+          getAuthStorageItem('dactor_oauth_target_portal')
         if (targetPortal === 'patient' || targetPortal === 'patient-portal' || targetPortal === 'account') {
           const redirected = await checkRedirectGoogleUser({ requireRedirectOnly: true })
           if (isMounted && redirected && redirected.email) {
             sessionStorage.removeItem('dactor_oauth_target_portal')
-            localStorage.removeItem('dactor_oauth_target_portal')
+            removeAuthStorageItem('dactor_oauth_target_portal')
             await processPatientLoginForGoogleUser(redirected.email, redirected.uid, redirected.photoURL)
           }
         }
@@ -192,7 +193,7 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
     const unsub = onFirebaseAuthStateChanged((u) => {
       const targetPortal =
         sessionStorage.getItem('dactor_oauth_target_portal') ||
-        localStorage.getItem('dactor_oauth_target_portal')
+        getAuthStorageItem('dactor_oauth_target_portal')
       if (
         isMounted &&
         u &&
@@ -295,9 +296,9 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
       }
       const finalProfile = saved || fallback
 
-      localStorage.setItem('dactor_patient_email', finalProfile.email)
-      localStorage.setItem('dactor_patient_session', JSON.stringify(finalProfile))
-      localStorage.setItem('dactor_patient_logged_in', 'true')
+      setAuthStorageItem('dactor_patient_email', finalProfile.email)
+      setAuthStorageItem('dactor_patient_session', JSON.stringify(finalProfile))
+      setAuthStorageItem('dactor_patient_logged_in', 'true')
       try {
         sessionStorage.removeItem('dactor_explicit_home')
         sessionStorage.removeItem('dactor_allow_home')
@@ -320,9 +321,9 @@ export const Login: React.FC<LoginProps> = ({ onNavigate }) => {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }
-      localStorage.setItem('dactor_patient_email', fallback.email)
-      localStorage.setItem('dactor_patient_session', JSON.stringify(fallback))
-      localStorage.setItem('dactor_patient_logged_in', 'true')
+      setAuthStorageItem('dactor_patient_email', fallback.email)
+      setAuthStorageItem('dactor_patient_session', JSON.stringify(fallback))
+      setAuthStorageItem('dactor_patient_logged_in', 'true')
       try {
         sessionStorage.removeItem('dactor_explicit_home')
         sessionStorage.removeItem('dactor_allow_home')

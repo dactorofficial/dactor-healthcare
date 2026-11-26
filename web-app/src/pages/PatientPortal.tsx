@@ -1,3 +1,4 @@
+import { getAuthStorageItem, setAuthStorageItem, removeAuthStorageItem } from '../utils/authStorage'
 import React, { useState, useEffect, useMemo } from 'react'
 import {
   User,
@@ -858,19 +859,19 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       try {
         const targetPortal =
           sessionStorage.getItem('dactor_oauth_target_portal') ||
-          localStorage.getItem('dactor_oauth_target_portal')
+          getAuthStorageItem('dactor_oauth_target_portal')
         const redirectedUser = (targetPortal === 'patient' || targetPortal === 'patient-portal')
           ? await checkRedirectGoogleUser({ requireRedirectOnly: true })
           : null
         if (redirectedUser) {
           sessionStorage.removeItem('dactor_oauth_target_portal')
-          localStorage.removeItem('dactor_oauth_target_portal')
+          removeAuthStorageItem('dactor_oauth_target_portal')
         }
         const storedEmail =
           redirectedUser?.email ||
-          localStorage.getItem('dactor_patient_email')
+          getAuthStorageItem('dactor_patient_email')
         if (storedEmail) {
-          const rawCached = localStorage.getItem('dactor_patient_session')
+          const rawCached = getAuthStorageItem('dactor_patient_session')
           let cachedProf: PatientProfile | null = null
           if (rawCached) {
             try {
@@ -885,7 +886,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             setPatientUser(fullProfile)
             initProfileFields(fullProfile)
             try {
-              localStorage.setItem('dactor_patient_session', JSON.stringify(fullProfile))
+              setAuthStorageItem('dactor_patient_session', JSON.stringify(fullProfile))
             } catch {}
           } else if (cachedProf && cachedProf.fullName) {
             const photo = redirectedUser?.photoURL || cachedProf.photoUrl
@@ -987,7 +988,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
       const targetPortal =
         sessionStorage.getItem('dactor_oauth_target_portal') ||
-        localStorage.getItem('dactor_oauth_target_portal')
+        getAuthStorageItem('dactor_oauth_target_portal')
       if (targetPortal && targetPortal !== 'patient' && targetPortal !== 'patient-portal') return
 
       // If user is already loaded with the same email, don't re-fetch
@@ -1004,9 +1005,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           if (isMounted) {
             setPatientUser(fullProfile)
             initProfileFields(fullProfile)
-            localStorage.setItem('dactor_patient_email', profile.email)
-            localStorage.setItem('dactor_patient_session', JSON.stringify(fullProfile))
-            localStorage.setItem('dactor_patient_logged_in', 'true')
+            setAuthStorageItem('dactor_patient_email', profile.email)
+            setAuthStorageItem('dactor_patient_session', JSON.stringify(fullProfile))
+            setAuthStorageItem('dactor_patient_logged_in', 'true')
             window.dispatchEvent(new Event('storage'))
           }
         }
@@ -1038,7 +1039,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     if (ok) {
       const updated = { ...patientUser, isArchived: false, deletionScheduledAt: undefined }
       setPatientUser(updated)
-      localStorage.setItem('dactor_patient_session', JSON.stringify(updated))
+      setAuthStorageItem('dactor_patient_session', JSON.stringify(updated))
     } else {
       alert('Could not cancel deletion. Please try again.')
     }
@@ -1054,7 +1055,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         deletionScheduledAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       }
       setPatientUser(updated)
-      localStorage.setItem('dactor_patient_session', JSON.stringify(updated))
+      setAuthStorageItem('dactor_patient_session', JSON.stringify(updated))
       setShowDeleteConfirmModal(false)
       setShowEditProfileModal(false)
     } else {
@@ -1076,7 +1077,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     try {
       await deletePatientProfilePermanently(patientUser.id)
       await deleteFirebaseUserAccount()
-      localStorage.removeItem('dactor_patient_session')
+      removeAuthStorageItem('dactor_patient_session')
       setPatientUser(null)
       setShowDeleteConfirmModal(false)
       setShowEditProfileModal(false)
@@ -2728,9 +2729,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         const fullProfile = { ...profile, photoUrl: photo || profile.photoUrl }
         setPatientUser(fullProfile)
         initProfileFields(fullProfile)
-        localStorage.setItem('dactor_patient_email', profile.email)
-        localStorage.setItem('dactor_patient_session', JSON.stringify(fullProfile))
-        localStorage.setItem('dactor_patient_logged_in', 'true')
+        setAuthStorageItem('dactor_patient_email', profile.email)
+        setAuthStorageItem('dactor_patient_session', JSON.stringify(fullProfile))
+        setAuthStorageItem('dactor_patient_logged_in', 'true')
         localStorage.setItem('dactor_last_active_role', 'patient')
         localStorage.setItem('dactor_last_active_portal', 'patient-portal')
         try {
@@ -2761,8 +2762,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         setEditGender(partial.gender || 'Male')
         setEditCity(partial.city || '')
         setEditTermsAccepted(true)
-        localStorage.setItem('dactor_patient_email', partial.email)
-        localStorage.setItem('dactor_patient_logged_in', 'true')
+        setAuthStorageItem('dactor_patient_email', partial.email)
+        setAuthStorageItem('dactor_patient_logged_in', 'true')
         try {
           sessionStorage.removeItem('dactor_explicit_home')
           sessionStorage.removeItem('dactor_allow_home')
@@ -2836,9 +2837,9 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       const finalProfile = updated || fallback
       setPatientUser(finalProfile)
       initProfileFields(finalProfile)
-      localStorage.setItem('dactor_patient_session', JSON.stringify(finalProfile))
-      localStorage.setItem('dactor_patient_email', finalProfile.email)
-      localStorage.setItem('dactor_patient_logged_in', 'true')
+      setAuthStorageItem('dactor_patient_session', JSON.stringify(finalProfile))
+      setAuthStorageItem('dactor_patient_email', finalProfile.email)
+      setAuthStorageItem('dactor_patient_logged_in', 'true')
       try {
         sessionStorage.removeItem('dactor_explicit_home')
         sessionStorage.removeItem('dactor_allow_home')
@@ -2860,7 +2861,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       }
       setPatientUser(fallback)
       initProfileFields(fallback)
-      localStorage.setItem('dactor_patient_session', JSON.stringify(fallback))
+      setAuthStorageItem('dactor_patient_session', JSON.stringify(fallback))
       setShowEditProfileModal(false)
       await restorePendingBookingRedirect()
     } finally {
@@ -3097,11 +3098,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     setTransactions([])
     setGuestCodesVersion((v) => v + 1)
     try {
-      localStorage.removeItem('dactor_patient_logged_in')
-      localStorage.removeItem('dactor_patient_session')
-      localStorage.removeItem('dactor_patient_email')
-      localStorage.removeItem('dactor_google_user')
-      localStorage.removeItem('dactor_oauth_target_portal')
+      removeAuthStorageItem('dactor_patient_logged_in')
+      removeAuthStorageItem('dactor_patient_session')
+      removeAuthStorageItem('dactor_patient_email')
+      removeAuthStorageItem('dactor_google_user')
+      removeAuthStorageItem('dactor_oauth_target_portal')
       sessionStorage.removeItem('dactor_oauth_target_portal')
       firebaseSignOut()
       clearAllAppCache().catch(() => {})

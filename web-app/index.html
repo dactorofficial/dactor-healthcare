@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.googleapis.com https://accounts.google.com; frame-src 'self' https://*.firebaseapp.com https://accounts.google.com; object-src 'none'; base-uri 'self';"
+    />
     
     <!-- Primary SEO Meta Tags -->
     <title>Dactor - Nepal's Realtime Healthcare OPD Queue, Clinic Portal & Lab Ecosystem</title>
@@ -2122,9 +2126,9 @@
       (function() {
         try {
           var l = window.location;
-          var isPatient = localStorage.getItem('dactor_patient_logged_in') === 'true' || 
-                          Boolean(localStorage.getItem('dactor_patient_session')) ||
-                          Boolean(localStorage.getItem('dactor_patient_email'));
+          var isPatient = sessionStorage.getItem('dactor_patient_logged_in') === 'true' || 
+                          Boolean(sessionStorage.getItem('dactor_patient_session')) ||
+                          Boolean(sessionStorage.getItem('dactor_patient_email'));
           var isHomeExplicit = l.search.indexOf('view=home') !== -1 || 
                                l.hash.indexOf('view=home') !== -1 ||
                                l.search.indexOf('stay=home') !== -1;
@@ -2375,59 +2379,6 @@
     </noscript>
     <!-- STATIC_NOSCRIPT_END -->
     <div id="root"></div>
-
-    <!-- Firebase Web SDK (project: dactor-ea1e1) -->
-    <!-- Firebase Web SDK (compat mode - preserved intact by Vite build) -->
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-    <script>
-      (function() {
-        var firebaseConfig = {
-          apiKey: "AIzaSyCc1ho812HhFLO3-XeNcDT_1Y68BdpzObU",
-          authDomain: "dactor-ea1e1.firebaseapp.com",
-          projectId: "dactor-ea1e1",
-          storageBucket: "dactor-ea1e1.firebasestorage.app",
-          messagingSenderId: "429529188002",
-          appId: "1:429529188002:web:cd7cf4e561779910ab79fb",
-          measurementId: "G-9SK7JVV6XM"
-        };
-
-        try {
-          if (!window.firebase.apps.length) {
-            window.firebase.initializeApp(firebaseConfig);
-          }
-          var auth = window.firebase.auth();
-          var googleProvider = new window.firebase.auth.GoogleAuthProvider();
-          googleProvider.setCustomParameters({ prompt: 'select_account' });
-
-          window.dactorFirebase = {
-            app: window.firebase.app(),
-            auth: auth,
-            googleProvider: googleProvider,
-            initialized: true,
-            signInWithGoogle: function() {
-              return auth.signInWithPopup(googleProvider);
-            },
-            signInWithRedirect: function() {
-              return auth.signInWithRedirect(googleProvider);
-            },
-            getRedirectResult: function() {
-              return auth.getRedirectResult();
-            },
-            signOut: function() {
-              return auth.signOut();
-            },
-            onAuthStateChanged: function(cb) {
-              return auth.onAuthStateChanged(cb);
-            }
-          };
-        } catch (err) {
-          console.warn('Firebase initialization notice:', err);
-          window.dactorFirebase = { initialized: false, error: String(err) };
-        }
-      })();
-    </script>
-
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

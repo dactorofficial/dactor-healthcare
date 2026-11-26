@@ -206,7 +206,17 @@ fun ClinicMapView(
                                       var gridCanvas = document.getElementById('gridCanvas');
                                       var ctx = gridCanvas.getContext('2d');
 
-                                      popupLabel.innerHTML = '<b>' + $quotedName + '</b><br><span style="color:#475569;font-size:10px;">' + $quotedAddr + '</span>';
+                                      popupLabel.textContent = '';
+                                      var titleEl = document.createElement('b');
+                                      titleEl.textContent = $quotedName;
+                                      var brEl = document.createElement('br');
+                                      var addrEl = document.createElement('span');
+                                      addrEl.style.color = '#475569';
+                                      addrEl.style.fontSize = '10px';
+                                      addrEl.textContent = $quotedAddr;
+                                      popupLabel.appendChild(titleEl);
+                                      popupLabel.appendChild(brEl);
+                                      popupLabel.appendChild(addrEl);
 
                                       var zoom = 15;
                                       var centerLat = $effectiveLat;

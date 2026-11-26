@@ -1,3 +1,4 @@
+import { getAuthStorageItem, setAuthStorageItem, removeAuthStorageItem } from '../utils/authStorage'
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Stethoscope,
@@ -128,10 +129,10 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     'auth_screen' | 'register_form' | 'kyc_pending' | 'consultation_desk'
   >(() => {
     try {
-      const isDoctorLoggedIn = localStorage.getItem('dactor_doctor_logged_in') === 'true'
-      const savedDoc = localStorage.getItem('dactor_doctor_session')
+      const isDoctorLoggedIn = getAuthStorageItem('dactor_doctor_logged_in') === 'true'
+      const savedDoc = getAuthStorageItem('dactor_doctor_session')
       if (savedDoc && isDoctorLoggedIn) return 'consultation_desk'
-      const pending = localStorage.getItem('dactor_doctor_pending_kyc')
+      const pending = getAuthStorageItem('dactor_doctor_pending_kyc')
       if (pending) return 'kyc_pending'
       return 'auth_screen'
     } catch {
@@ -141,7 +142,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
 
   const [verifiedEmail, setVerifiedEmail] = useState<string>(() => {
     try {
-      return localStorage.getItem('dactor_doctor_email') || ''
+      return getAuthStorageItem('dactor_doctor_email') || ''
     } catch {
       return ''
     }
@@ -156,7 +157,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     status: string
   } | null>(() => {
     try {
-      const raw = localStorage.getItem('dactor_doctor_pending_kyc')
+      const raw = getAuthStorageItem('dactor_doctor_pending_kyc')
       return raw ? JSON.parse(raw) : null
     } catch {
       return null
@@ -446,19 +447,19 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
         // Check if returning from genuine Google OAuth redirect intended for doctor
         const targetPortal =
           sessionStorage.getItem('dactor_oauth_target_portal') ||
-          localStorage.getItem('dactor_oauth_target_portal')
+          getAuthStorageItem('dactor_oauth_target_portal')
         if (targetPortal === 'doctor') {
           const redirected = await checkRedirectGoogleUser({ requireRedirectOnly: true })
           if (redirected && redirected.email) {
             sessionStorage.removeItem('dactor_oauth_target_portal')
-            localStorage.removeItem('dactor_oauth_target_portal')
+            removeAuthStorageItem('dactor_oauth_target_portal')
             await processDoctorLoginForEmail(redirected.email)
             return
           }
         }
 
         // If saved doctor session exists, reload fresh doctor record
-        const savedDocRaw = localStorage.getItem('dactor_doctor_session')
+        const savedDocRaw = getAuthStorageItem('dactor_doctor_session')
         if (savedDocRaw) {
           const parsed = JSON.parse(savedDocRaw)
           if (parsed?.id) {
@@ -596,9 +597,9 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   // Save session helper
   const saveDoctorSession = (doctor: Doctor) => {
     try {
-      localStorage.setItem('dactor_doctor_session', JSON.stringify(doctor))
-      localStorage.setItem('dactor_doctor_email', doctor.email || '')
-      localStorage.setItem('dactor_doctor_logged_in', 'true')
+      setAuthStorageItem('dactor_doctor_session', JSON.stringify(doctor))
+      setAuthStorageItem('dactor_doctor_email', doctor.email || '')
+      setAuthStorageItem('dactor_doctor_logged_in', 'true')
       try {
         sessionStorage.removeItem('dactor_explicit_home')
         sessionStorage.removeItem('dactor_allow_home')
@@ -648,7 +649,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
             status: kStatus,
           }
           setPendingDocData(pending)
-          localStorage.setItem('dactor_doctor_pending_kyc', JSON.stringify(pending))
+          setAuthStorageItem('dactor_doctor_pending_kyc', JSON.stringify(pending))
           setCurrentView('kyc_pending')
         }
       } else {
@@ -669,7 +670,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     const unsub = onFirebaseAuthStateChanged((u) => {
       const targetPortal =
         sessionStorage.getItem('dactor_oauth_target_portal') ||
-        localStorage.getItem('dactor_oauth_target_portal')
+        getAuthStorageItem('dactor_oauth_target_portal')
       if (isMounted && u && u.email && !currentDoctor && currentView === 'auth_screen' && targetPortal === 'doctor') {
         processDoctorLoginForEmail(u.email)
       }
@@ -720,7 +721,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       if (refreshed) {
         const kStatus = (refreshed.kycStatus || 'pending').toLowerCase()
         if (kStatus === 'approved' || kStatus === 'verified') {
-          localStorage.removeItem('dactor_doctor_pending_kyc')
+          removeAuthStorageItem('dactor_doctor_pending_kyc')
           setCurrentDoctor(refreshed)
           setIsInCabin(refreshed.isInClinic ?? true)
           saveDoctorSession(refreshed)
@@ -728,8 +729,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           await loadDoctorClinicsAndAppointments(refreshed)
         } else {
           setPendingDocData({ ...pendingDocData, status: kStatus })
-          localStorage.setItem(
-            'dactor_doctor_pending_kyc',
+          setAuthStorageItem('dactor_doctor_pending_kyc',
             JSON.stringify({ ...pendingDocData, status: kStatus })
           )
           setKycCheckMsg('Status checked: Medical KYC is still under regulatory review.')
@@ -854,7 +854,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
         status: 'pending',
       }
       setPendingDocData(pending)
-      localStorage.setItem('dactor_doctor_pending_kyc', JSON.stringify(pending))
+      setAuthStorageItem('dactor_doctor_pending_kyc', JSON.stringify(pending))
       setCurrentView('kyc_pending')
     } catch (err: any) {
       console.error('Registration error:', err)
@@ -1335,7 +1335,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       if (!ok) throw new Error('Failed to update doctor profile')
       const updated = { ...currentDoctor, profilePictureUrl: publicUrl }
       setCurrentDoctor(updated)
-      localStorage.setItem('dactor_doctor_session', JSON.stringify(updated))
+      setAuthStorageItem('dactor_doctor_session', JSON.stringify(updated))
       setPhotoUpdateMsg('Profile photo updated!')
       setTimeout(() => setPhotoUpdateMsg(null), 3000)
     } catch (err: any) {
@@ -1352,11 +1352,11 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     setCurrentDoctor(null)
     setCurrentView('auth_screen')
     try {
-      localStorage.removeItem('dactor_doctor_session')
-      localStorage.removeItem('dactor_doctor_email')
-      localStorage.removeItem('dactor_doctor_logged_in')
-      localStorage.removeItem('dactor_doctor_pending_kyc')
-      localStorage.removeItem('dactor_oauth_target_portal')
+      removeAuthStorageItem('dactor_doctor_session')
+      removeAuthStorageItem('dactor_doctor_email')
+      removeAuthStorageItem('dactor_doctor_logged_in')
+      removeAuthStorageItem('dactor_doctor_pending_kyc')
+      removeAuthStorageItem('dactor_oauth_target_portal')
       sessionStorage.removeItem('dactor_oauth_target_portal')
       firebaseSignOut()
       clearAllAppCache().catch(() => {})

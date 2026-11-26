@@ -12,9 +12,7 @@ on:
       - 'web-app/index.html'
 
 permissions:
-  contents: write
-  pages: write
-  id-token: write
+  contents: read
 
 concurrency:
   group: "seo-sync"
@@ -23,6 +21,8 @@ concurrency:
 jobs:
   sync-seo:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -61,6 +61,9 @@ jobs:
     needs: sync-seo
     if: always()
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

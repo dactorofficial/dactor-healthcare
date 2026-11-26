@@ -1,3 +1,4 @@
+import { getAuthStorageItem, setAuthStorageItem, removeAuthStorageItem } from '../utils/authStorage'
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Building2,
@@ -559,12 +560,12 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     'auth_choice' | 'register_form' | 'pending_verification' | 'operational_desk'
   >(() => {
     try {
-      const isClinicAuth = localStorage.getItem('dactor_clinic_logged_in') === 'true'
+      const isClinicAuth = getAuthStorageItem('dactor_clinic_logged_in') === 'true'
       const role = localStorage.getItem('dactor_clinic_role')
       if (isClinicAuth && (role === 'clinic_manager' || role === 'lab_tech' || role === 'doctor')) {
         return 'operational_desk'
       }
-      if (localStorage.getItem('dactor_pending_verification')) {
+      if (getAuthStorageItem('dactor_pending_verification')) {
         return 'pending_verification'
       }
       return 'auth_choice'
@@ -582,7 +583,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     status: string
   } | null>(() => {
     try {
-      const raw = localStorage.getItem('dactor_pending_verification')
+      const raw = getAuthStorageItem('dactor_pending_verification')
       return raw ? JSON.parse(raw) : null
     } catch {
       return null
@@ -591,7 +592,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
 
   const [verifiedEmail, setVerifiedEmail] = useState<string>(() => {
     try {
-      return localStorage.getItem('dactor_clinic_email') || ''
+      return getAuthStorageItem('dactor_clinic_email') || ''
     } catch {
       return ''
     }
@@ -623,7 +624,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     try {
-      const isClinicAuth = localStorage.getItem('dactor_clinic_logged_in') === 'true'
+      const isClinicAuth = getAuthStorageItem('dactor_clinic_logged_in') === 'true'
       const role = localStorage.getItem('dactor_clinic_role')
       return isClinicAuth && (role === 'clinic_manager' || role === 'lab_tech' || role === 'doctor')
     } catch {
@@ -632,7 +633,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
   })
   const [authEmail, setAuthEmail] = useState<string | null>(() => {
     try {
-      return localStorage.getItem('dactor_clinic_email') || null
+      return getAuthStorageItem('dactor_clinic_email') || null
     } catch {
       return null
     }
@@ -1427,14 +1428,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
       setMedicalQualifications(quals)
       setAllSystemDoctors(allDocs)
 
-      const savedEmail = (localStorage.getItem('dactor_clinic_email') || '').trim().toLowerCase()
+      const savedEmail = (getAuthStorageItem('dactor_clinic_email') || '').trim().toLowerCase()
       let initialClinic: Clinic | null = null
       if (savedEmail) {
         initialClinic =
           cList.find((c) => (c.contactEmail || '').toLowerCase() === savedEmail) ||
           (await getClinicByEmail(savedEmail))
       }
-      if (!initialClinic && cList.length > 0 && !localStorage.getItem('dactor_clinic_logged_in') && !selectedClinic) {
+      if (!initialClinic && cList.length > 0 && !getAuthStorageItem('dactor_clinic_logged_in') && !selectedClinic) {
         initialClinic = cList[0]
       }
 
@@ -1813,17 +1814,17 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     setAuthRole(role)
     setCurrentView('operational_desk')
     try {
-      localStorage.setItem('dactor_clinic_logged_in', 'true')
-      localStorage.setItem('dactor_clinic_email', email)
+      setAuthStorageItem('dactor_clinic_logged_in', 'true')
+      setAuthStorageItem('dactor_clinic_email', email)
       localStorage.setItem('dactor_clinic_role', role)
       localStorage.setItem('dactor_last_active_role', 'clinic_manager')
       localStorage.setItem('dactor_last_active_portal', 'portal')
-      localStorage.removeItem('dactor_pending_verification')
+      removeAuthStorageItem('dactor_pending_verification')
 
       // Purge conflicting patient session keys to prevent Navbar role mismatch
-      localStorage.removeItem('dactor_patient_logged_in')
-      localStorage.removeItem('dactor_patient_session')
-      localStorage.removeItem('dactor_patient_email')
+      removeAuthStorageItem('dactor_patient_logged_in')
+      removeAuthStorageItem('dactor_patient_session')
+      removeAuthStorageItem('dactor_patient_email')
 
       try {
         sessionStorage.removeItem('dactor_explicit_home')
@@ -1840,14 +1841,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     setSelectedClinic(null)
     setCurrentView('auth_choice')
     try {
-      localStorage.removeItem('dactor_clinic_logged_in')
-      localStorage.removeItem('dactor_clinic_email')
+      removeAuthStorageItem('dactor_clinic_logged_in')
+      removeAuthStorageItem('dactor_clinic_email')
       localStorage.removeItem('dactor_clinic_role')
-      localStorage.removeItem('dactor_google_user')
-      localStorage.removeItem('dactor_pending_verification')
+      removeAuthStorageItem('dactor_google_user')
+      removeAuthStorageItem('dactor_pending_verification')
       localStorage.removeItem('dactor_last_active_role')
       localStorage.removeItem('dactor_last_active_portal')
-      localStorage.removeItem('dactor_oauth_target_portal')
+      removeAuthStorageItem('dactor_oauth_target_portal')
       sessionStorage.removeItem('dactor_oauth_target_portal')
       firebaseSignOut()
       clearAllAppCache().catch(() => {})
@@ -1866,21 +1867,21 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
       // 1. Check if returning from genuine Google OAuth redirect intended for clinic
       const targetPortal =
         sessionStorage.getItem('dactor_oauth_target_portal') ||
-        localStorage.getItem('dactor_oauth_target_portal')
+        getAuthStorageItem('dactor_oauth_target_portal')
       if (targetPortal === 'clinic') {
         const redirected = await checkRedirectGoogleUser({ requireRedirectOnly: true })
         if (!isMounted) return
         if (redirected && redirected.email) {
           sessionStorage.removeItem('dactor_oauth_target_portal')
-          localStorage.removeItem('dactor_oauth_target_portal')
+          removeAuthStorageItem('dactor_oauth_target_portal')
           await processLoginForEmail(redirected.email, 'clinic')
           return
         }
       }
 
       // 2. Check if already marked as logged in
-      const isClinicAuth = localStorage.getItem('dactor_clinic_logged_in') === 'true'
-      const savedEmail = (localStorage.getItem('dactor_clinic_email') || '').trim().toLowerCase()
+      const isClinicAuth = getAuthStorageItem('dactor_clinic_logged_in') === 'true'
+      const savedEmail = (getAuthStorageItem('dactor_clinic_email') || '').trim().toLowerCase()
       if (isClinicAuth && savedEmail && !isAuthenticated) {
         await processLoginForEmail(savedEmail, 'clinic')
       }
@@ -1892,7 +1893,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     const unsub = onFirebaseAuthStateChanged((u) => {
       const targetPortal =
         sessionStorage.getItem('dactor_oauth_target_portal') ||
-        localStorage.getItem('dactor_oauth_target_portal')
+        getAuthStorageItem('dactor_oauth_target_portal')
       if (isMounted && u && u.email && !isAuthenticated && currentView === 'auth_choice' && targetPortal === 'clinic') {
         processLoginForEmail(u.email, 'clinic')
       }
@@ -1945,7 +1946,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
             status: vStatus,
           }
           setPendingEntity(pending)
-          localStorage.setItem('dactor_pending_verification', JSON.stringify(pending))
+          setAuthStorageItem('dactor_pending_verification', JSON.stringify(pending))
           setCurrentView('pending_verification')
         }
       } else {
@@ -2006,7 +2007,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           return
         } else {
           setPendingEntity({ ...pendingEntity, status: st })
-          localStorage.setItem('dactor_pending_verification', JSON.stringify({ ...pendingEntity, status: st }))
+          setAuthStorageItem('dactor_pending_verification', JSON.stringify({ ...pendingEntity, status: st }))
           setVerificationCheckMsg('Status checked: Registration is still under administrative review.')
         }
       }
@@ -2181,7 +2182,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
       setSelectedClinic(created)
       setClinics((prev) => [created, ...prev])
       setPendingEntity(pending)
-      localStorage.setItem('dactor_pending_verification', JSON.stringify(pending))
+      setAuthStorageItem('dactor_pending_verification', JSON.stringify(pending))
       setCurrentView('pending_verification')
     } catch (err: any) {
       console.error('Clinic registration error details:', err)

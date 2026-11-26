@@ -24,25 +24,24 @@ class DatabaseKeyManager @Inject constructor(
     companion object {
         private const val TAG = "DatabaseKeyManager"
         private const val PREFS_FILE = "dactor_vault_db_sec"
-        private const val FALLBACK_PREFS_FILE = "dactor_vault_db_sec_fb"
         private const val KEY_DB_PASSPHRASE = "k_sqlcipher_db_pass"
         private const val KEY_LENGTH_BYTES = 32 // 256 bits
     }
 
     /**
      * Retrieves or generates a 256-bit AES passphrase for SQLCipher SupportFactory.
-     * Hardened against Android Keystore invalidation, AEADBadTagException,
-     * and OEM crypto provider failures across app updates.
+     * Hardened against Android Keystore invalidation and AEADBadTagException without
+     * ever falling back to unencrypted SharedPreferences.
      */
     @Synchronized
     fun getOrCreatePassphrase(): ByteArray {
-        val prefs = getEncryptedPreferencesOrFallback()
+        val prefs = getEncryptedPreferencesOrThrow()
 
         var encodedPass: String? = null
         try {
             encodedPass = prefs.getString(KEY_DB_PASSPHRASE, null)
         } catch (t: Throwable) {
-            Log.e(TAG, "Failed to read database passphrase from SharedPreferences. Purging corrupted prefs.", t)
+            Log.e(TAG, "Failed to read database passphrase from EncryptedSharedPreferences. Purging corrupted prefs.", t)
             resetCorruptedPrefs()
         }
 
@@ -62,28 +61,16 @@ class DatabaseKeyManager @Inject constructor(
         SecureRandom().nextBytes(randomBytes)
         val newEncodedPass = Base64.encodeToString(randomBytes, Base64.NO_WRAP)
 
-        // Attempt saving to primary prefs, falling back if write fails
-        var saved = false
         try {
             prefs.edit().putString(KEY_DB_PASSPHRASE, newEncodedPass).apply()
-            saved = true
         } catch (t: Throwable) {
-            Log.e(TAG, "Failed to save key in primary prefs. Attempting fallback.", t)
-        }
-
-        if (!saved) {
-            try {
-                val fbPrefs = context.getSharedPreferences(FALLBACK_PREFS_FILE, Context.MODE_PRIVATE)
-                fbPrefs.edit().putString(KEY_DB_PASSPHRASE, newEncodedPass).apply()
-            } catch (t: Throwable) {
-                Log.e(TAG, "Failed to save key in fallback prefs.", t)
-            }
+            throw SecurityException("Failed to persist SQLCipher key to hardware-backed EncryptedSharedPreferences", t)
         }
 
         return randomBytes
     }
 
-    private fun getEncryptedPreferencesOrFallback(): SharedPreferences {
+    private fun getEncryptedPreferencesOrThrow(): SharedPreferences {
         return try {
             createEncryptedSharedPreferences()
         } catch (t: Throwable) {
@@ -92,8 +79,8 @@ class DatabaseKeyManager @Inject constructor(
             try {
                 createEncryptedSharedPreferences()
             } catch (t2: Throwable) {
-                Log.e(TAG, "Secondary EncryptedSharedPreferences initialization failed. Using fallback SharedPreferences.", t2)
-                context.getSharedPreferences(FALLBACK_PREFS_FILE, Context.MODE_PRIVATE)
+                Log.e(TAG, "Secondary EncryptedSharedPreferences initialization failed.", t2)
+                throw SecurityException("Hardware-backed EncryptedSharedPreferences unavailable for SQLCipher key storage", t2)
             }
         }
     }

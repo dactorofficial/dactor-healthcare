@@ -1,15 +1,43 @@
 // Firebase & Real Google OAuth Authentication for Dactor Web App
 // Authenticates exclusively through official Google OAuth dialogs (Firebase Auth & Google Identity)
+import { initializeApp, getApps, getApp } from 'firebase/app'
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  getRedirectResult,
+  signOut,
+  onAuthStateChanged,
+} from 'firebase/auth'
 import { supabase } from './supabase'
+import { getAuthStorageItem, setAuthStorageItem, removeAuthStorageItem } from '../utils/authStorage'
 
 export const FIREBASE_CONFIG = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyCc1ho812HhFLO3-XeNcDT_1Y68BdpzObU',
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'dactor-ea1e1.firebaseapp.com',
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'dactor-ea1e1',
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'dactor-ea1e1.firebasestorage.app',
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '429529188002',
   appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:429529188002:web:cd7cf4e561779910ab79fb',
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || 'G-9SK7JVV6XM',
+}
+
+const firebaseApp = getApps().length ? getApp() : initializeApp(FIREBASE_CONFIG)
+const firebaseAuth = getAuth(firebaseApp)
+const googleProvider = new GoogleAuthProvider()
+googleProvider.setCustomParameters({ prompt: 'select_account' })
+
+if (typeof window !== 'undefined') {
+  ;(window as any).dactorFirebase = {
+    app: firebaseApp,
+    auth: firebaseAuth,
+    googleProvider,
+    initialized: true,
+    signInWithGoogle: () => signInWithPopup(firebaseAuth, googleProvider),
+    getRedirectResult: () => getRedirectResult(firebaseAuth),
+    signOut: () => signOut(firebaseAuth),
+    onAuthStateChanged: (cb: any) => onAuthStateChanged(firebaseAuth, cb),
+  }
 }
 
 export interface FirebaseAuthUser {
@@ -51,7 +79,7 @@ export async function checkRedirectGoogleUser(options?: { requireRedirectOnly?: 
           displayName: u.displayName || undefined,
           photoURL: u.photoURL || undefined,
         }
-        localStorage.setItem('dactor_google_user', JSON.stringify(userObj))
+        setAuthStorageItem('dactor_google_user', JSON.stringify(userObj))
         return userObj
       }
     }
@@ -75,7 +103,7 @@ export async function checkRedirectGoogleUser(options?: { requireRedirectOnly?: 
           displayName: u.displayName || undefined,
           photoURL: u.photoURL || undefined,
         }
-        localStorage.setItem('dactor_google_user', JSON.stringify(userObj))
+        setAuthStorageItem('dactor_google_user', JSON.stringify(userObj))
         return userObj
       }
     }
@@ -101,9 +129,9 @@ export async function checkRedirectGoogleUser(options?: { requireRedirectOnly?: 
     console.warn('Supabase getSession check notice:', err)
   }
 
-  // 4. Cached user from localStorage
+  // 4. Cached user from sessionStorage
   try {
-    const raw = localStorage.getItem('dactor_google_user')
+    const raw = getAuthStorageItem('dactor_google_user')
     if (raw) {
       const parsed = JSON.parse(raw)
       if (parsed && parsed.email) return parsed
@@ -127,7 +155,7 @@ export function onFirebaseAuthStateChanged(callback: (user: FirebaseAuthUser | n
             displayName: u.displayName || undefined,
             photoURL: u.photoURL || undefined,
           }
-          localStorage.setItem('dactor_google_user', JSON.stringify(userObj))
+          setAuthStorageItem('dactor_google_user', JSON.stringify(userObj))
           callback(userObj)
         } else {
           callback(null)
@@ -150,7 +178,8 @@ export async function signInWithFirebaseGoogle(
   // Save intended destination so portal navigation persists
   try {
     sessionStorage.setItem('dactor_oauth_target_portal', portalHint)
-    localStorage.setItem('dactor_oauth_target_portal', portalHint)
+    removeAuthStorageItem('dactor_oauth_target_portal')
+    setAuthStorageItem('dactor_oauth_target_portal', portalHint)
   } catch {}
 
   // Trigger official Google popup (works consistently across desktop & mobile without third-party cookie blocking)
@@ -165,7 +194,7 @@ export async function signInWithFirebaseGoogle(
           displayName: u.displayName || undefined,
           photoURL: u.photoURL || undefined,
         }
-        localStorage.setItem('dactor_google_user', JSON.stringify(userObj))
+        setAuthStorageItem('dactor_google_user', JSON.stringify(userObj))
         return userObj
       }
     } catch (fbErr: any) {
@@ -217,7 +246,7 @@ export function firebaseSignOut(): void {
     if (typeof window !== 'undefined' && (window as any).dactorFirebase?.signOut) {
       ;(window as any).dactorFirebase.signOut().catch(() => {})
     }
-    localStorage.removeItem('dactor_google_user')
+    removeAuthStorageItem('dactor_google_user')
   } catch {}
 }
 

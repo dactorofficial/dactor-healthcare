@@ -1,3 +1,4 @@
+import { getAuthStorageItem, setAuthStorageItem, removeAuthStorageItem } from '../utils/authStorage'
 import React, { useState, useEffect, useMemo } from 'react'
 import {
   ArrowLeft,
@@ -301,8 +302,8 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
           return
         }
         const isUserLoggedIn = Boolean(
-          localStorage.getItem('dactor_patient_session') ||
-            localStorage.getItem('dactor_patient_logged_in') === 'true'
+          getAuthStorageItem('dactor_patient_session') ||
+            getAuthStorageItem('dactor_patient_logged_in') === 'true'
         )
         if (!isUserLoggedIn) {
           const pendingData = {
@@ -482,7 +483,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
 
     // Check if logged-in patient has a verified profile in Supabase (to offer as a 1-tap chip, never auto-filled from Google)
     try {
-      const sessionRaw = localStorage.getItem('dactor_patient_session')
+      const sessionRaw = getAuthStorageItem('dactor_patient_session')
       if (sessionRaw) {
         const parsed = JSON.parse(sessionRaw)
         if (parsed?.email) {
@@ -2677,8 +2678,8 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                   }
 
                   const isUserLoggedIn = Boolean(
-                    localStorage.getItem('dactor_patient_session') ||
-                      localStorage.getItem('dactor_patient_logged_in') === 'true'
+                    getAuthStorageItem('dactor_patient_session') ||
+                      getAuthStorageItem('dactor_patient_logged_in') === 'true'
                   )
 
                   if (!isUserLoggedIn) {
@@ -3038,8 +3039,8 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                   }
 
                   const isUserLoggedIn = Boolean(
-                    localStorage.getItem('dactor_patient_session') ||
-                      localStorage.getItem('dactor_patient_logged_in') === 'true'
+                    getAuthStorageItem('dactor_patient_session') ||
+                      getAuthStorageItem('dactor_patient_logged_in') === 'true'
                   )
 
                   if (!isUserLoggedIn) {

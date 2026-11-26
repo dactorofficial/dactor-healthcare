@@ -1,3 +1,4 @@
+import { getAuthStorageItem, setAuthStorageItem, removeAuthStorageItem } from '../utils/authStorage'
 import { supabase } from '../lib/supabase'
 import { getFirebaseIdToken } from '../lib/firebase'
 import {
@@ -2706,7 +2707,7 @@ export function getCurrentLoggedInUserEmail(): string | null {
   if (typeof window === 'undefined') return null
   try {
     // 1. Cached Firebase Google user object
-    const gUserRaw = localStorage.getItem('dactor_google_user')
+    const gUserRaw = getAuthStorageItem('dactor_google_user')
     if (gUserRaw) {
       try {
         const gUser = JSON.parse(gUserRaw)
@@ -2723,11 +2724,11 @@ export function getCurrentLoggedInUserEmail(): string | null {
     if (session?.email) return session.email.trim().toLowerCase()
 
     // 4. Stored patient email directly
-    const patEmail = localStorage.getItem('dactor_patient_email')
+    const patEmail = getAuthStorageItem('dactor_patient_email')
     if (patEmail) return patEmail.trim().toLowerCase()
 
     // 5. Stored patient profile session
-    const patSessionRaw = localStorage.getItem('dactor_patient_session')
+    const patSessionRaw = getAuthStorageItem('dactor_patient_session')
     if (patSessionRaw) {
       try {
         const parsed = JSON.parse(patSessionRaw)
@@ -2736,9 +2737,9 @@ export function getCurrentLoggedInUserEmail(): string | null {
     }
 
     // 6. Doctor / Clinic emails
-    const docEmail = localStorage.getItem('dactor_doctor_email')
+    const docEmail = getAuthStorageItem('dactor_doctor_email')
     if (docEmail) return docEmail.trim().toLowerCase()
-    const clinicEmail = localStorage.getItem('dactor_clinic_email')
+    const clinicEmail = getAuthStorageItem('dactor_clinic_email')
     if (clinicEmail) return clinicEmail.trim().toLowerCase()
   } catch {}
   return null
@@ -3229,7 +3230,7 @@ export async function sendBroadcastNotification(clinicId: string, title: string,
       await supabase.functions.invoke('send-fcm-alert', {
         body: {
           clinicId: cleanClinicId || undefined,
-          clinicEmail: (localStorage.getItem('dactor_clinic_email') || '').trim().toLowerCase() || undefined,
+          clinicEmail: (getAuthStorageItem('dactor_clinic_email') || '').trim().toLowerCase() || undefined,
           title: cleanTitle,
           message: cleanMessage,
           type: 'clinic_broadcast',
@@ -5520,14 +5521,14 @@ export function getLoggedInUserSession(): ActiveUserSession | null {
     // Helper: Resolve Patient session
     const resolvePatientSession = (): ActiveUserSession | null => {
       const isPatAuth =
-        localStorage.getItem('dactor_patient_logged_in') === 'true' ||
-        Boolean(localStorage.getItem('dactor_patient_session')) ||
-        Boolean(localStorage.getItem('dactor_patient_email'))
+        getAuthStorageItem('dactor_patient_logged_in') === 'true' ||
+        Boolean(getAuthStorageItem('dactor_patient_session')) ||
+        Boolean(getAuthStorageItem('dactor_patient_email'))
       if (isPatAuth) {
-        let email = localStorage.getItem('dactor_patient_email') || null
-        if (!email && localStorage.getItem('dactor_patient_session')) {
+        let email = getAuthStorageItem('dactor_patient_email') || null
+        if (!email && getAuthStorageItem('dactor_patient_session')) {
           try {
-            const parsed = JSON.parse(localStorage.getItem('dactor_patient_session')!)
+            const parsed = JSON.parse(getAuthStorageItem('dactor_patient_session')!)
             email = parsed?.email || null
           } catch {}
         }
@@ -5542,22 +5543,22 @@ export function getLoggedInUserSession(): ActiveUserSession | null {
 
     // Helper: Resolve Doctor session
     const resolveDoctorSession = (): ActiveUserSession | null => {
-      const hasDocPending = Boolean(localStorage.getItem('dactor_doctor_pending_kyc'))
+      const hasDocPending = Boolean(getAuthStorageItem('dactor_doctor_pending_kyc'))
       const isDocAuth =
-        (localStorage.getItem('dactor_doctor_logged_in') === 'true' &&
-          (Boolean(localStorage.getItem('dactor_doctor_session')) || Boolean(localStorage.getItem('dactor_doctor_email')))) ||
+        (getAuthStorageItem('dactor_doctor_logged_in') === 'true' &&
+          (Boolean(getAuthStorageItem('dactor_doctor_session')) || Boolean(getAuthStorageItem('dactor_doctor_email')))) ||
         hasDocPending
       if (isDocAuth) {
-        let email = localStorage.getItem('dactor_doctor_email') || null
+        let email = getAuthStorageItem('dactor_doctor_email') || null
         if (!email && hasDocPending) {
           try {
-            const parsed = JSON.parse(localStorage.getItem('dactor_doctor_pending_kyc')!)
+            const parsed = JSON.parse(getAuthStorageItem('dactor_doctor_pending_kyc')!)
             email = parsed?.email || null
           } catch {}
         }
-        if (!email && localStorage.getItem('dactor_doctor_session')) {
+        if (!email && getAuthStorageItem('dactor_doctor_session')) {
           try {
-            const parsed = JSON.parse(localStorage.getItem('dactor_doctor_session')!)
+            const parsed = JSON.parse(getAuthStorageItem('dactor_doctor_session')!)
             email = parsed?.email || null
           } catch {}
         }
@@ -5574,7 +5575,7 @@ export function getLoggedInUserSession(): ActiveUserSession | null {
     const resolveClinicSession = (): ActiveUserSession | null => {
       let hasClinicPending = false
       try {
-        const raw = localStorage.getItem('dactor_pending_verification')
+        const raw = getAuthStorageItem('dactor_pending_verification')
         if (raw && raw !== 'null' && raw !== '{}') {
           const parsed = JSON.parse(raw)
           if (parsed && (parsed.clinicName || parsed.email)) {
@@ -5583,12 +5584,12 @@ export function getLoggedInUserSession(): ActiveUserSession | null {
         }
       } catch {}
 
-      const isClinicAuth = localStorage.getItem('dactor_clinic_logged_in') === 'true' || hasClinicPending
+      const isClinicAuth = getAuthStorageItem('dactor_clinic_logged_in') === 'true' || hasClinicPending
       if (isClinicAuth) {
-        let email = localStorage.getItem('dactor_clinic_email') || null
+        let email = getAuthStorageItem('dactor_clinic_email') || null
         if (!email && hasClinicPending) {
           try {
-            const parsed = JSON.parse(localStorage.getItem('dactor_pending_verification')!)
+            const parsed = JSON.parse(getAuthStorageItem('dactor_pending_verification')!)
             email = parsed?.email || null
           } catch {}
         }

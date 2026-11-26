@@ -36,11 +36,20 @@ android {
         }
         create("release") {
             val uploadKeystore = file("keystores/dactor-upload.jks")
-            if (uploadKeystore.exists()) {
+            val envStorePassword = System.getenv("DACTOR_KEYSTORE_PASSWORD")
+                ?: project.findProperty("DACTOR_KEYSTORE_PASSWORD")?.toString()
+            val envKeyAlias = System.getenv("DACTOR_KEY_ALIAS")
+                ?: project.findProperty("DACTOR_KEY_ALIAS")?.toString()
+                ?: "dactor-upload"
+            val envKeyPassword = System.getenv("DACTOR_KEY_PASSWORD")
+                ?: project.findProperty("DACTOR_KEY_PASSWORD")?.toString()
+                ?: envStorePassword
+
+            if (uploadKeystore.exists() && !envStorePassword.isNullOrBlank() && !envKeyPassword.isNullOrBlank()) {
                 storeFile = uploadKeystore
-                storePassword = "DactorUpload2026!"
-                keyAlias = "dactor-upload"
-                keyPassword = "DactorUpload2026!"
+                storePassword = envStorePassword
+                keyAlias = envKeyAlias
+                keyPassword = envKeyPassword
             } else {
                 storeFile = file("keystores/debug.keystore")
                 storePassword = "android"
@@ -52,7 +61,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

@@ -1,3 +1,4 @@
+import { getAuthStorageItem, setAuthStorageItem, removeAuthStorageItem } from './utils/authStorage'
 import React, { useState, useEffect } from 'react'
 import { Navbar } from './components/Navbar'
 import { BottomNav } from './components/BottomNav'
@@ -85,9 +86,9 @@ const getTabFromUrl = (): string => {
 
     if (hasOAuthParams) {
       try {
-        const target = sessionStorage.getItem('dactor_oauth_target_portal') || localStorage.getItem('dactor_oauth_target_portal')
+        const target = sessionStorage.getItem('dactor_oauth_target_portal') || getAuthStorageItem('dactor_oauth_target_portal')
         sessionStorage.removeItem('dactor_oauth_target_portal')
-        localStorage.removeItem('dactor_oauth_target_portal')
+        removeAuthStorageItem('dactor_oauth_target_portal')
         if (target === 'clinic') return 'portal'
         if (target === 'doctor') return 'doctor-portal'
         if (target === 'account') return 'account'
@@ -192,7 +193,7 @@ const getTabFromUrl = (): string => {
     if (hash === 'live-queue' || hash === 'queue') return 'live-queue'
     if (hash.includes('access_token') || hash.includes('id_token') || hash.includes('code=') || hash.includes('state=')) {
       try {
-        const target = localStorage.getItem('dactor_oauth_target_portal') || sessionStorage.getItem('dactor_oauth_target_portal')
+        const target = getAuthStorageItem('dactor_oauth_target_portal') || sessionStorage.getItem('dactor_oauth_target_portal')
         if (target === 'clinic') return 'portal'
         if (target === 'doctor') return 'doctor-portal'
         if (target === 'account') return 'account'
@@ -293,7 +294,7 @@ export const getInitialTab = (): string => {
     const oauthTarget = sessionStorage.getItem('dactor_oauth_target_portal')
     if (oauthTarget) {
       sessionStorage.removeItem('dactor_oauth_target_portal')
-      localStorage.removeItem('dactor_oauth_target_portal')
+      removeAuthStorageItem('dactor_oauth_target_portal')
       if (oauthTarget === 'clinic') return 'portal'
       if (oauthTarget === 'doctor') return 'doctor-portal'
       if (oauthTarget === 'account') return 'account'
@@ -440,12 +441,12 @@ export const App: React.FC = () => {
     try {
       const normalized = normalizeTab(tab)
       if (normalized === 'portal') {
-        const hasClinicPending = Boolean(localStorage.getItem('dactor_pending_verification'))
-        const isClinic = localStorage.getItem('dactor_clinic_logged_in') === 'true' || hasClinicPending
-        let email = localStorage.getItem('dactor_clinic_email') || null
+        const hasClinicPending = Boolean(getAuthStorageItem('dactor_pending_verification'))
+        const isClinic = getAuthStorageItem('dactor_clinic_logged_in') === 'true' || hasClinicPending
+        let email = getAuthStorageItem('dactor_clinic_email') || null
         if (!email && hasClinicPending) {
           try {
-            const parsed = JSON.parse(localStorage.getItem('dactor_pending_verification')!)
+            const parsed = JSON.parse(getAuthStorageItem('dactor_pending_verification')!)
             email = parsed?.email || null
           } catch {}
         }
@@ -456,21 +457,21 @@ export const App: React.FC = () => {
         }
       }
       if (normalized === 'doctor-portal') {
-        const hasDocPending = Boolean(localStorage.getItem('dactor_doctor_pending_kyc'))
+        const hasDocPending = Boolean(getAuthStorageItem('dactor_doctor_pending_kyc'))
         const isDoc =
-          (localStorage.getItem('dactor_doctor_logged_in') === 'true' &&
-            (Boolean(localStorage.getItem('dactor_doctor_session')) || Boolean(localStorage.getItem('dactor_doctor_email')))) ||
+          (getAuthStorageItem('dactor_doctor_logged_in') === 'true' &&
+            (Boolean(getAuthStorageItem('dactor_doctor_session')) || Boolean(getAuthStorageItem('dactor_doctor_email')))) ||
           hasDocPending
-        let email = localStorage.getItem('dactor_doctor_email') || null
+        let email = getAuthStorageItem('dactor_doctor_email') || null
         if (!email && hasDocPending) {
           try {
-            const parsed = JSON.parse(localStorage.getItem('dactor_doctor_pending_kyc')!)
+            const parsed = JSON.parse(getAuthStorageItem('dactor_doctor_pending_kyc')!)
             email = parsed?.email || null
           } catch {}
         }
-        if (!email && localStorage.getItem('dactor_doctor_session')) {
+        if (!email && getAuthStorageItem('dactor_doctor_session')) {
           try {
-            const parsed = JSON.parse(localStorage.getItem('dactor_doctor_session')!)
+            const parsed = JSON.parse(getAuthStorageItem('dactor_doctor_session')!)
             email = parsed?.email || null
           } catch {}
         }
@@ -482,13 +483,13 @@ export const App: React.FC = () => {
       }
       if (normalized === 'patient-portal' || normalized === 'records' || normalized === 'account') {
         const isPat =
-          localStorage.getItem('dactor_patient_logged_in') === 'true' ||
-          Boolean(localStorage.getItem('dactor_patient_session')) ||
-          Boolean(localStorage.getItem('dactor_patient_email'))
-        let email = localStorage.getItem('dactor_patient_email') || null
-        if (!email && localStorage.getItem('dactor_patient_session')) {
+          getAuthStorageItem('dactor_patient_logged_in') === 'true' ||
+          Boolean(getAuthStorageItem('dactor_patient_session')) ||
+          Boolean(getAuthStorageItem('dactor_patient_email'))
+        let email = getAuthStorageItem('dactor_patient_email') || null
+        if (!email && getAuthStorageItem('dactor_patient_session')) {
           try {
-            const parsed = JSON.parse(localStorage.getItem('dactor_patient_session')!)
+            const parsed = JSON.parse(getAuthStorageItem('dactor_patient_session')!)
             email = parsed?.email || null
           } catch {}
         }
@@ -534,7 +535,7 @@ export const App: React.FC = () => {
       let userId: string | undefined = undefined
       try {
         trackingCodes = JSON.parse(localStorage.getItem('dactor_patient_tracking_codes') || '[]')
-        const sessionRaw = localStorage.getItem('dactor_patient_session')
+        const sessionRaw = getAuthStorageItem('dactor_patient_session')
         if (sessionRaw) {
           const parsed = JSON.parse(sessionRaw)
           if (parsed?.id) userId = parsed.id

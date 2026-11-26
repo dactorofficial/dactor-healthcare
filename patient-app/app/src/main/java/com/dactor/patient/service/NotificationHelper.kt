@@ -23,6 +23,24 @@ object NotificationHelper {
     const val CHANNEL_ID = "dactor_medical_alerts"
     const val CHANNEL_NAME = "Dactor Doctor & Queue Alerts"
 
+    fun getInternalNavToken(context: Context): String {
+        val prefs = context.getSharedPreferences("dactor_internal_nav_sec", Context.MODE_PRIVATE)
+        val existing = prefs.getString("nav_token", null)
+        if (!existing.isNullOrBlank()) return existing
+        val created = java.util.UUID.randomUUID().toString()
+        prefs.edit().putString("nav_token", created).apply()
+        return created
+    }
+
+    private fun buildTrustedNavIntent(context: Context, appointmentId: String?, navigateTo: String): Intent {
+        return Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+            putExtra("appointment_id", appointmentId)
+            putExtra("navigate_to", navigateTo)
+            putExtra("internal_nav_token", getInternalNavToken(context))
+        }
+    }
+
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val importance = NotificationManager.IMPORTANCE_HIGH
@@ -84,11 +102,7 @@ object NotificationHelper {
         val rightVal = if (isArriveSoon || isArriveFast) "Your turn, arrive soon" else (expectedTime?.takeIf { it.isNotBlank() } ?: parsed.rightValue)
         val rightLabel = if (isArriveFast || rightVal.contains("arrive fast", ignoreCase = true) || rightVal.contains("arrive soon", ignoreCase = true)) "Turn Status" else parsed.rightLabel
 
-        val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
-            putExtra("appointment_id", appointmentId ?: parsed.trackingCode)
-            putExtra("navigate_to", "notifications")
-        }
+        val intent = buildTrustedNavIntent(context, appointmentId ?: parsed.trackingCode, "notifications")
 
         val pendingIntent = PendingIntent.getActivity(
             context,
@@ -157,11 +171,7 @@ object NotificationHelper {
             com.dactor.patient.data.model.NotificationType.WAIT_FEW_MINUTES,
             com.dactor.patient.data.model.NotificationType.WAIT_FEW_MINS,
             com.dactor.patient.data.model.NotificationType.DOCTOR_ARRIVAL -> {
-                val trackIntent = Intent(context, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
-                    putExtra("appointment_id", appointmentId ?: parsed.trackingCode)
-                    putExtra("navigate_to", "tracker")
-                }
+                val trackIntent = buildTrustedNavIntent(context, appointmentId ?: parsed.trackingCode, "tracker")
                 val trackPending = PendingIntent.getActivity(
                     context,
                     id * 10 + 1,
@@ -171,11 +181,7 @@ object NotificationHelper {
                 builder.addAction(R.drawable.ic_notif_people, "Track Live Queue", trackPending)
             }
             com.dactor.patient.data.model.NotificationType.EARLY_ARRIVAL -> {
-                val acceptIntent = Intent(context, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
-                    putExtra("appointment_id", appointmentId ?: parsed.trackingCode)
-                    putExtra("navigate_to", "tracker")
-                }
+                val acceptIntent = buildTrustedNavIntent(context, appointmentId ?: parsed.trackingCode, "tracker")
                 val acceptPending = PendingIntent.getActivity(
                     context,
                     id * 10 + 2,
@@ -185,11 +191,7 @@ object NotificationHelper {
                 builder.addAction(R.drawable.ic_notif_calendar_clock, "Coming Now", acceptPending)
             }
             com.dactor.patient.data.model.NotificationType.LAB_REPORT -> {
-                val labIntent = Intent(context, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
-                    putExtra("appointment_id", appointmentId ?: parsed.trackingCode)
-                    putExtra("navigate_to", "notifications")
-                }
+                val labIntent = buildTrustedNavIntent(context, appointmentId ?: parsed.trackingCode, "notifications")
                 val labPending = PendingIntent.getActivity(
                     context,
                     id * 10 + 3,
@@ -202,11 +204,7 @@ object NotificationHelper {
             com.dactor.patient.data.model.NotificationType.DOCTOR_DELAYED,
             com.dactor.patient.data.model.NotificationType.CLINIC_BREAK,
             com.dactor.patient.data.model.NotificationType.DOCTOR_STATUS -> {
-                val statusIntent = Intent(context, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
-                    putExtra("appointment_id", appointmentId ?: parsed.trackingCode)
-                    putExtra("navigate_to", "tracker")
-                }
+                val statusIntent = buildTrustedNavIntent(context, appointmentId ?: parsed.trackingCode, "tracker")
                 val statusPending = PendingIntent.getActivity(
                     context,
                     id * 10 + 4,
