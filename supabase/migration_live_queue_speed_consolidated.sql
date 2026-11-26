@@ -540,7 +540,19 @@ GRANT EXECUTE ON FUNCTION public.assign_or_get_queue_token(UUID) TO anon, authen
 -- ----------------------------------------------------------------------------
 -- 6. Pure Read-Only STABLE Live Queue RPCs (Sub-10ms Indexed Queries)
 -- ----------------------------------------------------------------------------
-DROP FUNCTION IF EXISTS public.get_doctor_live_queue(UUID, UUID, DATE);
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN
+        SELECT oid::regprocedure AS sig
+        FROM pg_proc
+        WHERE proname = 'get_doctor_live_queue'
+          AND pronamespace = 'public'::regnamespace
+    LOOP
+        EXECUTE 'DROP FUNCTION IF EXISTS ' || r.sig || ' CASCADE';
+    END LOOP;
+END $$;
 CREATE OR REPLACE FUNCTION public.get_doctor_live_queue(
     p_doctor_id UUID,
     p_clinic_id UUID,
