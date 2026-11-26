@@ -8,6 +8,7 @@ data class BillingInvoice(
     @SerialName("id") val id: String = "",
     @SerialName("appointment_id") val appointmentId: String = "",
     @SerialName("clinic_id") val clinicId: String = "",
+    @SerialName("tracking_code_10_digit") val trackingCode10Digit: String? = null,
     @SerialName("items") val items: List<InvoiceItem> = emptyList(),
     @SerialName("total_amount") val totalAmount: Double = 0.0,
     @SerialName("paid_amount") val paidAmount: Double = 0.0,

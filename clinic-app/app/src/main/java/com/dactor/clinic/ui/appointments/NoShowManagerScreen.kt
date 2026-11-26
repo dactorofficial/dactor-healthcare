@@ -103,7 +103,7 @@ fun NoShowManagerScreen(
             } catch (ignored: Exception) {}
 
             // 2. Fetch fresh appointment records
-            val freshAppts = appointmentRepository?.getAppointmentsByClinic(effectiveClinicId) ?: emptyList()
+            val freshAppts = appointmentRepository?.getAppointmentsByClinic(effectiveClinicId, forceRefresh = true) ?: emptyList()
             allAppointments = freshAppts
 
             if (doctorRepository != null) {
@@ -993,7 +993,7 @@ fun NoShowManagerScreen(
                                     isRescheduling = false
                                     if (success) {
                                         if (cleanDate == today.toString()) {
-                                            queueRepository?.getQueueForClinic(effectiveClinicId)
+                                            queueRepository?.getQueueForClinic(effectiveClinicId, forceRefresh = true)
                                             actionBanner = "✓ Rescheduled ${appt.patientName} for Today ($cleanTime) & re-added to live queue!"
                                         } else {
                                             actionBanner = "✓ Rescheduled ${appt.patientName} for $cleanDate at $cleanTime!"
@@ -1001,7 +1001,9 @@ fun NoShowManagerScreen(
                                         selectedApptForReschedule = null
                                         loadData()
                                     } else {
-                                        Toast.makeText(context, "Reschedule failed. Please try again.", Toast.LENGTH_SHORT).show()
+                                        val errMsg = appointmentRepository?.lastRescheduleError?.takeIf { it.isNotBlank() }
+                                            ?: "Reschedule failed. Please try again."
+                                        Toast.makeText(context, errMsg, Toast.LENGTH_LONG).show()
                                     }
                                 }
                             }

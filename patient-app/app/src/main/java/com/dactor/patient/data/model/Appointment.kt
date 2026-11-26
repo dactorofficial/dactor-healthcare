@@ -27,6 +27,8 @@ data class Appointment(
     @SerialName("notes") val notes: String? = null,
     @SerialName("payment_mode") val paymentMode: String = "ONLINE",
     @SerialName("status") val status: String = "pending_payment",
+    @SerialName("visit_type") val visitType: String? = null,
+    @SerialName("follow_up_of_appointment_id") val followUpOfAppointmentId: String? = null,
     @SerialName("attempt_number") val attemptNumber: Int = 1,
     @SerialName("token_number") val tokenNumber: Int? = null,
     @SerialName("service_charge_amount") val serviceChargeAmount: Double = 0.0,
@@ -42,6 +44,13 @@ data class Appointment(
 
     val isPayAtDesk: Boolean
         get() = paymentMode.equals("PAY_AT_DESK", ignoreCase = true)
+
+    val isFreeFollowUp: Boolean
+        get() = attemptNumber > 1 ||
+            visitType.equals("follow_up", ignoreCase = true) ||
+            !followUpOfAppointmentId.isNullOrBlank() ||
+            (feeAmount <= 0.0 && totalAmount <= 0.0 &&
+                (paymentMode.equals("FREE", ignoreCase = true) || notes?.contains("follow", ignoreCase = true) == true))
 
     val effectiveServiceCharge: Double
         get() = when {
@@ -61,7 +70,7 @@ data class Appointment(
         }
 
     fun effectiveTotalForInvoice(inv: BillingInvoice?, fallbackFee: Double = 0.0): Double {
-        val apptTotal = if (effectiveTotalAmount > 0.0) effectiveTotalAmount else fallbackFee
+        val apptTotal = if (effectiveTotalAmount > 0.0) effectiveTotalAmount else if (isFreeFollowUp) 0.0 else fallbackFee
         val invTotal = inv?.totalAmount ?: 0.0
         return when {
             isPayAtDesk -> maxOf(invTotal, apptTotal)
@@ -73,7 +82,7 @@ data class Appointment(
     fun effectivePaidForInvoice(inv: BillingInvoice?, totalBill: Double = effectiveTotalForInvoice(inv)): Double {
         val invPaid = inv?.effectivePaidAmount ?: 0.0
         val isPaid = inv?.paymentStatus.equals("paid", ignoreCase = true) ||
-            paymentStatus.equals("paid", ignoreCase = true)
+            (!isFreeFollowUp && paymentStatus.equals("paid", ignoreCase = true) && totalBill > 0.0)
         return when {
             isPaid -> maxOf(invPaid, totalBill)
             inv != null -> invPaid

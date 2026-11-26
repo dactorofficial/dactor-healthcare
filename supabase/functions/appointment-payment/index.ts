@@ -693,68 +693,119 @@ async function finalizeAttempt(attempt: Attempt, credentials: ClinicCredentials)
 }
 
 async function ensureLiveQueueAndApprovedState(attempt: Attempt, reference: string | null) {
-  // 1. Ensure appointment status is APPROVED and checkin_status is checked_in
+  // 1. Ensure appointment status is APPROVED, payment_mode is ONLINE, and visit_type is set
   const { data: appt } = await service.from("appointments")
-    .select("id,clinic_id,doctor_id,slot_id,status,checkin_status,payment_status,patient_name,appointment_date")
+    .select("id,clinic_id,doctor_id,slot_id,status,checkin_status,payment_status,payment_mode,visit_type,attempt_number,follow_up_of_appointment_id,notes,selected_lab_tests,patient_name,appointment_date")
     .eq("id", attempt.appointment_id)
     .maybeSingle();
 
   if (!appt) return;
 
+  const isLab = Boolean(appt.selected_lab_tests);
+  const resolvedVisitType = String(appt.visit_type || "").trim() || (
+    Number(appt.attempt_number || 1) > 1 ||
+    Boolean(appt.follow_up_of_appointment_id) ||
+    /follow[- ]?up/i.test(String(appt.notes || ""))
+      ? "follow_up"
+      : "new"
+  );
+  const terminalCheckin = ["completed", "done", "cancelled"].includes(String(appt.checkin_status || "").toLowerCase());
+
   const apptPatch: Record<string, unknown> = {
     payment_status: "paid",
-    checkin_status: "checked_in",
+    checkin_status: terminalCheckin ? appt.checkin_status : "checked_in",
     status: "APPROVED",
     payment_mode: "ONLINE",
+    visit_type: resolvedVisitType,
     fee_amount: attempt.amount_npr,
+    expires_at: null,
+    gateway_backstop_expires_at: null,
     updated_at: new Date().toISOString(),
   };
   await service.from("appointments").update(apptPatch).eq("id", appt.id);
 
-  // 2. Ensure live queue entry exists
-  const { data: existingQ } = await service.from("queue_entries")
-    .select("id")
-    .eq("appointment_id", appt.id)
-    .maybeSingle();
-
-  if (!existingQ) {
-    const { data: maxPosRow } = await service.from("queue_entries")
-      .select("queue_position")
-      .eq("clinic_id", appt.clinic_id)
-      .in("status", ["waiting", "inside"])
-      .order("queue_position", { ascending: false })
-      .limit(1)
+  // 2. Ensure live queue entry exists for today's active visits (Nepal Time UTC+05:45)
+  const nptDate = new Date(Date.now() + (5 * 60 + 45) * 60 * 1000).toISOString().slice(0, 10);
+  if (appt.appointment_date === nptDate && !terminalCheckin && String(appt.checkin_status || "").toLowerCase() !== "no_show") {
+    const { data: existingQ } = await service.from("queue_entries")
+      .select("id")
+      .eq("appointment_id", appt.id)
       .maybeSingle();
 
-    const nextPos = (Number(maxPosRow?.queue_position) || 0) + 1;
-    await service.from("queue_entries").insert({
-      appointment_id: appt.id,
-      clinic_id: appt.clinic_id,
-      doctor_id: appt.doctor_id,
-      queue_position: nextPos,
-      status: "waiting",
-    });
+    if (!existingQ) {
+      let posQuery = service.from("queue_entries")
+        .select("queue_position")
+        .eq("clinic_id", appt.clinic_id)
+        .in("status", ["waiting", "inside"])
+        .order("queue_position", { ascending: false })
+        .limit(1);
+
+      if (isLab || !appt.doctor_id) {
+        posQuery = posQuery.is("doctor_id", null);
+      } else {
+        posQuery = posQuery.eq("doctor_id", appt.doctor_id);
+      }
+
+      const { data: maxPosRow } = await posQuery.maybeSingle();
+      const nextPos = (Number(maxPosRow?.queue_position) || 0) + 1;
+      await service.from("queue_entries").insert({
+        appointment_id: appt.id,
+        clinic_id: appt.clinic_id,
+        doctor_id: isLab ? null : appt.doctor_id,
+        queue_position: nextPos,
+        status: "waiting",
+      });
+    }
   }
 
-  // 3. Ensure billing invoice exists
+  // 3. Ensure billing invoice & invoice_transactions exist (note: billing_invoices has no payment_method column)
+  const gwUpper = String(attempt.gateway || "esewa").toUpperCase();
+  const gwLabel = gwUpper === "KHALTI" ? "Khalti" : gwUpper === "FONEPAY" ? "Fonepay" : gwUpper === "CONNECTIPS" ? "ConnectIPS" : "eSewa";
+  const ref = reference || attempt.provider_reference || attempt.transaction_uuid;
+
+  let invoiceId: string | null = null;
   const { data: existingInv } = await service.from("billing_invoices")
     .select("id")
     .eq("appointment_id", appt.id)
     .maybeSingle();
 
-  if (!existingInv) {
-    const ref = reference || attempt.transaction_uuid;
-    await service.from("billing_invoices").insert({
+  if (existingInv?.id) {
+    invoiceId = existingInv.id;
+  } else {
+    const { data: insertedInv } = await service.from("billing_invoices").insert({
       appointment_id: appt.id,
       clinic_id: appt.clinic_id,
       total_amount: attempt.amount_npr,
       paid_amount: attempt.amount_npr,
       balance_due: 0,
       payment_status: "paid",
-      payment_method: attempt.gateway,
       paid_at: new Date().toISOString(),
-      remarks: `Paid via ${attempt.gateway.toUpperCase()} (Ref: ${ref})`,
-    });
+      remarks: `Paid via ${gwLabel}; provider reference: ${ref}`,
+    }).select("id").maybeSingle();
+    invoiceId = insertedInv?.id ?? null;
+  }
+
+  if (invoiceId) {
+    const { data: existingTx } = await service.from("invoice_transactions")
+      .select("id")
+      .eq("appointment_id", appt.id)
+      .eq("is_deleted", false)
+      .limit(1);
+
+    if (!existingTx || existingTx.length === 0) {
+      await service.from("invoice_transactions").insert({
+        invoice_id: invoiceId,
+        clinic_id: appt.clinic_id,
+        appointment_id: appt.id,
+        transaction_type: "PAYMENT",
+        amount: attempt.amount_npr,
+        payment_method: gwUpper,
+        reference_id: ref,
+        category: isLab ? "DIAGNOSTIC" : "CONSULTATION",
+        notes: `Online ${gwLabel} Appointment Checkout`,
+        transaction_time: new Date().toISOString(),
+      });
+    }
   }
 }
 
@@ -2394,6 +2445,14 @@ Deno.serve(async (req) => {
 
       const alreadyComplete = list.find((a) => a.status === "complete");
       if (alreadyComplete) {
+        try {
+          await ensureLiveQueueAndApprovedState(
+            alreadyComplete,
+            alreadyComplete.provider_reference ?? alreadyComplete.transaction_uuid
+          );
+        } catch (err) {
+          console.error("refresh heal ensureLiveQueueAndApprovedState error:", err);
+        }
         return json({
           status: "complete",
           gateway: alreadyComplete.gateway,

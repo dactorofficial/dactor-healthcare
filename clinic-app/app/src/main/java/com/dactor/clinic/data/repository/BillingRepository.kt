@@ -65,6 +65,7 @@ class BillingRepository @Inject constructor(
             val effectivePaidAt = if (dbPaymentStatus == "paid") (invoice.paidAt ?: existing?.paidAt ?: nowIso) else invoice.paidAt
             val invoiceToSave = invoice.copy(
                 id = invoiceId,
+                trackingCode10Digit = invoice.trackingCode10Digit?.takeIf { it.isNotBlank() } ?: existing?.trackingCode10Digit,
                 paymentStatus = dbPaymentStatus,
                 paidAt = effectivePaidAt,
                 remarks = invoice.remarks?.takeIf { it.isNotBlank() } ?: existing?.remarks,
@@ -254,6 +255,34 @@ class BillingRepository @Inject constructor(
                 billingDao?.getInvoicesForClinicList(clinicId)?.map { it.toDomainModel() }
             } catch (_: Exception) { null }
             cached ?: emptyList()
+        }
+    }
+
+    suspend fun getInvoicesForAppointments(appointmentIds: List<String>): Map<String, BillingInvoice> = withContext(Dispatchers.IO) {
+        val cleanIds = appointmentIds.filter { it.isNotBlank() }.distinct()
+        if (cleanIds.isEmpty()) return@withContext emptyMap()
+        try {
+            val rows = supabaseClient.postgrest["billing_invoices"]
+                .select {
+                    filter {
+                        isIn("appointment_id", cleanIds)
+                    }
+                }.decodeList<BillingInvoice>()
+            rows.groupBy { it.appointmentId }
+                .mapValues { (_, list) ->
+                    list.sortedWith(
+                        compareByDescending<BillingInvoice> { it.updatedAt ?: it.paidAt ?: it.createdAt ?: "" }
+                            .thenByDescending { it.items.isNotEmpty() }
+                            .thenByDescending { it.totalAmount }
+                    ).first()
+                }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            cleanIds.mapNotNull { id ->
+                try {
+                    billingDao?.getInvoiceByAppointmentId(id)?.toDomainModel()?.let { id to it }
+                } catch (_: Exception) { null }
+            }.toMap()
         }
     }
 

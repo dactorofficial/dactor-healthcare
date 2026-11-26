@@ -76,7 +76,7 @@ fun PatientDetailScreen(
                 checkinStatus = "in_consultation",
                 appointmentDate = LocalDate.now().toString(),
                 appointmentTime = "10:00 AM",
-                feeAmount = 500.0,
+                feeAmount = 0.0,
                 isWalkin = false
             )
         )
@@ -1065,7 +1065,8 @@ fun PatientDetailScreen(
                                         editingPastApptDate = null
                                         loadChartData()
                                     } else {
-                                        actionMessage = "Reschedule failed. Please try again."
+                                        actionMessage = appointmentRepository?.lastRescheduleError?.takeIf { it.isNotBlank() }
+                                            ?: "Reschedule failed. Please try again."
                                     }
                                 }
                             }
@@ -1131,35 +1132,54 @@ fun PatientDetailScreen(
                 Button(
                     onClick = {
                         coroutineScope.launch {
-                            val newAppt = Appointment(
-                                id = UUID.randomUUID().toString(),
-                                trackingCode10Digit = TrackingCodeGenerator.generate(),
-                                clinicId = appointment.clinicId,
-                                doctorId = followUpDoctorId.ifBlank { appointment.doctorId },
-                                userId = appointment.userId,
-                                patientName = appointment.patientName,
-                                patientAge = appointment.patientAge,
-                                patientGender = appointment.patientGender,
-                                patientMobile = appointment.patientMobile,
-                                patientEmail = appointment.patientEmail,
-                                paymentStatus = "paid",
-                                paymentMode = "FREE",
-                                checkinStatus = "waiting",
-                                status = "APPROVED",
-                                appointmentDate = followUpDate.trim(),
-                                appointmentTime = followUpTime.trim(),
-                                feeAmount = 0.0, // Follow-up visit: free consultation
-                                totalAmount = 0.0,
-                                isWalkin = true,
-                                notes = "Follow-Up Consultation (Ref: #${appointment.trackingCode10Digit})"
-                            )
-                            val created = appointmentRepository?.createWalkinAppointment(newAppt)
+                            val targetDocId = followUpDoctorId.ifBlank { appointment.doctorId }
+                            val created = if (appointment.trackingCode10Digit.isNotBlank()) {
+                                appointmentRepository?.bookFollowUpAppointment(
+                                    trackingCode = appointment.trackingCode10Digit,
+                                    slotId = null,
+                                    clinicId = appointment.clinicId,
+                                    doctorId = targetDocId,
+                                    appointmentDate = followUpDate.trim(),
+                                    appointmentTime = followUpTime.trim(),
+                                    reason = followUpNotes.trim().ifBlank { null },
+                                    isWalkin = true,
+                                    checkinStatus = if (followUpDate.trim() == LocalDate.now().toString()) "checked_in" else "not_checked_in"
+                                )
+                            } else {
+                                val newAppt = Appointment(
+                                    id = UUID.randomUUID().toString(),
+                                    trackingCode10Digit = TrackingCodeGenerator.generate(),
+                                    clinicId = appointment.clinicId,
+                                    doctorId = targetDocId,
+                                    userId = appointment.userId,
+                                    patientName = appointment.patientName,
+                                    patientAge = appointment.patientAge,
+                                    patientGender = appointment.patientGender,
+                                    patientMobile = appointment.patientMobile,
+                                    patientEmail = appointment.patientEmail,
+                                    paymentStatus = "pending",
+                                    paymentMode = "FREE",
+                                    checkinStatus = "not_checked_in",
+                                    status = "APPROVED",
+                                    visitType = "follow_up",
+                                    followUpOfAppointmentId = appointment.id,
+                                    appointmentDate = followUpDate.trim(),
+                                    appointmentTime = followUpTime.trim(),
+                                    feeAmount = 0.0,
+                                    totalAmount = 0.0,
+                                    isWalkin = true,
+                                    notes = "Follow-Up Consultation (Ref: #${appointment.trackingCode10Digit})"
+                                )
+                                appointmentRepository?.createWalkinAppointment(newAppt)
+                            }
                             if (created != null) {
                                 if (followUpNotes.isNotBlank()) {
                                     billingRepository?.saveRemarkForAppointment(created.id, appointment.clinicId, followUpNotes.trim())
                                 }
-                                actionMessage = "✓ Follow-up scheduled for $followUpDate!"
+                                actionMessage = "✓ Follow-up scheduled for $followUpDate (ID #${created.trackingCode10Digit})!"
                                 loadChartData()
+                            } else {
+                                actionMessage = "Failed to schedule follow-up. Please try again."
                             }
                             showScheduleFollowUpDialog = false
                         }

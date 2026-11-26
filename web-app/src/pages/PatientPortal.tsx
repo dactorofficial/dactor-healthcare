@@ -1931,8 +1931,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
             appointmentDate: bookingDate,
             appointmentTime: slotTimeStr,
             checkinStatus: 'not_checked_in',
-            paymentStatus: 'paid',
-            paymentMode: 'ONLINE',
+            paymentStatus: 'pending',
+            paymentMode: 'FREE',
             status: 'APPROVED',
             feeAmount: 0,
             notes: `Free Follow-Up Consultation (Ref: #${retainedAppointment.trackingCode10Digit})`,
@@ -8027,13 +8027,29 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               )
             })()}
 
-            {/* Financial Summary Box */}
+            {/* Financial Summary Box (Combined across visits sharing 10-digit code) */}
             {(() => {
-              const totalB = getEffectiveInvoiceTotal(viewingBillAppt, viewingInvoice)
-              const totalP =
-                viewingInvoice?.paymentStatus === 'paid' || viewingBillAppt.paymentStatus === 'paid'
-                  ? Math.max(Number(viewingInvoice?.paidAmount || 0), totalB)
+              const relatedVisits = viewingBillAppt.trackingCode10Digit
+                ? myAppointments.filter((a) => a.trackingCode10Digit === viewingBillAppt.trackingCode10Digit)
+                : [viewingBillAppt]
+              const priorVisits = relatedVisits.filter((a) => a.id !== viewingBillAppt.id)
+              const priorTotal = priorVisits.reduce((acc, a) => {
+                const isFu = Number(a.attemptNumber || 1) > 1 || (Number(a.feeAmount || 0) <= 0 && String(a.paymentMode || '').toUpperCase() === 'FREE')
+                return acc + (isFu ? 0 : getEffectiveAppointmentTotal(a))
+              }, 0)
+              const priorPaid = priorVisits.reduce((acc, a) => {
+                const isFu = Number(a.attemptNumber || 1) > 1 || (Number(a.feeAmount || 0) <= 0 && String(a.paymentMode || '').toUpperCase() === 'FREE')
+                if (isFu) return acc
+                return acc + (a.paymentStatus === 'paid' ? getEffectiveAppointmentTotal(a) : 0)
+              }, 0)
+              const currentB = getEffectiveInvoiceTotal(viewingBillAppt, viewingInvoice)
+              const currentP =
+                viewingInvoice?.paymentStatus === 'paid' ||
+                (viewingBillAppt.paymentStatus === 'paid' && String(viewingBillAppt.paymentMode || '').toUpperCase() !== 'FREE' && currentB > 0)
+                  ? Math.max(Number(viewingInvoice?.paidAmount || 0), currentB)
                   : Number(viewingInvoice?.paidAmount || 0)
+              const totalB = priorTotal + currentB
+              const totalP = priorPaid + currentP
               const bal = Math.max(0, totalB - totalP)
               const cleanRem = extractCleanClinicalRemarks(viewingInvoice?.remarks)
 

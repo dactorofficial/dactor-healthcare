@@ -816,8 +816,9 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
         const isSamePatient = (cleanExistingPhone && cleanExistingPhone === cleanMobile) ||
           (existingByCode.user_id && existingByCode.user_id === resolvedUserId)
         if (isSamePatient) {
-          // If rapid double-tap on exact same date & slot, return it
-          if (existingByCode.appointment_date === apptDate && existingByCode.slot_id === (appt.slotId || null)) {
+          // If rapid double-tap on exact same date & slot (unless booking a follow-up visit), return it
+          const isFollowUpInsert = Number(appt.attemptNumber || 1) > 1 || String((appt as any).visitType || '').toLowerCase() === 'follow_up'
+          if (!isFollowUpInsert && existingByCode.appointment_date === apptDate && existingByCode.slot_id === (appt.slotId || null)) {
             return mapAppointment(existingByCode)
           }
         } else {
@@ -2021,6 +2022,95 @@ function getLocalDateIsoString(): string {
   return `${y}-${m}-${d}`
 }
 
+export async function bookFollowUpVisit(params: {
+  sourceTrackingCode: string
+  newDate: string
+  newTime: string
+  newSlotId?: string | null
+  newDoctorId?: string | null
+  reason?: string | null
+  isWalkin?: boolean
+  checkinStatus?: 'not_checked_in' | 'checked_in' | 'waiting'
+  allowOverbook?: boolean
+}): Promise<Appointment | null> {
+  try {
+    const cleanCode = params.sourceTrackingCode.trim()
+    if (!cleanCode) return null
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    const validSlotId = params.newSlotId && uuidRegex.test(params.newSlotId.trim()) ? params.newSlotId.trim() : null
+    const validDoctorId = params.newDoctorId && uuidRegex.test(params.newDoctorId.trim()) ? params.newDoctorId.trim() : null
+    const normalizedTime = formatTimeForPostgres(params.newTime || '10:00 AM')
+
+    let rpcRes = await supabase.rpc('book_follow_up_visit', {
+      p_source_tracking_code: cleanCode,
+      p_new_date: params.newDate,
+      p_new_time: normalizedTime,
+      p_new_slot_id: validSlotId,
+      p_new_doctor_id: validDoctorId,
+      p_reason: params.reason || null,
+      p_is_walkin: Boolean(params.isWalkin),
+      p_checkin_status: params.checkinStatus || 'not_checked_in',
+      p_payment_mode: 'FREE',
+      p_allow_overbook: Boolean(params.allowOverbook),
+    })
+
+    if (
+      rpcRes.error &&
+      (rpcRes.error.code === 'PGRST202' || String(rpcRes.error.message || '').includes('schema cache'))
+    ) {
+      rpcRes = await supabase.rpc('book_follow_up_visit', {
+        p_source_tracking_code: cleanCode,
+        p_new_date: params.newDate,
+        p_new_time: normalizedTime,
+        p_new_slot_id: validSlotId,
+        p_new_doctor_id: validDoctorId,
+        p_reason: params.reason || null,
+      })
+    }
+
+    const payload = rpcRes.data as any
+    if (!rpcRes.error && payload?.success === true && payload?.appointment_id) {
+      const { data: createdRow } = await supabase
+        .from('appointments')
+        .select('*, clinic:clinics(*), doctor:doctors(*)')
+        .eq('id', payload.appointment_id)
+        .maybeSingle()
+      if (createdRow) return mapAppointment(createdRow)
+    }
+
+    const existingList = await getAllAppointmentsByTrackingCode(cleanCode)
+    const source = existingList.sort((a, b) => Number(b.attemptNumber || 1) - Number(a.attemptNumber || 1))[0]
+    if (!source) return null
+
+    return await createAppointment({
+      trackingCode10Digit: source.trackingCode10Digit,
+      attemptNumber: (source.attemptNumber || 1) + 1,
+      clinicId: source.clinicId,
+      doctorId: validDoctorId || source.doctorId,
+      userId: source.userId,
+      slotId: validSlotId || undefined,
+      patientName: source.patientName,
+      patientAge: source.patientAge || 28,
+      patientGender: source.patientGender || 'Male',
+      patientMobile: source.patientMobile || '9800000000',
+      patientEmail: source.patientEmail,
+      appointmentDate: params.newDate,
+      appointmentTime: params.newTime || '10:00 AM',
+      checkinStatus: params.checkinStatus || 'not_checked_in',
+      paymentStatus: 'pending',
+      paymentMode: 'FREE',
+      status: 'APPROVED',
+      feeAmount: 0,
+      totalAmount: 0,
+      isWalkin: Boolean(params.isWalkin),
+      notes: params.reason || `Free Follow-Up Consultation (Ref: #${source.trackingCode10Digit})`,
+    })
+  } catch (err) {
+    console.error('bookFollowUpVisit error:', err)
+    return null
+  }
+}
+
 export async function shiftAppointmentDate(
   appointmentId: string,
   newDate: string,
@@ -2028,7 +2118,8 @@ export async function shiftAppointmentDate(
   reason?: string,
   newSlotId?: string,
   newDoctorId?: string | null,
-  trackingCode?: string
+  trackingCode?: string,
+  allowOverbook: boolean = false
 ): Promise<boolean> {
   try {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -2059,7 +2150,23 @@ export async function shiftAppointmentDate(
         p_new_slot_id: validSlotId,
         p_new_doctor_id: resolvedDocId,
         p_reason: cleanReason,
+        p_allow_overbook: allowOverbook,
       })
+
+      if (
+        rpcResult.error &&
+        (rpcResult.error.code === 'PGRST202' ||
+          String(rpcResult.error.message || '').includes('schema cache'))
+      ) {
+        rpcResult = await supabase.rpc('reschedule_patient_appointment', {
+          p_appointment_id: appointmentId,
+          p_new_date: newDate,
+          p_new_time: normalizedTime,
+          p_new_slot_id: validSlotId,
+          p_new_doctor_id: resolvedDocId,
+          p_reason: cleanReason,
+        })
+      }
 
       if (
         rpcResult.error &&
@@ -3265,6 +3372,29 @@ export async function getBillingInvoicesByClinic(clinicId: string): Promise<Bill
   } catch (err) {
     console.error('Error fetching clinic billing invoices:', err)
     return []
+  }
+}
+
+export async function getInvoicesForAppointments(appointmentIds: string[]): Promise<Record<string, BillingInvoice>> {
+  const cleanIds = Array.from(new Set(appointmentIds.filter(Boolean)))
+  if (cleanIds.length === 0) return {}
+  try {
+    const { data, error } = await supabase
+      .from('billing_invoices')
+      .select('*')
+      .in('appointment_id', cleanIds)
+    if (error || !data) return {}
+    const map: Record<string, BillingInvoice> = {}
+    for (const row of data) {
+      const mapped = mapBillingInvoice(row)
+      const prev = map[mapped.appointmentId]
+      if (!prev || String(mapped.updatedAt || mapped.paidAt || '').localeCompare(String(prev.updatedAt || prev.paidAt || '')) >= 0) {
+        map[mapped.appointmentId] = mapped
+      }
+    }
+    return map
+  } catch {
+    return {}
   }
 }
 

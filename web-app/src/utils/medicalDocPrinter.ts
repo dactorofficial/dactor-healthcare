@@ -4,8 +4,8 @@ import {
   getEffectiveInvoiceItems,
   getEffectiveInvoiceTotal,
 } from '../types'
-import { parsePaymentRecords, extractCleanClinicalRemarks } from './paymentLedger'
-import { getInvoiceForAppointment } from '../services/db'
+import { parsePaymentRecords, extractCleanClinicalRemarks, computeCombinedBillingSummary } from './paymentLedger'
+import { getInvoiceForAppointment, getAllAppointmentsByTrackingCode, getInvoicesForAppointments } from '../services/db'
 import { escapeHtml } from './html'
 
 /**
@@ -29,24 +29,28 @@ export async function printAppointmentBill(appt: Appointment, invoice?: BillingI
       console.warn('Could not load invoice for printAppointmentBill', e)
     }
   }
-  const effectiveTotal = getEffectiveInvoiceTotal(appt, inv)
-  const rawPaid = inv ? Number(inv.paidAmount || 0) : 0
-  const effectivePaid =
-    inv?.paymentStatus === 'paid' || appt.paymentStatus === 'paid'
-      ? Math.max(rawPaid, effectiveTotal)
-      : rawPaid
-  const effectiveBalance = Math.max(0, effectiveTotal - effectivePaid)
+  let chainVisits: Appointment[] = [appt]
+  let chainInvoices: Record<string, BillingInvoice> = inv ? { [appt.id]: inv } : {}
+  if (appt.trackingCode10Digit) {
+    try {
+      const siblings = await getAllAppointmentsByTrackingCode(appt.trackingCode10Digit)
+      if (siblings.length > 0) {
+        chainVisits = siblings
+        const invMap = await getInvoicesForAppointments(siblings.map((s) => s.id))
+        chainInvoices = { ...invMap, ...(inv ? { [appt.id]: inv } : {}) }
+      }
+    } catch {}
+  }
+  const combined = computeCombinedBillingSummary(chainVisits, chainInvoices)
+  const effectiveTotal = combined.totalBill
+  const effectivePaid = combined.totalPaid
+  const effectiveBalance = combined.balanceDue
   const isPaid = effectiveBalance <= 0 && effectiveTotal > 0
 
-  const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
-  const rawPaymentLogs = parsePaymentRecords(inv?.remarks, effectivePaid, inv?.paidAt)
-  const paymentLogs =
-    isPad && rawPaymentLogs.length === 1 && effectivePaid >= effectiveTotal && rawPaymentLogs[0].amount < effectiveTotal
-      ? [{ ...rawPaymentLogs[0], amount: effectiveTotal }]
-      : rawPaymentLogs
-  const cleanRemarks = extractCleanClinicalRemarks(inv?.remarks)
+  const paymentLogs = combined.paymentRecords
+  const cleanRemarks = combined.cleanRemarks || extractCleanClinicalRemarks(inv?.remarks)
 
-  const items = getEffectiveInvoiceItems(appt, inv?.items)
+  const items = combined.items.length > 0 ? combined.items : getEffectiveInvoiceItems(appt, inv?.items)
 
   const itemsRowsHtml = items
     .map(

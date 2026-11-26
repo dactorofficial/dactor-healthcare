@@ -2304,7 +2304,8 @@ fun PatientDirectoryScreen(
                                             loadData()
                                             selectedPatientForDetails?.let { openPatientHistory(it) }
                                         } else {
-                                            actionMessage = "Reschedule failed. Please try again."
+                                            actionMessage = appointmentRepository?.lastRescheduleError?.takeIf { it.isNotBlank() }
+                                                ?: "Reschedule failed. Please try again."
                                         }
                                     }
                                 }
@@ -2708,50 +2709,68 @@ fun PatientDirectoryScreen(
                                         val chosenDoctor = affiliatedDoctors.find { it.id == scheduleDoctorId } ?: affiliatedDoctors.firstOrNull()
                                         val calculatedFee = if (isFollowUpVisit) 0.0 else (chosenDoctor?.consultationFee ?: 500.0)
 
+                                        val priorTrackingCode = pItem.trackingCode.trim()
+                                            .ifBlank {
+                                                patientFullHistoryAppts.firstOrNull { it.trackingCode10Digit.isNotBlank() }?.trackingCode10Digit ?: ""
+                                            }
                                         val followUpPrefix = if (isFollowUpVisit) {
-                                            if (pItem.trackingCode.isNotBlank()) "Follow-Up Consultation (Ref: #${pItem.trackingCode})"
+                                            if (priorTrackingCode.isNotBlank()) "Follow-Up Consultation (Ref: #$priorTrackingCode)"
                                             else "Follow-Up Consultation"
                                         } else ""
-                                        val newAppt = Appointment(
-                                            id = java.util.UUID.randomUUID().toString(),
-                                            trackingCode10Digit = TrackingCodeGenerator.generate(),
-                                            slotId = selectedScheduleSlotId,
-                                            clinicId = effectiveClinicId,
-                                            doctorId = scheduleDoctorId.ifBlank { chosenDoctor?.id },
-                                            userId = pItem.userId,
-                                            patientName = pItem.patientName,
-                                            patientAge = pItem.age ?: 28,
-                                            patientGender = pItem.gender.ifBlank { "Male" },
-                                            patientMobile = pItem.phone.ifBlank { "9841000000" },
-                                            patientEmail = pItem.email,
-                                            paymentStatus = if (isFollowUpVisit) "paid" else "pending",
-                                            paymentMode = if (isFollowUpVisit) "FREE" else "PAY_AT_DESK",
-                                            checkinStatus = if (isToday) "checked_in" else "waiting",
-                                            status = "APPROVED",
-                                            appointmentDate = cleanDate,
-                                            appointmentTime = cleanTime,
-                                            feeAmount = calculatedFee,
-                                            totalAmount = calculatedFee,
-                                            isWalkin = true,
-                                            notes = followUpPrefix.ifBlank { null }
-                                        )
-                                        val created = appointmentRepository.createWalkinAppointment(newAppt, allowOverbooking = true)
+                                        val targetDocId = scheduleDoctorId.ifBlank { chosenDoctor?.id }
+                                        val created = if (isFollowUpVisit && priorTrackingCode.isNotBlank()) {
+                                            appointmentRepository.bookFollowUpAppointment(
+                                                trackingCode = priorTrackingCode,
+                                                slotId = selectedScheduleSlotId,
+                                                clinicId = effectiveClinicId,
+                                                doctorId = targetDocId,
+                                                appointmentDate = cleanDate,
+                                                appointmentTime = cleanTime,
+                                                reason = followUpPrefix.ifBlank { null },
+                                                isWalkin = true,
+                                                checkinStatus = if (isToday) "checked_in" else "not_checked_in"
+                                            )
+                                        } else {
+                                            val newAppt = Appointment(
+                                                id = java.util.UUID.randomUUID().toString(),
+                                                trackingCode10Digit = TrackingCodeGenerator.generate(),
+                                                slotId = selectedScheduleSlotId,
+                                                clinicId = effectiveClinicId,
+                                                doctorId = targetDocId,
+                                                userId = pItem.userId,
+                                                patientName = pItem.patientName,
+                                                patientAge = pItem.age ?: 28,
+                                                patientGender = pItem.gender.ifBlank { "Male" },
+                                                patientMobile = pItem.phone.ifBlank { "9841000000" },
+                                                patientEmail = pItem.email,
+                                                paymentStatus = "pending",
+                                                paymentMode = if (isFollowUpVisit) "FREE" else "PAY_AT_DESK",
+                                                checkinStatus = if (isToday) "checked_in" else "waiting",
+                                                status = "APPROVED",
+                                                visitType = if (isFollowUpVisit) "follow_up" else "new",
+                                                appointmentDate = cleanDate,
+                                                appointmentTime = cleanTime,
+                                                feeAmount = calculatedFee,
+                                                totalAmount = calculatedFee,
+                                                isWalkin = true,
+                                                notes = followUpPrefix.ifBlank { null }
+                                            )
+                                            appointmentRepository.createWalkinAppointment(newAppt, allowOverbooking = true)
+                                        }
                                         if (created != null) {
-                                            val followUpPrefix = if (isFollowUpVisit) {
-                                                if (pItem.trackingCode.isNotBlank()) "Follow-Up Consultation (Ref: #${pItem.trackingCode})"
-                                                else "Follow-Up Consultation"
-                                            } else ""
                                             val finalRemark = listOf(followUpPrefix, scheduleRemarksInput.trim()).filter { it.isNotBlank() }.joinToString(" - ")
                                             if (finalRemark.isNotBlank() && billingRepository != null) {
                                                 billingRepository.saveRemarkForAppointment(created.id, effectiveClinicId, finalRemark)
                                             }
                                             actionMessage = if (isFollowUpVisit) {
-                                                "✓ Follow-up scheduled for ${pItem.patientName} on $cleanDate ($cleanTime) [Free Visit]!"
+                                                "✓ Follow-up scheduled for ${pItem.patientName} on $cleanDate ($cleanTime) [ID #${created.trackingCode10Digit}]!"
                                             } else {
                                                 "✓ Appointment scheduled for ${pItem.patientName} on $cleanDate ($cleanTime) [Rs. ${calculatedFee.toInt()}]!"
                                             }
                                             loadData()
                                             showScheduleDialogForPatient = null
+                                        } else {
+                                            actionMessage = "Failed to schedule appointment. Please try again."
                                         } else {
                                             actionMessage = "Failed to schedule appointment. Please check clinic connection and try again."
                                         }

@@ -2743,7 +2743,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                 </div>
 
                 <p className="text-xs text-emerald-800 dark:text-emerald-300/90 font-medium">
-                  Total Bill: NPR {getEffectiveAppointmentTotal(appointment) || 500} • Status: {appointment.paymentStatus === 'paid' ? 'Paid' : 'Settled at Reception'}
+                  Total Bill: NPR {getEffectiveAppointmentTotal(appointment)} • Status: {appointment.paymentStatus === 'paid' ? 'Paid' : appointment.paymentMode === 'FREE' ? 'Free Follow-Up' : 'Settled at Reception'}
                 </p>
 
                 <div className="flex items-center gap-3 pt-1">
@@ -3126,7 +3126,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                 <div className="p-3 liquid-glass-subtle border-emerald-500/30 text-emerald-900 dark:text-emerald-300 rounded-xl space-y-1">
                   <div className="flex justify-between font-bold text-sm">
                     <span>Total Consultation Fee:</span>
-                    <span>NPR {activeAppt?.feeAmount ?? 500}</span>
+                    <span>NPR {activeAppt?.feeAmount ?? 0}</span>
                   </div>
                   <div className="flex justify-between text-[11px] text-emerald-700 dark:text-emerald-400">
                     <span>Payment Status:</span>

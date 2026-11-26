@@ -321,7 +321,7 @@ open class AppointmentRepository @Inject constructor(
                         checkinStatus = if (apptStatusLower in listOf("completed", "report_prepared")) appt.checkinStatus else "processing"
                     )
                     q?.status == "inside" && !isApptAlreadyProgressed -> appt.copy(checkinStatus = "inside_opd")
-                    q?.status == "no_show" && !isApptAlreadyProgressed -> appt.copy(checkinStatus = "cancelled")
+                    q?.status == "no_show" && !isApptAlreadyProgressed -> appt.copy(checkinStatus = "no_show")
                     else -> appt
                 }
             }.sortedWith(
@@ -503,23 +503,35 @@ open class AppointmentRepository @Inject constructor(
         val clean = code.trim()
         if (clean.isBlank()) return@withContext null
         try {
-            val appt = supabaseClient.postgrest["appointments"]
+            val matches = supabaseClient.postgrest["appointments"]
                 .select {
                     filter {
                         eq("tracking_code_10_digit", clean)
                     }
-                }.decodeSingleOrNull<Appointment>()
-            if (appt != null) {
-                val q = supabaseClient.postgrest["queue_entries"]
-                    .select { filter { eq("appointment_id", appt.id) } }
-                    .decodeSingleOrNull<QueueEntry>()
-                val resolvedAppt = if (q?.status in listOf("done", "sample_collected", "report_prepared")) {
-                    appt.copy(checkinStatus = "completed")
-                } else appt
-                try {
-                    appointmentDao?.upsert(AppointmentEntity.fromDomainModel(resolvedAppt, syncStatus = "synced"))
-                } catch (_: Exception) {}
-                return@withContext resolvedAppt
+                }.decodeList<Appointment>()
+            if (matches.isNotEmpty()) {
+                val resolvedList = attachQueueStatus(matches)
+                val todayStr = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kathmandu")).toString()
+                val preferred = resolvedList.firstOrNull {
+                    it.appointmentDate == todayStr &&
+                        !it.checkinStatus.equals("cancelled", true) &&
+                        !it.status.equals("CANCELLED", true)
+                } ?: resolvedList
+                    .filter {
+                        it.appointmentDate > todayStr &&
+                            !it.checkinStatus.equals("cancelled", true) &&
+                            !it.status.equals("CANCELLED", true)
+                    }
+                    .minByOrNull { it.appointmentDate }
+                ?: resolvedList.maxWithOrNull(
+                    compareBy<Appointment> { it.attemptNumber }.thenBy { it.appointmentDate }.thenBy { it.createdAt ?: "" }
+                )
+                if (preferred != null) {
+                    try {
+                        appointmentDao?.upsertAll(resolvedList.map { AppointmentEntity.fromDomainModel(it, syncStatus = "synced") })
+                    } catch (_: Exception) {}
+                    return@withContext preferred
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -530,9 +542,9 @@ open class AppointmentRepository @Inject constructor(
             if (local != null) return@withContext local
         } catch (_: Exception) {}
         try {
-            clinicAppointmentsCache.values.flatten().firstOrNull {
-                it.trackingCode10Digit.equals(clean, ignoreCase = true)
-            }
+            clinicAppointmentsCache.values.flatten()
+                .filter { it.trackingCode10Digit.equals(clean, ignoreCase = true) }
+                .maxWithOrNull(compareBy<Appointment> { it.attemptNumber }.thenBy { it.appointmentDate })
         } catch (_: Exception) {
             null
         }
@@ -765,7 +777,10 @@ open class AppointmentRepository @Inject constructor(
             }
 
             // 2. If an appointment already exists with this 10-digit tracking code, return it
-            if (trackingCode.isNotBlank()) {
+            //    (unless explicitly creating a joined follow-up visit with attemptNumber > 1).
+            val isJoinedFollowUpInsert = appointment.attemptNumber > 1 ||
+                appointment.visitType.equals("follow_up", ignoreCase = true)
+            if (trackingCode.isNotBlank() && !isJoinedFollowUpInsert) {
                 try {
                     val existingByCode = supabaseClient.postgrest["appointments"]
                         .select { filter { eq("tracking_code_10_digit", trackingCode.trim()) } }
@@ -1008,6 +1023,108 @@ open class AppointmentRepository @Inject constructor(
             trimmed.contains("\"success\": true")
     }
 
+    @Volatile
+    var lastRescheduleError: String? = null
+
+    suspend fun bookFollowUpAppointment(
+        trackingCode: String,
+        slotId: String?,
+        clinicId: String,
+        doctorId: String?,
+        appointmentDate: String,
+        appointmentTime: String,
+        reason: String? = null,
+        isWalkin: Boolean = true,
+        checkinStatus: String = "checked_in"
+    ): Appointment? = withContext(Dispatchers.IO) {
+        val cleanCode = trackingCode.trim()
+        if (cleanCode.isBlank()) return@withContext null
+        val existingList = getAllAppointmentsByTrackingCode(cleanCode)
+        val existing = existingList.maxWithOrNull(
+            compareBy<Appointment> { it.attemptNumber }.thenBy { it.appointmentDate }
+        ) ?: getAppointmentByTrackingCode(cleanCode) ?: return@withContext null
+
+        val validSlotId = slotId?.trim()?.takeIf { isValidUuid(it) }
+        val validDoctorId = doctorId?.trim()?.takeIf { isValidUuid(it) } ?: existing.doctorId?.takeIf { isValidUuid(it) }
+        val normalizedTime = normalizeTimeForPostgres(appointmentTime)
+        val nextAttempt = (existingList.maxOfOrNull { it.attemptNumber } ?: existing.attemptNumber) + 1
+        val effectiveClinicId = clinicId.ifBlank { existing.clinicId }
+        val effectiveReason = reason?.trim()?.ifBlank { null }
+            ?: "Follow-Up Visit #$nextAttempt (Ref: #${existing.trackingCode10Digit})"
+
+        try {
+            val fullParams = buildJsonObject {
+                put("p_source_tracking_code", cleanCode)
+                put("p_new_date", appointmentDate)
+                put("p_new_time", normalizedTime)
+                if (validSlotId != null) put("p_new_slot_id", validSlotId)
+                if (validDoctorId != null) put("p_new_doctor_id", validDoctorId)
+                put("p_reason", effectiveReason)
+                put("p_is_walkin", isWalkin)
+                put("p_checkin_status", checkinStatus)
+                put("p_payment_mode", "FREE")
+                put("p_allow_overbook", true)
+            }
+            val res = try {
+                supabaseClient.postgrest.rpc("book_follow_up_visit", fullParams)
+            } catch (primaryErr: Exception) {
+                if (!isMissingRescheduleRpcError(primaryErr)) throw primaryErr
+                val legacyParams = buildJsonObject {
+                    put("p_source_tracking_code", cleanCode)
+                    put("p_new_date", appointmentDate)
+                    put("p_new_time", normalizedTime)
+                    if (validSlotId != null) put("p_new_slot_id", validSlotId)
+                    if (validDoctorId != null) put("p_new_doctor_id", validDoctorId)
+                    put("p_reason", effectiveReason)
+                }
+                supabaseClient.postgrest.rpc("book_follow_up_visit", legacyParams)
+            }
+            val rpcObj = try { res.decodeSingleOrNull<JsonObject>() } catch (_: Exception) { null }
+            val newApptId = rpcObj?.get("appointment_id")?.jsonPrimitive?.contentOrNull
+            if (!newApptId.isNullOrBlank()) {
+                clinicAppointmentsCache.remove(effectiveClinicId)
+                doctorAppointmentsCache.clear()
+                val createdFromRpc = getAppointmentById(newApptId)
+                if (createdFromRpc != null) return@withContext createdFromRpc
+            }
+        } catch (rpcErr: Exception) {
+            rpcErr.printStackTrace()
+        }
+
+        // Fallback direct insert sharing exact same trackingCode10Digit & incremented attemptNumber
+        val fallbackAppt = existing.copy(
+            id = UUID.randomUUID().toString(),
+            trackingCode10Digit = existing.trackingCode10Digit,
+            slotId = validSlotId,
+            clinicId = effectiveClinicId,
+            doctorId = validDoctorId,
+            appointmentDate = appointmentDate,
+            appointmentTime = normalizedTime,
+            paymentStatus = "pending",
+            paymentMode = "FREE",
+            checkinStatus = checkinStatus,
+            status = "APPROVED",
+            visitType = "follow_up",
+            followUpOfAppointmentId = existing.id,
+            attemptNumber = nextAttempt,
+            feeAmount = 0.0,
+            totalAmount = 0.0,
+            serviceChargeAmount = 0.0,
+            isWalkin = isWalkin,
+            selectedLabTests = null,
+            notes = effectiveReason,
+            approvedAt = null,
+            rejectedAt = null,
+            createdAt = java.time.Instant.now().toString()
+        )
+        val created = createWalkinAppointment(fallbackAppt, allowOverbooking = true)
+        if (created != null) {
+            clinicAppointmentsCache.remove(effectiveClinicId)
+            doctorAppointmentsCache.clear()
+        }
+        created
+    }
+
     suspend fun rescheduleAppointment(
         id: String,
         newDate: String,
@@ -1015,6 +1132,7 @@ open class AppointmentRepository @Inject constructor(
         newSlotId: String?,
         newDoctorId: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
+        lastRescheduleError = null
         try {
             val existing = getAppointmentById(id)
             val oldSlotId = existing?.slotId
@@ -1025,7 +1143,7 @@ open class AppointmentRepository @Inject constructor(
             val preservePendingApproval = existing?.status?.equals("WAITING_FOR_APPROVAL", ignoreCase = true) == true
             val resolvedStatus = if (preservePendingApproval) "WAITING_FOR_APPROVAL" else "APPROVED"
 
-            // 1. Authoritative SECURITY DEFINER RPC (live signature first, migration fallback on PGRST202)
+            // 1. Authoritative SECURITY DEFINER RPC (7-param with overbook first, 6-param & legacy fallbacks on PGRST202)
             var rpcSucceeded = false
             try {
                 val primaryParams = buildJsonObject {
@@ -1035,27 +1153,50 @@ open class AppointmentRepository @Inject constructor(
                     put("p_new_slot_id", cleanSlotId)
                     put("p_new_doctor_id", cleanDocId)
                     put("p_reason", "Rescheduled via Dactor Clinic Portal App")
+                    put("p_allow_overbook", true)
                 }
                 val response = try {
                     supabaseClient.postgrest.rpc("reschedule_patient_appointment", primaryParams)
                 } catch (primaryErr: Exception) {
                     if (!isMissingRescheduleRpcError(primaryErr)) throw primaryErr
-                    val fallbackParams = buildJsonObject {
+                    val sixParams = buildJsonObject {
                         put("p_appointment_id", id)
                         put("p_new_date", newDate)
                         put("p_new_time", normalizedTime)
-                        if (cleanSlotId != null) put("p_slot_id", cleanSlotId)
-                        if (cleanDocId != null) put("p_doctor_id", cleanDocId)
-                        val trackingCode = existing?.trackingCode10Digit?.takeIf { it.isNotBlank() }
-                        if (trackingCode != null) put("p_tracking_code", trackingCode)
+                        put("p_new_slot_id", cleanSlotId)
+                        put("p_new_doctor_id", cleanDocId)
+                        put("p_reason", "Rescheduled via Dactor Clinic Portal App")
                     }
-                    supabaseClient.postgrest.rpc("reschedule_patient_appointment", fallbackParams)
+                    try {
+                        supabaseClient.postgrest.rpc("reschedule_patient_appointment", sixParams)
+                    } catch (sixErr: Exception) {
+                        if (!isMissingRescheduleRpcError(sixErr)) throw sixErr
+                        val fallbackParams = buildJsonObject {
+                            put("p_appointment_id", id)
+                            put("p_new_date", newDate)
+                            put("p_new_time", normalizedTime)
+                            if (cleanSlotId != null) put("p_slot_id", cleanSlotId)
+                            if (cleanDocId != null) put("p_doctor_id", cleanDocId)
+                            val trackingCode = existing?.trackingCode10Digit?.takeIf { it.isNotBlank() }
+                            if (trackingCode != null) put("p_tracking_code", trackingCode)
+                        }
+                        supabaseClient.postgrest.rpc("reschedule_patient_appointment", fallbackParams)
+                    }
                 }
                 val json = try { response.decodeSingleOrNull<JsonObject>() } catch (_: Exception) { null }
                 if (parseRescheduleRpcSuccess(response.data, json)) {
                     rpcSucceeded = true
+                } else {
+                    val rpcErrMsg = json?.get("error")?.jsonPrimitive?.contentOrNull
+                    if (!rpcErrMsg.isNullOrBlank()) {
+                        lastRescheduleError = rpcErrMsg
+                        if (rpcErrMsg.contains("completed", ignoreCase = true)) {
+                            return@withContext false
+                        }
+                    }
                 }
             } catch (rpcErr: Exception) {
+                lastRescheduleError = rpcErr.message
                 rpcErr.printStackTrace()
             }
 
@@ -1192,6 +1333,23 @@ open class AppointmentRepository @Inject constructor(
                         fallback["user_id"] = null
                         supabaseClient.postgrest["notifications"].insert(fallback)
                     }
+                }
+            } catch (_: Exception) {}
+
+            // Invalidate stale caches and persist updated appointment locally
+            existing?.clinicId?.takeIf { it.isNotBlank() }?.let { clinicAppointmentsCache.remove(it) }
+            doctorAppointmentsCache.clear()
+            try {
+                val refreshed = getAppointmentById(id) ?: existing?.copy(
+                    appointmentDate = newDate,
+                    appointmentTime = normalizedTime,
+                    slotId = cleanSlotId ?: existing.slotId,
+                    doctorId = cleanDocId ?: existing.doctorId,
+                    checkinStatus = "not_checked_in",
+                    status = resolvedStatus
+                )
+                if (refreshed != null) {
+                    appointmentDao?.upsert(AppointmentEntity.fromDomainModel(refreshed, syncStatus = "synced"))
                 }
             } catch (_: Exception) {}
 

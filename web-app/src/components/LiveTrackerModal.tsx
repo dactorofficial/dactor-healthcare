@@ -495,7 +495,7 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
                     <p className="font-bold text-blue-900 dark:text-blue-300">1. Initial Visit</p>
                     <p className="text-slate-600 dark:text-slate-400">
                       {linkedConsultations.initialAppointment?.appointmentDate || 'Earlier'} • Rs.{' '}
-                      {linkedConsultations.initialAppointment?.feeAmount || 500}
+                      {linkedConsultations.initialAppointment?.feeAmount ?? 0}
                     </p>
                   </div>
                   <div className="p-2 rounded-xl bg-white/70 dark:bg-slate-800/80 border border-teal-200/60 dark:border-teal-800">

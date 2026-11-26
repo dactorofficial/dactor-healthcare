@@ -4081,11 +4081,12 @@ fun RecordsTab(
                     val totalBill = when {
                         invoice != null && invoice.totalAmount > 0.0 -> appt.effectiveTotalForInvoice(invoice)
                         appt.effectiveTotalAmount > 0.0 -> appt.effectiveTotalAmount
-                        (doctor?.consultationFee ?: 0.0) > 0.0 -> doctor?.consultationFee ?: 500.0
+                        appt.isFreeFollowUp -> 0.0
+                        (doctor?.consultationFee ?: 0.0) > 0.0 -> doctor?.consultationFee ?: 0.0
                         else -> 0.0
                     }
                     val paidAmount = when {
-                        invoice != null || appt.paymentStatus.equals("paid", ignoreCase = true) ->
+                        invoice != null || (!appt.isFreeFollowUp && appt.paymentStatus.equals("paid", ignoreCase = true) && totalBill > 0.0) ->
                             appt.effectivePaidForInvoice(invoice, totalBill)
                         else -> 0.0
                     }
@@ -7630,18 +7631,15 @@ fun PatientRecordDetailDialog(
     val doctorSpec = if (hasTargetDoctor) dDoctor?.allSpecialties?.firstOrNull() ?: dDoctor?.specialty ?: "" else ""
     val doctorAvatar = if (hasTargetDoctor) dDoctor?.resolvedProfilePictureUrl else null
 
-    val totalBill = when {
-        dInvoice != null && dInvoice.totalAmount > 0.0 -> targetAppt.effectiveTotalForInvoice(dInvoice)
-        targetAppt.effectiveTotalAmount > 0.0 -> targetAppt.effectiveTotalAmount
-        (dDoctor?.consultationFee ?: 0.0) > 0.0 -> dDoctor?.consultationFee ?: 500.0
-        else -> 0.0
+    val dialogChain = remember(associatedVisits, targetAppt) {
+        if (associatedVisits.isNotEmpty()) associatedVisits else listOf(targetAppt)
     }
-    val paidAmount = when {
-        dInvoice != null || targetAppt.paymentStatus.equals("paid", ignoreCase = true) ->
-            targetAppt.effectivePaidForInvoice(dInvoice, totalBill)
-        else -> 0.0
+    val combinedSummary = remember(dialogChain, invoiceMap) {
+        com.dactor.patient.util.PaymentLedgerHelper.computeCombinedBillingSummary(dialogChain, invoiceMap)
     }
-    val balanceLeft = (totalBill - paidAmount).coerceAtLeast(0.0)
+    val totalBill = combinedSummary.totalBill
+    val paidAmount = combinedSummary.totalPaid
+    val balanceLeft = combinedSummary.balanceDue
     val isCompleted = targetAppt.checkinStatus.lowercase() in listOf("completed", "done")
 
     Dialog(
@@ -8166,12 +8164,8 @@ fun PatientRecordDetailDialog(
                                         }
                                     }
 
-                                    // Itemized Entries
-                                    val dInvoiceItems = if (dInvoice != null || targetAppt.isPayAtDesk) {
-                                        targetAppt.effectiveItemsForInvoice(dInvoice, targetAppt.appointmentDate, totalBill)
-                                    } else {
-                                        emptyList()
-                                    }
+                                    // Itemized Entries (Combined across all visits sharing this 10-digit ID)
+                                    val dInvoiceItems = combinedSummary.items
                                     if (dInvoiceItems.isNotEmpty()) {
                                         Surface(
                                             color = Color(0xFFF8FAFC),
@@ -8194,8 +8188,10 @@ fun PatientRecordDetailDialog(
                                         }
                                     }
 
-                                    // Payment Receipts Time Log
-                                    val pLogs = com.dactor.patient.util.PaymentLedgerHelper.reconcilePaymentRecordsForAppointment(targetAppt, dInvoice, dRemarks, paidAmount, dInvoice?.paidAt)
+                                    // Payment Receipts Time Log (Combined across all visits)
+                                    val pLogs = combinedSummary.paymentRecords.ifEmpty {
+                                        com.dactor.patient.util.PaymentLedgerHelper.reconcilePaymentRecordsForAppointment(targetAppt, dInvoice, dRemarks, paidAmount, dInvoice?.paidAt)
+                                    }
                                     if (pLogs.isNotEmpty()) {
                                         Surface(
                                             color = Color(0xFFF0FDF4),
@@ -9300,25 +9296,24 @@ fun ProfileTab(
             // ── 2. My Clinic Bills & Payment Summary Card (Connected to Clinic Billing) ──
             item {
                 val billableAppts = patientAppts
+                val groupedBillChains = billableAppts
+                    .groupBy { it.trackingCode10Digit.trim().ifBlank { it.id } }
+                    .values
+                    .map { chain ->
+                        val sortedChain = chain.sortedWith(
+                            compareByDescending<Appointment> { it.attemptNumber }
+                                .thenByDescending { it.appointmentDate }
+                                .thenByDescending { it.createdAt ?: "" }
+                        )
+                        val summary = com.dactor.patient.util.PaymentLedgerHelper.computeCombinedBillingSummary(
+                            visits = sortedChain,
+                            invoicesByApptId = profileInvoiceMap
+                        )
+                        Pair(sortedChain.first(), summary)
+                    }
 
-                var grandTotalBilled = 0.0
-                var grandTotalPaid = 0.0
-                billableAppts.forEach { appt ->
-                    val inv = profileInvoiceMap[appt.id]
-                    val doc = appt.doctorId?.let { profileDoctorMap[it] }
-                    val t = when {
-                        inv != null && inv.totalAmount > 0.0 -> appt.effectiveTotalForInvoice(inv)
-                        appt.effectiveTotalAmount > 0.0 -> appt.effectiveTotalAmount
-                        else -> doc?.consultationFee ?: 500.0
-                    }
-                    val p = when {
-                        inv != null || appt.paymentStatus.equals("paid", ignoreCase = true) ->
-                            appt.effectivePaidForInvoice(inv, t)
-                        else -> 0.0
-                    }
-                    grandTotalBilled += t
-                    grandTotalPaid += p
-                }
+                val grandTotalBilled = groupedBillChains.sumOf { it.second.totalBill }
+                val grandTotalPaid = groupedBillChains.sumOf { it.second.totalPaid }
                 val grandTotalLeft = (grandTotalBilled - grandTotalPaid).coerceAtLeast(0.0)
 
                 Card(
@@ -9433,7 +9428,7 @@ fun ProfileTab(
                                 modifier = Modifier.padding(vertical = 4.dp)
                             )
                         } else {
-                            billableAppts.forEach { appt ->
+                            groupedBillChains.forEach { (appt, chainSummary) ->
                                 val inv = profileInvoiceMap[appt.id]
                                 val clinic = profileClinicMap[appt.clinicId]
                                 val doc = appt.doctorId?.let { profileDoctorMap[it] }
@@ -9442,17 +9437,9 @@ fun ProfileTab(
                                 val dName = doc?.fullName?.let { if (it.startsWith("Dr.", true)) it else "Dr. $it" } ?: "Attending Doctor"
                                 val dSpec = doc?.allSpecialties?.firstOrNull() ?: doc?.specialty ?: "General Physician"
 
-                                val totalBill = when {
-                                    inv != null && inv.totalAmount > 0.0 -> appt.effectiveTotalForInvoice(inv)
-                                    appt.effectiveTotalAmount > 0.0 -> appt.effectiveTotalAmount
-                                    else -> doc?.consultationFee ?: 500.0
-                                }
-                                val paidAmt = when {
-                                    inv != null || appt.paymentStatus.equals("paid", ignoreCase = true) ->
-                                        appt.effectivePaidForInvoice(inv, totalBill)
-                                    else -> 0.0
-                                }
-                                val leftAmt = (totalBill - paidAmt).coerceAtLeast(0.0)
+                                val totalBill = chainSummary.totalBill
+                                val paidAmt = chainSummary.totalPaid
+                                val leftAmt = chainSummary.balanceDue
 
                                 Surface(
                                     shape = RoundedCornerShape(14.dp),

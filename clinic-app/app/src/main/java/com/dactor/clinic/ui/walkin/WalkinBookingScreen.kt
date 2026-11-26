@@ -175,10 +175,27 @@ fun WalkinBookingScreen(
             isLookingUpFollowup = true
             followupLookupError = null
             try {
-                val localMatch = pastClinicAppointments.firstOrNull {
+                val allRemoteMatches = try {
+                    appointmentRepository?.getAllAppointmentsByTrackingCode(clean) ?: emptyList()
+                } catch (_: Exception) {
+                    emptyList()
+                }
+                val clinicRemoteMatches = allRemoteMatches.filter {
+                    effectiveClinicId.isBlank() || it.clinicId.isBlank() || it.clinicId == effectiveClinicId
+                }
+                val localMatches = pastClinicAppointments.filter {
                     it.trackingCode10Digit.equals(clean, ignoreCase = true)
                 }
-                val found = localMatch ?: appointmentRepository?.getAppointmentByTrackingCode(clean)
+                val found = clinicRemoteMatches
+                    .sortedWith(compareByDescending<Appointment> { it.attemptNumber }.thenByDescending { it.appointmentDate })
+                    .firstOrNull()
+                    ?: allRemoteMatches
+                        .sortedWith(compareByDescending<Appointment> { it.attemptNumber }.thenByDescending { it.appointmentDate })
+                        .firstOrNull()
+                    ?: localMatches
+                        .sortedWith(compareByDescending<Appointment> { it.attemptNumber }.thenByDescending { it.appointmentDate })
+                        .firstOrNull()
+                    ?: appointmentRepository?.getAppointmentByTrackingCode(clean)
                 if (found != null) {
                     val isLabFound = found.selectedLabTests?.isNotBlank() == true ||
                         (effectiveClinicId.isNotBlank() && isLabClinic)
@@ -1264,7 +1281,6 @@ fun WalkinBookingScreen(
                     errorMessage = null
 
                     coroutineScope.launch {
-                        val generatedCode = TrackingCodeGenerator.generate()
                         try {
                             var cleanClinicId = effectiveClinicId.trim().ifBlank {
                                 session.getSavedClinicId() ?: session.getSavedActiveClinicIdForDoctor() ?: ""
@@ -1281,43 +1297,61 @@ fun WalkinBookingScreen(
                             val selectedTestsSummary = if (selectedLabTests.isNotEmpty()) {
                                 selectedLabTests.joinToString(", ") { "${it.serviceName} (Rs. ${it.price.toInt()})" }
                             } else null
-                            val computedFee = if (isLabClinic) {
-                                selectedLabTests.sumOf { it.price }
-                            } else if (isFollowUpVisit) {
-                                0.0
+                            val isJoinedFollowUp = !isLabClinic && isFollowUpVisit && returningPatientRecord != null
+                            val resolvedDoctorId = if (isLabClinic) null else (selectedDoctor?.id ?: affiliatedDoctors.firstOrNull()?.id)
+                            val result = if (isJoinedFollowUp) {
+                                val priorCode = returningPatientRecord!!.trackingCode10Digit.ifBlank { followupCodeInput.trim() }
+                                appointmentRepository?.bookFollowUpAppointment(
+                                    trackingCode = priorCode,
+                                    slotId = selectedSlot?.id,
+                                    clinicId = cleanClinicId,
+                                    doctorId = resolvedDoctorId,
+                                    appointmentDate = actualDate,
+                                    appointmentTime = slotTimeRange,
+                                    reason = "Follow-Up Walk-In (Ref: #$priorCode)",
+                                    isWalkin = true,
+                                    checkinStatus = "checked_in"
+                                )
                             } else {
-                                selectedDoctor?.consultationFee ?: (feeAmount.toDoubleOrNull() ?: 500.0)
+                                val generatedCode = TrackingCodeGenerator.generate()
+                                val parsedInputFee = feeAmount.toDoubleOrNull()?.takeIf { it > 0.0 }
+                                val computedFee = if (isLabClinic) {
+                                    selectedLabTests.sumOf { it.price }
+                                } else if (isFollowUpVisit) {
+                                    0.0
+                                } else {
+                                    selectedDoctor?.consultationFee?.takeIf { it > 0.0 } ?: parsedInputFee ?: 0.0
+                                }
+                                val followUpNote = if (isFollowUpVisit) {
+                                    "Follow-Up Consultation (Ref: #${returningPatientRecord?.trackingCode10Digit ?: followupCodeInput.trim()})"
+                                } else null
+                                val walkin = Appointment(
+                                    id = java.util.UUID.randomUUID().toString(),
+                                    trackingCode10Digit = generatedCode,
+                                    slotId = selectedSlot?.id,
+                                    clinicId = cleanClinicId,
+                                    doctorId = resolvedDoctorId,
+                                    patientName = patientName.trim(),
+                                    patientMobile = cleanPhone,
+                                    patientAge = (age.trim().toIntOrNull() ?: 30).coerceIn(1, 120),
+                                    patientGender = selectedGender,
+                                    patientEmail = email.trim().ifBlank { null },
+                                    appointmentDate = actualDate,
+                                    appointmentTime = slotTimeRange,
+                                    paymentStatus = if (computedFee > 0.0) "paid" else "pending",
+                                    checkinStatus = "checked_in",
+                                    feeAmount = computedFee,
+                                    totalAmount = computedFee,
+                                    paymentMode = if (computedFee > 0.0) "CASH" else "FREE",
+                                    isWalkin = true,
+                                    selectedLabTests = selectedTestsSummary,
+                                    status = "APPROVED",
+                                    notes = followUpNote
+                                )
+                                appointmentRepository?.createWalkinAppointment(walkin, allowOverbooking = true)
                             }
-                            val followUpNote = if (isFollowUpVisit) {
-                                "Follow-Up Consultation (Ref: #${returningPatientRecord?.trackingCode10Digit ?: followupCodeInput.trim()})"
-                            } else null
-                            val walkin = Appointment(
-                                id = java.util.UUID.randomUUID().toString(),
-                                trackingCode10Digit = generatedCode,
-                                slotId = selectedSlot?.id,
-                                clinicId = cleanClinicId,
-                                doctorId = if (isLabClinic) null else (selectedDoctor?.id ?: affiliatedDoctors.firstOrNull()?.id),
-                                patientName = patientName.trim(),
-                                patientMobile = cleanPhone,
-                                patientAge = (age.trim().toIntOrNull() ?: 30).coerceIn(1, 120),
-                                patientGender = selectedGender,
-                                patientEmail = email.trim().ifBlank { null },
-                                appointmentDate = actualDate,
-                                appointmentTime = slotTimeRange,
-                                paymentStatus = "paid",
-                                checkinStatus = "checked_in",
-                                feeAmount = computedFee,
-                                totalAmount = computedFee,
-                                paymentMode = if (computedFee > 0.0) "CASH" else "FREE",
-                                isWalkin = true,
-                                selectedLabTests = selectedTestsSummary,
-                                status = "APPROVED",
-                                notes = followUpNote
-                            )
-
-                            val result = appointmentRepository?.createWalkinAppointment(walkin, allowOverbooking = true)
                             if (result != null) {
-                                confirmedCode = result.trackingCode10Digit.ifBlank { generatedCode }
+                                confirmedCode = result.trackingCode10Digit
                                 confirmedTokenNumber = result.tokenNumber ?: result.effectiveTokenNumber
                                 // Immediately persist into clinic_patient_directory local records so it appears in Patient Directory
                                 try {

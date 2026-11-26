@@ -1009,7 +1009,7 @@ object PaymentLedgerHelper {
         for (appt in validAppts) {
             val docId = appt.doctorId ?: continue
             val doc = doctorMap[docId] ?: Doctor(id = docId, fullName = "Doctor", email = "")
-            val standardFee = doc.consultationFee ?: (if (appt.feeAmount > 0.0) appt.feeAmount else 500.0)
+            val standardFee = doc.consultationFee?.takeIf { it > 0.0 } ?: appt.feeAmount.takeIf { it > 0.0 } ?: 0.0
 
             val pKey = derivePatientKey(appt.userId, appt.patientMobile, appt.patientName, appt.id)
             val seenSet = seenByDoctor.getOrPut(docId) { mutableSetOf() }
@@ -1221,5 +1221,175 @@ object PaymentLedgerHelper {
         }
 
         return sb.toString()
+    }
+
+    data class CombinedBillingSummary(
+        val visitsCount: Int,
+        val totalBill: Double,
+        val totalPaid: Double,
+        val balanceDue: Double,
+        val items: List<InvoiceItem>,
+        val paymentRecords: List<PaymentRecord>,
+        val cleanRemarks: String
+    )
+
+    fun computeCombinedBillingSummary(
+        visits: List<Appointment>,
+        invoicesByApptId: Map<String, BillingInvoice>,
+        transactions: List<InvoiceTransaction> = emptyList()
+    ): CombinedBillingSummary {
+        if (visits.isEmpty()) {
+            return CombinedBillingSummary(0, 0.0, 0.0, 0.0, emptyList(), emptyList(), "")
+        }
+        val sortedVisits = visits
+            .distinctBy { it.id }
+            .sortedWith(compareBy<Appointment>({ it.attemptNumber }, { it.appointmentDate }, { it.appointmentTime }, { it.createdAt ?: "" }))
+
+        val isMultiVisit = sortedVisits.size > 1
+        val allItems = mutableListOf<InvoiceItem>()
+        val allPayments = mutableListOf<PaymentRecord>()
+        val allRemarks = mutableListOf<String>()
+        var grandTotal = 0.0
+
+        for (v in sortedVisits) {
+            val inv = invoicesByApptId[v.id]
+            val isCancelled = v.status.equals("cancelled", true) ||
+                v.status.equals("rejected", true) ||
+                v.checkinStatus.equals("cancelled", true)
+            if (isCancelled && (inv == null || (inv.totalAmount <= 0.0 && inv.paidAmount <= 0.0))) {
+                continue
+            }
+
+            val isFollowUp = v.attemptNumber > 1 ||
+                v.visitType.equals("follow_up", true) ||
+                !v.followUpOfAppointmentId.isNullOrBlank() ||
+                (v.feeAmount <= 0.0 && v.notes?.contains("follow", true) == true)
+
+            val rawCleanItems = inv?.items?.filterNot {
+                it.itemName.startsWith("Payment Received", ignoreCase = true)
+            } ?: emptyList()
+
+            val visitItems: List<InvoiceItem> = when {
+                rawCleanItems.isNotEmpty() -> {
+                    val hasServiceCharge = rawCleanItems.any {
+                        val lower = it.itemName.lowercase()
+                        lower.contains("service charge") || lower.contains("5%") || lower.contains("+5%")
+                    }
+                    if (!isFollowUp && v.isPayAtDesk && v.effectiveServiceCharge > 0.0 && !hasServiceCharge) {
+                        rawCleanItems + InvoiceItem(
+                            itemName = "Pay at Desk Service Charge (5%)",
+                            quantity = 1,
+                            price = v.effectiveServiceCharge,
+                            total = v.effectiveServiceCharge
+                        )
+                    } else {
+                        rawCleanItems
+                    }
+                }
+                inv != null && inv.totalAmount > 0.0 -> {
+                    listOf(
+                        InvoiceItem(
+                            itemName = "OPD Consultation & Services (${v.appointmentDate})",
+                            quantity = 1,
+                            price = inv.totalAmount,
+                            total = inv.totalAmount
+                        )
+                    )
+                }
+                !isFollowUp && v.effectiveTotalAmount > 0.0 -> {
+                    if (v.isPayAtDesk && v.effectiveServiceCharge > 0.0) {
+                        listOf(
+                            InvoiceItem("OPD Consultation (${v.appointmentDate})", 1, v.feeAmount, v.feeAmount),
+                            InvoiceItem("Pay at Desk Service Charge (5%)", 1, v.effectiveServiceCharge, v.effectiveServiceCharge)
+                        )
+                    } else {
+                        listOf(InvoiceItem("OPD Consultation (${v.appointmentDate})", 1, v.effectiveTotalAmount, v.effectiveTotalAmount))
+                    }
+                }
+                else -> emptyList()
+            }
+
+            val visitTotal = if (visitItems.isNotEmpty()) {
+                visitItems.sumOf { if (it.total > 0.0) it.total else it.price * it.quantity }
+            } else if (inv != null && inv.totalAmount > 0.0) {
+                inv.totalAmount
+            } else if (!isFollowUp) {
+                v.effectiveTotalAmount
+            } else {
+                0.0
+            }
+
+            grandTotal += visitTotal
+            visitItems.forEach { item ->
+                val taggedName = if (isMultiVisit && !item.itemName.startsWith("Visit #")) {
+                    "Visit #${v.attemptNumber} (${v.appointmentDate}) \u2022 ${item.itemName}"
+                } else {
+                    item.itemName
+                }
+                allItems.add(item.copy(itemName = taggedName))
+            }
+
+            // Collect actual payments (never synthesize payment on unbilled free follow-up!)
+            val parsedLogs = parsePaymentRecords(
+                rawRemarks = inv?.remarks,
+                fallbackPaidAmount = 0.0,
+                fallbackDate = inv?.paidAt
+            )
+            if (parsedLogs.isNotEmpty()) {
+                allPayments.addAll(parsedLogs)
+            } else {
+                val apptTxs = transactions.filter { it.appointmentId == v.id && it.amount != 0.0 }
+                if (apptTxs.isNotEmpty()) {
+                    apptTxs.forEach { tx ->
+                        allPayments.add(
+                            PaymentRecord(
+                                id = tx.id,
+                                amount = tx.amount,
+                                dateTime = tx.createdAt?.take(16)?.replace("T", " ") ?: v.appointmentDate,
+                                note = tx.notes ?: "Payment Received",
+                                paymentMethod = tx.paymentMethod,
+                                referenceId = tx.referenceId
+                            )
+                        )
+                    }
+                } else {
+                    val explicitPaid = inv?.effectivePaidAmount ?: 0.0
+                    val synthPaid = when {
+                        explicitPaid > 0.0 -> explicitPaid
+                        !isFollowUp && v.paymentStatus.equals("paid", true) && visitTotal > 0.0 -> visitTotal
+                        else -> 0.0
+                    }
+                    if (synthPaid > 0.0) {
+                        val stamp = inv?.paidAt?.take(16)?.replace("T", " ")
+                            ?: v.approvedAt?.take(16)?.replace("T", " ")
+                            ?: "${v.appointmentDate} ${v.appointmentTime.ifBlank { "10:00 AM" }}"
+                        allPayments.add(
+                            PaymentRecord(
+                                amount = synthPaid,
+                                dateTime = stamp,
+                                note = if (v.isPayAtDesk) "Pay at Desk Collection" else "Consultation Payment"
+                            )
+                        )
+                    }
+                }
+            }
+
+            val cleanRem = extractCleanClinicalRemarks(inv?.remarks)
+            if (cleanRem.isNotBlank()) {
+                allRemarks.add(if (isMultiVisit) "[${v.appointmentDate}] $cleanRem" else cleanRem)
+            }
+        }
+
+        val totalPaid = allPayments.sumOf { it.amount }
+        val balance = (grandTotal - totalPaid).coerceAtLeast(0.0)
+        return CombinedBillingSummary(
+            visitsCount = sortedVisits.size,
+            totalBill = grandTotal,
+            totalPaid = totalPaid,
+            balanceDue = balance,
+            items = allItems,
+            paymentRecords = allPayments,
+            cleanRemarks = allRemarks.joinToString("\n")
+        )
     }
 }

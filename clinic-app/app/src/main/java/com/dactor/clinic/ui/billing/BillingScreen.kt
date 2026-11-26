@@ -56,9 +56,9 @@ data class InvoiceLineItem(
 }
 
 private fun checkIsFollowUp(appt: Appointment, allAppts: List<Appointment>): Boolean {
-    // If an appointment was booked or charged with a consultation fee > 0, it is a chargeable visit, NEVER a free follow-up
-    if ((appt.feeAmount ?: 0.0) > 0.0) return false
-    return true
+    if (appt.attemptNumber > 1 || appt.visitType.equals("follow_up", ignoreCase = true)) return true
+    if (appt.feeAmount > 0.0) return false
+    return appt.notes?.contains("follow", ignoreCase = true) == true || appt.feeAmount <= 0.0
 }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -101,6 +101,11 @@ fun BillingScreen(
 
     // Payment Ledger History for the selected appointment
     var paymentRecords by remember { mutableStateOf<List<PaymentRecord>>(emptyList()) }
+    var priorVisitsSummary by remember {
+        mutableStateOf(
+            PaymentLedgerHelper.CombinedBillingSummary(0, 0.0, 0.0, 0.0, emptyList(), emptyList(), "")
+        )
+    }
 
     // Follow-up Service Items (Charges added across visits)
     var lineItems by remember { mutableStateOf<List<InvoiceLineItem>>(emptyList()) }
@@ -158,7 +163,30 @@ fun BillingScreen(
                 opdFee > 0.0 -> listOf(InvoiceLineItem(name = "OPD Doctor Consultation", unitPrice = opdFee, quantity = 1))
                 else -> emptyList()
             }
-            val existingInv = billingRepository.getInvoiceByAppointment(appt.id)
+            val siblingVisits = if (appt.trackingCode10Digit.isNotBlank()) {
+                val remoteSiblings = try {
+                    appointmentRepository?.getAllAppointmentsByTrackingCode(appt.trackingCode10Digit) ?: emptyList()
+                } catch (_: Exception) {
+                    emptyList()
+                }
+                (clinicAppointments.filter { it.trackingCode10Digit == appt.trackingCode10Digit } + remoteSiblings + listOf(appt))
+                    .distinctBy { it.id }
+            } else {
+                listOf(appt)
+            }
+            val otherVisits = siblingVisits.filter { it.id != appt.id }
+            val siblingInvoicesMap = if (siblingVisits.size > 1) {
+                val fetched = billingRepository.getInvoicesForAppointments(siblingVisits.map { it.id })
+                invoicesMap + fetched
+            } else {
+                invoicesMap
+            }
+            priorVisitsSummary = PaymentLedgerHelper.computeCombinedBillingSummary(
+                visits = otherVisits,
+                invoicesByApptId = siblingInvoicesMap
+            )
+
+            val existingInv = siblingInvoicesMap[appt.id] ?: billingRepository.getInvoiceByAppointment(appt.id)
             if (existingInv != null) {
                 val cleanItems = existingInv.items.filterNot { it.itemName.startsWith("Payment Received", ignoreCase = true) }
                 val mapped = cleanItems.map {
@@ -308,30 +336,39 @@ fun BillingScreen(
         }
     }
 
-    // Calculations for combined multi-visit bill
+    // Calculations for combined multi-visit bill (prior visits + active visit edits)
     val lineItemsSum = lineItems.sumOf { it.total }
     val loggedPaidSum = paymentRecords.sumOf { it.amount }
     val parsedNewPayment = newPaymentAmountInput.toDoubleOrNull() ?: 0.0
     val totalPaid = loggedPaidSum + parsedNewPayment
     val totalAmount = if (lineItemsSum > 0.0) lineItemsSum else totalPaid
     val balanceDue = (totalAmount - totalPaid).coerceAtLeast(0.0)
+    val combinedTotalAmount = priorVisitsSummary.totalBill + totalAmount
+    val combinedTotalPaid = priorVisitsSummary.totalPaid + totalPaid
+    val combinedBalanceDue = (combinedTotalAmount - combinedTotalPaid).coerceAtLeast(0.0)
     val pendingManualPrice = manualItemPrice.trim().replace(",", "").toDoubleOrNull() ?: 0.0
     val hasPendingManualItem = manualItemName.trim().isNotBlank() && pendingManualPrice > 0.0
 
     val currentInvoice = selectedAppointment?.let { invoicesMap[it.id] }
+    val activeDoctorFee = selectedAppointment?.let { appt ->
+        appt.doctorId?.let { doctorsMap[it]?.consultationFee }?.takeIf { it > 0.0 }
+            ?: appt.feeAmount.takeIf { it > 0.0 }
+    }
 
-    val quickCatalogItems = remember(customClinicServices) {
-        val defaultCatalog = listOf(
-            Pair("12-Lead ECG Test", 1000.0),
-            Pair("CT Scan", 500.0),
-            Pair("General OPD Consultation", 500.0),
-            Pair("Complete Blood Count (CBC)", 650.0),
-            Pair("Ultrasonography (USG)", 1500.0),
-            Pair("MRI Scan", 5000.0),
-            Pair("Digital X-Ray", 800.0),
-            Pair("Wound Dressing & Care", 350.0),
-            Pair("Lipid Profile Test", 1200.0)
-        )
+    val quickCatalogItems = remember(customClinicServices, activeDoctorFee) {
+        val defaultCatalog = buildList {
+            if (activeDoctorFee != null && activeDoctorFee > 0.0) {
+                add(Pair("General OPD Consultation", activeDoctorFee))
+            }
+            add(Pair("12-Lead ECG Test", 1000.0))
+            add(Pair("CT Scan", 500.0))
+            add(Pair("Complete Blood Count (CBC)", 650.0))
+            add(Pair("Ultrasonography (USG)", 1500.0))
+            add(Pair("MRI Scan", 5000.0))
+            add(Pair("Digital X-Ray", 800.0))
+            add(Pair("Wound Dressing & Care", 350.0))
+            add(Pair("Lipid Profile Test", 1200.0))
+        }
         val seen = mutableSetOf<String>()
         val result = mutableListOf<Pair<String, Double>>()
         for (item in customClinicServices) {
@@ -500,20 +537,19 @@ fun BillingScreen(
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 directoryFilteredAppointments.forEach { appt ->
                                     val isSelected = selectedAppointment?.id == appt.id
-                                    val apptInvoice = invoicesMap[appt.id]
-                                    val totalBilled = if (isSelected && (totalAmount > 0.0 || lineItems.isNotEmpty())) {
-                                        totalAmount
-                                    } else when {
-                                        apptInvoice != null && apptInvoice.totalAmount > 0.0 -> maxOf(apptInvoice.totalAmount, appt.effectiveTotalAmount)
-                                        appt.effectiveTotalAmount > 0.0 -> appt.effectiveTotalAmount
-                                        else -> 0.0
+                                    val chainVisits = if (appt.trackingCode10Digit.isNotBlank()) {
+                                        clinicAppointments.filter { it.trackingCode10Digit == appt.trackingCode10Digit }
+                                    } else listOf(appt)
+                                    val chainSummary = PaymentLedgerHelper.computeCombinedBillingSummary(chainVisits, invoicesMap)
+                                    val totalBilled = if (isSelected) {
+                                        combinedTotalAmount
+                                    } else {
+                                        chainSummary.totalBill
                                     }
-                                    val rowPaid = if (isSelected && (totalPaid > 0.0 || lineItems.isNotEmpty())) {
-                                        totalPaid
-                                    } else when {
-                                        apptInvoice != null && (apptInvoice.paidAmount > 0.0 || apptInvoice.totalAmount > 0.0) -> apptInvoice.effectivePaidAmount
-                                        appt.paymentStatus.equals("paid", ignoreCase = true) -> totalBilled
-                                        else -> 0.0
+                                    val rowPaid = if (isSelected) {
+                                        combinedTotalPaid
+                                    } else {
+                                        chainSummary.totalPaid
                                     }
                                     val balanceLeft = (totalBilled - rowPaid).coerceAtLeast(0.0)
 
@@ -608,17 +644,9 @@ fun BillingScreen(
             // =========================================================================
             selectedAppointment?.let { appt ->
                 val apptInvoice = invoicesMap[appt.id]
-                val currentTotal = when {
-                    apptInvoice != null && apptInvoice.totalAmount > 0.0 -> maxOf(apptInvoice.totalAmount, appt.effectiveTotalAmount)
-                    appt.effectiveTotalAmount > 0.0 -> appt.effectiveTotalAmount
-                    else -> 0.0
-                }
-                val currentPaid = when {
-                    apptInvoice != null && (apptInvoice.paidAmount != null || apptInvoice.totalAmount > 0.0) -> apptInvoice.effectivePaidAmount
-                    appt.paymentStatus.equals("paid", ignoreCase = true) -> currentTotal
-                    else -> 0.0
-                }
-                val currentLeft = (currentTotal - currentPaid).coerceAtLeast(0.0)
+                val currentTotal = combinedTotalAmount
+                val currentPaid = combinedTotalPaid
+                val currentLeft = combinedBalanceDue
 
                 Card(
                     shape = RoundedCornerShape(16.dp),
@@ -707,18 +735,25 @@ fun BillingScreen(
                                     } else {
                                         PaymentLedgerHelper.parsePaymentRecords(apptInvoice?.remarks, currentPaid, apptInvoice?.paidAt)
                                     }
-                                    val livePaidSum = livePayments.sumOf { it.amount }
-                                    val liveTotalSum = if (liveItems.isNotEmpty()) liveItems.sumOf { it.total } else (apptInvoice?.totalAmount?.takeIf { it > 0.0 } ?: currentTotal)
-                                    val liveBalance = (liveTotalSum - livePaidSum).coerceAtLeast(0.0)
-                                    val liveStatus = if (liveBalance <= 0.0 && liveTotalSum > 0.0) "paid" else if (livePaidSum > 0.0) "partial" else "pending"
+                                    val allCombinedItems = priorVisitsSummary.items + liveItems
+                                    val allCombinedPayments = priorVisitsSummary.paymentRecords + livePayments
+                                    val allCombinedTotal = allCombinedItems.sumOf { if (it.total > 0.0) it.total else it.price * it.quantity }
+                                        .let { if (it > 0.0) it else currentTotal }
+                                    val allCombinedPaid = allCombinedPayments.sumOf { it.amount }
+                                    val liveBalance = (allCombinedTotal - allCombinedPaid).coerceAtLeast(0.0)
+                                    val liveStatus = if (liveBalance <= 0.0 && allCombinedTotal > 0.0) "paid" else if (allCombinedPaid > 0.0) "partial" else "pending"
                                     val combinedRem = PaymentLedgerHelper.buildCombinedRemarks(
-                                        cleanRemarks = clinicalRemarks.ifBlank { PaymentLedgerHelper.extractCleanClinicalRemarks(apptInvoice?.remarks) },
-                                        paymentRecords = livePayments
+                                        cleanRemarks = listOf(
+                                            priorVisitsSummary.cleanRemarks,
+                                            clinicalRemarks.ifBlank { PaymentLedgerHelper.extractCleanClinicalRemarks(apptInvoice?.remarks) }
+                                        ).filter { it.isNotBlank() }.joinToString("\n"),
+                                        paymentRecords = allCombinedPayments
                                     )
                                     val invoiceToPrint = (apptInvoice ?: currentInvoice)?.copy(
-                                        items = liveItems,
-                                        totalAmount = liveTotalSum,
-                                        paidAmount = livePaidSum,
+                                        trackingCode10Digit = appt.trackingCode10Digit,
+                                        items = allCombinedItems,
+                                        totalAmount = allCombinedTotal,
+                                        paidAmount = allCombinedPaid,
                                         balanceDue = liveBalance,
                                         paymentStatus = liveStatus,
                                         remarks = combinedRem
@@ -726,9 +761,10 @@ fun BillingScreen(
                                         id = UUID.randomUUID().toString(),
                                         appointmentId = appt.id,
                                         clinicId = appt.clinicId.ifBlank { effectiveClinicId },
-                                        items = liveItems,
-                                        totalAmount = liveTotalSum,
-                                        paidAmount = livePaidSum,
+                                        trackingCode10Digit = appt.trackingCode10Digit,
+                                        items = allCombinedItems,
+                                        totalAmount = allCombinedTotal,
+                                        paidAmount = allCombinedPaid,
                                         balanceDue = liveBalance,
                                         paymentStatus = liveStatus,
                                         paidAt = java.time.Instant.now().toString(),
@@ -770,19 +806,23 @@ fun BillingScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column {
-                                    Text("Combined Bill", fontSize = 10.sp, color = Color(0xFF64748B))
-                                    Text("Rs. ${totalAmount.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = Color(0xFF0F172A))
+                                    Text(
+                                        if (priorVisitsSummary.visitsCount > 0) "Combined Bill (${priorVisitsSummary.visitsCount + 1} Visits)" else "Combined Bill",
+                                        fontSize = 10.sp,
+                                        color = Color(0xFF64748B)
+                                    )
+                                    Text("Rs. ${combinedTotalAmount.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = Color(0xFF0F172A))
                                     if (hasPendingManualItem) {
                                         Text("(+ Rs. ${pendingManualPrice.toInt()} pending)", fontSize = 9.5.sp, color = Color(0xFFD97706), fontWeight = FontWeight.Bold)
                                     }
                                 }
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text("Total Paid", fontSize = 10.sp, color = Color(0xFF64748B))
-                                    Text("Rs. ${totalPaid.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = Color(0xFF15803D))
+                                    Text("Rs. ${combinedTotalPaid.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = Color(0xFF15803D))
                                 }
                                 Column(horizontalAlignment = Alignment.End) {
                                     Text("Remaining Left", fontSize = 10.sp, color = Color(0xFF64748B))
-                                    Text("Rs. ${balanceDue.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = if (balanceDue > 0.0) Color(0xFFDC2626) else Color(0xFF15803D))
+                                    Text("Rs. ${combinedBalanceDue.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = if (combinedBalanceDue > 0.0) Color(0xFFDC2626) else Color(0xFF15803D))
                                 }
                             }
                         }
@@ -921,6 +961,42 @@ fun BillingScreen(
                             }
                         }
 
+                        // Prior Visits Combined Items (Read-only context from earlier visits sharing this 10-digit ID)
+                        if (priorVisitsSummary.items.isNotEmpty()) {
+                            Text(
+                                "Previous Visits Items (${priorVisitsSummary.items.size}) • Rs. ${priorVisitsSummary.totalBill.toInt()}",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                color = Color(0xFF0F766E)
+                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                priorVisitsSummary.items.forEach { prevItem ->
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFFF0FDFA),
+                                        border = BorderStroke(1.dp, Color(0xFFCCFBF1)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(prevItem.itemName, fontSize = 12.sp, color = Color(0xFF0F172A), modifier = Modifier.weight(1f))
+                                            Text(
+                                                CurrencyFormatter.formatNPR(prevItem.effectiveTotal),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF0F766E)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         // Current Combined Items List
                         if (lineItems.isNotEmpty()) {
                             Text("Current Billed Items (${lineItems.size})", fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Color(0xFF334155))
@@ -996,7 +1072,40 @@ fun BillingScreen(
                             }
                         }
 
-                        if (paymentRecords.isEmpty()) {
+                        if (priorVisitsSummary.paymentRecords.isNotEmpty()) {
+                            Text(
+                                "Previous Visits Payments (${priorVisitsSummary.paymentRecords.size}) • Rs. ${priorVisitsSummary.totalPaid.toInt()}",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                color = Color(0xFF15803D)
+                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                priorVisitsSummary.paymentRecords.forEach { prevRec ->
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFFF0FDF4),
+                                        border = BorderStroke(1.dp, Color(0xFFBBF7D0)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(prevRec.dateTime, fontWeight = FontWeight.SemiBold, fontSize = 11.5.sp, color = Color(0xFF0F172A))
+                                                Text(prevRec.note ?: "Prior Visit Payment", fontSize = 10.5.sp, color = Color(0xFF15803D))
+                                            }
+                                            Text("Rs. ${prevRec.amount.toInt()}", fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Color(0xFF15803D))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (paymentRecords.isEmpty() && priorVisitsSummary.paymentRecords.isEmpty()) {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = Color(0xFFF8FAFC),
@@ -1241,7 +1350,6 @@ fun BillingScreen(
                             val totalBillCalc = if (totalItemsCalc > 0.0) totalItemsCalc else if (isSavingFollowUp) 0.0 else totalPaidCalc
                             val balanceCalc = (totalBillCalc - totalPaidCalc).coerceAtLeast(0.0)
                             val statusCalc = when {
-                                isSavingFollowUp && totalItemsCalc == 0.0 -> "paid"
                                 balanceCalc <= 0.0 && totalBillCalc > 0.0 -> "paid"
                                 totalPaidCalc > 0.0 -> "partial"
                                 else -> "pending"
@@ -1253,6 +1361,7 @@ fun BillingScreen(
                                 id = currentInvoice?.id ?: UUID.randomUUID().toString(),
                                 appointmentId = finalAppt.id,
                                 clinicId = finalAppt.clinicId.ifBlank { effectiveClinicId },
+                                trackingCode10Digit = finalAppt.trackingCode10Digit,
                                 items = itemsToSave,
                                 totalAmount = totalBillCalc,
                                 paidAmount = totalPaidCalc,
@@ -1302,12 +1411,12 @@ fun BillingScreen(
                         Spacer(Modifier.width(8.dp))
                         Text("Saving Combined Bill...", fontWeight = FontWeight.Bold)
                     } else {
-                        val displayTotal = totalAmount + (if (hasPendingManualItem) pendingManualPrice else 0.0)
-                        val displayDue = (displayTotal - totalPaid).coerceAtLeast(0.0)
+                        val displayTotal = combinedTotalAmount + (if (hasPendingManualItem) pendingManualPrice else 0.0)
+                        val displayDue = (displayTotal - combinedTotalPaid).coerceAtLeast(0.0)
                         Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Save & Push Combined Bill (Total: Rs. ${displayTotal.toInt()} \u2022 Paid: Rs. ${totalPaid.toInt()} \u2022 Due: Rs. ${displayDue.toInt()})",
+                            "Save & Push Combined Bill (Total: Rs. ${displayTotal.toInt()} \u2022 Paid: Rs. ${combinedTotalPaid.toInt()} \u2022 Due: Rs. ${displayDue.toInt()})",
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp
                         )
@@ -1329,7 +1438,7 @@ fun BillingScreen(
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            "Bill and payment details for $realPatientName (Total: ${CurrencyFormatter.formatNPR(totalAmount)}, Paid: ${CurrencyFormatter.formatNPR(totalPaid)}, Left: ${CurrencyFormatter.formatNPR(balanceDue)}) have been saved and pushed to the patient's records.",
+                            "Bill and payment details for $realPatientName (Total: ${CurrencyFormatter.formatNPR(combinedTotalAmount)}, Paid: ${CurrencyFormatter.formatNPR(combinedTotalPaid)}, Left: ${CurrencyFormatter.formatNPR(combinedBalanceDue)}) have been saved and pushed to the patient's records.",
                             fontSize = 13.sp
                         )
                         Text(
@@ -1346,14 +1455,37 @@ fun BillingScreen(
                                 val assignedDoc = appt.doctorId?.let { doctorsMap[it]?.fullName } ?: "Attending Physician"
                                 val cName = loadedClinic?.name ?: "Dactor Medical Clinic"
                                 val cAddr = loadedClinic?.addressText ?: "Nepal"
+                                val rawInv = successDialogInvoice
+                                val combinedItemsForPdf = priorVisitsSummary.items + (rawInv?.items ?: emptyList())
+                                val combinedPaymentsForPdf = priorVisitsSummary.paymentRecords + paymentRecords
+                                val combinedTotalForPdf = combinedItemsForPdf.sumOf { if (it.total > 0.0) it.total else it.price * it.quantity }
+                                    .let { if (it > 0.0) it else combinedTotalAmount }
+                                val combinedPaidForPdf = combinedPaymentsForPdf.sumOf { it.amount }
+                                val combinedBalForPdf = (combinedTotalForPdf - combinedPaidForPdf).coerceAtLeast(0.0)
+                                val combinedRemarksForPdf = PaymentLedgerHelper.buildCombinedRemarks(
+                                    cleanRemarks = listOf(
+                                        priorVisitsSummary.cleanRemarks,
+                                        PaymentLedgerHelper.extractCleanClinicalRemarks(rawInv?.remarks).ifBlank { clinicalRemarks }
+                                    ).filter { it.isNotBlank() }.joinToString("\n"),
+                                    paymentRecords = combinedPaymentsForPdf
+                                )
+                                val combinedPdfInvoice = rawInv?.copy(
+                                    trackingCode10Digit = appt.trackingCode10Digit,
+                                    items = combinedItemsForPdf,
+                                    totalAmount = combinedTotalForPdf,
+                                    paidAmount = combinedPaidForPdf,
+                                    balanceDue = combinedBalForPdf,
+                                    paymentStatus = if (combinedBalForPdf <= 0.0 && combinedTotalForPdf > 0.0) "paid" else if (combinedPaidForPdf > 0.0) "partial" else "pending",
+                                    remarks = combinedRemarksForPdf
+                                )
                                 BillPdfDownloader.downloadBillPdf(
                                     context = context,
                                     appointment = appt,
-                                    invoice = successDialogInvoice,
+                                    invoice = combinedPdfInvoice,
                                     clinicName = cName,
                                     clinicAddress = cAddr,
                                     doctorName = assignedDoc,
-                                    clinicalRemarks = PaymentLedgerHelper.extractCleanClinicalRemarks(successDialogInvoice?.remarks).ifBlank { clinicalRemarks }
+                                    clinicalRemarks = combinedRemarksForPdf
                                 )
                             }
                             showSuccessDialog = false

@@ -32,8 +32,11 @@ interface AppointmentDao {
     @Query("SELECT * FROM appointments WHERE id = :id AND is_deleted = 0 LIMIT 1")
     suspend fun getAppointmentById(id: String): AppointmentEntity?
 
-    @Query("SELECT * FROM appointments WHERE tracking_code_10_digit = :trackingCode AND is_deleted = 0 LIMIT 1")
+    @Query("SELECT * FROM appointments WHERE tracking_code_10_digit = :trackingCode AND is_deleted = 0 ORDER BY attempt_number DESC, appointment_date DESC, created_at DESC LIMIT 1")
     suspend fun getAppointmentByTrackingCode(trackingCode: String): AppointmentEntity?
+
+    @Query("SELECT * FROM appointments WHERE tracking_code_10_digit = :trackingCode AND is_deleted = 0 ORDER BY attempt_number ASC, appointment_date ASC, created_at ASC")
+    suspend fun getAllAppointmentsByTrackingCode(trackingCode: String): List<AppointmentEntity>
 
     @Query("SELECT * FROM appointments WHERE clinic_id = :clinicId AND is_deleted = 0 AND (patient_name LIKE '%' || :query || '%' OR patient_mobile LIKE '%' || :query || '%' OR tracking_code_10_digit LIKE '%' || :query || '%') LIMIT 50")
     suspend fun searchPatients(clinicId: String, query: String): List<AppointmentEntity>

@@ -2734,9 +2734,11 @@ fun QueueStatusScreen(
                                             onClick = {
                                                 val targetAppt = appointment
                                                 if (targetAppt != null) {
-                                                    val invTotal = targetAppt.effectiveTotalForInvoice(billingInvoice, 500.0).takeIf { it > 0.0 } ?: 500.0
-                                                    val invPaid = targetAppt.effectivePaidForInvoice(billingInvoice, invTotal)
-                                                    val invLeft = (invTotal - invPaid).coerceAtLeast(0.0)
+                                                    val chainVisits = multiClinicAppointments.ifEmpty { listOf(targetAppt) }
+                                                    val combinedSum = com.dactor.patient.util.PaymentLedgerHelper.computeCombinedBillingSummary(chainVisits, appointmentInvoicesMap)
+                                                    val invTotal = combinedSum.totalBill
+                                                    val invPaid = combinedSum.totalPaid
+                                                    val invLeft = combinedSum.balanceDue
                                                     val invItems = targetAppt.effectiveItemsForInvoice(billingInvoice, today, invTotal)
                                                     com.dactor.patient.util.BillPdfDownloader.downloadBillPdf(
                                                         context = context,
@@ -2805,21 +2807,23 @@ fun QueueStatusScreen(
                 val hasBillOrCompleted = !isPayAtDeskPendingCard && (isConsultancyCompleted || queueStatus == "done" ||
                     billingInvoice != null || (appointment?.feeAmount ?: 0.0) > 0.0)
                 if (hasBillOrCompleted) {
-                    val invTotal = appointment?.effectiveTotalForInvoice(billingInvoice, 500.0)?.takeIf { it > 0.0 }
-                        ?: (billingInvoice?.totalAmount?.takeIf { it > 0.0 } ?: 500.0)
-                    val invPaid = appointment?.effectivePaidForInvoice(billingInvoice, invTotal)
-                        ?: (billingInvoice?.effectivePaidAmount ?: 0.0)
-                    val invLeft = (invTotal - invPaid).coerceAtLeast(0.0)
-                    val invoiceItems = appointment?.effectiveItemsForInvoice(billingInvoice, today, invTotal)
-                        ?: billingInvoice?.items?.takeIf { it.isNotEmpty() }
-                        ?: listOf(
-                            InvoiceItem(
-                                itemName = "Consultation Fee ($today)",
-                                quantity = 1,
-                                price = invTotal,
-                                total = invTotal
+                    val chainVisits = multiClinicAppointments.ifEmpty { listOfNotNull(appointment) }
+                    val combinedBilling = com.dactor.patient.util.PaymentLedgerHelper.computeCombinedBillingSummary(chainVisits, appointmentInvoicesMap)
+                    val invTotal = combinedBilling.totalBill
+                    val invPaid = combinedBilling.totalPaid
+                    val invLeft = combinedBilling.balanceDue
+                    val invoiceItems = combinedBilling.items.ifEmpty {
+                        if (invTotal > 0.0) {
+                            listOf(
+                                InvoiceItem(
+                                    itemName = "Consultation Fee ($today)",
+                                    quantity = 1,
+                                    price = invTotal,
+                                    total = invTotal
+                                )
                             )
-                        )
+                        } else emptyList()
+                    }
 
                     Card(
                         shape = RoundedCornerShape(20.dp),
@@ -2989,8 +2993,13 @@ fun QueueStatusScreen(
                             // Doctor Diagnosis & Clinical Remarks (if any)
                             val rawRemarks = clinicalRemarks?.trim()?.takeIf { it.isNotBlank() }
                                 ?: billingInvoice?.remarks?.trim()?.takeIf { it.isNotBlank() }
-                            val cleanRemarks = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(rawRemarks)
-                            val paymentLogs = com.dactor.patient.util.PaymentLedgerHelper.reconcilePaymentRecordsForAppointment(appointment, billingInvoice, rawRemarks, invPaid, billingInvoice?.paidAt)
+                            val cleanRemarks = listOf(
+                                combinedBilling.cleanRemarks,
+                                com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(rawRemarks)
+                            ).filter { it.isNotBlank() }.distinct().joinToString("\n")
+                            val paymentLogs = combinedBilling.paymentRecords.ifEmpty {
+                                com.dactor.patient.util.PaymentLedgerHelper.reconcilePaymentRecordsForAppointment(appointment, billingInvoice, rawRemarks, invPaid, billingInvoice?.paidAt)
+                            }
 
                             // Payment Receipts & Time Log
                             if (paymentLogs.isNotEmpty()) {
@@ -3082,19 +3091,20 @@ fun QueueStatusScreen(
                                     onClick = {
                                         val targetAppt = appointment
                                         if (targetAppt != null) {
+                                            val pdfRemarks = com.dactor.patient.util.PaymentLedgerHelper.buildCombinedRemarks(cleanRemarks, paymentLogs)
                                             com.dactor.patient.util.BillPdfDownloader.downloadBillPdf(
                                                 context = context,
                                                 appointment = targetAppt,
-                                                invoice = billingInvoice ?: BillingInvoice(
-                                                    id = targetAppt.id,
+                                                invoice = BillingInvoice(
+                                                    id = billingInvoice?.id ?: targetAppt.id,
                                                     appointmentId = targetAppt.id,
                                                     clinicId = targetAppt.clinicId,
                                                     items = invoiceItems,
                                                     totalAmount = invTotal,
                                                     paidAmount = invPaid,
                                                     balanceDue = invLeft,
-                                                    paymentStatus = if (invLeft <= 0.0) "paid" else "pending",
-                                                    remarks = cleanRemarks
+                                                    paymentStatus = if (invLeft <= 0.0 && invTotal > 0.0) "paid" else if (invPaid > 0.0) "partial" else "pending",
+                                                    remarks = pdfRemarks
                                                 ),
                                                 clinicName = clinicName,
                                                 clinicAddress = clinicAddress,
@@ -4812,25 +4822,28 @@ fun QueueStatusScreen(
     // =========================================================================
     if (showPrescriptionDialog) {
         val dialogAppt = appointment
-        val invTotal = dialogAppt?.effectiveTotalForInvoice(billingInvoice, 500.0)?.takeIf { it > 0.0 }
-            ?: (billingInvoice?.totalAmount?.takeIf { it > 0.0 } ?: 500.0)
-        val invPaid = dialogAppt?.effectivePaidForInvoice(billingInvoice, invTotal)
-            ?: (billingInvoice?.effectivePaidAmount ?: 0.0)
-        val invLeft = (invTotal - invPaid).coerceAtLeast(0.0)
-        val isPaidInFull = invLeft <= 0.0 || dialogAppt?.paymentStatus.equals("paid", ignoreCase = true)
-        val dialogItems = dialogAppt?.effectiveItemsForInvoice(billingInvoice, today, invTotal)
-            ?: billingInvoice?.items?.takeIf { it.isNotEmpty() }
-            ?: listOf(
-                InvoiceItem(
-                    itemName = "Consultation Fee ($today)",
-                    quantity = 1,
-                    price = invTotal,
-                    total = invTotal
+        val dialogChain = multiClinicAppointments.ifEmpty { listOfNotNull(dialogAppt) }
+        val dialogCombined = com.dactor.patient.util.PaymentLedgerHelper.computeCombinedBillingSummary(dialogChain, appointmentInvoicesMap)
+        val invTotal = dialogCombined.totalBill
+        val invPaid = dialogCombined.totalPaid
+        val invLeft = dialogCombined.balanceDue
+        val isPaidInFull = invTotal > 0.0 && invLeft <= 0.0
+        val dialogItems = dialogCombined.items.ifEmpty {
+            if (invTotal > 0.0) {
+                listOf(
+                    InvoiceItem(
+                        itemName = "Consultation Fee ($today)",
+                        quantity = 1,
+                        price = invTotal,
+                        total = invTotal
+                    )
                 )
-            )
-        val cleanRemarksText = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(
-            clinicalRemarks ?: billingInvoice?.remarks
-        )
+            } else emptyList()
+        }
+        val cleanRemarksText = listOf(
+            dialogCombined.cleanRemarks,
+            com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(clinicalRemarks ?: billingInvoice?.remarks)
+        ).filter { it.isNotBlank() }.distinct().joinToString("\n")
 
     // Cancel Pay at Desk Confirmation Dialog
     if (showCancelPayAtDeskConfirm) {

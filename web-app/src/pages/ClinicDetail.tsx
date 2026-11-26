@@ -1047,8 +1047,8 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
             appointmentDate: selectedDate,
             appointmentTime: selectedSlotTime || '10:00 AM',
             feeAmount: 0,
-            paymentStatus: 'paid',
-            paymentMode: 'ONLINE',
+            paymentStatus: 'pending',
+            paymentMode: 'FREE',
             status: 'APPROVED',
             checkinStatus: 'not_checked_in',
             notes: `Free Follow-Up Consultation (Ref: #${retainedAppointment.trackingCode10Digit})`

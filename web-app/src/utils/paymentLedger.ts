@@ -1340,3 +1340,162 @@ export function exportPaymentLogsToCsv(
 
   return '\uFEFF' + rows.join('\r\n')
 }
+
+export interface CombinedBillingSummary {
+  visitsCount: number
+  totalBill: number
+  totalPaid: number
+  balanceDue: number
+  items: Array<{ name: string; itemName: string; quantity: number; price: number; total: number }>
+  paymentRecords: WebPaymentRecord[]
+  cleanRemarks: string
+}
+
+export function computeCombinedBillingSummary(
+  visits: any[],
+  invoicesByApptId: Record<string, any>
+): CombinedBillingSummary {
+  if (!visits || visits.length === 0) {
+    return { visitsCount: 0, totalBill: 0, totalPaid: 0, balanceDue: 0, items: [], paymentRecords: [], cleanRemarks: '' }
+  }
+  const seen = new Set<string>()
+  const sortedVisits = visits
+    .filter((v) => {
+      if (!v || !v.id || seen.has(v.id)) return false
+      seen.add(v.id)
+      return true
+    })
+    .sort((a, b) => {
+      const attDiff = Number(a.attemptNumber || 1) - Number(b.attemptNumber || 1)
+      if (attDiff !== 0) return attDiff
+      const dCmp = String(a.appointmentDate || '').localeCompare(String(b.appointmentDate || ''))
+      if (dCmp !== 0) return dCmp
+      return String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
+    })
+
+  const isMultiVisit = sortedVisits.length > 1
+  const allItems: Array<{ name: string; itemName: string; quantity: number; price: number; total: number }> = []
+  const allPayments: WebPaymentRecord[] = []
+  const allRemarks: string[] = []
+  let grandTotal = 0
+
+  for (const v of sortedVisits) {
+    const inv = invoicesByApptId[v.id] || null
+    const st = String(v.status || '').toLowerCase()
+    const cs = String(v.checkinStatus || '').toLowerCase()
+    const isCancelled = st === 'cancelled' || st === 'rejected' || cs === 'cancelled'
+    if (isCancelled && (!inv || (Number(inv.totalAmount || 0) <= 0 && Number(inv.paidAmount || 0) <= 0))) {
+      continue
+    }
+
+    const isFollowUp =
+      Number(v.attemptNumber || 1) > 1 ||
+      String(v.visitType || '').toLowerCase().includes('follow') ||
+      Boolean(v.followUpOfAppointmentId) ||
+      (Number(v.feeAmount || 0) <= 0 &&
+        Number(v.totalAmount || 0) <= 0 &&
+        (String(v.paymentMode || '').toUpperCase() === 'FREE' || String(v.notes || '').toLowerCase().includes('follow')))
+
+    const rawItems = Array.isArray(inv?.items) ? inv.items : []
+    const cleanInvItems = rawItems
+      .filter((it: any) => !String(it?.itemName || it?.name || '').toLowerCase().startsWith('payment received'))
+      .map((it: any) => {
+        const name = String(it?.itemName || it?.name || 'Clinical Service')
+        const qty = Math.max(1, Number(it?.quantity || 1))
+        const price = Number(it?.price || 0)
+        const total = Number(it?.total || price * qty)
+        return { name, itemName: name, quantity: qty, price, total }
+      })
+
+    const isPad = String(v.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
+    const fee = Number(v.feeAmount || 0)
+    const serviceCharge = isPad && fee > 0 ? Number(v.serviceChargeAmount || Math.round(fee * 0.05 * 100) / 100) : 0
+    const apptEffectiveTotal = isPad
+      ? Math.max(Number(v.totalAmount || 0), fee + serviceCharge)
+      : Number(v.totalAmount || 0) > 0
+      ? Number(v.totalAmount)
+      : fee
+
+    let visitItems = cleanInvItems
+    if (visitItems.length > 0) {
+      if (!isFollowUp && isPad && serviceCharge > 0) {
+        const hasSc = visitItems.some((it: any) => {
+          const l = it.name.toLowerCase()
+          return l.includes('service charge') || l.includes('5%') || l.includes('+5%')
+        })
+        if (!hasSc) {
+          visitItems = [...visitItems, { name: 'Pay at Desk Service Charge (5%)', itemName: 'Pay at Desk Service Charge (5%)', quantity: 1, price: serviceCharge, total: serviceCharge }]
+        }
+      }
+    } else if (inv && Number(inv.totalAmount || 0) > 0) {
+      const invT = Number(inv.totalAmount)
+      visitItems = [{ name: `OPD Consultation & Services (${v.appointmentDate || ''})`, itemName: `OPD Consultation & Services (${v.appointmentDate || ''})`, quantity: 1, price: invT, total: invT }]
+    } else if (!isFollowUp && apptEffectiveTotal > 0) {
+      if (isPad && serviceCharge > 0) {
+        visitItems = [
+          { name: `OPD Consultation (${v.appointmentDate || ''})`, itemName: `OPD Consultation (${v.appointmentDate || ''})`, quantity: 1, price: fee, total: fee },
+          { name: 'Pay at Desk Service Charge (5%)', itemName: 'Pay at Desk Service Charge (5%)', quantity: 1, price: serviceCharge, total: serviceCharge },
+        ]
+      } else {
+        visitItems = [{ name: `OPD Consultation (${v.appointmentDate || ''})`, itemName: `OPD Consultation (${v.appointmentDate || ''})`, quantity: 1, price: apptEffectiveTotal, total: apptEffectiveTotal }]
+      }
+    }
+
+    const visitTotal =
+      visitItems.length > 0
+        ? visitItems.reduce((acc: number, it: any) => acc + (Number(it.total) > 0 ? Number(it.total) : Number(it.price) * Number(it.quantity || 1)), 0)
+        : inv && Number(inv.totalAmount || 0) > 0
+        ? Number(inv.totalAmount)
+        : !isFollowUp
+        ? apptEffectiveTotal
+        : 0
+
+    grandTotal += visitTotal
+    for (const it of visitItems) {
+      const tagged = isMultiVisit && !it.name.startsWith('Visit #')
+        ? `Visit #${v.attemptNumber || 1} (${v.appointmentDate || ''}) • ${it.name}`
+        : it.name
+      allItems.push({ ...it, name: tagged, itemName: tagged })
+    }
+
+    const parsedLogs = parsePaymentRecords(inv?.remarks, 0, inv?.paidAt)
+    if (parsedLogs.length > 0) {
+      allPayments.push(...parsedLogs)
+    } else {
+      const explicitPaid = Number(inv?.paidAmount || 0) > 0
+        ? Number(inv.paidAmount)
+        : inv?.paymentStatus === 'paid' && Number(inv?.totalAmount || 0) > 0
+        ? Number(inv.totalAmount)
+        : 0
+      const synthPaid = explicitPaid > 0
+        ? explicitPaid
+        : !isFollowUp && v.paymentStatus === 'paid' && visitTotal > 0
+        ? visitTotal
+        : 0
+      if (synthPaid > 0) {
+        allPayments.push({
+          id: `pay_${v.id}`,
+          amount: synthPaid,
+          dateTime: String(inv?.paidAt || v.approvedAt || `${v.appointmentDate || ''} ${v.appointmentTime || '10:00 AM'}`).slice(0, 16).replace('T', ' '),
+          note: isPad ? 'Pay at Desk Collection' : 'Consultation Payment',
+        })
+      }
+    }
+
+    const cleanRem = extractCleanClinicalRemarks(inv?.remarks)
+    if (cleanRem) {
+      allRemarks.push(isMultiVisit ? `[${v.appointmentDate || ''}] ${cleanRem}` : cleanRem)
+    }
+  }
+
+  const totalPaid = allPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0)
+  return {
+    visitsCount: sortedVisits.length,
+    totalBill: grandTotal,
+    totalPaid,
+    balanceDue: Math.max(0, grandTotal - totalPaid),
+    items: allItems,
+    paymentRecords: allPayments,
+    cleanRemarks: allRemarks.join('\n'),
+  }
+}

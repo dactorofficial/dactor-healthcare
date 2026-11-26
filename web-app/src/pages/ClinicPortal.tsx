@@ -140,8 +140,11 @@ import {
   getMedicalQualifications,
   generate10DigitTrackingCode,
   getAppointmentByTrackingCode,
+  getAllAppointmentsByTrackingCode,
+  bookFollowUpVisit,
   getBillingInvoicesByClinic,
   getInvoiceForAppointment,
+  getInvoicesForAppointments,
   saveOrUpdateInvoicePayment,
   uploadReceiptFile,
   updateDoctorPresence,
@@ -2799,12 +2802,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     if (Object.keys(errors).length > 0 || !selectedClinic) return
 
     try {
-      const code10 = generateTrackingCode()
+      const isFreeFollowup = Boolean(walkinIsFollowup && walkinRetainedAppt)
+      const code10 = isFreeFollowup && walkinRetainedAppt?.trackingCode10Digit
+        ? walkinRetainedAppt.trackingCode10Digit
+        : generateTrackingCode()
 
       const labFee = walkinSelectedTests.reduce((acc, t) => acc + (t.price || 0), 0)
       const assignedDoc = clinicDoctors.find((d) => d.id === walkinDoctorId) || clinicDoctors[0]
-      const docFee = assignedDoc?.consultationFee || 500
-      const isFreeFollowup = walkinIsFollowup && walkinRetainedAppt
+      const docFee = assignedDoc?.consultationFee || 0
       const finalFee = isLabClinic ? labFee : isFreeFollowup ? 0 : docFee
 
       const walkinNotes = isLabClinic
@@ -2842,9 +2847,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         appointmentTime: rawTime,
         slotId: walkinSlotId || undefined,
         checkinStatus: 'waiting',
-        paymentStatus: 'paid',
-        paymentMode: finalFee > 0 ? 'CASH' : 'FREE',
+        paymentStatus: isFreeFollowup ? 'pending' : (finalFee > 0 ? 'paid' : 'pending'),
+        paymentMode: isFreeFollowup ? 'FREE' : (finalFee > 0 ? 'CASH' : 'FREE'),
         status: 'APPROVED',
+        attemptNumber: isFreeFollowup && walkinRetainedAppt ? (walkinRetainedAppt.attemptNumber || 1) + 1 : 1,
         feeAmount: finalFee,
         totalAmount: finalFee,
         notes: walkinNotes,
@@ -2964,32 +2970,53 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
 
       // 3. Background cloud sync if online
       if (typeof navigator === 'undefined' || navigator.onLine) {
-        createAppointment({
-          clinicId: selectedClinic.id,
-          doctorId: isLabClinic ? undefined : (walkinDoctorId || clinicDoctors[0]?.id || undefined),
-          trackingCode10Digit: code10,
-          patientName: localAppt.patientName,
-          patientAge: localAppt.patientAge,
-          patientGender: localAppt.patientGender,
-          patientMobile: localAppt.patientMobile,
-          patientEmail: localAppt.patientEmail,
-          appointmentDate: apptDate,
-          appointmentTime: rawTime,
-          slotId: submittedSlotId || undefined,
-          checkinStatus: 'waiting',
-          paymentStatus: 'paid',
-          feeAmount: finalFee,
-          notes: walkinNotes,
-          isWalkin: true,
-          selectedTests: isLabClinic ? walkinSelectedTests.map((t) => t.serviceName) : [],
-        }).then((created) => {
-          if (created) {
-            setPrintSlipAppt(created)
-            setRefreshKey((k) => k + 1)
-          }
-        }).catch((err) => {
-          console.warn('Background Supabase appointment create failed, queued offline:', err)
-        })
+        if (isFreeFollowup && walkinRetainedAppt?.trackingCode10Digit) {
+          bookFollowUpVisit({
+            sourceTrackingCode: walkinRetainedAppt.trackingCode10Digit,
+            newDate: apptDate,
+            newTime: rawTime,
+            newSlotId: submittedSlotId || null,
+            newDoctorId: localAppt.doctorId || null,
+            reason: walkinNotes,
+            isWalkin: true,
+            checkinStatus: 'checked_in',
+            allowOverbook: true,
+          }).then((created) => {
+            if (created) {
+              setPrintSlipAppt(created)
+              setRefreshKey((k) => k + 1)
+            }
+          }).catch((err) => {
+            console.warn('Background Supabase follow-up walkin failed:', err)
+          })
+        } else {
+          createAppointment({
+            clinicId: selectedClinic.id,
+            doctorId: isLabClinic ? undefined : (walkinDoctorId || clinicDoctors[0]?.id || undefined),
+            trackingCode10Digit: code10,
+            patientName: localAppt.patientName,
+            patientAge: localAppt.patientAge,
+            patientGender: localAppt.patientGender,
+            patientMobile: localAppt.patientMobile,
+            patientEmail: localAppt.patientEmail,
+            appointmentDate: apptDate,
+            appointmentTime: rawTime,
+            slotId: submittedSlotId || undefined,
+            checkinStatus: 'waiting',
+            paymentStatus: finalFee > 0 ? 'paid' : 'pending',
+            feeAmount: finalFee,
+            notes: walkinNotes,
+            isWalkin: true,
+            selectedTests: isLabClinic ? walkinSelectedTests.map((t) => t.serviceName) : [],
+          }).then((created) => {
+            if (created) {
+              setPrintSlipAppt(created)
+              setRefreshKey((k) => k + 1)
+            }
+          }).catch((err) => {
+            console.warn('Background Supabase appointment create failed, queued offline:', err)
+          })
+        }
         triggerSync().catch(() => {})
       }
     } catch (err) {
@@ -3174,7 +3201,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         shiftTargetAppt.id,
         shiftNewDate,
         shiftNewTime,
-        shiftReason
+        shiftReason,
+        undefined,
+        null,
+        shiftTargetAppt.trackingCode10Digit,
+        true
       )
       if (ok) {
         setShiftModalOpen(false)
@@ -3413,7 +3444,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           const baseFee = Number(appt.feeAmount || 0)
           const deskCharge = getEffectiveServiceCharge(appt)
           const effectiveTotal = getEffectiveAppointmentTotal(appt)
-          const initialFee = Math.max(Number(existing.totalAmount || 0), effectiveTotal || 500)
+          const initialFee = Math.max(Number(existing.totalAmount || 0), effectiveTotal || 0)
           if (String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK' && baseFee > 0 && deskCharge > 0) {
             setBillItems([
               {
@@ -3441,9 +3472,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }
         }
 
-        const calcTotal = Math.max(getEffectiveInvoiceTotal(appt, existing), 500)
+        const calcTotal = getEffectiveInvoiceTotal(appt, existing)
+        const isFreeFu = Number(appt.attemptNumber || 1) > 1 && Number(appt.feeAmount || 0) <= 0 && String(appt.paymentMode || '').toUpperCase() === 'FREE'
         const calcPaid =
-          existing.paymentStatus === 'paid' || appt.paymentStatus === 'paid'
+          existing.paymentStatus === 'paid' || (!isFreeFu && appt.paymentStatus === 'paid' && calcTotal > 0)
             ? Math.max(Number(existing.paidAmount || 0), calcTotal)
             : Number(existing.paidAmount || 0)
         const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
@@ -3457,7 +3489,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         setBillPaidAmount(String(calcPaid))
         setBillRemarks(extractCleanClinicalRemarks(existing.remarks) || appt.notes || '')
       } else {
-        const baseFee = Number(appt.feeAmount) || 500
+        const baseFee = Number(appt.feeAmount) || 0
         const deskCharge = getEffectiveServiceCharge(appt)
         const initialTotal = getEffectiveAppointmentTotal(appt) || baseFee
         if (String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK' && deskCharge > 0) {
@@ -3540,7 +3572,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
 
       const itemsTotal = billItems.reduce((acc, it) => acc + it.price * (it.quantity || 1), 0)
       const inputTotal = Number(billTotalAmount) || 0
-      const finalTotalAmount = itemsTotal > 0 ? (inputTotal > itemsTotal ? inputTotal : itemsTotal) : (inputTotal > 0 ? inputTotal : (Number(billTargetAppt.feeAmount) || 500))
+      const finalTotalAmount = itemsTotal > 0 ? (inputTotal > itemsTotal ? inputTotal : itemsTotal) : (inputTotal > 0 ? inputTotal : (Number(billTargetAppt.feeAmount) || 0))
 
       // If user typed a larger total than items sum, add a reconciling item so itemized list reflects the total
       let itemsToPersist = [...billItems]
@@ -6557,7 +6589,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                         : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 border border-white/40'
                                     }`}
                                   >
-                                    Rs. {getEffectiveAppointmentTotal(appt) || 500} • {appt.paymentStatus.toUpperCase()}
+                                    Rs. {getEffectiveAppointmentTotal(appt)} • {appt.paymentStatus.toUpperCase()}
                                   </span>
                                   {String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK' && appt.paymentStatus !== 'paid' && (
                                     <button
@@ -6579,7 +6611,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                       }}
                                       className="px-2 py-0.5 bg-amber-500 hover:bg-amber-600 text-white rounded text-[10px] font-bold cursor-pointer shadow-xs"
                                     >
-                                      Mark Paid (Rs. {getEffectiveAppointmentTotal(appt) || 500})
+                                      Mark Paid (Rs. {getEffectiveAppointmentTotal(appt)})
                                     </button>
                                   )}
                                 </div>
@@ -12596,8 +12628,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                           <tr>
                             <td className="p-1.5">Consultation & Services</td>
                             <td className="p-1.5 text-center font-mono">1</td>
-                            <td className="p-1.5 text-right font-mono">Rs. {billTotalAmount || 500}</td>
-                            <td className="p-1.5 text-right font-mono font-bold">Rs. {billTotalAmount || 500}</td>
+                            <td className="p-1.5 text-right font-mono">Rs. {billTotalAmount || 0}</td>
+                            <td className="p-1.5 text-right font-mono font-bold">Rs. {billTotalAmount || 0}</td>
                           </tr>
                         )}
                       </tbody>
@@ -12654,7 +12686,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                       })
                     }
                     const totalP = allPayments.reduce((acc, p) => acc + p.amount, 0)
-                    const totalB = Number(billTotalAmount) || billItems.reduce((acc, it) => acc + it.price * (it.quantity || 1), 0) || 500
+                    const totalB = Number(billTotalAmount) || billItems.reduce((acc, it) => acc + it.price * (it.quantity || 1), 0) || 0
                     const bal = Math.max(0, totalB - totalP)
                     return (
                       <div className="space-y-1 pt-1 border-t border-slate-300 text-[11px]">
@@ -13246,7 +13278,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                 </div>
                 <div className="flex justify-between border-t border-slate-200 pt-1 font-bold">
                   <span>{String(printSlipAppt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK' ? 'Total Payable (incl. 5%):' : 'Consultation Fee:'}</span>
-                  <span>Rs. {getEffectiveAppointmentTotal(printSlipAppt) || 500}</span>
+                  <span>Rs. {getEffectiveAppointmentTotal(printSlipAppt)}</span>
                 </div>
               </div>
 
