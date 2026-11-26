@@ -321,6 +321,29 @@ fun DactorClinicNavHost(
                 doctorRepository = doctorRepository
             )
         }
+        composable(NavRoutes.BillingDirectory) {
+            BillingScreen(
+                navController = navController,
+                clinicId = currentClinicId(),
+                appointmentId = "",
+                billingRepository = billingRepository,
+                appointmentRepository = appointmentRepository,
+                clinicRepository = clinicRepository,
+                doctorRepository = doctorRepository
+            )
+        }
+        composable("${NavRoutes.BillingDirectory}/{clinicId}") { backStackEntry ->
+            val cid = currentClinicId(backStackEntry.arguments?.getString("clinicId"))
+            BillingScreen(
+                navController = navController,
+                clinicId = cid,
+                appointmentId = "",
+                billingRepository = billingRepository,
+                appointmentRepository = appointmentRepository,
+                clinicRepository = clinicRepository,
+                doctorRepository = doctorRepository
+            )
+        }
         composable(NavRoutes.PaymentLogs) {
             PaymentLogsScreen(
                 navController = navController,

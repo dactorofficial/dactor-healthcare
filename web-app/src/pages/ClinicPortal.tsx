@@ -217,6 +217,7 @@ import {
   extractCleanClinicalRemarks,
   buildCombinedRemarks,
   inferPaymentMethodFromText,
+  computeCombinedBillingSummary,
   WebPaymentRecord,
 } from '../utils/paymentLedger'
 import { supabase } from '../lib/supabase'
@@ -894,6 +895,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
 
   // Billing Date Filter & Catalog Category Filter (BillingScreen.kt & CatalogManagerScreen.kt)
   const [billingDateFilter, setBillingDateFilter] = useState<string>('all')
+  const [billingStatusFilter, setBillingStatusFilter] = useState<'ALL' | 'PAID' | 'PARTIAL' | 'UNPAID' | 'NO BILL'>('ALL')
+  const [billingSearchQuery, setBillingSearchQuery] = useState<string>('')
   const [catalogCategoryFilter, setCatalogCategoryFilter] = useState<string>('All')
   const [catalogSearchQuery, setCatalogSearchQuery] = useState<string>('')
 
@@ -6000,7 +6003,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           }`}
         >
           <Receipt className="w-4 h-4" />
-          <span>Bills & Invoices</span>
+          <span>Patient &amp; Billing (Date-Wise)</span>
         </button>
 
         <button
@@ -9544,104 +9547,288 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
       )}
 
       {/* ========================================================= */}
-      {/* DESK TAB 6: BILLS & PAYMENTS DIRECTORY (BillingScreen.kt) */}
+      {/* DESK TAB 6: DATE-WISE PATIENT & BILLING DIRECTORY (BillingScreen.kt) */}
       {/* ========================================================= */}
-      {deskTab === 'billing' && (
+      {deskTab === 'billing' && (() => {
+        const dNow = new Date()
+        const todayStr = `${dNow.getFullYear()}-${String(dNow.getMonth() + 1).padStart(2, '0')}-${String(dNow.getDate()).padStart(2, '0')}`
+        const dYest = new Date(dNow.getFullYear(), dNow.getMonth(), dNow.getDate() - 1)
+        const yesterdayStr = `${dYest.getFullYear()}-${String(dYest.getMonth() + 1).padStart(2, '0')}-${String(dYest.getDate()).padStart(2, '0')}`
+
+        const invoicesByApptId: Record<string, BillingInvoice> = {}
+        for (const inv of invoices) {
+          const prev = invoicesByApptId[inv.appointmentId]
+          const invStamp = inv.updatedAt || inv.paidAt || inv.createdAt || ''
+          const prevStamp = prev ? (prev.updatedAt || prev.paidAt || prev.createdAt || '') : ''
+          if (!prev || invStamp >= prevStamp) {
+            invoicesByApptId[inv.appointmentId] = inv
+          }
+        }
+
+        const validAppts = appointments.filter(
+          (a) =>
+            a.status !== 'WAITING_FOR_APPROVAL' &&
+            a.status !== 'pending_payment' &&
+            a.status !== 'UNAPPROVED' &&
+            a.status !== 'EXPIRED'
+        )
+
+        const dateAndSearchFiltered = validAppts
+          .filter((a) =>
+            billingDateFilter === 'all' ? true : (a.appointmentDate || '') === billingDateFilter
+          )
+          .filter((a) => {
+            if (!billingSearchQuery.trim()) return true
+            const q = billingSearchQuery.trim().toLowerCase()
+            return (
+              (a.patientName || '').toLowerCase().includes(q) ||
+              (a.trackingCode10Digit || '').toLowerCase().includes(q) ||
+              (a.patientMobile || '').toLowerCase().includes(q)
+            )
+          })
+          .sort((a, b) => (b.appointmentDate || '').localeCompare(a.appointmentDate || ''))
+
+        const directoryEntries = dateAndSearchFiltered.map((appt) => {
+          const chainVisits = appt.trackingCode10Digit
+            ? validAppts.filter((x) => x.trackingCode10Digit === appt.trackingCode10Digit)
+            : [appt]
+          const summary = computeCombinedBillingSummary(chainVisits, invoicesByApptId)
+          const inv = invoicesByApptId[appt.id]
+          const totalBilled = summary.totalBill
+          const totalPaid = summary.totalPaid
+          const balanceDue = Math.max(0, totalBilled - totalPaid)
+          const statusBadge: 'NO BILL' | 'PAID' | 'PARTIAL' | 'UNPAID' =
+            totalBilled <= 0
+              ? 'NO BILL'
+              : balanceDue <= 0
+              ? 'PAID'
+              : totalPaid > 0
+              ? 'PARTIAL'
+              : 'UNPAID'
+          return { appt, inv, totalBilled, totalPaid, balanceDue, statusBadge }
+        })
+
+        const kpiTotalBilled = directoryEntries.reduce((s, r) => s + r.totalBilled, 0)
+        const kpiTotalPaid = directoryEntries.reduce((s, r) => s + r.totalPaid, 0)
+        const kpiBalanceDue = directoryEntries.reduce((s, r) => s + r.balanceDue, 0)
+        const statusFilteredEntries =
+          billingStatusFilter === 'ALL'
+            ? directoryEntries
+            : directoryEntries.filter((r) => r.statusBadge === billingStatusFilter)
+
+        return (
         <div className="space-y-6">
-          <GlassCard variant="base" padding="md" radius="xl" className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-black text-slate-900">Clinic Billing & Invoices Directory</h2>
-              <p className="text-xs text-slate-500">
-                Track all patient payments, total bills, balance due, and dates. Filter by date or generate thermal receipts.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                type="date"
-                value={billingDateFilter === 'all' ? '' : billingDateFilter}
-                onChange={(e) => setBillingDateFilter(e.target.value || 'all')}
-                className="px-3 py-1.5 rounded-xl liquid-glass-input text-xs font-bold text-slate-800"
-              />
-              {billingDateFilter !== 'all' && (
+          <GlassCard variant="base" padding="md" radius="xl" className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black text-slate-900 dark:text-white">Patient &amp; Billing Directory by Date</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Browse visits date-wise, audit paid/due balances, push payments, or generate itemized bill PDFs.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setBillingDateFilter('all')}
-                  className="px-2.5 py-1.5 rounded-xl bg-white/75 border border-white/80 hover:bg-white text-xs font-bold text-slate-700 cursor-pointer"
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition ${
+                    billingDateFilter === 'all'
+                      ? 'bg-brand-600 text-white shadow-glass-sm'
+                      : 'bg-white/75 border border-white/80 text-slate-700 hover:bg-white'
+                  }`}
                 >
-                  Show All Dates
+                  All Dates
                 </button>
-              )}
-              <GlassBadge variant="brand" size="md">
-                {invoices.length} Invoices Recorded
-              </GlassBadge>
+                <button
+                  type="button"
+                  onClick={() => setBillingDateFilter(todayStr)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition ${
+                    billingDateFilter === todayStr
+                      ? 'bg-brand-600 text-white shadow-glass-sm'
+                      : 'bg-white/75 border border-white/80 text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  Today ({todayStr})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBillingDateFilter(yesterdayStr)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition ${
+                    billingDateFilter === yesterdayStr
+                      ? 'bg-brand-600 text-white shadow-glass-sm'
+                      : 'bg-white/75 border border-white/80 text-slate-700 hover:bg-white'
+                  }`}
+                >
+                  Yesterday
+                </button>
+                <input
+                  type="date"
+                  value={billingDateFilter === 'all' ? '' : billingDateFilter}
+                  onChange={(e) => setBillingDateFilter(e.target.value || 'all')}
+                  className="px-3 py-1.5 rounded-xl liquid-glass-input text-xs font-bold text-slate-800"
+                />
+                <GlassBadge variant="brand" size="md">
+                  {directoryEntries.length} Visits
+                </GlassBadge>
+              </div>
+            </div>
+
+            {/* Date Summary KPI Strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3 rounded-2xl bg-white/60 dark:bg-slate-800/50 border border-white/75 dark:border-white/10">
+                <span className="text-[11px] font-bold text-slate-500 block">Visits</span>
+                <span className="text-base font-black text-slate-900 dark:text-white">{directoryEntries.length}</span>
+              </div>
+              <div className="p-3 rounded-2xl bg-white/60 dark:bg-slate-800/50 border border-white/75 dark:border-white/10">
+                <span className="text-[11px] font-bold text-slate-500 block">Total Billed</span>
+                <span className="text-base font-black text-slate-900 dark:text-white">Rs. {Math.round(kpiTotalBilled).toLocaleString()}</span>
+              </div>
+              <div className="p-3 rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/40">
+                <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 block">Collected</span>
+                <span className="text-base font-black text-emerald-700 dark:text-emerald-300">Rs. {Math.round(kpiTotalPaid).toLocaleString()}</span>
+              </div>
+              <div className="p-3 rounded-2xl bg-rose-50/80 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-800/40">
+                <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300 block">Balance Due</span>
+                <span className="text-base font-black text-rose-700 dark:text-rose-300">Rs. {Math.round(kpiBalanceDue).toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Status Filter Chips & Search */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex flex-wrap gap-1.5">
+                {(['ALL', 'PAID', 'PARTIAL', 'UNPAID', 'NO BILL'] as const).map((st) => (
+                  <button
+                    key={st}
+                    type="button"
+                    onClick={() => setBillingStatusFilter(st)}
+                    className={`px-3 py-1 rounded-full text-[11px] font-bold cursor-pointer transition ${
+                      billingStatusFilter === st
+                        ? 'bg-brand-600 text-white shadow-glass-sm'
+                        : 'bg-white/65 border border-white/80 text-slate-600 hover:bg-white/90'
+                    }`}
+                  >
+                    {st}
+                  </button>
+                ))}
+              </div>
+              <div className="relative sm:w-72">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={billingSearchQuery}
+                  onChange={(e) => setBillingSearchQuery(e.target.value)}
+                  placeholder="Search patient, #code, or mobile..."
+                  className="w-full pl-8 pr-7 py-1.5 rounded-xl liquid-glass-input text-xs font-semibold"
+                />
+                {billingSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setBillingSearchQuery('')}
+                    className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
           </GlassCard>
 
           <GlassCard variant="base" padding="none" radius="xl" className="overflow-hidden">
+            {statusFilteredEntries.length === 0 ? (
+              <div className="p-8 text-center space-y-2">
+                <p className="text-xs text-slate-500">
+                  No patient billing records found for {billingDateFilter === 'all' ? 'all dates' : billingDateFilter}
+                  {billingStatusFilter !== 'ALL' ? ` (${billingStatusFilter})` : ''}.
+                </p>
+                {(billingDateFilter !== 'all' || billingStatusFilter !== 'ALL' || billingSearchQuery.trim()) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBillingDateFilter('all')
+                      setBillingStatusFilter('ALL')
+                      setBillingSearchQuery('')
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-brand-600 text-white text-xs font-bold cursor-pointer"
+                  >
+                    Show All Dates &amp; Reset Filters
+                  </button>
+                )}
+              </div>
+            ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-white/45 border-b border-white/70 text-slate-500 uppercase tracking-wider font-bold">
                   <tr>
-                    <th className="py-3.5 px-4">Invoice ID / Date</th>
-                    <th className="py-3.5 px-4">Total Amount</th>
-                    <th className="py-3.5 px-4">Paid Amount</th>
+                    <th className="py-3.5 px-4">Date &amp; Time</th>
+                    <th className="py-3.5 px-4">Patient &amp; Code</th>
+                    <th className="py-3.5 px-4">Mobile</th>
+                    <th className="py-3.5 px-4">Total Bill</th>
+                    <th className="py-3.5 px-4">Paid</th>
                     <th className="py-3.5 px-4">Balance Due</th>
                     <th className="py-3.5 px-4">Status</th>
-                    <th className="py-3.5 px-4">Remarks</th>
-                    <th className="py-3.5 px-4 text-right">Receipt File</th>
+                    <th className="py-3.5 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200/50 font-medium">
-                  {invoices
-                    .filter((inv) =>
-                      billingDateFilter === 'all'
-                        ? true
-                        : (inv.createdAt?.split('T')[0] || '') === billingDateFilter
-                    )
-                    .map((inv) => (
-                    <tr key={inv.id} className="hover:bg-white/45 transition-colors">
-                      <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
-                        #{inv.id.substring(0, 8)} •{' '}
-                        <span className="text-slate-500 font-normal">
-                          {inv.createdAt?.split('T')[0] || 'Today'}
+                  {statusFilteredEntries.map(({ appt, inv, totalBilled, totalPaid, balanceDue, statusBadge }) => (
+                    <tr key={appt.id} className="hover:bg-white/45 transition-colors">
+                      <td className="py-3.5 px-4 font-bold text-slate-900">
+                        {appt.appointmentDate || 'Today'}
+                        <span className="block text-[11px] text-slate-500 font-normal">
+                          {appt.appointmentTime || 'OPD'}
                         </span>
                       </td>
-                      <td className="py-3.5 px-4 font-black text-slate-900">Rs. {inv.totalAmount}</td>
-                      <td className="py-3.5 px-4 font-bold text-brand-700">Rs. {inv.paidAmount}</td>
-                      <td className="py-3.5 px-4 font-bold text-rose-700">Rs. {inv.balanceDue}</td>
+                      <td className="py-3.5 px-4">
+                        <span className="font-bold text-slate-900 block">{appt.patientName}</span>
+                        <span className="font-mono text-[11px] font-bold text-brand-700">
+                          #{appt.trackingCode10Digit}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-600">{appt.patientMobile || '–'}</td>
+                      <td className="py-3.5 px-4 font-black text-slate-900">Rs. {Math.round(totalBilled)}</td>
+                      <td className="py-3.5 px-4 font-bold text-brand-700">Rs. {Math.round(totalPaid)}</td>
+                      <td className="py-3.5 px-4 font-bold text-rose-700">Rs. {Math.round(balanceDue)}</td>
                       <td className="py-3.5 px-4">
                         <span
                           className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            inv.paymentStatus === 'paid'
+                            statusBadge === 'PAID'
                               ? 'bg-brand-100/90 text-brand-800'
-                              : inv.paymentStatus === 'partial'
+                              : statusBadge === 'PARTIAL'
                               ? 'bg-amber-100/90 text-amber-800'
-                              : 'bg-rose-100/90 text-rose-800'
+                              : statusBadge === 'UNPAID'
+                              ? 'bg-rose-100/90 text-rose-800'
+                              : 'bg-slate-100 text-slate-600'
                           }`}
                         >
-                          {inv.paymentStatus.toUpperCase()}
+                          {statusBadge}
                         </span>
                       </td>
-                      <td className="py-3.5 px-4 text-slate-600">{extractCleanClinicalRemarks(inv.remarks) || '–'}</td>
                       <td className="py-3.5 px-4 text-right">
-                        {inv.receiptUrl ? (
-                          <a
-                            href={inv.receiptUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:underline font-bold"
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenBillModal(appt)}
+                            className="px-2.5 py-1 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-[11px] font-bold cursor-pointer transition"
                           >
-                            View Receipt
-                          </a>
-                        ) : (
-                          <span className="text-slate-400">None</span>
-                        )}
+                            Manage Bill / PDF
+                          </button>
+                          {inv?.receiptUrl && (
+                            <a
+                              href={inv.receiptUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:underline font-bold text-[11px]"
+                            >
+                              Receipt
+                            </a>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            )}
           </GlassCard>
 
           {/* Clinic Direct Billing Catalog Manager (CatalogManagerScreen.kt) */}
@@ -9775,7 +9962,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
             )}
           </GlassCard>
         </div>
-      )}
+        )
+      })()}
 
       {/* ========================================================= */}
       {/* DESK TAB: PAYMENT LOGS & AUDIT LEDGER */}
@@ -9915,6 +10103,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                 Registered Patients Directory ({patientDirectory.length} Total Patients)
               </h3>
               <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setDeskTab('billing')}
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-white/80 hover:bg-white text-brand-700 border border-brand-200 font-bold text-xs rounded-xl shadow-xs transition active:scale-[0.98] cursor-pointer"
+                >
+                  <Receipt className="w-3.5 h-3.5" />
+                  <span>Date-Wise Billing Directory</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => setRegisterPatientModalOpen(true)}

@@ -40,6 +40,7 @@ import com.dactor.clinic.data.repository.ClinicRepository
 import com.dactor.clinic.data.repository.DoctorRepository
 import com.dactor.clinic.domain.util.BillPdfDownloader
 import com.dactor.clinic.domain.util.CurrencyFormatter
+import com.dactor.clinic.domain.util.DateTimePickers
 import com.dactor.clinic.domain.util.PaymentLedgerHelper
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -88,7 +89,9 @@ fun BillingScreen(
 
     // Date Directory State
     val today = remember { LocalDate.now().toString() }
+    val yesterday = remember { LocalDate.now().minusDays(1).toString() }
     var selectedDateFilter by remember { mutableStateOf(today) } // "All", or specific date string "YYYY-MM-DD"
+    var directoryStatusFilter by remember { mutableStateOf("ALL") } // "ALL", "PAID", "PARTIAL", "UNPAID", "NO BILL"
     var directorySearchQuery by remember { mutableStateOf("") }
     var isDateDirectoryExpanded by remember { mutableStateOf(true) }
 
@@ -424,10 +427,45 @@ fun BillingScreen(
             // =========================================================================
             // SECTION 1: DATE-WISE PATIENT & BILL DIRECTORY
             // =========================================================================
+            val directoryRowEntries = remember(
+                directoryFilteredAppointments,
+                clinicAppointments,
+                invoicesMap,
+                selectedAppointment,
+                combinedTotalAmount,
+                combinedTotalPaid
+            ) {
+                directoryFilteredAppointments.map { appt ->
+                    val isSelected = selectedAppointment?.id == appt.id
+                    val chainVisits = if (appt.trackingCode10Digit.isNotBlank()) {
+                        clinicAppointments.filter { it.trackingCode10Digit == appt.trackingCode10Digit }
+                    } else listOf(appt)
+                    val chainSummary = PaymentLedgerHelper.computeCombinedBillingSummary(chainVisits, invoicesMap)
+                    val totalBilled = if (isSelected) combinedTotalAmount else chainSummary.totalBill
+                    val rowPaid = if (isSelected) combinedTotalPaid else chainSummary.totalPaid
+                    val balanceLeft = (totalBilled - rowPaid).coerceAtLeast(0.0)
+                    val statusBadge = when {
+                        totalBilled <= 0.0 -> "NO BILL"
+                        balanceLeft <= 0.0 -> "PAID"
+                        rowPaid > 0.0 -> "PARTIAL"
+                        else -> "UNPAID"
+                    }
+                    Triple(appt, Triple(totalBilled, rowPaid, balanceLeft), statusBadge)
+                }
+            }
+
+            val kpiTotalBilled = directoryRowEntries.sumOf { it.second.first }
+            val kpiTotalPaid = directoryRowEntries.sumOf { it.second.second }
+            val kpiBalanceDue = directoryRowEntries.sumOf { it.second.third }
+            val statusFilteredEntries = remember(directoryRowEntries, directoryStatusFilter) {
+                if (directoryStatusFilter == "ALL") directoryRowEntries
+                else directoryRowEntries.filter { it.third == directoryStatusFilter }
+            }
+
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = Color.White),
-                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                border = BorderStroke(1.dp, Color(0xFFCCFBF1)),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -440,7 +478,11 @@ fun BillingScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
                             Surface(
                                 shape = CircleShape,
                                 color = Color(0xFFE0F2F1),
@@ -456,15 +498,35 @@ fun BillingScreen(
                             }
                         }
 
-                        IconButton(
-                            onClick = { isDateDirectoryExpanded = !isDateDirectoryExpanded },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                if (isDateDirectoryExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = "Toggle Directory",
-                                tint = Color(0xFF00796B)
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    val initialDate = if (selectedDateFilter == "All") today else selectedDateFilter
+                                    DateTimePickers.showDatePicker(context, initialDate) { picked ->
+                                        selectedDateFilter = picked
+                                        isDateDirectoryExpanded = true
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, Color(0xFF99F6E4)),
+                                modifier = Modifier.height(30.dp)
+                            ) {
+                                Icon(Icons.Default.DateRange, contentDescription = "Pick Date", tint = Color(0xFF00796B), modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Pick Date", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00796B))
+                            }
+
+                            IconButton(
+                                onClick = { isDateDirectoryExpanded = !isDateDirectoryExpanded },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    if (isDateDirectoryExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = "Toggle Directory",
+                                    tint = Color(0xFF00796B)
+                                )
+                            }
                         }
                     }
 
@@ -489,11 +551,93 @@ fun BillingScreen(
                                 label = { Text("Today ($today)", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                             )
 
-                            uniqueDates.filter { it != today }.forEach { d ->
+                            FilterChip(
+                                selected = selectedDateFilter == yesterday,
+                                onClick = { selectedDateFilter = yesterday },
+                                label = { Text("Yesterday ($yesterday)", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) }
+                            )
+
+                            uniqueDates.filter { it != today && it != yesterday }.forEach { d ->
                                 FilterChip(
                                     selected = selectedDateFilter == d,
                                     onClick = { selectedDateFilter = d },
                                     label = { Text(d, fontSize = 11.sp) }
+                                )
+                            }
+
+                            if (selectedDateFilter != "All" && selectedDateFilter != today && selectedDateFilter != yesterday && !uniqueDates.contains(selectedDateFilter)) {
+                                FilterChip(
+                                    selected = true,
+                                    onClick = { },
+                                    label = { Text(selectedDateFilter, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                )
+                            }
+                        }
+
+                        // Date Summary KPI Strip
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFF8FAFC),
+                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp)) {
+                                    Text("Visits", fontSize = 10.sp, color = Color(0xFF64748B))
+                                    Text("${directoryRowEntries.size}", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = Color(0xFF0F172A))
+                                }
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFF8FAFC),
+                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                modifier = Modifier.weight(1.2f)
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp)) {
+                                    Text("Billed", fontSize = 10.sp, color = Color(0xFF64748B))
+                                    Text("Rs. ${kpiTotalBilled.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = Color(0xFF0F172A), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = Color(0xFFF0FDF4),
+                                border = BorderStroke(1.dp, Color(0xFFBBF7D0)),
+                                modifier = Modifier.weight(1.2f)
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp)) {
+                                    Text("Paid", fontSize = 10.sp, color = Color(0xFF15803D))
+                                    Text("Rs. ${kpiTotalPaid.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = Color(0xFF15803D), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (kpiBalanceDue > 0.0) Color(0xFFFEF2F2) else Color(0xFFF8FAFC),
+                                border = BorderStroke(1.dp, if (kpiBalanceDue > 0.0) Color(0xFFFECACA) else Color(0xFFE2E8F0)),
+                                modifier = Modifier.weight(1.2f)
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp)) {
+                                    Text("Due", fontSize = 10.sp, color = if (kpiBalanceDue > 0.0) Color(0xFFB91C1C) else Color(0xFF64748B))
+                                    Text("Rs. ${kpiBalanceDue.toInt()}", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = if (kpiBalanceDue > 0.0) Color(0xFFB91C1C) else Color(0xFF15803D), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+
+                        // Payment Status Filter Chips
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            listOf("ALL", "PAID", "PARTIAL", "UNPAID", "NO BILL").forEach { st ->
+                                FilterChip(
+                                    selected = directoryStatusFilter == st,
+                                    onClick = { directoryStatusFilter = st },
+                                    label = { Text(st, fontSize = 10.5.sp, fontWeight = FontWeight.Bold) }
                                 )
                             }
                         }
@@ -502,7 +646,7 @@ fun BillingScreen(
                         OutlinedTextField(
                             value = directorySearchQuery,
                             onValueChange = { directorySearchQuery = it },
-                            placeholder = { Text("Search", fontSize = 13.sp) },
+                            placeholder = { Text("Search name, #tracking code, mobile...", fontSize = 13.sp) },
                             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF00796B), modifier = Modifier.size(18.dp)) },
                             trailingIcon = {
                                 if (directorySearchQuery.isNotBlank()) {
@@ -519,51 +663,47 @@ fun BillingScreen(
                         )
 
                         // Directory Patient Rows
-                        if (directoryFilteredAppointments.isEmpty()) {
+                        if (statusFilteredEntries.isEmpty()) {
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
                                 color = Color(0xFFF8FAFC),
+                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(
-                                    text = if (directorySearchQuery.isNotBlank()) "No patients matching '$directorySearchQuery' on $selectedDateFilter"
-                                    else "No patient consultations recorded for $selectedDateFilter.",
-                                    fontSize = 12.sp,
-                                    color = Color(0xFF64748B),
-                                    modifier = Modifier.padding(14.dp)
-                                )
+                                Column(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = if (directorySearchQuery.isNotBlank()) "No patients matching '$directorySearchQuery' on $selectedDateFilter"
+                                        else "No patient consultations recorded for $selectedDateFilter" + if (directoryStatusFilter != "ALL") " ($directoryStatusFilter)." else ".",
+                                        fontSize = 12.sp,
+                                        color = Color(0xFF64748B)
+                                    )
+                                    if (selectedDateFilter != "All" || directoryStatusFilter != "ALL" || directorySearchQuery.isNotBlank()) {
+                                        TextButton(
+                                            onClick = {
+                                                selectedDateFilter = "All"
+                                                directoryStatusFilter = "ALL"
+                                                directorySearchQuery = ""
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                        ) {
+                                            Text("Show All Dates & Reset Filters", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00796B))
+                                        }
+                                    }
+                                }
                             }
                         } else {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                directoryFilteredAppointments.forEach { appt ->
+                                statusFilteredEntries.forEach { (appt, amounts, statusBadge) ->
                                     val isSelected = selectedAppointment?.id == appt.id
-                                    val chainVisits = if (appt.trackingCode10Digit.isNotBlank()) {
-                                        clinicAppointments.filter { it.trackingCode10Digit == appt.trackingCode10Digit }
-                                    } else listOf(appt)
-                                    val chainSummary = PaymentLedgerHelper.computeCombinedBillingSummary(chainVisits, invoicesMap)
-                                    val totalBilled = if (isSelected) {
-                                        combinedTotalAmount
-                                    } else {
-                                        chainSummary.totalBill
-                                    }
-                                    val rowPaid = if (isSelected) {
-                                        combinedTotalPaid
-                                    } else {
-                                        chainSummary.totalPaid
-                                    }
-                                    val balanceLeft = (totalBilled - rowPaid).coerceAtLeast(0.0)
-
-                                    val statusBadge = when {
-                                        totalBilled <= 0.0 -> "NO BILL"
-                                        balanceLeft <= 0.0 -> "PAID"
-                                        rowPaid > 0.0 -> "PARTIAL"
-                                        else -> "UNPAID"
-                                    }
+                                    val (totalBilled, rowPaid, balanceLeft) = amounts
 
                                     Surface(
-                                        shape = RoundedCornerShape(10.dp),
+                                        shape = RoundedCornerShape(12.dp),
                                         color = if (isSelected) Color(0xFFE0F2F1) else Color(0xFFF8FAFC),
-                                        border = BorderStroke(1.dp, if (isSelected) Color(0xFF00796B) else Color(0xFFE2E8F0)),
+                                        border = BorderStroke(if (isSelected) 1.5.dp else 1.dp, if (isSelected) Color(0xFF00796B) else Color(0xFFE2E8F0)),
                                         onClick = {
                                             coroutineScope.launch { selectAppointment(appt) }
                                         },
@@ -572,7 +712,7 @@ fun BillingScreen(
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                .padding(horizontal = 12.dp, vertical = 10.dp),
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
@@ -582,23 +722,32 @@ fun BillingScreen(
                                                         text = appt.patientName,
                                                         fontWeight = FontWeight.Bold,
                                                         fontSize = 13.sp,
-                                                        color = Color(0xFF0F172A)
+                                                        color = Color(0xFF0F172A),
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
                                                     )
-                                                    Text(
-                                                        text = "#${appt.trackingCode10Digit}",
-                                                        fontSize = 11.sp,
-                                                        color = Color(0xFF00796B),
-                                                        fontWeight = FontWeight.SemiBold
-                                                    )
+                                                    Surface(
+                                                        shape = RoundedCornerShape(5.dp),
+                                                        color = Color(0xFFCCFBF1)
+                                                    ) {
+                                                        Text(
+                                                            text = "#${appt.trackingCode10Digit}",
+                                                            fontSize = 10.5.sp,
+                                                            color = Color(0xFF0F766E),
+                                                            fontWeight = FontWeight.Bold,
+                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                        )
+                                                    }
                                                 }
                                                 Text(
-                                                    text = "Date: ${appt.appointmentDate} (${appt.appointmentTime ?: "OPD"}) \u2022 Ph: ${appt.patientMobile.ifBlank { "N/A" }}",
+                                                    text = "Date: ${appt.appointmentDate} (${appt.appointmentTime.ifBlank { "OPD" }}) \u2022 Ph: ${appt.patientMobile.ifBlank { "N/A" }}",
                                                     fontSize = 11.sp,
-                                                    color = Color(0xFF64748B)
+                                                    color = Color(0xFF64748B),
+                                                    modifier = Modifier.padding(top = 2.dp)
                                                 )
                                             }
 
-                                            Column(horizontalAlignment = Alignment.End) {
+                                            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                                 Surface(
                                                     shape = RoundedCornerShape(6.dp),
                                                     color = when (statusBadge) {
@@ -610,7 +759,7 @@ fun BillingScreen(
                                                 ) {
                                                     Text(
                                                         text = statusBadge,
-                                                        fontSize = 9.sp,
+                                                        fontSize = 9.5.sp,
                                                         fontWeight = FontWeight.ExtraBold,
                                                         color = when (statusBadge) {
                                                             "PAID" -> Color(0xFF15803D)
@@ -628,6 +777,14 @@ fun BillingScreen(
                                                         color = Color(0xFF334155),
                                                         fontWeight = FontWeight.SemiBold
                                                     )
+                                                    if (balanceLeft > 0.0) {
+                                                        Text(
+                                                            text = "Due: Rs. ${balanceLeft.toInt()}",
+                                                            fontSize = 10.sp,
+                                                            color = Color(0xFFB91C1C),
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }

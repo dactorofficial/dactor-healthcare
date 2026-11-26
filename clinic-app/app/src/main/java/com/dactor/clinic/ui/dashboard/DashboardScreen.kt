@@ -1773,6 +1773,15 @@ fun DashboardScreen(
                     )
                     add(
                         ModuleItem(
+                            title = "Patient & Billing Directory",
+                            desc = "Date-wise visits, bills, paid push & bill PDFs",
+                            icon = Icons.Default.Receipt,
+                            route = NavRoutes.BillingDirectory,
+                            color = Color(0xFF0F766E)
+                        )
+                    )
+                    add(
+                        ModuleItem(
                             title = "Average Time",
                             desc = "Ensures estimated consultation time & queue pacing",
                             icon = Icons.Default.Timer,

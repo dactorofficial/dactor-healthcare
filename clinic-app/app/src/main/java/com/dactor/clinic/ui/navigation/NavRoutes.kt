@@ -13,6 +13,7 @@ object NavRoutes {
     const val PatientDirectory = "patient_directory"
     const val PatientDetail = "patient_detail"
     const val BillingScreen = "billing_screen"
+    const val BillingDirectory = "billing_directory"
     const val PaymentLogs = "payment_logs"
     const val CatalogManager = "catalog_manager"
     const val FutureAppointments = "future_appointments"
