@@ -7,6 +7,22 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-25
 
 ### Prompt:
+> "generate debug apk patient app"
+
+#### Changes Applied:
+1. **Patient App Version Bump (`patient-app/app/build.gradle.kts`)**:
+   - Incremented `versionCode` from `144` to `145`.
+   - Incremented `versionName` from `"1.0.44"` to `"1.0.45"`.
+2. **Debug APK Generation**:
+   - Built Debug APK using `.\build_apks.ps1 -App Patient -BuildType Debug`.
+   - Generated: [`APKs/Dactor-PatientApp-v1.0.45-debug.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-PatientApp-v1.0.45-debug.apk) (26.65 MB).
+   - Signed with shared debug keystore (`keystores/debug.keystore`, `debuggable = true`).
+3. **Handoff Tracking**:
+   - Updated `HANDOFF.md` version registry and platform overview table.
+
+---
+
+### Prompt:
 > "generate debug apk for patient app"
 
 #### Changes Applied:
