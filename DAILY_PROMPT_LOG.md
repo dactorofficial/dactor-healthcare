@@ -7,6 +7,23 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "implement the sql urself"
+
+#### Changes Applied:
+1. **Live Supabase SQL Migration Execution ([`supabase/migration_joined_followup_noshow_combined_billing_fix.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_joined_followup_noshow_combined_billing_fix.sql))**:
+   - Executed and verified all 6 migration steps in the Supabase Cloud SQL Editor for project `ojfoofojcpabqegxmsab`:
+     - **Step 1**: Added `checkin_status_enum` / `payment_status_enum` values, added `visit_type`, `follow_up_of_appointment_id`, and `attempt_number` columns, created composite unique index `idx_appointments_tracking_code_attempt`, deduplicated existing `queue_entries` and created `idx_queue_entries_appointment_id_unique`, and added the `billing_invoices` tracking code sync trigger (`Success. No rows returned`).
+     - **Step 2**: Updated `prevent_appointment_tampering()` trigger to honor `dactor.authoritative_context` and allow free follow-up appointment creations (`Success. No rows returned`).
+     - **Step 3**: Upgraded `reschedule_patient_appointment()` with no-show support, en-dash time normalization, and overbook handling (`Success. No rows returned`).
+     - **Step 4**: Upgraded `book_follow_up_visit()` for unified patient and clinic app follow-ups with tracking code sharing (`Success. No rows returned`).
+     - **Step 5**: Created `get_combined_billing_by_tracking_code()` RPC and granted execute permissions to `anon`, `authenticated`, and `service_role` (`Success. No rows returned`).
+     - **Step 6**: Wrapped historical unbilled follow-up repair in an authoritative context block (`set_config('dactor.authoritative_context', 'true', true)`) to bypass patient tamper checks, updated historical records, and executed `NOTIFY pgrst, 'reload schema';` (`Success. No rows returned`).
+2. **Migration Script Update**:
+   - Updated `supabase/migration_joined_followup_noshow_combined_billing_fix.sql` Step 6 with the authoritative context wrapper so future automated/direct script executions run cleanly.
+
+---
+
+### Prompt:
 > "listen when we change language it doesnt change anything so i want you to fix this make a plan /plan except this there should be a button at the top near notification button from where one can change the language directly only make the plan"
 
 #### Changes Applied:

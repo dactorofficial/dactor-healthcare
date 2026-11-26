@@ -723,23 +723,28 @@ GRANT EXECUTE ON FUNCTION public.get_combined_billing_by_tracking_code(VARCHAR) 
 -- -------------------------------------------------------------------------
 -- STEP 6: Repair Historical Unbilled Free Follow-Ups Marked as 'paid'
 -- -------------------------------------------------------------------------
-UPDATE public.appointments a
-SET payment_status = 'pending',
-    payment_mode = 'FREE',
-    updated_at = NOW()
-WHERE (
-    COALESCE(a.attempt_number, 1) > 1
-    OR LOWER(COALESCE(a.visit_type, '')) LIKE '%follow%'
-    OR LOWER(COALESCE(a.notes, '')) LIKE '%follow-up%'
-    OR LOWER(COALESCE(a.notes, '')) LIKE '%follow up%'
-)
-  AND COALESCE(a.fee_amount, 0.00) = 0.00
-  AND COALESCE(a.total_amount, 0.00) = 0.00
-  AND LOWER(COALESCE(a.payment_status::TEXT, '')) = 'paid'
-  AND NOT EXISTS (
-      SELECT 1 FROM public.billing_invoices bi
-      WHERE bi.appointment_id = a.id
-        AND (COALESCE(bi.total_amount, 0.00) > 0.00 OR COALESCE(bi.paid_amount, 0.00) > 0.00)
-  );
+DO $$
+BEGIN
+    PERFORM set_config('dactor.authoritative_context', 'true', true);
+
+    UPDATE public.appointments a
+    SET payment_status = 'pending',
+        payment_mode = 'FREE',
+        updated_at = NOW()
+    WHERE (
+        COALESCE(a.attempt_number, 1) > 1
+        OR LOWER(COALESCE(a.visit_type, '')) LIKE '%follow%'
+        OR LOWER(COALESCE(a.notes, '')) LIKE '%follow-up%'
+        OR LOWER(COALESCE(a.notes, '')) LIKE '%follow up%'
+    )
+      AND COALESCE(a.fee_amount, 0.00) = 0.00
+      AND COALESCE(a.total_amount, 0.00) = 0.00
+      AND LOWER(COALESCE(a.payment_status::TEXT, '')) = 'paid'
+      AND NOT EXISTS (
+          SELECT 1 FROM public.billing_invoices bi
+          WHERE bi.appointment_id = a.id
+            AND (COALESCE(bi.total_amount, 0.00) > 0.00 OR COALESCE(bi.paid_amount, 0.00) > 0.00)
+      );
+END $$;
 
 NOTIFY pgrst, 'reload schema';
