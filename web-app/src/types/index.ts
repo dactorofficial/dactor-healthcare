@@ -191,6 +191,8 @@ export interface Appointment {
   selectedLabTests?: string[] | string
   // Pay at Desk properties
   paymentMode?: string
+  visitType?: 'new' | 'follow_up' | string
+  followUpOfAppointmentId?: string | null
   status?: string // WAITING_FOR_APPROVAL, APPROVED, UNAPPROVED, EXPIRED
   attemptNumber?: number
   serviceChargeAmount?: number

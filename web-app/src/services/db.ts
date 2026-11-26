@@ -40,6 +40,7 @@ import {
   parsePaymentRecords,
   extractCleanClinicalRemarks,
   buildCombinedRemarks,
+  inferPaymentMethodFromText,
   WebPaymentRecord,
 } from '../utils/paymentLedger'
 
@@ -1025,7 +1026,8 @@ export async function createAppointment(appt: Partial<Appointment> & { slotId?: 
       appointment_time: apptTime,
       checkin_status: isPayAtDesk ? 'not_checked_in' : (isWalkin || appt.paymentStatus === 'paid' ? 'checked_in' : 'not_checked_in'),
       payment_status: isPayAtDesk ? 'pending' : normalizePaymentStatus(appt.paymentStatus),
-      payment_mode: isPayAtDesk ? 'PAY_AT_DESK' : (appt.paymentMode || (isWalkin || appt.paymentStatus === 'paid' ? (fee > 0 ? 'CASH' : 'FREE') : 'ONLINE')),
+      payment_mode: isPayAtDesk ? 'PAY_AT_DESK' : (appt.paymentMode || (isWalkin ? (fee > 0 ? 'CASH' : 'FREE') : 'ONLINE')),
+      visit_type: (appt as any).visitType || ((appt.attemptNumber || 1) > 1 || (appt as any).followUpOfAppointmentId || (fee === 0 && /follow[- ]?up/i.test(appt.notes || '')) ? 'follow_up' : 'new'),
       status: isPayAtDesk ? 'WAITING_FOR_APPROVAL' : (isWalkin || appt.paymentStatus === 'paid' ? 'APPROVED' : 'pending_payment'),
       attempt_number: appt.attemptNumber || 1,
       token_number: appt.tokenNumber || null,
@@ -3433,6 +3435,8 @@ export async function saveOrUpdateInvoicePayment(params: {
   newPaymentAmount?: number
   newPaymentNote?: string
   newPaymentDateTime?: string
+  paymentMethod?: string
+  newPaymentMethod?: string
 }): Promise<BillingInvoice | null> {
   try {
     const { appointmentId, clinicId, totalAmount, paidAmount, remarks, receiptUrl } = params
@@ -3603,6 +3607,7 @@ export async function saveOrUpdateInvoicePayment(params: {
     }
 
     // Also update the appointment fee_amount and payment_status safely
+    let apptModeUpper = ''
     try {
       const { data: apptRow } = await supabase
         .from('appointments')
@@ -3610,10 +3615,8 @@ export async function saveOrUpdateInvoicePayment(params: {
         .eq('id', appointmentId)
         .maybeSingle()
 
-      if (String(apptRow?.payment_mode || '').toUpperCase() === 'PAY_AT_DESK') {
-        // Pay at Desk: the bill total already includes the 5% platform charge, so it must not be written
-        // back as the base fee (the DB trigger would add 5% again). Settle through the authoritative RPC so
-        // the appointment is marked paid and the collection reaches the Super Admin settlement pages.
+      apptModeUpper = String(apptRow?.payment_mode || '').toUpperCase()
+      if (apptModeUpper === 'PAY_AT_DESK') {
         if (dbPaymentStatus === 'paid') {
           const res = await markPayAtDeskCollected(appointmentId, clinicId)
           if (!res.success) console.warn('Could not mark Pay at Desk appointment collected:', res.error)
@@ -3632,23 +3635,39 @@ export async function saveOrUpdateInvoicePayment(params: {
       console.warn('Could not sync fee_amount to appointments table:', apptErr)
     }
 
-    // Sync invoice_transactions audit log idempotently
-    if (calculatedTotalPaid > 0 && savedData?.id) {
+    // Sync invoice_transactions audit log idempotently without overwriting online gateway methods with CASH
+    const txAmountToRecord = params.newPaymentAmount && params.newPaymentAmount > 0 ? Number(params.newPaymentAmount) : calculatedTotalPaid
+    if (txAmountToRecord > 0 && savedData?.id) {
       try {
-        await supabase
+        const { data: existingTxRows } = await supabase
           .from('invoice_transactions')
-          .insert({
-            id: crypto.randomUUID(),
-            invoice_id: savedData.id,
-            clinic_id: clinicId,
-            appointment_id: appointmentId,
-            amount: calculatedTotalPaid,
-            payment_method: dbPaymentStatus === 'paid' ? 'CASH' : 'PARTIAL',
-            category: 'CONSULTATION',
-            notes: `Bill Payment Saved (${nowIso})`,
-            transaction_time: nowIso,
-            created_at: nowIso,
-          })
+          .select('id')
+          .eq('appointment_id', appointmentId)
+          .limit(1)
+
+        const shouldInsertTx = Boolean(params.newPaymentAmount && params.newPaymentAmount > 0) || !existingTxRows || existingTxRows.length === 0
+        if (shouldInsertTx) {
+          const resolvedMethod = inferPaymentMethodFromText(
+            [params.newPaymentNote, existing?.remarks, finalRemarks].filter(Boolean).join(' '),
+            apptModeUpper,
+            params.newPaymentMethod || params.paymentMethod || (apptModeUpper === 'PAY_AT_DESK' ? 'PAY_AT_DESK' : apptModeUpper === 'ONLINE' ? 'ONLINE' : 'CASH')
+          )
+          await supabase
+            .from('invoice_transactions')
+            .insert({
+              id: crypto.randomUUID(),
+              invoice_id: savedData.id,
+              clinic_id: clinicId,
+              appointment_id: appointmentId,
+              transaction_type: 'PAYMENT',
+              amount: txAmountToRecord,
+              payment_method: dbPaymentStatus === 'paid' || params.newPaymentAmount ? resolvedMethod : 'PARTIAL',
+              category: 'CONSULTATION',
+              notes: params.newPaymentNote?.trim() || `Bill Payment Saved (${nowIso})`,
+              transaction_time: nowIso,
+              created_at: nowIso,
+            })
+        }
       } catch (txErr) {
         console.warn('Could not insert invoice_transactions audit record:', txErr)
       }
@@ -6829,13 +6848,16 @@ export interface ClinicPatientDirectoryEntry {
 export function buildClinicPatientDirectory(appointments: Appointment[]): ClinicPatientDirectoryEntry[] {
   const patientMap = new Map<string, ClinicPatientDirectoryEntry>()
 
-  // Strict Clinic Directory Guard: Retain approved and cancelled appointments in directory (data retention parity)
+  // Strict Clinic Directory Guard: Retain approved and completed/cancelled appointments in directory (data retention parity)
   const approvedOnly = (appointments || []).filter((a) => {
+    const st = (a.status || '').toUpperCase()
+    const isPaidOnlineHealing = st === 'PENDING_PAYMENT' && String(a.paymentStatus || '').toLowerCase() === 'paid' && String(a.paymentMode || '').toUpperCase() === 'ONLINE'
     return (
-      a.status !== 'WAITING_FOR_APPROVAL' &&
-      a.status !== 'pending_payment' &&
-      a.status !== 'UNAPPROVED' &&
-      a.status !== 'EXPIRED'
+      (a.status !== 'WAITING_FOR_APPROVAL' &&
+        a.status !== 'pending_payment' &&
+        a.status !== 'UNAPPROVED' &&
+        a.status !== 'EXPIRED') ||
+      isPaidOnlineHealing
     )
   })
 
@@ -6850,12 +6872,24 @@ export function buildClinicPatientDirectory(appointments: Appointment[]): Clinic
     const cleanMobile = (a.patientMobile || '').replace(/\D/g, '')
     const cleanName = (a.patientName || '').trim().replace(/\s+/g, ' ')
     const firstName = cleanName.toLowerCase().split(' ')[0] || ''
-    // Robust patient-centric key: phone + primary name so family members sharing a phone remain distinct
-    const key = cleanMobile.length >= 7
+    // Robust patient-centric key: phone + primary name (+ age separation if >5 yrs difference)
+    const baseKey = cleanMobile.length >= 7
       ? (firstName ? `${cleanMobile}:${firstName}` : cleanMobile)
       : (cleanName ? cleanName.toLowerCase() : a.id)
+    const entryAge = Number(a.patientAge) || 0
+    const existingBase = patientMap.get(baseKey)
+    const key =
+      existingBase && existingBase.age > 0 && entryAge > 0 && Math.abs(existingBase.age - entryAge) > 5
+        ? `${baseKey}:${entryAge}`
+        : baseKey
 
-    const isFollowup = Number(a.feeAmount) === 0
+    const vt = String((a as any).visitType || (a as any).visit_type || '').trim().toLowerCase()
+    const isFollowup = vt
+      ? vt.includes('follow')
+      : Number((a as any).attemptNumber || 1) > 1 ||
+        Boolean((a as any).followUpOfAppointmentId || (a as any).follow_up_of_appointment_id) ||
+        /follow[- ]?up/i.test(a.notes || '') ||
+        (Number(a.feeAmount) === 0 && String(a.paymentMode || '').toUpperCase() === 'FREE')
     const isCancelled = (a.checkinStatus || '').toLowerCase() === 'cancelled' || (a.status || '').toUpperCase() === 'CANCELLED'
     const consultItem: PatientDirectoryConsultation = {
       id: a.id,

@@ -55,15 +55,53 @@ object PaymentLedgerHelper {
         if (fallbackPaidAmount > 0.0) {
             val dateStr = fallbackDate?.take(16)?.replace("T", " ")
                 ?: java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date())
+            val inferredMethod = inferPaymentMethodFromText(rawRemarks, null, null)
+            val refId = Regex("(?:provider\\s*reference|reference|ref|txn)\\s*[:#]\\s*([A-Za-z0-9_-]+)", RegexOption.IGNORE_CASE)
+                .find(rawRemarks ?: "")?.groupValues?.getOrNull(1)?.trim()
+            val cleanNote = if (!rawRemarks.isNullOrBlank() &&
+                Regex("paid\\s+via|esewa|khalti|fonepay|connectips|desk", RegexOption.IGNORE_CASE).containsMatchIn(rawRemarks)
+            ) {
+                rawRemarks.trim()
+            } else {
+                "Payment Received"
+            }
             return listOf(
                 PaymentRecord(
                     amount = fallbackPaidAmount,
                     dateTime = dateStr,
-                    note = "Payment Received"
+                    note = cleanNote,
+                    paymentMethod = inferredMethod.takeIf { it.isNotBlank() },
+                    referenceId = refId
                 )
             )
         }
         return emptyList()
+    }
+
+    fun inferPaymentMethodFromText(
+        text: String?,
+        paymentMode: String? = null,
+        fallbackMethod: String? = null
+    ): String {
+        val lower = (text ?: "").lowercase(Locale.US)
+        when {
+            lower.contains("esewa") -> return "ESEWA"
+            lower.contains("khalti") -> return "KHALTI"
+            lower.contains("fonepay") -> return "FONEPAY"
+            lower.contains("connectips") -> return "CONNECTIPS"
+            lower.contains("pay at desk") || lower.contains("pay_at_desk") || lower.contains("desk") -> return "PAY_AT_DESK"
+            lower.contains("qr") || lower.contains("bank") -> return "BANK_TRANSFER"
+            lower.contains("free follow") || lower.contains("waived") -> return "FREE"
+            lower.contains("cash") -> return "CASH"
+        }
+        val modeUpper = (paymentMode ?: "").trim().uppercase(Locale.US)
+        return when (modeUpper) {
+            "PAY_AT_DESK", "DESK" -> "PAY_AT_DESK"
+            "FREE" -> "FREE"
+            "ONLINE" -> "ONLINE"
+            "CASH" -> "CASH"
+            else -> (fallbackMethod ?: "").trim().uppercase(Locale.US)
+        }
     }
 
     fun extractCleanClinicalRemarks(rawRemarks: String?): String {
@@ -358,6 +396,9 @@ object PaymentLedgerHelper {
         if (notesLower.contains("follow-up") || notesLower.contains("followup")) {
             return "follow_up"
         }
+        if (appt.feeAmount > 0.0 && appt.attemptNumber <= 1) {
+            return "new"
+        }
         val docId = appt.doctorId
         if (!docId.isNullOrBlank()) {
             return if (firstVisitSet.contains(appt.id)) {
@@ -367,6 +408,18 @@ object PaymentLedgerHelper {
             }
         }
         return if (appt.feeAmount <= 0.0) "follow_up" else "unknown"
+    }
+
+    private fun isValidClinicalVisitForHistory(appt: Appointment): Boolean {
+        val st = appt.status.trim().lowercase(Locale.US)
+        val ck = appt.checkinStatus.trim().lowercase(Locale.US)
+        if (st in setOf("cancelled", "rejected", "pending_payment", "waiting_for_approval", "unapproved", "expired")) {
+            return false
+        }
+        if (ck == "cancelled" || (ck == "no_show" && !appt.paymentStatus.equals("paid", ignoreCase = true))) {
+            return false
+        }
+        return true
     }
 
     private fun resolveDisplayDoctorName(doc: Doctor?, isLabClinic: Boolean): String {
@@ -393,11 +446,7 @@ object PaymentLedgerHelper {
         val apptMap = appointments.associateBy { it.id }
 
         val validAppts = appointments
-            .filter {
-                !it.status.equals("cancelled", ignoreCase = true) &&
-                    !it.status.equals("rejected", ignoreCase = true) &&
-                    !it.checkinStatus.equals("cancelled", ignoreCase = true)
-            }
+            .filter { isValidClinicalVisitForHistory(it) }
             .sortedWith(compareBy({ it.appointmentDate }, { it.appointmentTime }, { it.id }))
 
         val seenByDoctor = mutableMapOf<String, MutableSet<String>>()
@@ -460,10 +509,13 @@ object PaymentLedgerHelper {
 
             val tests = if (isLabClinic) parseLabTestItems(appt, inv, clinicServices).map { it.first } else emptyList()
             val followUpOfAppt = appt?.followUpOfAppointmentId?.let { apptMap[it] }
+            val isOnlineMode = appt?.paymentMode.equals("ONLINE", ignoreCase = true)
             val rawMethod = when {
                 isRefundTx -> tx.paymentMethod.ifBlank { "REFUND" }
                 effectiveAmount == 0.0 -> "FREE"
                 isPad && tx.paymentMethod.equals("CASH", ignoreCase = true) -> "PAY_AT_DESK"
+                isOnlineMode && (tx.paymentMethod.isBlank() || tx.paymentMethod.equals("CASH", ignoreCase = true)) ->
+                    inferPaymentMethodFromText(inv?.remarks ?: tx.notes, appt?.paymentMode, "ONLINE")
                 else -> tx.paymentMethod
             }
 
@@ -547,15 +599,18 @@ object PaymentLedgerHelper {
 
             for (r in records) {
                 val isRefundRec = r.amount < 0.0 || r.category.equals("REFUND", ignoreCase = true)
-                val method = r.paymentMethod ?: when {
+                val method = r.paymentMethod?.takeIf { it.isNotBlank() } ?: when {
                     isRefundRec -> "REFUND"
-                    r.note?.contains("eSewa", ignoreCase = true) == true -> "ESEWA"
-                    r.note?.contains("Khalti", ignoreCase = true) == true -> "KHALTI"
-                    r.note?.contains("Fonepay", ignoreCase = true) == true -> "FONEPAY"
-                    r.note?.contains("ConnectIPS", ignoreCase = true) == true -> "CONNECTIPS"
-                    r.note?.contains("QR", ignoreCase = true) == true || r.note?.contains("Bank", ignoreCase = true) == true -> "BANK_TRANSFER"
-                    isPad -> "PAY_AT_DESK"
-                    else -> if (fallbackAmt == 0.0) "FREE" else "CASH"
+                    else -> inferPaymentMethodFromText(
+                        listOfNotNull(r.note, inv.remarks).joinToString(" "),
+                        appt?.paymentMode,
+                        when {
+                            isPad -> "PAY_AT_DESK"
+                            appt?.paymentMode.equals("ONLINE", ignoreCase = true) -> "ONLINE"
+                            fallbackAmt == 0.0 -> "FREE"
+                            else -> "CASH"
+                        }
+                    )
                 }
 
                 val isConsultation = r.category == null || r.category.equals("CONSULTATION", ignoreCase = true) ||
@@ -650,7 +705,7 @@ object PaymentLedgerHelper {
                     consultationFee = if (isLabClinic || isFollowUp) 0.0 else (doc?.consultationFee ?: appt.feeAmount),
                     amount = effectiveAmount,
                     dateTime = apptDateTime,
-                    paymentMethod = if (effectiveAmount == 0.0) "FREE" else (if (appt.paymentMode.isNotBlank()) appt.paymentMode else "CASH"),
+                    paymentMethod = if (effectiveAmount == 0.0) "FREE" else inferPaymentMethodFromText(appt.notes, appt.paymentMode, appt.paymentMode.ifBlank { "CASH" }),
                     paymentMode = if (effectiveAmount == 0.0) "FREE" else appt.paymentMode,
                     referenceId = if (effectiveAmount == 0.0) "FOLLOWUP-WAIVED" else null,
                     note = if (isFollowUp && effectiveAmount == 0.0) "Follow-up Consultation (Free)" else if (isLabClinic) "Diagnostic Lab Tests" else "OPD Consultation",
@@ -706,11 +761,7 @@ object PaymentLedgerHelper {
         val invoiceMap = invoices.associateBy { it.appointmentId }
 
         val validAppts = appointments
-            .filter {
-                !it.status.equals("cancelled", ignoreCase = true) &&
-                    !it.status.equals("rejected", ignoreCase = true) &&
-                    !it.checkinStatus.equals("cancelled", ignoreCase = true)
-            }
+            .filter { isValidClinicalVisitForHistory(it) }
             .sortedWith(compareBy({ it.appointmentDate }, { it.appointmentTime }, { it.id }))
 
         val seenByDoctor = mutableMapOf<String, MutableSet<String>>()
@@ -862,11 +913,7 @@ object PaymentLedgerHelper {
         val doctorMap = doctors.associateBy { it.id }
 
         val validAll = allAppointments
-            .filter {
-                !it.status.equals("cancelled", ignoreCase = true) &&
-                    !it.status.equals("rejected", ignoreCase = true) &&
-                    !it.checkinStatus.equals("cancelled", ignoreCase = true)
-            }
+            .filter { isValidClinicalVisitForHistory(it) }
             .sortedWith(compareBy({ it.appointmentDate }, { it.appointmentTime }, { it.id }))
 
         val seenByDoctor = mutableMapOf<String, MutableSet<String>>()

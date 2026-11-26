@@ -656,4 +656,69 @@ class PaymentLedgerHelperTest {
         assertEquals(25.0, summary.platformFees, 0.001)
         assertEquals(250.0, summary.net, 0.001) // 425 - 150 - 25
     }
+
+    @Test
+    fun testEsewaPlainRemarks_resolvesEsewaInsteadOfCash_andIgnoresIncompletePriorForVisitType() {
+        val doctor = Doctor(
+            id = "doc-1",
+            fullName = "Dr. Test",
+            email = "doc@example.com",
+            consultationFee = 200.0
+        )
+        val abandonedPrior = Appointment(
+            id = "prior-abandoned",
+            clinicId = "clinic-1",
+            doctorId = "doc-1",
+            patientName = "Aashish",
+            patientMobile = "9800000001",
+            patientAge = 11,
+            appointmentDate = "2026-11-24",
+            appointmentTime = "10:00 AM",
+            paymentMode = "ONLINE",
+            paymentStatus = "pending",
+            status = "pending_payment",
+            checkinStatus = "no_show",
+            feeAmount = 200.0
+        )
+        val paidEsewaNew = Appointment(
+            id = "esewa-new",
+            clinicId = "clinic-1",
+            doctorId = "doc-1",
+            patientName = "Aashish",
+            patientMobile = "9800000001",
+            patientAge = 69,
+            appointmentDate = "2026-11-25",
+            appointmentTime = "11:00 AM",
+            paymentMode = "ONLINE",
+            paymentStatus = "paid",
+            status = "APPROVED",
+            checkinStatus = "checked_in",
+            feeAmount = 200.0,
+            attemptNumber = 1
+        )
+        val inv = BillingInvoice(
+            id = "inv-esewa",
+            appointmentId = "esewa-new",
+            clinicId = "clinic-1",
+            totalAmount = 200.0,
+            paidAmount = 200.0,
+            balanceDue = 0.0,
+            paymentStatus = "paid",
+            paidAt = "2026-11-25T13:23:07Z",
+            remarks = "Paid via eSewa; provider reference: 000HHLW"
+        )
+
+        val logs = PaymentLedgerHelper.buildUnifiedPaymentLogs(
+            appointments = listOf(abandonedPrior, paidEsewaNew),
+            invoices = listOf(inv),
+            doctors = listOf(doctor),
+            transactions = emptyList()
+        )
+
+        assertEquals(1, logs.size)
+        assertEquals("ESEWA", logs[0].paymentMethod)
+        assertEquals("000HHLW", logs[0].referenceId)
+        assertEquals("new", logs[0].visitType)
+        assertTrue(logs[0].isNewPatientForDoctor)
+    }
 }

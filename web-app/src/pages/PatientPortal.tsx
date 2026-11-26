@@ -1966,6 +1966,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
           appointmentTime: slotTimeStr,
           checkinStatus: 'not_checked_in',
           paymentStatus: 'pending',
+          paymentMode: 'ONLINE',
+          visitType: 'new',
           feeAmount: calculatedFee,
           notes: isLabClinic ? 'Diagnostic Lab Sample Collection' : (bookPatientNotes.trim() || undefined),
           selectedTests: isLabClinic ? selectedLabTests.map((t) => t.serviceName) : [],

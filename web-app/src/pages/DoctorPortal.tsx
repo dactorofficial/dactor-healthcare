@@ -1370,10 +1370,10 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     const list = appointments.filter((a) => {
       if (a.appointmentDate !== todayDateStr) return false
       const st = (a.status || '').toUpperCase()
+      const isPaidOnlineHealing = st === 'PENDING_PAYMENT' && String(a.paymentStatus || '').toLowerCase() === 'paid' && String(a.paymentMode || '').toUpperCase() === 'ONLINE'
       return (
-        st === 'APPROVED' &&
+        (st === 'APPROVED' || isPaidOnlineHealing) &&
         a.status !== 'WAITING_FOR_APPROVAL' &&
-        a.status !== 'pending_payment' &&
         a.status !== 'UNAPPROVED' &&
         a.status !== 'EXPIRED'
       )
@@ -1474,10 +1474,11 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       if (a.appointmentDate !== selectedQueueDate) return false
       if (selectedClinic && a.clinicId && a.clinicId !== selectedClinic.id) return false
       const st = (a.status || '').toUpperCase()
+      const isPaidOnlineHealing = st === 'PENDING_PAYMENT' && String(a.paymentStatus || '').toLowerCase() === 'paid' && String(a.paymentMode || '').toUpperCase() === 'ONLINE'
       // Pay at Desk: Strictly exclude unapproved Pay at Desk appointments (WAITING_FOR_APPROVAL)
       if (
         st === 'WAITING_FOR_APPROVAL' ||
-        a.status === 'pending_payment' ||
+        (a.status === 'pending_payment' && !isPaidOnlineHealing) ||
         a.status === 'UNAPPROVED' ||
         a.status === 'EXPIRED' ||
         a.checkinStatus === 'cancelled'
@@ -1728,10 +1729,10 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
 
     const approvedAppts = appointments.filter((a) => {
       const st = (a.status || '').toUpperCase()
+      const isPaidOnlineHealing = st === 'PENDING_PAYMENT' && String(a.paymentStatus || '').toLowerCase() === 'paid' && String(a.paymentMode || '').toUpperCase() === 'ONLINE'
       return (
-        st === 'APPROVED' &&
+        (st === 'APPROVED' || isPaidOnlineHealing) &&
         a.status !== 'WAITING_FOR_APPROVAL' &&
-        a.status !== 'pending_payment' &&
         a.status !== 'UNAPPROVED' &&
         a.status !== 'EXPIRED'
       )
@@ -1741,9 +1742,14 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       const cleanMobile = (a.patientMobile || '').replace(/\D/g, '')
       const cleanName = (a.patientName || '').trim().replace(/\s+/g, ' ')
       const firstName = cleanName.toLowerCase().split(' ')[0] || ''
-      const key = cleanMobile.length >= 7
+      const baseKey = cleanMobile.length >= 7
         ? (firstName ? `${cleanMobile}:${firstName}` : cleanMobile)
         : (cleanName ? cleanName.toLowerCase() : a.id)
+      const existingBase = map.get(baseKey)
+      const key =
+        existingBase && existingBase.patientAge && a.patientAge && Math.abs(existingBase.patientAge - a.patientAge) > 5
+          ? `${baseKey}:${a.patientAge}`
+          : baseKey
       const existing = map.get(key)
       if (existing) {
         existing.totalVisits += 1
@@ -1793,7 +1799,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     appointments.forEach((a) => {
       const fee = a.feeAmount > 0 ? a.feeAmount : (currentDoctor?.consultationFee || 500)
       totalBilled += fee
-      if (a.paymentStatus === 'paid') {
+      if (a.paymentStatus === 'paid' && String(a.paymentMode || '').toUpperCase() === 'ONLINE') {
         onlinePaid += fee
       } else {
         settledCash += fee
@@ -3158,7 +3164,19 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
 
                             {/* Badges: Pay at Desk, Overloaded Capacity, Elapsed Consultation */}
                             <div className="flex items-center space-x-2 flex-wrap gap-y-1 pt-1">
-                              {/* Pay at Desk Status Display */}
+                              {/* Online Paid / Pay at Desk Status Display */}
+                              {String(appt.paymentMode || '').toUpperCase() === 'ONLINE' && appt.paymentStatus === 'paid' && (
+                                <span
+                                  style={{
+                                    backgroundColor: '#DCFCE7',
+                                    borderColor: '#86EFAC',
+                                    color: '#166534',
+                                  }}
+                                  className="px-2 py-0.5 rounded text-[11px] font-bold border"
+                                >
+                                  ✓ Paid Online
+                                </span>
+                              )}
                               {appt.paymentMode === 'PAY_AT_DESK' && (
                                 <>
                                   {appt.paymentStatus === 'paid' ? (
@@ -3635,7 +3653,18 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {doctorPatientsList.map((p, idx) => {
                   const cleanMobile = p.patientMobile ? p.patientMobile.replace(/\D/g, '') : ''
-                  const hasFollowup = p.allVisits && p.allVisits.length > 1
+                  const isVisitFollowup = (v: Appointment) => {
+                    const vt = String((v as any).visitType || (v as any).visit_type || '').toLowerCase()
+                    if (vt.includes('follow')) return true
+                    if (vt === 'new') return false
+                    return (
+                      Number(v.attemptNumber || 1) > 1 ||
+                      Boolean((v as any).followUpOfAppointmentId || (v as any).follow_up_of_appointment_id) ||
+                      /follow[- ]?up/i.test(v.notes || '') ||
+                      (Number(v.feeAmount || 0) <= 0 && String(v.paymentMode || '').toUpperCase() === 'FREE')
+                    )
+                  }
+                  const hasFollowup = Boolean(p.allVisits && p.allVisits.some((v) => isVisitFollowup(v)))
 
                   return (
                     <div
@@ -3675,14 +3704,14 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                         </div>
 
                         {/* Dual Consultation Breakdown summary */}
-                        {hasFollowup && (
+                        {p.allVisits && p.allVisits.length > 1 && (
                           <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-700/60 space-y-1 text-[11px]">
                             <div className="flex justify-between text-blue-800 dark:text-blue-300">
-                              <span>1. Initial Consultation:</span>
+                              <span>1. {isVisitFollowup(p.allVisits[0]) ? 'Follow-Up Consultation:' : 'Initial Consultation:'}</span>
                               <span className="font-semibold">{p.allVisits[0]?.appointmentDate} (#{p.allVisits[0]?.trackingCode10Digit})</span>
                             </div>
                             <div className="flex justify-between text-teal-800 dark:text-teal-300">
-                              <span>2. Follow-Up Consultation:</span>
+                              <span>2. {isVisitFollowup(p.allVisits[p.allVisits.length - 1]) ? 'Follow-Up Consultation:' : 'New Consultation:'}</span>
                               <span className="font-semibold">{p.allVisits[p.allVisits.length - 1]?.appointmentDate} (#{p.allVisits[p.allVisits.length - 1]?.trackingCode10Digit})</span>
                             </div>
                           </div>

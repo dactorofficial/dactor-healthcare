@@ -1154,6 +1154,8 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
           appointmentTime: selectedSlotTime || '10:00 AM',
           checkinStatus: 'not_checked_in',
           paymentStatus: 'pending',
+          paymentMode: 'ONLINE',
+          visitType: 'new',
           feeAmount: totalBookingFee,
           selectedTests: testsSelectedNames,
           notes:

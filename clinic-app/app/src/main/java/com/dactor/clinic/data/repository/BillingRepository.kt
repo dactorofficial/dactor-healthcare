@@ -179,24 +179,46 @@ class BillingRepository @Inject constructor(
                 ignored.printStackTrace()
             }
 
-            // Record transaction audit log for incoming payment on that day
+            // Record transaction audit log idempotently without overwriting online gateway methods with CASH
             if (invoiceToSave.paidAmount > 0.0) {
                 try {
-                    val txId = java.util.UUID.randomUUID().toString()
-                    val txTime = effectivePaidAt ?: nowIso
-                    supabaseClient.postgrest["invoice_transactions"].insert(
-                        InvoiceTransaction(
-                            id = txId,
-                            invoiceId = invoiceToSave.id,
-                            clinicId = invoiceToSave.clinicId,
-                            appointmentId = invoiceToSave.appointmentId,
-                            amount = invoiceToSave.paidAmount,
-                            paymentMethod = if (invoiceToSave.totalAmount > 0.0 && invoiceToSave.totalAmount == invoiceToSave.paidAmount) "CASH" else "PARTIAL",
-                            notes = "Bill Payment Saved ($txTime)",
-                            category = "CONSULTATION",
-                            createdAt = txTime
+                    val existingTx = supabaseClient.postgrest["invoice_transactions"]
+                        .select {
+                            filter {
+                                eq("appointment_id", invoiceToSave.appointmentId)
+                            }
+                            limit(1)
+                        }
+                        .decodeList<InvoiceTransaction>()
+
+                    if (existingTx.isEmpty()) {
+                        val apptRow = try {
+                            supabaseClient.postgrest["appointments"]
+                                .select { filter { eq("id", invoiceToSave.appointmentId) } }
+                                .decodeList<com.dactor.clinic.data.model.Appointment>()
+                                .firstOrNull()
+                        } catch (_: Exception) { null }
+                        val resolvedMethod = com.dactor.clinic.domain.util.PaymentLedgerHelper.inferPaymentMethodFromText(
+                            invoiceToSave.remarks,
+                            apptRow?.paymentMode,
+                            if (apptRow?.paymentMode.equals("ONLINE", ignoreCase = true)) "ONLINE" else "CASH"
                         )
-                    )
+                        val txId = java.util.UUID.randomUUID().toString()
+                        val txTime = effectivePaidAt ?: nowIso
+                        supabaseClient.postgrest["invoice_transactions"].insert(
+                            InvoiceTransaction(
+                                id = txId,
+                                invoiceId = invoiceToSave.id,
+                                clinicId = invoiceToSave.clinicId,
+                                appointmentId = invoiceToSave.appointmentId,
+                                amount = invoiceToSave.paidAmount,
+                                paymentMethod = if (invoiceToSave.totalAmount > 0.0 && invoiceToSave.totalAmount == invoiceToSave.paidAmount) resolvedMethod else "PARTIAL",
+                                notes = "Bill Payment Saved ($txTime)",
+                                category = "CONSULTATION",
+                                createdAt = txTime
+                            )
+                        )
+                    }
                 } catch (txEx: Exception) {
                     txEx.printStackTrace()
                 }

@@ -268,11 +268,15 @@ fun PatientDirectoryScreen(
     // When the dialog opens or selected doctor changes, intelligently determine default visit type
     LaunchedEffect(showScheduleDialogForPatient, scheduleDoctorId) {
         if (showScheduleDialogForPatient != null) {
-            if (isMultiTypeClinic && affiliatedDoctors.size > 1) {
-                val hasDoctorVisit = dialogPatientAppointments.any { it.doctorId == scheduleDoctorId }
-                isFollowUpVisit = hasDoctorVisit
+            val validPrior = dialogPatientAppointments.filter {
+                it.status.equals("APPROVED", ignoreCase = true) &&
+                    !it.checkinStatus.equals("cancelled", ignoreCase = true) &&
+                    !it.checkinStatus.equals("no_show", ignoreCase = true)
+            }
+            isFollowUpVisit = if (isMultiTypeClinic && affiliatedDoctors.size > 1) {
+                validPrior.any { it.doctorId == scheduleDoctorId }
             } else {
-                isFollowUpVisit = true
+                validPrior.isNotEmpty()
             }
         }
     }

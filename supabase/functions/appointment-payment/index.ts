@@ -789,7 +789,6 @@ async function ensureLiveQueueAndApprovedState(attempt: Attempt, reference: stri
     const { data: existingTx } = await service.from("invoice_transactions")
       .select("id")
       .eq("appointment_id", appt.id)
-      .eq("is_deleted", false)
       .limit(1);
 
     if (!existingTx || existingTx.length === 0) {

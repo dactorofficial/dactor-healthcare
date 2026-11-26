@@ -216,6 +216,7 @@ import {
   parsePaymentRecords,
   extractCleanClinicalRemarks,
   buildCombinedRemarks,
+  inferPaymentMethodFromText,
   WebPaymentRecord,
 } from '../utils/paymentLedger'
 import { supabase } from '../lib/supabase'
@@ -3479,7 +3480,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
             ? Math.max(Number(existing.paidAmount || 0), calcTotal)
             : Number(existing.paidAmount || 0)
         const isPad = String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
-        const rawLogs = parsePaymentRecords(existing.remarks, calcPaid, existing.paidAt)
+        const defaultMethod = isPad ? 'PAY_AT_DESK' : String(appt.paymentMode || '').toUpperCase() === 'ONLINE' ? 'ONLINE' : 'CASH'
+        const rawLogs = parsePaymentRecords(existing.remarks, calcPaid, existing.paidAt, defaultMethod)
         const parsedLogs =
           isPad && rawLogs.length === 1 && calcPaid >= calcTotal && rawLogs[0].amount < calcTotal
             ? [{ ...rawLogs[0], amount: calcTotal }]
@@ -3518,12 +3520,24 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           ])
         }
         const initialPaid = appt.paymentStatus === 'paid' ? initialTotal : 0
+        const inferredInitMethod = inferPaymentMethodFromText(
+          appt.notes,
+          appt.paymentMode,
+          String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
+            ? 'PAY_AT_DESK'
+            : String(appt.paymentMode || '').toUpperCase() === 'ONLINE'
+            ? 'ONLINE'
+            : 'CASH'
+        )
         const initialLogs: WebPaymentRecord[] = initialPaid > 0 ? [{
           id: crypto.randomUUID(),
           amount: initialPaid,
           dateTime: `${appt.appointmentDate} ${appt.appointmentTime || '10:00 AM'}`,
+          paymentMethod: inferredInitMethod,
           note: String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK'
             ? 'Pay at Desk Collection (Includes 5% Commission)'
+            : String(appt.paymentMode || '').toUpperCase() === 'ONLINE'
+            ? 'Online Payment Consultation Fee'
             : 'Initial Consultation Fee'
         }] : []
         setBillPaymentRecords(initialLogs)
@@ -3604,6 +3618,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
           id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : 'pay_' + Date.now(),
           amount: newPaymentAmt,
           dateTime: `${payDate} ${payTime}`,
+          paymentMethod: inferPaymentMethodFromText(
+            billNewPaymentNote,
+            billTargetAppt.paymentMode,
+            String(billTargetAppt.paymentMode || '').toUpperCase() === 'ONLINE' ? 'ONLINE' : 'CASH'
+          ),
           note: billNewPaymentNote.trim() || 'Payment Received',
         })
       }
@@ -4560,10 +4579,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
       if (a.appointmentDate !== selectedQueueDate) return false
       // Strict OPD Queue Guard: Only APPROVED appointments enter the live queue
       const st = (a.status || '').toUpperCase()
+      const isPaidOnlineHealing = st === 'PENDING_PAYMENT' && String(a.paymentStatus || '').toLowerCase() === 'paid' && String(a.paymentMode || '').toUpperCase() === 'ONLINE'
       if (
-        st !== 'APPROVED' ||
+        (st !== 'APPROVED' && !isPaidOnlineHealing) ||
         a.status === 'WAITING_FOR_APPROVAL' ||
-        a.status === 'pending_payment' ||
         a.status === 'UNAPPROVED' ||
         a.status === 'EXPIRED' ||
         a.checkinStatus === 'cancelled'
@@ -6589,7 +6608,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                         : 'liquid-glass-subtle text-slate-700 dark:text-slate-300 border border-white/40'
                                     }`}
                                   >
-                                    Rs. {getEffectiveAppointmentTotal(appt)} • {appt.paymentStatus.toUpperCase()}
+                                    Rs. {getEffectiveAppointmentTotal(appt)} • {appt.paymentStatus.toUpperCase()}{String(appt.paymentMode || '').toUpperCase() === 'ONLINE' && appt.paymentStatus === 'paid' ? ' • ONLINE' : ''}
                                   </span>
                                   {String(appt.paymentMode || '').toUpperCase() === 'PAY_AT_DESK' && appt.paymentStatus !== 'paid' && (
                                     <button
@@ -9972,7 +9991,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                             <td className="py-3.5 px-4 font-bold text-slate-900">
                               <div className="flex items-center space-x-2">
                                 <span>{pat.fullName}</span>
-                                {pat.consultations && pat.consultations.length > 1 && (
+                                {pat.consultations && pat.consultations.some((c: any) => c.isFollowup) && (
                                   <span className="px-1.5 py-0.5 rounded-full bg-teal-100 text-teal-800 text-[10px] font-bold border border-teal-200">
                                     Follow-Up Patient
                                   </span>
@@ -10174,9 +10193,11 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                                                   : 'bg-blue-200/80 text-blue-900 border border-blue-300'
                                               }`}
                                             >
-                                              {cIdx === 0
-                                                ? '1. Initial Consultation'
-                                                : `2. Follow-Up Consultation ${consult.feeAmount === 0 ? '(Free Visit)' : ''}`}
+                                              {consult.isFollowup
+                                                ? `Follow-Up Consultation ${consult.feeAmount === 0 ? '(Free Visit)' : ''}`
+                                                : cIdx === 0
+                                                ? 'Initial / New Consultation'
+                                                : 'New Consultation'}
                                             </span>
                                             <span className="font-mono text-[11px] font-bold text-slate-700 bg-white/80 px-2 py-0.5 rounded">
                                               #{consult.trackingCode}

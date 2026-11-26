@@ -151,6 +151,24 @@ fun DoctorQueueItemCard(
                             }
                         }
 
+                        // Online Paid Badge
+                        if (item.paymentMode.equals("ONLINE", ignoreCase = true) && item.paymentStatus.equals("paid", ignoreCase = true)) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFFDCFCE7),
+                                border = BorderStroke(0.5.dp, Color(0xFF86EFAC)),
+                                modifier = Modifier.padding(top = 2.dp)
+                            ) {
+                                Text(
+                                    text = "✓ Paid Online",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF166534),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
                         // Pay at Desk Badge
                         if (item.paymentMode == "PAY_AT_DESK") {
                             Surface(

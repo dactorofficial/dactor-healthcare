@@ -249,7 +249,6 @@ BEGIN
         WHERE NOT EXISTS (
             SELECT 1 FROM public.invoice_transactions it
             WHERE it.appointment_id = appt.id
-              AND it.is_deleted = FALSE
               AND (
                   it.reference_id = v_effective_ref
                   OR UPPER(COALESCE(it.payment_method, '')) = v_gateway_upper
@@ -424,7 +423,7 @@ BEGIN
                 ) AS attempt_ref
             FROM public.billing_invoices bi
             JOIN public.appointments a ON a.id = bi.appointment_id
-            WHERE bi.is_deleted = FALSE
+            WHERE COALESCE(a.is_deleted, FALSE) = FALSE
               AND bi.payment_status::text = 'paid'
               AND bi.paid_amount > 0
               AND UPPER(COALESCE(a.payment_mode, '')) = 'ONLINE'
@@ -444,10 +443,8 @@ BEGIN
             -- Fix any erroneously recorded CASH transaction on an online gateway invoice
             UPDATE public.invoice_transactions
             SET payment_method = v_gw,
-                reference_id = COALESCE(reference_id, v_ref),
-                updated_at = NOW()
+                reference_id = COALESCE(reference_id, v_ref)
             WHERE appointment_id = r_appt.appointment_id
-              AND is_deleted = FALSE
               AND UPPER(COALESCE(payment_method, '')) = 'CASH';
 
             -- Insert missing invoice_transactions row
@@ -477,7 +474,6 @@ BEGIN
             WHERE NOT EXISTS (
                 SELECT 1 FROM public.invoice_transactions it
                 WHERE it.appointment_id = r_appt.appointment_id
-                  AND it.is_deleted = FALSE
             );
         END LOOP;
     END IF;
