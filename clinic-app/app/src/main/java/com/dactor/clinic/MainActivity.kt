@@ -9,6 +9,11 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.dactor.clinic.data.local.RegistrationDraftManager
@@ -158,8 +163,8 @@ class MainActivity : ComponentActivity() {
             }
         }
         setContent {
-            var currentLanguage by androidx.compose.runtime.remember {
-                androidx.compose.runtime.mutableStateOf(
+            var currentLanguage by remember {
+                mutableStateOf(
                     com.dactor.clinic.ui.i18n.ClinicLanguage.fromCode(sessionManager.getAppLanguage())
                 )
             }
@@ -169,7 +174,7 @@ class MainActivity : ComponentActivity() {
                 com.dactor.clinic.ui.i18n.ClinicEnglishStrings
             }
 
-            androidx.compose.runtime.CompositionLocalProvider(
+            CompositionLocalProvider(
                 com.dactor.clinic.ui.i18n.LocalClinicStrings provides clinicStrings,
                 com.dactor.clinic.ui.i18n.LocalClinicLanguage provides currentLanguage,
                 com.dactor.clinic.ui.i18n.LocalUpdateClinicLanguage provides { newLang ->

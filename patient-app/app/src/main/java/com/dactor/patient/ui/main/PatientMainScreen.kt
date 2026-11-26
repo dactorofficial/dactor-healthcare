@@ -5642,6 +5642,14 @@ fun AppointmentsTab(
     var apptToCancelConfirm by remember { mutableStateOf<Appointment?>(null) }
     var isCancelling by remember { mutableStateOf(false) }
 
+    var clockTick15s by remember { mutableStateOf(System.currentTimeMillis() / 15000L) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(15000L)
+            clockTick15s = System.currentTimeMillis() / 15000L
+        }
+    }
+
     suspend fun loadActiveAppointments() {
         if (activeAppts.isEmpty()) {
             isLoading = true

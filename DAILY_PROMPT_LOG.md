@@ -7,6 +7,27 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "generate debug apk clinic"
+
+#### Changes Applied:
+1. **Clinic App Version Increment ([`clinic-app/app/build.gradle.kts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/build.gradle.kts))**:
+   - Incremented `versionCode` to `94`.
+   - Incremented `versionName` to `"1.0.94"`.
+2. **Compilation Fix ([`clinic-app/app/src/main/java/com/dactor/clinic/MainActivity.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/MainActivity.kt))**:
+   - Added explicit Compose delegate imports (`androidx.compose.runtime.getValue`, `androidx.compose.runtime.setValue`) to resolve `MutableState<ClinicLanguage>` property delegate ambiguity.
+3. **Debug APK Generation ([`build_apks.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/build_apks.ps1))**:
+   - Built Debug APK via `assembleDebug`:
+     - Saved to: [`APKs/Dactor-ClinicApp-v1.0.94-debug.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-ClinicApp-v1.0.94-debug.apk) (40.58 MB).
+     - Standard alias: [`APKs/Dactor-ClinicApp-v1.0.94.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-ClinicApp-v1.0.94.apk).
+     - Local SSD backup: `C:\Users\dell\Dactor-APKs\Dactor-ClinicApp-v1.0.94-debug.apk`.
+4. **Handoff Tracking ([`HANDOFF.md`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/HANDOFF.md))**:
+   - Updated Executive Summary and Section 7 APK Version Registry with `v1.0.94 (Code 94)`.
+
+---
+
+## 2026-11-26
+
+### Prompt:
 > "we need to make a good plan for the quality of the lab report if 1 image is used put it upto 100 kb and in the same way n * 100 kb as per the number of pictures uploaded /plan"
 
 #### Changes Applied:
@@ -80,6 +101,27 @@ This file tracks user prompts and the exact changes applied across the codebase,
    - Created test suite [`tests/test_dynamic_queue_timing.cjs`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/tests/test_dynamic_queue_timing.cjs) validating 7 critical invariant cases (all 7 passed).
    - Rebuilt web app via `npm run build` (`tsc` + `vite build`) in `web-app/dist/`.
    - Executed live deployment script [`scripts/deploy_ghpages.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/deploy_ghpages.ps1).
+
+---
+
+## 2026-11-26
+
+### Prompt:
+> "generate debug apk clinic"
+
+#### Changes Applied:
+1. **Clinic App Version Increment ([`clinic-app/app/build.gradle.kts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/build.gradle.kts))**:
+   - Incremented `versionCode` to `94`.
+   - Incremented `versionName` to `"1.0.94"`.
+2. **Compilation Fix ([`clinic-app/app/src/main/java/com/dactor/clinic/MainActivity.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/MainActivity.kt))**:
+   - Added explicit Compose delegate imports (`androidx.compose.runtime.getValue`, `androidx.compose.runtime.setValue`) to resolve `MutableState<ClinicLanguage>` property delegate ambiguity.
+3. **Debug APK Generation ([`build_apks.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/build_apks.ps1))**:
+   - Built Debug APK via `assembleDebug`:
+     - Saved to: [`APKs/Dactor-ClinicApp-v1.0.94-debug.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-ClinicApp-v1.0.94-debug.apk) (40.58 MB).
+     - Standard alias: [`APKs/Dactor-ClinicApp-v1.0.94.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-ClinicApp-v1.0.94.apk).
+     - Local SSD backup: `C:\Users\dell\Dactor-APKs\Dactor-ClinicApp-v1.0.94-debug.apk`.
+4. **Handoff Tracking ([`HANDOFF.md`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/HANDOFF.md))**:
+   - Updated Executive Summary and Section 7 APK Version Registry with `v1.0.94 (Code 94)`.
 
 ---
 
@@ -3114,3 +3156,27 @@ epal_payment_security_audit.md](file:///C:/Users/dell/.gemini/antigravity/brain/
 
 3. **Web App — Clinic & Doctor Portal Live Queue Sync ([`ClinicPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/ClinicPortal.tsx), [`DoctorPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/DoctorPortal.tsx))**:
    - Replaced 2.5s `refreshAppointmentsByIds` + `checkNewAppointments` multi-table polling loops and unfiltered Realtime full-history fetches (`getAppointmentsByClinic` / `getDoctorAppointments`) with scoped/debounced Realtime + 10s coalesced fallback using `getFastClinicLiveQueue` / `getFastDoctorLiveQueue`, `syncClinicLiveQueue`, and `mergeFastQueueIntoAppointments`.
+
+
+---
+
+## 2026-11-26
+
+### Prompt:
+> "generate debug apk  patient"
+
+#### Changes Applied:
+1. **Patient App — Kotlin Compilation Fix ([`PatientMainScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt))**:
+   - Resolved unresolved reference `clockTick15s` in `AppointmentsTab` by introducing 15-second clock tick timer state and coroutine loop to dynamically re-evaluate `QueueRepository.calculateLiveQueueTimingEstimate`.
+
+2. **Patient App Version Bump & Build Configuration ([`build.gradle.kts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/build.gradle.kts))**:
+   - Incremented `versionCode` from 145 to 146 and `versionName` from `"1.0.45"` to `"1.0.46"`.
+
+3. **Debug APK Build & Deployment**:
+   - Successfully built Debug APK using `./build_apks.ps1 -App Patient -BuildType Debug`:
+     - `APKs/Dactor-PatientApp-v1.0.46-debug.apk` (26.65 MB)
+     - `APKs/Dactor-PatientApp-v1.0.46.apk` (26.65 MB)
+     - Copied to local SSD: `C:\Users\dell\Dactor-APKs\Dactor-PatientApp-v1.0.46-debug.apk`
+
+4. **Tracking & Documentation Updates**:
+   - Updated `HANDOFF.md` Executive Summary and Version Registry table (Section 7) with Patient App `v1.0.46` (Code 146).
