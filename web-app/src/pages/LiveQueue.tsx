@@ -291,6 +291,11 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           } : null)
         }
 
+        // Synchronize in_consultation state in local clinicQueue when doctor cabin vacates
+        if (!delta.is_anyone_inside) {
+          setClinicQueue((prev) => prev.map((q) => q.checkinStatus === 'in_consultation' ? { ...q, checkinStatus: 'completed' } : q))
+        }
+
         // Refresh clinic break/open flags at most once every 60s without re-querying appointments/reports
         if (appointment?.clinicId && Date.now() - lastClinicCheckAtRef.current > 60_000) {
           lastClinicCheckAtRef.current = Date.now()
@@ -876,22 +881,33 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   )
   const inConsultationPatient = useMemo(
     () => {
+      // Live delta from the server is authoritative for today's active cabin state
+      if (liveDelta && isAppointmentToday) {
+        if (!liveDelta.is_anyone_inside) {
+          return null
+        }
+        const match = clinicQueue.find((a) => {
+          const matchDoc = isLabClinic ? true : (appointment?.doctorId ? a.doctorId === appointment.doctorId : !a.doctorId)
+          const matchDate = !apptDateRaw || (a.appointmentDate || '').trim().slice(0, 10) === apptDateRaw
+          return matchDoc && matchDate && a.checkinStatus === 'in_consultation'
+        })
+        if (match) return match
+        return {
+          id: 'in_cabin_serving',
+          queueNumber: liveDelta.current_serving_token || 1,
+          checkinStatus: 'in_consultation',
+          insideSince: liveDelta.current_inside_since || null,
+        } as any
+      }
+
       const match = clinicQueue.find((a) => {
         const matchDoc = isLabClinic ? true : (appointment?.doctorId ? a.doctorId === appointment.doctorId : !a.doctorId)
         const matchDate = !apptDateRaw || (a.appointmentDate || '').trim().slice(0, 10) === apptDateRaw
         return matchDoc && matchDate && a.checkinStatus === 'in_consultation'
       })
-      if (match) return match
-      if (liveDelta?.is_anyone_inside && isAppointmentToday) {
-        return {
-          id: 'in_cabin_serving',
-          queueNumber: liveDelta.current_serving_token || 1,
-          checkinStatus: 'in_consultation',
-        } as any
-      }
-      return null
+      return match || null
     },
-    [clinicQueue, appointment?.doctorId, apptDateRaw, isLabClinic, liveDelta?.is_anyone_inside, liveDelta?.current_serving_token, isAppointmentToday]
+    [clinicQueue, appointment?.doctorId, apptDateRaw, isLabClinic, liveDelta, isAppointmentToday]
   )
 
   // Check if the appointment is tomorrow or a future date

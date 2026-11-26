@@ -3232,3 +3232,31 @@ epal_payment_security_audit.md](file:///C:/Users/dell/.gemini/antigravity/brain/
 
 4. **Tracking & Documentation Updates**:
    - Updated `HANDOFF.md` Executive Summary and Version Registry table (Section 7) with Patient App `v1.0.46` (Code 146).
+
+---
+
+### Prompt:
+> "so basically right nowsita was in the clinic and ram was outside and expected time was 1:58 and current time was 1 : 45 but sita's consultation completed at 1: 50 it was still showing 1:58 see this is not dynamic you should solve that tell me how will you solve this /plan"
+
+#### Changes Applied:
+1. **Supabase Database Migration ([`migration_dynamic_realtime_queue_sync.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_dynamic_realtime_queue_sync.sql))**:
+   - Enabled `REPLICA IDENTITY FULL` on `queue_entries`, `appointments`, `doctors`, and `clinics`, and added them to `supabase_realtime` publication for instant WebSocket delivery (<300ms).
+   - Enhanced `trg_appointments_sync_queue_entry()` to automatically update `queue_entries.status = 'done'` (or `'no_show'`) immediately when `appointments.checkin_status` transitions to completed/done/no_show.
+   - Hardened `get_live_queue_status(TEXT)` to strictly filter out completed, cancelled, or no-show appointments from the active consultation cabin scan and waiting ahead count, clearing `current_inside_since` and `current_serving_token` when no patient is actively inside.
+2. **Android Patient App Live Queue Sync ([`QueueRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/repository/QueueRepository.kt), [`QueueStatusScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt), [`PatientMainScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt))**:
+   - Added `observeQueueRealtime(clinicId, doctorId, appointmentId)` in `QueueRepository.kt` streaming real-time Postgres changes.
+   - Added `parseServerInstant(ts)` handling ISO-8601 with timezone offsets, bare UTC strings, and Nepal local datetime strings safely without parsing exceptions.
+   - In `QueueRepository.calculateLiveQueueTimingEstimate`, prioritized `isAnyoneInsideOverride` so that `isAnyoneInsideOverride == false` strictly sets `insideEntry = null` regardless of stale cached entries, and aligned `totalPeopleAhead` with authoritative server `fallbackPatientsAhead`.
+   - In `QueueStatusScreen.kt`, integrated `observeQueueRealtime` subscription, added immediate delta sync upon lifecycle start/resume, tightened background delta interval to 5s, explicitly cleared `insideAt = null` and `isAnyoneInsideDoctorCabin = false` when `!liveDelta.isAnyoneInside`, and synchronized all date comparisons with `QueueRepository.currentNepalLocalDate()`.
+   - In `PatientMainScreen.kt` (`AppointmentsTab`), added a 10s auto-refresh loop (`repeatOnLifecycle(Lifecycle.State.STARTED)`) for active today appointments with `forceRefresh = true` to prevent stale cache lock.
+3. **Android Clinic App Consultation Completion Resiliency ([`AppointmentRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/AppointmentRepository.kt), [`CompleteConsultationUseCase.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/usecase/queue/CompleteConsultationUseCase.kt), [`QueueRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/QueueRepository.kt))**:
+   - Replaced fragile `.decodeSingleOrNull` with `.decodeList().firstOrNull()` in `completeConsultation` to prevent crashes on duplicate rows.
+   - In `CompleteConsultationUseCase.kt`, added fallback to `updateQueueStatus(entryId, targetStatus)` and `completeConsultation(appointmentId)` so consultation completion never aborts if `transition_queue_entry_status` encounters an optimistic concurrency conflict.
+   - In `QueueRepository.kt`, exposed `parseServerInstant` and `currentNepalLocalDate()` in `companion object`.
+4. **Web Portal Dynamic Fast-Delta & Queue Sync ([`LiveQueue.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/LiveQueue.tsx), [`queueTiming.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/utils/queueTiming.ts), [`db.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/services/db.ts))**:
+   - In `LiveQueue.tsx`, resolved fast-delta leak in `inConsultationPatient`: made `liveDelta.is_anyone_inside === false` authoritative over stale initial `clinicQueue` arrays, and synchronized `clinicQueue` upon early cabin vacating.
+   - In `queueTiming.ts`, ensured `isAnyoneInside` respects explicit `isAnyoneInside: false` override instead of falling back to stale `inConsultationSince`.
+   - In `db.ts`, preserved `completed_at` timestamp on retry during `updateAppointmentStatus`.
+5. **Verification & Testing ([`test_dynamic_queue_timing.cjs`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/tests/test_dynamic_queue_timing.cjs))**:
+   - Added Test 8A & 8B modeling the exact Sita/Ram scenario: verified Ram expects 1:58 PM (~13 min) while Sita is inside at 1:45 PM, and immediately dynamically recalculates to 1:52 PM ("Up Next (~2 min)") upon Sita completing early at 1:50 PM. All 8 unit tests passed.
+   - Built web portal (`npm run build` in `web-app/` generated `dist/`).

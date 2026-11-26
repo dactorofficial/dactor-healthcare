@@ -1315,9 +1315,11 @@ export async function updateAppointmentStatus(id: string, status: string): Promi
         qOk = true
       } else {
         // Retry with minimal schema columns in case optional timestamp columns are absent
+        const retryPayload: any = { status: qStatus }
+        if (qUpdate.completed_at) retryPayload.completed_at = qUpdate.completed_at
         const { error: qRetryErr } = await supabase
           .from('queue_entries')
-          .update({ status: qStatus })
+          .update(retryPayload)
           .eq('id', existingQ.id)
         qOk = !qRetryErr
         if (qRetryErr) console.error('Error updating queue_entries status:', qRetryErr)

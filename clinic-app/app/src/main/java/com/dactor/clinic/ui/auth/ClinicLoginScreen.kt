@@ -43,6 +43,8 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.dactor.clinic.data.local.RegistrationDraftManager
 import com.dactor.clinic.data.local.UserSessionManager
+import com.dactor.clinic.ui.components.ClinicQuickLanguageButton
+import com.dactor.clinic.ui.i18n.LocalClinicStrings
 import com.dactor.clinic.data.model.Clinic
 import com.dactor.clinic.data.model.Doctor
 import com.dactor.clinic.data.repository.AuthRepository
@@ -156,6 +158,7 @@ fun ClinicLoginScreen(
     initialTab: Int = 0
 ) {
     val context = LocalContext.current
+    val strings = LocalClinicStrings.current
     val coroutineScope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
@@ -1428,8 +1431,8 @@ fun ClinicLoginScreen(
                 title = {
                     Text(
                         when (currentView) {
-                            "register_form" -> if (selectedTab == 0) "Clinic Registration" else "Doctor Registration"
-                            "pending_verification" -> "Admin Verification"
+                            "register_form" -> if (selectedTab == 0) strings.authDashboard.clinicRegisterTitle else strings.authDashboard.doctorRegisterTitle
+                            "pending_verification" -> strings.authDashboard.kycStatusPending
                             else -> "Dactor Portal"
                         },
                         fontWeight = FontWeight.Bold
@@ -1438,13 +1441,16 @@ fun ClinicLoginScreen(
                 navigationIcon = {
                     if (currentView == "register_form") {
                         IconButton(onClick = { resetToAuthChoice() }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = strings.common.back)
                         }
                     } else if (currentView == "pending_verification") {
                         IconButton(onClick = { signOutFromPending() }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = strings.common.back)
                         }
                     }
+                },
+                actions = {
+                    ClinicQuickLanguageButton(modifier = Modifier.padding(end = 8.dp))
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
@@ -1553,7 +1559,7 @@ fun ClinicLoginScreen(
                             text = {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Icon(Icons.Default.LocalHospital, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Text("Clinic Staff", fontWeight = FontWeight.Bold)
+                                    Text(strings.authDashboard.tabClinicStaff, fontWeight = FontWeight.Bold)
                                 }
                             }
                         )
@@ -1574,7 +1580,7 @@ fun ClinicLoginScreen(
                             text = {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Icon(Icons.Default.MedicalServices, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Text("Doctor / Specialist", fontWeight = FontWeight.Bold)
+                                    Text(strings.authDashboard.tabDoctor, fontWeight = FontWeight.Bold)
                                 }
                             }
                         )
@@ -1607,7 +1613,7 @@ fun ClinicLoginScreen(
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = if (selectedTab == 0) "Clinic & Reception Portal" else "Doctor & Specialist Portal",
+                        text = if (selectedTab == 0) strings.authDashboard.clinicLoginTitle else strings.authDashboard.doctorLoginTitle,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onBackground
@@ -1615,9 +1621,9 @@ fun ClinicLoginScreen(
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = if (selectedTab == 0)
-                            "Manage tokens, walk-ins, queues, and services for your clinic in Nepal."
+                            strings.authDashboard.clinicLoginSub
                         else
-                            "Track active patient queue, conduct consultations, and order diagnostic labs.",
+                            strings.authDashboard.doctorLoginSub,
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,

@@ -89,7 +89,7 @@ object BillPdfDownloader {
             canvas.drawText(clinicName.ifBlank { "Dactor Medical Clinic" }, 36f, 38f, titlePaint)
             canvas.drawText(clinicAddress.ifBlank { "Nepal" }, 36f, 56f, subHeaderPaint)
             canvas.drawText(
-                "OFFICIAL MEDICAL BILL & PAYMENT LEDGER \u2022 CODE #${appointment.trackingCode10Digit}",
+                "OFFICIAL MEDICAL BILL & RECEIPT / आधिकारिक मेडिकल बिल रसिद \u2022 CODE #${appointment.trackingCode10Digit}",
                 36f,
                 74f,
                 subHeaderPaint
@@ -98,14 +98,14 @@ object BillPdfDownloader {
             var y = 122f
 
             // 2. Patient & Consultation Details
-            canvas.drawText("PATIENT & VISIT DETAILS", 36f, y, sectionPaint)
+            canvas.drawText("PATIENT & VISIT DETAILS / बिरामी तथा भ्रमण विवरण", 36f, y, sectionPaint)
             y += 18f
             canvas.drawLine(36f, y - 10f, 559f, y - 10f, linePaint)
 
-            canvas.drawText("Patient Name:", 36f, y, labelPaint)
-            canvas.drawText(appointment.patientName, 130f, y, valuePaint)
-            canvas.drawText("10-Digit Code:", 340f, y, labelPaint)
-            canvas.drawText("#${appointment.trackingCode10Digit}", 430f, y, valuePaint)
+            canvas.drawText("Patient Name / नाम:", 36f, y, labelPaint)
+            canvas.drawText(appointment.patientName, 140f, y, valuePaint)
+            canvas.drawText("Code / कोड:", 340f, y, labelPaint)
+            canvas.drawText("#${appointment.trackingCode10Digit}", 420f, y, valuePaint)
             y += 18f
 
             val ageGender = listOfNotNull(
@@ -113,16 +113,16 @@ object BillPdfDownloader {
                 appointment.patientGender?.takeIf { it.isNotBlank() }
             ).joinToString(" / ").ifBlank { "N/A" }
 
-            canvas.drawText("Age / Gender:", 36f, y, labelPaint)
-            canvas.drawText(ageGender, 130f, y, valuePaint)
-            canvas.drawText("Visit Date:", 340f, y, labelPaint)
-            canvas.drawText("${appointment.appointmentDate} (${appointment.appointmentTime})", 430f, y, valuePaint)
+            canvas.drawText("Age & Gender / उमेर:", 36f, y, labelPaint)
+            canvas.drawText(ageGender, 140f, y, valuePaint)
+            canvas.drawText("Visit Date / मिति:", 340f, y, labelPaint)
+            canvas.drawText("${appointment.appointmentDate} (${appointment.appointmentTime})", 420f, y, valuePaint)
             y += 18f
 
-            canvas.drawText("Mobile:", 36f, y, labelPaint)
-            canvas.drawText(appointment.patientMobile.ifBlank { "N/A" }, 130f, y, valuePaint)
-            canvas.drawText("Doctor:", 340f, y, labelPaint)
-            canvas.drawText(doctorName, 430f, y, valuePaint)
+            canvas.drawText("Mobile / फोन:", 36f, y, labelPaint)
+            canvas.drawText(appointment.patientMobile.ifBlank { "N/A" }, 140f, y, valuePaint)
+            canvas.drawText("Doctor / डाक्टर:", 340f, y, labelPaint)
+            canvas.drawText(doctorName, 420f, y, valuePaint)
             y += 28f
 
             val effectivePaid = when {
@@ -149,7 +149,7 @@ object BillPdfDownloader {
             )
 
             // 3. Itemized Services & Procedures Table
-            canvas.drawText("SERVICES & PROCEDURES", 36f, y, sectionPaint)
+            canvas.drawText("SERVICES & PROCEDURES / सेवा तथा परीक्षण विवरण", 36f, y, sectionPaint)
             y += 14f
 
             val tableHeaderBg = Paint().apply {
@@ -157,10 +157,10 @@ object BillPdfDownloader {
                 style = Paint.Style.FILL
             }
             canvas.drawRect(36f, y, 559f, y + 22f, tableHeaderBg)
-            canvas.drawText("Description / Service", 46f, y + 15f, valuePaint)
-            canvas.drawText("Qty", 360f, y + 15f, valuePaint)
-            canvas.drawText("Rate (NPR)", 415f, y + 15f, valuePaint)
-            canvas.drawText("Amount (NPR)", 490f, y + 15f, valuePaint)
+            canvas.drawText("Description / सेवा", 46f, y + 15f, valuePaint)
+            canvas.drawText("Qty / परिमाण", 340f, y + 15f, valuePaint)
+            canvas.drawText("Rate / दर", 415f, y + 15f, valuePaint)
+            canvas.drawText("Total / जम्मा (NPR)", 485f, y + 15f, valuePaint)
             y += 34f
 
             val cleanItems = invoice?.items?.filterNot { it.itemName.startsWith("Payment Received", ignoreCase = true) } ?: emptyList()

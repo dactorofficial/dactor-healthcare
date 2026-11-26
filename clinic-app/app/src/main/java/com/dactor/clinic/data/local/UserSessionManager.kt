@@ -189,8 +189,12 @@ class UserSessionManager @Inject constructor(
 
     fun clearSession() {
         val hasAcceptedTerms = prefs.getBoolean("has_accepted_terms_v1", false)
+        val appLanguage = getAppLanguage()
         prefs.edit().clear().apply()
-        prefs.edit().putBoolean("has_accepted_terms_v1", hasAcceptedTerms).apply()
+        prefs.edit()
+            .putBoolean("has_accepted_terms_v1", hasAcceptedTerms)
+            .putString("app_language", appLanguage)
+            .apply()
     }
 
     fun hasAcceptedTerms(): Boolean = prefs.getBoolean("has_accepted_terms_v1", false)

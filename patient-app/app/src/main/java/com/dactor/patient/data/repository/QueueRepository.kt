@@ -9,6 +9,15 @@ import com.dactor.patient.data.model.Slot
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
+import io.github.jan.supabase.postgrest.query.filter.FilterOperator
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.RealtimeChannel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
@@ -227,6 +236,51 @@ class QueueRepository @Inject constructor(
         } catch (e: Exception) {
             e.printStackTrace()
             null
+        }
+    }
+
+    /**
+     * Subscribes to live WebSocket changes on queue_entries and appointments for real-time cabin vacating.
+     */
+    fun observeQueueRealtime(clinicId: String, doctorId: String?, appointmentId: String): Flow<Unit> = callbackFlow {
+        if (clinicId.isBlank()) {
+            close()
+            return@callbackFlow
+        }
+        var channel: RealtimeChannel? = null
+        try {
+            val safeClinic = clinicId.replace("-", "").take(8)
+            val safeAppt = appointmentId.replace("-", "").take(8)
+            val chName = "queue_rt_${safeClinic}_${safeAppt}_${System.currentTimeMillis()}"
+            channel = supabaseClient.channel(chName)
+            val qeFlow = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+                table = "queue_entries"
+                filter("clinic_id", FilterOperator.EQ, clinicId)
+            }
+            val apptFlow = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+                table = "appointments"
+                filter("id", FilterOperator.EQ, appointmentId)
+            }
+            channel.subscribe()
+            val job1 = launch(Dispatchers.IO) {
+                qeFlow.collect {
+                    trySend(Unit)
+                }
+            }
+            val job2 = launch(Dispatchers.IO) {
+                apptFlow.collect {
+                    trySend(Unit)
+                }
+            }
+            awaitClose {
+                job1.cancel()
+                job2.cancel()
+                runCatching { channel.unsubscribe() }
+            }
+        } catch (_: Exception) {
+            awaitClose {
+                runCatching { channel?.unsubscribe() }
+            }
         }
     }
 
@@ -588,6 +642,31 @@ class QueueRepository @Inject constructor(
     companion object {
         val CLINIC_ZONE_ID: ZoneId = ZoneId.of("Asia/Kathmandu")
 
+        fun currentNepalLocalDate(): LocalDate = LocalDate.now(CLINIC_ZONE_ID)
+
+        fun parseServerInstant(ts: String?): Instant? {
+            if (ts.isNullOrBlank()) return null
+            val clean = ts.trim()
+            return try {
+                Instant.parse(clean)
+            } catch (_: Exception) {
+                try {
+                    java.time.OffsetDateTime.parse(clean).toInstant()
+                } catch (_: Exception) {
+                    try {
+                        val normalized = clean.replace(" ", "T")
+                        if (!normalized.contains("+") && !normalized.contains("-", startIndex = 10) && !normalized.endsWith("Z")) {
+                            java.time.LocalDateTime.parse(normalized).atZone(CLINIC_ZONE_ID).toInstant()
+                        } else {
+                            java.time.OffsetDateTime.parse(normalized).toInstant()
+                        }
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+            }
+        }
+
         fun parseTimeString(timeStr: String?): LocalTime? {
             if (timeStr.isNullOrBlank()) return null
             val clean = timeStr.trim().uppercase()
@@ -643,7 +722,8 @@ class QueueRepository @Inject constructor(
                 return java.time.OffsetDateTime.parse(dateStr.trim()).toLocalDate()
             } catch (_: Exception) {}
             try {
-                return java.time.Instant.parse(dateStr.trim()).atZone(ZoneId.systemDefault()).toLocalDate()
+                val inst = parseServerInstant(dateStr)
+                if (inst != null) return inst.atZone(CLINIC_ZONE_ID).toLocalDate()
             } catch (_: Exception) {}
             return null
         }
@@ -712,24 +792,35 @@ class QueueRepository @Inject constructor(
                 )
 
             val insideEntryFromList = activeEntries.firstOrNull { it.status == "inside" || it.status == "in_consultation" }
-            val insideEntry = insideEntryFromList ?: if (isAnyoneInsideOverride == true) {
-                QueueEntry(
-                    id = "synthetic_inside_cabin",
-                    appointmentId = "",
-                    clinicId = clinic?.id ?: "",
-                    doctorId = null,
-                    queuePosition = 0,
-                    status = "inside",
-                    insideAt = currentInsideSince
-                )
-            } else null
+            val insideEntry = when {
+                isAnyoneInsideOverride == false -> null
+                insideEntryFromList != null -> insideEntryFromList
+                isAnyoneInsideOverride == true -> {
+                    QueueEntry(
+                        id = "synthetic_inside_cabin",
+                        appointmentId = "",
+                        clinicId = clinic?.id ?: "",
+                        doctorId = null,
+                        queuePosition = 0,
+                        status = "inside",
+                        insideAt = currentInsideSince
+                    )
+                }
+                else -> null
+            }
 
             val totalPeopleAhead = if (targetEntry != null) {
                 if (targetEntry.status in listOf("inside", "in_consultation")) {
                     0
                 } else {
                     val myIdx = activeEntries.indexOfFirst { it.id == targetEntry.id }
-                    if (myIdx >= 0) myIdx else fallbackPatientsAhead.coerceAtLeast(0)
+                    if (myIdx >= 0) {
+                        if (fallbackPatientsAhead >= 0 && fallbackPatientsAhead != myIdx) {
+                            fallbackPatientsAhead
+                        } else {
+                            myIdx
+                        }
+                    } else fallbackPatientsAhead.coerceAtLeast(0)
                 }
             } else {
                 fallbackPatientsAhead.coerceAtLeast(0)
@@ -936,11 +1027,9 @@ class QueueRepository @Inject constructor(
             var minsWaitCalc: Int
 
             if (insideEntry != null) {
-                val insideInstant = try {
-                    if (!insideEntry.insideAt.isNullOrBlank()) java.time.OffsetDateTime.parse(insideEntry.insideAt.trim()).toInstant() else nowInstant
-                } catch (_: Exception) {
-                    nowInstant
-                }
+                val insideInstant = if (!insideEntry.insideAt.isNullOrBlank()) {
+                    parseServerInstant(insideEntry.insideAt) ?: nowInstant
+                } else nowInstant
                 // The patient inside ends at the later of (went inside + average) and now:
                 // a consultation running long pushes everyone behind it later.
                 val currentEnd = maxOf(insideInstant.plusSeconds(avgMins * 60L), nowInstant.plusSeconds(60L))
@@ -968,7 +1057,7 @@ class QueueRepository @Inject constructor(
                     val latestActivityInstant = allClinicQueueEntries.mapNotNull { entry ->
                         val ts = entry.completedAt ?: entry.insideAt ?: entry.calledAt
                         if (!ts.isNullOrBlank()) {
-                            try { Instant.parse(ts) } catch (_: Exception) { null }
+                            parseServerInstant(ts)
                         } else null
                     }.maxOrNull()
 

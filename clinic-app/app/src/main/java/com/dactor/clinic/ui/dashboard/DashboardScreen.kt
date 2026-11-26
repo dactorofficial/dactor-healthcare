@@ -36,6 +36,10 @@ import com.dactor.clinic.data.model.Doctor
 import com.dactor.clinic.data.repository.ClinicRepository
 import com.dactor.clinic.data.repository.DoctorRepository
 import com.dactor.clinic.domain.util.ArchiveDateUtils
+import com.dactor.clinic.ui.i18n.ClinicLanguage
+import com.dactor.clinic.ui.i18n.ClinicLocalizationHelpers
+import com.dactor.clinic.ui.i18n.LocalClinicLanguage
+import com.dactor.clinic.ui.i18n.LocalClinicStrings
 import com.dactor.clinic.ui.navigation.NavRoutes
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -52,6 +56,9 @@ fun DashboardScreen(
     appointmentRepository: com.dactor.clinic.data.repository.AppointmentRepository? = null
 ) {
     val context = LocalContext.current
+    val strings = LocalClinicStrings.current
+    val currentLang = LocalClinicLanguage.current
+    val isNepali = currentLang == ClinicLanguage.NEPALI
     val sessionManager = remember { UserSessionManager(context) }
     val initialEffectiveClinicId = remember(clinicId) {
         if (!clinicId.isNullOrBlank() && clinicId != "c1") clinicId
@@ -1078,13 +1085,13 @@ fun DashboardScreen(
 
                             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text(
-                                    "Live Queue",
+                                    strings.authDashboard.tileLiveQueue,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 16.sp,
                                     color = Color(0xFF0F172A)
                                 )
                                 Text(
-                                    "Call next patient &\nmanage turns",
+                                    if (isNepali) "पालो बोलाउनुहोस् तथा\nलाम व्यवस्थापन" else "Call next patient &\nmanage turns",
                                     fontSize = 11.sp,
                                     color = Color(0xFF64748B),
                                     lineHeight = 14.sp
@@ -1147,13 +1154,13 @@ fun DashboardScreen(
 
                             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text(
-                                    "Walk-in Token",
+                                    strings.authDashboard.tileWalkinToken,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 16.sp,
                                     color = Color(0xFF0F172A)
                                 )
                                 Text(
-                                    "Issue new 10-digit OPD\ntoken",
+                                    if (isNepali) "नयाँ १०-अङ्के ओपीडी\nटोकन जारी गर्नुहोस्" else "Issue new 10-digit OPD\ntoken",
                                     fontSize = 11.sp,
                                     color = Color(0xFF64748B),
                                     lineHeight = 14.sp
@@ -1219,7 +1226,7 @@ fun DashboardScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(
-                                    "View Requests",
+                                    strings.authDashboard.tilePayAtDesk,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 15.5.sp,
                                     color = Color(0xFF0F172A)
@@ -1230,7 +1237,7 @@ fun DashboardScreen(
                                         color = Color(0xFFF59E0B)
                                     ) {
                                         Text(
-                                            "$pendingPayAtDeskCount Pending",
+                                            "$pendingPayAtDeskCount ${if (isNepali) "बाँकी" else "Pending"}",
                                             color = Color.White,
                                             fontSize = 10.5.sp,
                                             fontWeight = FontWeight.Bold,
@@ -1241,9 +1248,9 @@ fun DashboardScreen(
                             }
                             Text(
                                 text = if (pendingPayAtDeskCount > 0) {
-                                    "$pendingPayAtDeskCount Pay at Desk booking(s) waiting for approval"
+                                    if (isNepali) "$pendingPayAtDeskCount वटा काउन्टर भुक्तानी स्वीकृति पर्खाइमा" else "$pendingPayAtDeskCount Pay at Desk booking(s) waiting for approval"
                                 } else {
-                                    "Review & approve Pay at Desk appointments"
+                                    if (isNepali) "काउन्टर भुक्तानी अपोइन्टमेन्टहरू जाँच्नुहोस् र स्वीकृत गर्नुहोस्" else "Review & approve Pay at Desk appointments"
                                 },
                                 fontSize = 11.5.sp,
                                 color = Color(0xFF92400E),
@@ -1746,8 +1753,8 @@ fun DashboardScreen(
                 val opModules = buildList {
                     add(
                         ModuleItem(
-                            title = "Slot Publishing",
-                            desc = if (isLabClinic) "Publish lab booking slots & capacity" else "Publish doctor booking slots & capacity",
+                            title = strings.authDashboard.tileSlotManager,
+                            desc = if (isLabClinic) (if (isNepali) "ल्याब बुकिङ स्लट तथा क्षमता" else "Publish lab booking slots & capacity") else (if (isNepali) "डाक्टर बुकिङ स्लट तथा क्षमता" else "Publish doctor booking slots & capacity"),
                             icon = Icons.Default.CalendarMonth,
                             route = NavRoutes.SlotManager,
                             color = Color(0xFF2563EB)
@@ -1755,8 +1762,8 @@ fun DashboardScreen(
                     )
                     add(
                         ModuleItem(
-                            title = "Working Hours & Break",
-                            desc = "Sun\u2013Sat working hours, break times & live break toggle",
+                            title = if (isNepali) "कार्य समय तथा विश्राम" else "Working Hours & Break",
+                            desc = if (isNepali) "साताभरिको कार्य समय, ब्रेक समय र प्रत्यक्ष ब्रेक स्थिति" else "Sun\u2013Sat working hours, break times & live break toggle",
                             icon = Icons.Default.Schedule,
                             route = NavRoutes.WorkingHoursBreak,
                             color = Color(0xFF00796B)
@@ -1764,8 +1771,8 @@ fun DashboardScreen(
                     )
                     add(
                         ModuleItem(
-                            title = "Patient Directory",
-                            desc = "Past visits & history",
+                            title = strings.billingLab.patientDirectoryTitle,
+                            desc = if (isNepali) "विगतका परामर्श र स्वास्थ्य इतिहास" else "Past visits & history",
                             icon = Icons.Default.FolderShared,
                             route = NavRoutes.PatientDirectory,
                             color = Color(0xFF059669)
@@ -1773,8 +1780,8 @@ fun DashboardScreen(
                     )
                     add(
                         ModuleItem(
-                            title = "Patient & Billing Directory",
-                            desc = "Date-wise visits, bills, paid push & bill PDFs",
+                            title = strings.authDashboard.tileBilling,
+                            desc = if (isNepali) "मितिअनुसारका भ्रमण, बिल, भुक्तानी र रसिद PDF" else "Date-wise visits, bills, paid push & bill PDFs",
                             icon = Icons.Default.Receipt,
                             route = NavRoutes.BillingDirectory,
                             color = Color(0xFF0F766E)
@@ -1782,8 +1789,8 @@ fun DashboardScreen(
                     )
                     add(
                         ModuleItem(
-                            title = "Average Time",
-                            desc = "Ensures estimated consultation time & queue pacing",
+                            title = strings.authDashboard.tileAvgTime,
+                            desc = if (isNepali) "औसत परामर्श समय र लामको गति निर्धारण" else "Ensures estimated consultation time & queue pacing",
                             icon = Icons.Default.Timer,
                             route = NavRoutes.AverageTime,
                             color = Color(0xFF006B7D)
@@ -1791,8 +1798,8 @@ fun DashboardScreen(
                     )
                     add(
                         ModuleItem(
-                            title = "Future OPD",
-                            desc = "Upcoming scheduled patients",
+                            title = strings.authDashboard.tileFutureAppts,
+                            desc = if (isNepali) "आगामी निर्धारित बिरामीहरू" else "Upcoming scheduled patients",
                             icon = Icons.Default.Event,
                             route = NavRoutes.FutureAppointments,
                             color = Color(0xFFD97706)
@@ -1801,8 +1808,8 @@ fun DashboardScreen(
                     // No-show management button for all clinics
                     add(
                         ModuleItem(
-                            title = "No-Show Patients",
-                            desc = "Past-day missed visits & arrange new date",
+                            title = strings.authDashboard.tileNoShow,
+                            desc = if (isNepali) "छुटेका बिरामी र नयाँ मिति व्यवस्थापन" else "Past-day missed visits & arrange new date",
                             icon = Icons.Default.EventBusy,
                             route = NavRoutes.NoShowManager,
                             color = Color(0xFFDC2626)
@@ -1811,8 +1818,8 @@ fun DashboardScreen(
                     if (!isLabClinic) {
                         add(
                             ModuleItem(
-                                title = "Consultation Fees",
-                                desc = "Set & manage doctor OPD consultation fees",
+                                title = strings.billingLab.consultationFeeManagerTitle,
+                                desc = if (isNepali) "डाक्टर ओपीडी परामर्श शुल्क निर्धारण" else "Set & manage doctor OPD consultation fees",
                                 icon = Icons.Default.Payments,
                                 route = NavRoutes.ConsultationFeeManager,
                                 color = Color(0xFF0D9488)
@@ -1822,8 +1829,8 @@ fun DashboardScreen(
                     if (isLabClinic) {
                         add(
                             ModuleItem(
-                                title = "Lab Tests & Rates",
-                                desc = "Add tests & report prices selectable during patient booking",
+                                title = if (isNepali) "ल्याब परीक्षण तथा दररेट" else "Lab Tests & Rates",
+                                desc = if (isNepali) "परीक्षण तथा दररेटहरू थप्नुहोस्" else "Add tests & report prices selectable during patient booking",
                                 icon = Icons.Default.Science,
                                 route = NavRoutes.ServicesScreen,
                                 color = Color(0xFF0284C7)
@@ -1832,8 +1839,8 @@ fun DashboardScreen(
                     } else {
                         add(
                             ModuleItem(
-                                title = "Services & Pricing",
-                                desc = "Procedures, medical services & charges",
+                                title = strings.authDashboard.tileServices,
+                                desc = if (isNepali) "प्रक्रिया, स्वास्थ्य सेवाहरू तथा शुल्क" else "Procedures, medical services & charges",
                                 icon = Icons.Default.MedicalServices,
                                 route = NavRoutes.ServicesScreen,
                                 color = Color(0xFF0284C7)
@@ -1842,8 +1849,8 @@ fun DashboardScreen(
                     }
                     add(
                         ModuleItem(
-                            title = "Catalog & Rates",
-                            desc = if (isLabClinic) "Billing items & package rates" else "Procedures, tests & billing items",
+                            title = if (isNepali) "क्याटलग तथा दररेट" else "Catalog & Rates",
+                            desc = if (isLabClinic) (if (isNepali) "बिलिङ वस्तुहरू र प्याकेज दरहरू" else "Billing items & package rates") else (if (isNepali) "प्रक्रिया, परीक्षण र बिलिङ वस्तुहरू" else "Procedures, tests & billing items"),
                             icon = Icons.Default.ReceiptLong,
                             route = NavRoutes.CatalogManager,
                             color = Color(0xFF7C3AED)
@@ -1851,8 +1858,8 @@ fun DashboardScreen(
                     )
                     add(
                         ModuleItem(
-                            title = "Payment Logs & Ledger",
-                            desc = "Audit collections, doctor new-patient stats & platform fees",
+                            title = strings.billingLab.paymentAuditLogsTitle,
+                            desc = if (isNepali) "संकलन अडिट, डाक्टर तथ्याङ्क र हिसाब लग" else "Audit collections, doctor new-patient stats & platform fees",
                             icon = Icons.Default.Payment,
                             route = NavRoutes.PaymentLogs,
                             color = Color(0xFF0D9488)
@@ -1862,8 +1869,8 @@ fun DashboardScreen(
                     if (isLabClinic) {
                         add(
                             ModuleItem(
-                                title = "Processing",
-                                desc = "Collected samples → Mark Prepared & upload optional PDF/photo",
+                                title = strings.authDashboard.tileLabWorkflow,
+                                desc = if (isNepali) "संकलित नमुना परीक्षण र रिपोर्ट तयार" else "Collected samples → Mark Prepared & upload optional PDF/photo",
                                 icon = Icons.Default.Biotech,
                                 route = NavRoutes.LabWorkflow,
                                 color = Color(0xFFDC2626)
@@ -1873,8 +1880,8 @@ fun DashboardScreen(
                     if (!isLabClinic) {
                         add(
                             ModuleItem(
-                                title = "Doctor Invites",
-                                desc = "Enlist & manage specialists",
+                                title = if (isNepali) "डाक्टर निमन्त्रणा" else "Doctor Invites",
+                                desc = if (isNepali) "विशेषज्ञ डाक्टरहरू दर्ता तथा व्यवस्थापन" else "Enlist & manage specialists",
                                 icon = Icons.Default.PersonAddAlt1,
                                 route = NavRoutes.InvitationManager,
                                 color = Color(0xFF0891B2)

@@ -319,7 +319,7 @@ fun QueueStatusScreen(
 
         try {
             // Launch live queue delta immediately in parallel with booking lookup (no sequential waterfall!)
-            val todayIso = java.time.LocalDate.now().toString()
+            val todayIso = com.dactor.patient.data.repository.QueueRepository.currentNepalLocalDate().toString()
             val shouldFetchDeltaNow = !isDeltaOnly || appointment == null || appointment?.appointmentDate?.trim()?.take(10) == todayIso
             var liveDeltaJob = if (shouldFetchDeltaNow) {
                 coroutineScope.async { queueRepository?.fetchLiveQueueDelta(queryCode) }
@@ -521,11 +521,12 @@ fun QueueStatusScreen(
                     sessionManager?.saveCachedTrackerMaster(queryCode, appt, clinicObj, doctorObj)
                 }
 
+                val nepalToday = com.dactor.patient.data.repository.QueueRepository.currentNepalLocalDate()
                 val parsedApptDate = com.dactor.patient.data.repository.QueueRepository.parseLocalDateSafe(appt.appointmentDate)
-                val isAppointmentToday = (parsedApptDate?.isEqual(java.time.LocalDate.now()) == true) || (appt.appointmentDate.trim().take(10) == java.time.LocalDate.now().toString())
-                val isTomorrow = parsedApptDate?.isEqual(java.time.LocalDate.now().plusDays(1)) ?: false
-                val isFutureDate = parsedApptDate?.isAfter(java.time.LocalDate.now()) ?: false
-                val isPastDate = (parsedApptDate?.isBefore(java.time.LocalDate.now()) == true) && !isAppointmentToday
+                val isAppointmentToday = (parsedApptDate?.isEqual(nepalToday) == true) || (appt.appointmentDate.trim().take(10) == nepalToday.toString())
+                val isTomorrow = parsedApptDate?.isEqual(nepalToday.plusDays(1)) ?: false
+                val isFutureDate = parsedApptDate?.isAfter(nepalToday) ?: false
+                val isPastDate = (parsedApptDate?.isBefore(nepalToday) == true) && !isAppointmentToday
                 val isFutureOrTomorrow = !isAppointmentToday && (isTomorrow || isFutureDate || slotResult?.isFutureDate == true || slotResult?.isTomorrow == true)
 
                 // Count queue patients ahead:
@@ -561,6 +562,9 @@ fun QueueStatusScreen(
                         queueStatus = liveDelta.queueStatus
                         isDoctorInClinic = liveDelta.doctorIsInClinic
                         isAnyoneInsideDoctorCabin = liveDelta.isAnyoneInside
+                        if (!liveDelta.isAnyoneInside) {
+                            insideAt = null
+                        }
                         val effectiveDoctorInClinic = if (isLabClinic) true else isDoctorInClinic
                         val entriesList = if (qEntry != null) listOf(qEntry.copy(queuePosition = tokenNumber, status = queueStatus)) else emptyList()
                         val target = qEntry?.copy(queuePosition = tokenNumber, status = queueStatus)
@@ -871,12 +875,24 @@ fun QueueStatusScreen(
     }
 
     val trackerLifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+
+    // Live Supabase Realtime subscription (<300ms latency) for instant doctor cabin state transitions
+    LaunchedEffect(appointment?.id, appointment?.clinicId) {
+        val aId = appointment?.id ?: return@LaunchedEffect
+        val cId = appointment?.clinicId ?: return@LaunchedEffect
+        queueRepository?.observeQueueRealtime(cId, appointment?.doctorId, aId)?.collect {
+            refreshData(isDeltaOnly = true)
+        }
+    }
+
     LaunchedEffect(appointmentIdOrCode) {
         // Initial full load & master sync
         refreshData(isDeltaOnly = false)
         trackerLifecycleOwner.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            // Immediate delta refresh on lifecycle resume/start
+            refreshData(isDeltaOnly = true)
             while (isActive) {
-                delay(10000L) // auto-refresh queue position, estimated time, and doctor consultation update every 10 seconds on appointment day
+                delay(5000L) // auto-refresh queue position, estimated time, and doctor consultation update every 5 seconds on appointment day
                 val isFinished = queueStatus.lowercase() in listOf("done", "completed", "cancelled") ||
                     appointment?.checkinStatus?.lowercase() in listOf("completed", "done", "cancelled")
                 if (isFinished) {

@@ -56,7 +56,7 @@ function calculateLiveQueueTimingEstimate(input) {
 
   const isSlotInFuture = slotStartDate ? now.getTime() < slotStartDate.getTime() : false
 
-  const isAnyoneInside = !!input.isAnyoneInside || !!input.inConsultationSince
+  const isAnyoneInside = input.isAnyoneInside !== undefined ? !!input.isAnyoneInside : !!input.inConsultationSince
   const isDoctorFree = input.isDoctorInClinic && !isAnyoneInside && !input.isOnBreak
   const canOfferEarly = isDoctorFree && isSlotInFuture && !!input.optInEarlyCall && isFirstPosition
 
@@ -343,4 +343,44 @@ console.log('=== RUNNING TESTS: DYNAMIC FIRST PATIENT QUEUE TIMING ===\n')
   console.log('✓ Test 7 Passed: Break overrun past scheduled end time clamps to now + 5 min (2:15 PM)')
 }
 
-console.log('\n=== ALL 7 DYNAMIC QUEUE TIMING TESTS PASSED PERFECTLY! ===')
+// Test 8: User Scenario: Sita inside cabin at 1:45 PM -> Ram outside expecting 1:58 PM.
+// Sita consultation completes early at 1:50 PM -> Ram dynamically updates to 1:52 PM (Up Next ~2 min).
+{
+  // Part A: At 1:45 PM, Sita is inside cabin (entered at 1:48 PM, or entered at 1:48 PM with avg 10m -> 1:58 PM end)
+  const timeAt145 = new Date('2026-11-26T13:45:00')
+  const ramStateAt145 = calculateLiveQueueTimingEstimate({
+    now: timeAt145,
+    appointmentTime: '01:00 PM - 02:00 PM',
+    patientsAhead: 0,
+    avgConsultMinutes: 10,
+    isDoctorInClinic: true,
+    isAnyoneInside: true,
+    inConsultationSince: '2026-11-26T13:48:00', // Inside, ending at 1:58 PM
+    isOnBreak: false,
+    optInEarlyCall: false,
+  })
+
+  assert.strictEqual(ramStateAt145.expectedExactTimeText, '1:58 PM', `At 1:45 PM expected 1:58 PM but got ${ramStateAt145.expectedExactTimeText}`)
+  assert.strictEqual(ramStateAt145.estimatedTimeLeftText, '~ 13 min', `At 1:45 PM expected ~ 13 min but got ${ramStateAt145.estimatedTimeLeftText}`)
+  console.log('✓ Test 8A Passed: At 1:45 PM with Sita inside, Ram correctly expects 1:58 PM (~ 13 min)')
+
+  // Part B: At 1:50 PM, Sita completes early. Cabin is vacated (isAnyoneInside: false, patientsAhead: 0).
+  const timeAt150 = new Date('2026-11-26T13:50:00')
+  const ramStateAt150 = calculateLiveQueueTimingEstimate({
+    now: timeAt150,
+    appointmentTime: '01:00 PM - 02:00 PM',
+    patientsAhead: 0,
+    avgConsultMinutes: 10,
+    isDoctorInClinic: true,
+    isAnyoneInside: false,
+    inConsultationSince: null, // Sita completed and vacated
+    isOnBreak: false,
+    optInEarlyCall: false,
+  })
+
+  assert.strictEqual(ramStateAt150.expectedExactTimeText, '1:52 PM', `At 1:50 PM expected 1:52 PM but got ${ramStateAt150.expectedExactTimeText}`)
+  assert.strictEqual(ramStateAt150.estimatedTimeLeftText, 'Up Next (~2 min)', `At 1:50 PM expected "Up Next (~2 min)" but got "${ramStateAt150.estimatedTimeLeftText}"`)
+  console.log('✓ Test 8B Passed: At 1:50 PM upon Sita early completion, Ram immediately shifts to 1:52 PM (Up Next ~2 min)!')
+}
+
+console.log('\n=== ALL 8 DYNAMIC QUEUE TIMING TESTS PASSED PERFECTLY! ===')

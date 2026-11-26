@@ -15,6 +15,8 @@
  * - When patient inside: max(insideEnd, dynamicQueueTime) -> "Expected at 7:08 PM"
  */
 
+import { AppLanguage } from './i18n'
+
 export interface QueueTimingInput {
   now?: Date
   appointmentTime?: string | null
@@ -29,6 +31,7 @@ export interface QueueTimingInput {
   breakEnd?: string | null
   optInEarlyCall?: boolean
   clinicOpenTime?: string | null
+  language?: AppLanguage
 }
 
 export interface QueueTimingResult {
@@ -132,7 +135,7 @@ export function calculateLiveQueueTimingEstimate(input: QueueTimingInput): Queue
   const isSlotInFuture = slotStartDate ? now.getTime() < slotStartDate.getTime() : false
 
   // Determine doctor availability
-  const isAnyoneInside = !!input.isAnyoneInside || !!input.inConsultationSince
+  const isAnyoneInside = input.isAnyoneInside !== undefined ? !!input.isAnyoneInside : !!input.inConsultationSince
   const isDoctorFree = input.isDoctorInClinic && !isAnyoneInside && !input.isOnBreak
   const canOfferEarly = isDoctorFree && isSlotInFuture && !!input.optInEarlyCall && isFirstPosition
 
@@ -317,15 +320,39 @@ export function calculateLiveQueueTimingEstimate(input: QueueTimingInput): Queue
     slotNoticeText = `${totalPeopleAhead} ${personWord} ahead in line.`
   }
 
+  const isNe = input.language === 'ne'
+  let localizedTimeLeft = effectiveTimeLeftText
+  let localizedApprox = `around ${effectiveExactTimeText}`
+  let localizedSlotNotice = slotNoticeText
+
+  if (isNe) {
+    localizedTimeLeft = effectiveTimeLeftText
+      .replace('Up Next (~2 min)', 'तपाईंको पालो (~2 मिनेट)')
+      .replace('Starts at', 'सुरु हुने समय')
+      .replace('min', 'मिनेट')
+      .replace('h', 'घण्टा')
+      .replace('m', 'मिनेट')
+    localizedApprox = `${effectiveExactTimeText} को आसपास`
+    if (totalPeopleAhead === 0) {
+      localizedSlotNotice = isSlotInFuture
+        ? `तपाईंभन्दा अगाडि कोही छैन। तपाईंको स्लट ${slotStartStr} मा सुरु हुन्छ। ${suggestedArrivalStr ? `कृपया ${suggestedArrivalStr} सम्म आइपुग्नुहोला।` : ''}`.trim()
+        : 'तपाईंभन्दा अगाडि कोही छैन। अब तपाईंको पालो!'
+    } else {
+      localizedSlotNotice = isSlotInFuture
+        ? `${totalPeopleAhead} जना बिरामी अगाडि। स्लट सुरु: ${slotStartStr}। ${suggestedArrivalStr ? `कृपया ${suggestedArrivalStr} सम्म आइपुग्नुहोला।` : ''}`.trim()
+        : `${totalPeopleAhead} जना बिरामी अगाडि। परामर्श जारी छ।`
+    }
+  }
+
   return {
     effectiveExpectedTime,
     expectedExactTimeText: effectiveExactTimeText,
-    estimatedTimeLeftText: effectiveTimeLeftText,
-    displayWaitText: effectiveTimeLeftText,
+    estimatedTimeLeftText: localizedTimeLeft,
+    displayWaitText: localizedTimeLeft,
     timeWindowText: formatTimeWindow(effectiveExpectedTime),
-    approxTimeText: `around ${effectiveExactTimeText}`,
+    approxTimeText: localizedApprox,
     suggestedArrivalText: suggestedArrivalStr,
-    slotNoticeText,
+    slotNoticeText: localizedSlotNotice,
     isArriveSoon: isFirstPosition && (!isSlotInFuture || canOfferEarly),
   }
 }

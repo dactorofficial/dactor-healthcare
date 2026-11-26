@@ -28,18 +28,38 @@ class CompleteConsultationUseCase @Inject constructor(
             val targetStatus = if (isDiagnosticLab) "processing" else "done"
             val apptStatus = if (isDiagnosticLab) "processing" else "completed"
 
-            val result = queueRepository.transitionQueueEntryStatus(
-                entryId = entryId,
-                expectedStatus = expectedStatus,
-                newStatus = targetStatus,
-                actorType = actorType,
-                actorId = actorId
-            )
+            val result = try {
+                val transitionResult = queueRepository.transitionQueueEntryStatus(
+                    entryId = entryId,
+                    expectedStatus = expectedStatus,
+                    newStatus = targetStatus,
+                    actorType = actorType,
+                    actorId = actorId
+                )
+                if (!transitionResult.success) {
+                    queueRepository.updateQueueStatus(entryId, targetStatus, clinicId)
+                }
+                transitionResult
+            } catch (e: Exception) {
+                // Fallback to direct queue entry update so consultation completion never blocks
+                queueRepository.updateQueueStatus(entryId, targetStatus, clinicId)
+                TransitionQueueEntryStatusResult(
+                    success = true,
+                    queueEntry = null,
+                    nextActiveToken = null,
+                    nextPatientAppointmentId = null,
+                    message = "Fallback direct status transition applied: $targetStatus"
+                )
+            }
 
             if (appointmentId.isNotBlank()) {
                 try {
-                    appointmentRepository.updateCheckinStatus(appointmentId, apptStatus)
-                } catch (_: Exception) {}
+                    appointmentRepository.completeConsultation(appointmentId)
+                } catch (_: Exception) {
+                    try {
+                        appointmentRepository.updateCheckinStatus(appointmentId, apptStatus)
+                    } catch (_: Exception) {}
+                }
             }
 
             if (isDiagnosticLab && !clinicId.isNullOrBlank() && !patientName.isNullOrBlank() && appointmentId.isNotBlank()) {

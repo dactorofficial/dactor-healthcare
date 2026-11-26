@@ -125,34 +125,34 @@ export async function printAppointmentBill(appt: Appointment, invoice?: BillingI
             <div>
               <h2 style="margin:0;font-size:20px;color:#0f172a;">${escapeHtml(clinicTitle)}</h2>
               <p style="margin:3px 0 0;font-size:12px;color:#64748b;">${escapeHtml(clinicAddr)}</p>
-              <p style="margin:2px 0 0;font-size:11px;font-weight:700;color:#0d9488;">Official Medical Invoice & OPD Receipt</p>
+              <p style="margin:2px 0 0;font-size:11px;font-weight:700;color:#0d9488;">Official Medical Invoice & Receipt / आधिकारिक मेडिकल बिल तथा रसिद</p>
             </div>
-            <span class="badge">${isPaid ? 'PAID FULL' : (effectivePaid > 0 ? 'PARTIAL PAID' : 'PAYABLE AT CLINIC')}</span>
+            <span class="badge">${isPaid ? 'PAID FULL / चुक्ता' : (effectivePaid > 0 ? 'PARTIAL PAID / आंशिक' : 'PAYABLE AT CLINIC / काउन्टरमा भुक्तानी')}</span>
           </div>
 
           <div class="code-box">
-            <div style="font-size:10px;text-transform:uppercase;color:#0f766e;font-weight:800;letter-spacing:1px;">10-Digit Live OPD Queue Token</div>
+            <div style="font-size:10px;text-transform:uppercase;color:#0f766e;font-weight:800;letter-spacing:1px;">10-Digit OPD Token / १०-अङ्के ओपीडी टोकन</div>
             <div class="code">#${escapeHtml(appt.trackingCode10Digit)}</div>
-            <div style="font-size:11px;color:#475569;margin-top:2px;">Present this token at the reception desk for instant check-in</div>
+            <div style="font-size:11px;color:#475569;margin-top:2px;">Present this token at the reception desk for instant check-in / काउन्टरमा यो कोड देखाउनुहोस्</div>
           </div>
 
           <table style="margin-bottom:16px;">
-            <tr><th style="width:30%;">Patient Name</th><td><strong>${escapeHtml(appt.patientName)}</strong> (${escapeHtml(appt.patientAge || '–')} Yrs, ${escapeHtml(appt.patientGender || '–')})</td></tr>
-            <tr><th>Attending Doctor</th><td>Dr. ${escapeHtml(docTitle)} (${escapeHtml(docSpec)})</td></tr>
-            <tr><th>Date & Time</th><td><strong>${escapeHtml(appt.appointmentDate)}</strong> • ${escapeHtml(appt.appointmentTime)}</td></tr>
-            <tr><th>Contact Phone</th><td><span style="font-family:monospace;">${escapeHtml(appt.patientMobile || '–')}</span></td></tr>
+            <tr><th style="width:34%;">Patient Name / बिरामीको नाम</th><td><strong>${escapeHtml(appt.patientName)}</strong> (${escapeHtml(appt.patientAge || '–')} Yrs, ${escapeHtml(appt.patientGender || '–')})</td></tr>
+            <tr><th>Doctor / डाक्टर</th><td>Dr. ${escapeHtml(docTitle)} (${escapeHtml(docSpec)})</td></tr>
+            <tr><th>Date & Time / मिति र समय</th><td><strong>${escapeHtml(appt.appointmentDate)}</strong> • ${escapeHtml(appt.appointmentTime)}</td></tr>
+            <tr><th>Contact / फोन नम्बर</th><td><span style="font-family:monospace;">${escapeHtml(appt.patientMobile || '–')}</span></td></tr>
           </table>
 
           <div style="margin-top:10px;">
-            <h4 style="margin:0 0 6px;font-size:11px;color:#334155;text-transform:uppercase;letter-spacing:0.5px;">Services & Procedures</h4>
+            <h4 style="margin:0 0 6px;font-size:11px;color:#334155;text-transform:uppercase;letter-spacing:0.5px;">Services & Procedures / सेवा तथा परीक्षण विवरण</h4>
             <table style="border:1px solid #e2e8f0;">
               <thead style="background:#f8fafc;">
                 <tr>
                   <th style="width:30px;">#</th>
-                  <th>Description</th>
-                  <th style="text-align:center;">Qty</th>
-                  <th style="text-align:right;">Rate</th>
-                  <th style="text-align:right;">Total (NPR)</th>
+                  <th>Service / सेवा</th>
+                  <th style="text-align:center;">Qty / परिमाण</th>
+                  <th style="text-align:right;">Rate / दर</th>
+                  <th style="text-align:right;">Total (NPR) / जम्मा</th>
                 </tr>
               </thead>
               <tbody>
@@ -165,15 +165,15 @@ export async function printAppointmentBill(appt: Appointment, invoice?: BillingI
 
           <div style="margin-top:16px;background:#f0fdfa;border:1px solid #ccfbf1;border-radius:10px;padding:12px;font-size:12px;">
             <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-              <span style="color:#475569;">Total Combined Bill:</span>
+              <span style="color:#475569;">Total Bill / कुल रकम:</span>
               <strong style="font-size:14px;color:#0f172a;">Rs. ${escapeHtml(effectiveTotal)}</strong>
             </div>
             <div style="display:flex;justify-content:space-between;margin-bottom:4px;color:#15803d;font-weight:700;">
-              <span>Total Paid to Date:</span>
+              <span>Total Paid / बुझाएको रकम:</span>
               <span>Rs. ${escapeHtml(effectivePaid)}</span>
             </div>
             <div style="display:flex;justify-content:space-between;padding-top:6px;border-top:1px dashed #99f6e4;color:#b91c1c;font-weight:800;font-size:13px;">
-              <span>Balance Due:</span>
+              <span>Balance Due / बाँकी बक्यौता:</span>
               <span>Rs. ${escapeHtml(effectiveBalance)}</span>
             </div>
           </div>

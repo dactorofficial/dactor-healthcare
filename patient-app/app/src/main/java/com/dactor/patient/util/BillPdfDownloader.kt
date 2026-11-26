@@ -91,15 +91,15 @@ object BillPdfDownloader {
             } catch (e: Exception) {
                 appointment.appointmentDate
             }
-            canvas.drawText("Official Medical Billing Receipt \u2022 Generated: $nowStr", 36f, 84f, textPaint)
+            canvas.drawText("Official Medical Bill & Receipt / आधिकारिक मेडिकल बिल रसिद \u2022 $nowStr", 36f, 84f, textPaint)
 
             // Right badge in header
             textPaint.textAlign = Paint.Align.RIGHT
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textPaint.textSize = 14f
-            canvas.drawText("INVOICE / RECEIPT", (pageWidth - 36).toFloat(), 42f, textPaint)
+            textPaint.textSize = 13f
+            canvas.drawText("INVOICE / RECEIPT (बिल / रसिद)", (pageWidth - 36).toFloat(), 42f, textPaint)
             textPaint.textSize = 11f
-            canvas.drawText("ID: #${appointment.trackingCode10Digit}", (pageWidth - 36).toFloat(), 64f, textPaint)
+            canvas.drawText("ID / कोड: #${appointment.trackingCode10Digit}", (pageWidth - 36).toFloat(), 64f, textPaint)
             textPaint.textAlign = Paint.Align.LEFT
 
             // ── 2. PATIENT & APPOINTMENT SUMMARY BOX ──────────────────────────
@@ -117,8 +117,8 @@ object BillPdfDownloader {
             textPaint.color = slateMuted
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             textPaint.textSize = 9.5f
-            canvas.drawText("PATIENT DETAILS", 50f, currentY + 20f, textPaint)
-            canvas.drawText("APPOINTMENT DETAILS", 320f, currentY + 20f, textPaint)
+            canvas.drawText("PATIENT DETAILS / बिरामी विवरण", 50f, currentY + 20f, textPaint)
+            canvas.drawText("VISIT DETAILS / अपोइन्टमेन्ट विवरण", 320f, currentY + 20f, textPaint)
 
             textPaint.color = slateDark
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -127,16 +127,16 @@ object BillPdfDownloader {
 
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
             textPaint.textSize = 10.5f
-            canvas.drawText("Age / Gender: ${appointment.patientAge} yrs \u2022 ${appointment.patientGender}", 50f, currentY + 57f, textPaint)
-            canvas.drawText("Mobile: ${appointment.patientMobile}", 50f, currentY + 73f, textPaint)
+            canvas.drawText("Age / Gender (उमेर/लिङ्ग): ${appointment.patientAge} yrs \u2022 ${appointment.patientGender}", 50f, currentY + 57f, textPaint)
+            canvas.drawText("Mobile (फोन): ${appointment.patientMobile}", 50f, currentY + 73f, textPaint)
 
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             textPaint.textSize = 11f
-            canvas.drawText("Date: ${appointment.appointmentDate}", 320f, currentY + 40f, textPaint)
+            canvas.drawText("Date (मिति): ${appointment.appointmentDate}", 320f, currentY + 40f, textPaint)
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
             textPaint.textSize = 10.5f
-            canvas.drawText("Time: ${appointment.appointmentTime}", 320f, currentY + 57f, textPaint)
-            canvas.drawText("10-Digit Code: ${appointment.trackingCode10Digit}", 320f, currentY + 73f, textPaint)
+            canvas.drawText("Time (समय): ${appointment.appointmentTime}", 320f, currentY + 57f, textPaint)
+            canvas.drawText("Code (कोड): ${appointment.trackingCode10Digit}", 320f, currentY + 73f, textPaint)
 
             currentY += 108f
 
@@ -195,13 +195,13 @@ object BillPdfDownloader {
 
             textPaint.color = tealDark
             textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textPaint.textSize = 10f
+            textPaint.textSize = 9.5f
             canvas.drawText("#", 48f, currentY + 17f, textPaint)
-            canvas.drawText("SERVICES & PROCEDURES", 74f, currentY + 17f, textPaint)
-            canvas.drawText("QTY", 360f, currentY + 17f, textPaint)
-            canvas.drawText("UNIT PRICE", 415f, currentY + 17f, textPaint)
+            canvas.drawText("SERVICES & PROCEDURES / सेवा विवरण", 74f, currentY + 17f, textPaint)
+            canvas.drawText("QTY / परिमाण", 335f, currentY + 17f, textPaint)
+            canvas.drawText("RATE / दर", 415f, currentY + 17f, textPaint)
             textPaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText("AMOUNT (NPR)", (pageWidth - 48).toFloat(), currentY + 17f, textPaint)
+            canvas.drawText("TOTAL / जम्मा", (pageWidth - 48).toFloat(), currentY + 17f, textPaint)
             textPaint.textAlign = Paint.Align.LEFT
 
             currentY += 30f

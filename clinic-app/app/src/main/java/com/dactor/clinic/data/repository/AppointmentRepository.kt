@@ -1418,7 +1418,7 @@ open class AppointmentRepository @Inject constructor(
             val appt = supabaseClient.postgrest["appointments"]
                 .select {
                     filter { eq("id", appointmentId) }
-                }.decodeSingleOrNull<Appointment>()
+                }.decodeList<Appointment>().firstOrNull()
 
             val clinicId = appt?.clinicId
             val doctorId = appt?.doctorId
@@ -1426,12 +1426,12 @@ open class AppointmentRepository @Inject constructor(
             // 2. Mark queue entry status as done, or create one if it did not exist
             val existingQueue = supabaseClient.postgrest["queue_entries"]
                 .select { filter { eq("appointment_id", appointmentId) } }
-                .decodeSingleOrNull<QueueEntry>()
+                .decodeList<QueueEntry>().firstOrNull()
 
             val startTs = existingQueue?.insideAt ?: existingQueue?.calledAt
             val durationSeconds = if (!startTs.isNullOrBlank()) {
                 try {
-                    val start = java.time.Instant.parse(startTs).epochSecond
+                    val start = (QueueRepository.parseServerInstant(startTs) ?: java.time.Instant.parse(startTs)).epochSecond
                     val end = java.time.Instant.parse(now).epochSecond
                     (end - start).coerceAtLeast(0)
                 } catch (e: Exception) { null }

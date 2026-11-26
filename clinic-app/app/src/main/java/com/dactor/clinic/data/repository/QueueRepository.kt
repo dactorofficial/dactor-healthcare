@@ -2300,6 +2300,31 @@ open class QueueRepository @Inject constructor(
     companion object {
         val CLINIC_ZONE_ID: ZoneId = ZoneId.of("Asia/Kathmandu")
 
+        fun currentNepalLocalDate(): LocalDate = LocalDate.now(CLINIC_ZONE_ID)
+
+        fun parseServerInstant(ts: String?): Instant? {
+            if (ts.isNullOrBlank()) return null
+            val clean = ts.trim()
+            return try {
+                Instant.parse(clean)
+            } catch (_: Exception) {
+                try {
+                    java.time.OffsetDateTime.parse(clean).toInstant()
+                } catch (_: Exception) {
+                    try {
+                        val normalized = clean.replace(" ", "T")
+                        if (!normalized.contains("+") && !normalized.contains("-", startIndex = 10) && !normalized.endsWith("Z")) {
+                            java.time.LocalDateTime.parse(normalized).atZone(CLINIC_ZONE_ID).toInstant()
+                        } else {
+                            java.time.OffsetDateTime.parse(normalized).toInstant()
+                        }
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+            }
+        }
+
         fun parseTimeString(timeStr: String?): LocalTime? {
             if (timeStr.isNullOrBlank()) return null
             val clean = timeStr.trim().uppercase()
@@ -2591,11 +2616,11 @@ open class QueueRepository @Inject constructor(
                     val latestActivityInstant = allClinicQueueEntries.mapNotNull { entry ->
                         val ts = entry.completedAt ?: entry.insideAt
                         if (!ts.isNullOrBlank()) {
-                            try { Instant.parse(ts) } catch (_: Exception) { null }
+                            parseServerInstant(ts)
                         } else null
                     }.maxOrNull() ?: allClinicQueueEntries.mapNotNull { entry ->
                         if (!entry.createdAt.isNullOrBlank()) {
-                            try { Instant.parse(entry.createdAt) } catch (_: Exception) { null }
+                            parseServerInstant(entry.createdAt)
                         } else null
                     }.minOrNull()
 

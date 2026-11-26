@@ -5651,15 +5651,15 @@ fun AppointmentsTab(
     var apptToCancelConfirm by remember { mutableStateOf<Appointment?>(null) }
     var isCancelling by remember { mutableStateOf(false) }
 
-    var clockTick15s by remember { mutableStateOf(System.currentTimeMillis() / 15000L) }
+    var clockTick15s by remember { mutableStateOf(System.currentTimeMillis() / 5000L) }
     LaunchedEffect(Unit) {
         while (true) {
-            delay(15000L)
-            clockTick15s = System.currentTimeMillis() / 15000L
+            delay(5000L)
+            clockTick15s = System.currentTimeMillis() / 5000L
         }
     }
 
-    suspend fun loadActiveAppointments() {
+    suspend fun loadActiveAppointments(forceRefresh: Boolean = false) {
         if (activeAppts.isEmpty()) {
             isLoading = true
         } else {
@@ -5712,15 +5712,15 @@ fun AppointmentsTab(
             coroutineScope {
                 val clinicJobs = distinctClinicIds.map { cId ->
                     async {
-                        if (clinicRepository != null && !clinicCache.containsKey(cId)) {
+                        if (clinicRepository != null && (!clinicCache.containsKey(cId) || forceRefresh)) {
                             try {
-                                val c = clinicRepository.getClinicById(cId, forceRefresh = false)
+                                val c = clinicRepository.getClinicById(cId, forceRefresh = forceRefresh)
                                 if (c != null) clinicCache[cId] = c
                             } catch (ignored: Exception) {}
                         }
                         if (queueRepository != null) {
                             try {
-                                val entries = queueRepository.getQueueEntriesForClinic(cId)
+                                val entries = queueRepository.getQueueEntriesForClinic(cId, forceRefresh = forceRefresh)
                                 clinicQueueCache[cId] = entries
                             } catch (ignored: Exception) {}
                         }
@@ -5729,9 +5729,9 @@ fun AppointmentsTab(
 
                 val docJobs = distinctDocIds.map { dId ->
                     async {
-                        if (doctorRepository != null && !doctorCache.containsKey(dId)) {
+                        if (doctorRepository != null && (!doctorCache.containsKey(dId) || forceRefresh)) {
                             try {
-                                val d = doctorRepository.getDoctorById(dId, forceRefresh = false)
+                                val d = doctorRepository.getDoctorById(dId, forceRefresh = forceRefresh)
                                 if (d != null) doctorCache[dId] = d
                             } catch (ignored: Exception) {}
                         }
@@ -5742,7 +5742,7 @@ fun AppointmentsTab(
                     async {
                         if (queueRepository != null) {
                             try {
-                                val freshQ = queueRepository.getQueueStatus(appt.id)
+                                val freshQ = queueRepository.getQueueStatus(appt.id, forceRefresh = forceRefresh)
                                 if (freshQ != null) {
                                     queueCache[appt.id] = freshQ
                                 }
@@ -5808,11 +5808,27 @@ fun AppointmentsTab(
         loadActiveAppointments()
     }
 
+    LaunchedEffect(Unit) {
+        lifecycleOwner.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            while (isActive) {
+                delay(10000L) // auto-refresh queue and clinic status every 10s on active appointment days
+                val hasActiveToday = activeAppts.any { appt ->
+                    val apptDate = appt.appointmentDate.trim().take(10)
+                    val today = currentNepalLocalDate()?.toString() ?: LocalDate.now().toString()
+                    apptDate == today && appt.checkinStatus.lowercase() !in listOf("completed", "done", "cancelled")
+                }
+                if (hasActiveToday) {
+                    loadActiveAppointments(forceRefresh = true)
+                }
+            }
+        }
+    }
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 coroutineScope.launch {
-                    loadActiveAppointments()
+                    loadActiveAppointments(forceRefresh = true)
                 }
             }
         }
