@@ -32,6 +32,7 @@ import {
 import { printAppointmentBill, printPrescription } from '../utils/medicalDocPrinter'
 import { Appointment, SupportTicket } from '../types'
 import { supabase } from '../lib/supabase'
+import { useLanguage } from '../utils/i18n'
 import dactorLogo from '../assets/logo.svg'
 
 interface LiveTrackerModalProps {
@@ -49,6 +50,8 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
   onNavigate,
   onNavigateSupport,
 }) => {
+  const { language, strings } = useLanguage()
+  const isNe = language === 'ne'
   const [tab, setTab] = useState<'opd' | 'ticket'>('opd')
   const [code, setCode] = useState('')
   const [loading, setLoading] = useState(false)
@@ -329,12 +332,12 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
           </div>
           <div>
             <h3 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight">
-              {tab === 'ticket' ? 'Check Help Request Status' : 'Live OPD Queue Tracker'}
+              {tab === 'ticket' ? (isNe ? 'सहायता अनुरोध स्थिति' : 'Check Help Request Status') : strings.track10DigitTitle}
             </h3>
             <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium">
               {tab === 'ticket'
-                ? 'Enter Ticket Code (#DAC-TKT-...), contact phone, or registered Gmail'
-                : 'Enter your 10-digit appointment code to see live queue position'}
+                ? (isNe ? 'टिकट कोड (#DAC-TKT-...), फोन वा इमेल राख्नुहोस्' : 'Enter Ticket Code (#DAC-TKT-...), contact phone, or registered Gmail')
+                : strings.track10DigitSub}
             </p>
           </div>
         </div>
@@ -349,7 +352,7 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
               placeholder={
                 tab === 'ticket'
                   ? 'e.g. #DAC-TKT-1082 or 98XXXXXXXX or email'
-                  : 'e.g. 1234567890 or 982DCE95B6 or #DAC-TKT-...'
+                  : strings.enterCodePlaceholder
               }
               maxLength={tab === 'ticket' ? 60 : 25}
               className="w-full px-4 py-3 sm:py-3.5 pl-11 text-sm sm:text-base font-bold text-slate-900 dark:text-white liquid-glass-input rounded-2xl transition-all placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-400 shadow-glass-sm"
@@ -366,11 +369,11 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
             {loading ? (
               <span className="flex items-center space-x-2">
                 <Activity className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
-                <span>Checking Status...</span>
+                <span>{strings.loading}</span>
               </span>
             ) : (
               <span>
-                {tab === 'ticket' ? 'Track Help Request Status' : 'Check Live OPD Status'}
+                {tab === 'ticket' ? (isNe ? 'स्थिति हेर्नुहोस्' : 'Track Help Request Status') : strings.trackBtn}
               </span>
             )}
           </button>
