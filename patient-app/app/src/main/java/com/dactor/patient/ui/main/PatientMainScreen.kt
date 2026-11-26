@@ -72,6 +72,7 @@ import com.dactor.patient.service.NotificationHelper
 import com.dactor.patient.util.MedicalSearchEngine
 import com.dactor.patient.util.OpenRouteSpatialEngine
 import com.dactor.patient.util.SearchMatchResult
+import com.dactor.patient.ui.i18n.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -1337,40 +1338,48 @@ fun HomeTab(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            // Top-Right Notification Button (Non-overlapping pill/icon surface)
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color.White,
-                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                shadowElevation = 2.dp,
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable { navController.navigate(NavRoutes.Notifications.route) }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.Notifications,
-                        contentDescription = "Notifications",
-                        tint = Color(0xFF0284C7),
-                        modifier = Modifier.size(22.dp)
-                    )
-                    if (unreadCount > 0) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFFDC2626),
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(top = 6.dp, end = 6.dp)
-                                .size(16.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = if (unreadCount > 9) "9+" else unreadCount.toString(),
-                                    color = Color.White,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
+                // Top-Right Quick Language Switch Button (Beside Notification Bell)
+                com.dactor.patient.ui.components.QuickLanguageButton(compact = false)
+
+                // Top-Right Notification Button (Non-overlapping pill/icon surface)
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.White,
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    shadowElevation = 2.dp,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { navController.navigate(NavRoutes.Notifications.route) }
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Notifications,
+                            contentDescription = "Notifications",
+                            tint = Color(0xFF0284C7),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        if (unreadCount > 0) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFFDC2626),
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 6.dp, end = 6.dp)
+                                    .size(16.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = if (unreadCount > 9) "9+" else unreadCount.toString(),
+                                        color = Color.White,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                }
                             }
                         }
                     }
@@ -9038,6 +9047,7 @@ fun ProfileTab(
                             modifier = Modifier.size(22.dp)
                         )
                     }
+                    com.dactor.patient.ui.components.QuickLanguageButton(compact = true)
                     IconButton(onClick = { navController.navigate(NavRoutes.Notifications.route) }) {
                         Icon(
                             Icons.Default.NotificationsNone,
@@ -10001,7 +10011,74 @@ fun ProfileTab(
                 }
             }
 
-            // ── 6. Account Actions: Sign Out ────────────────────────────────────
+            // ── 6. App Language Preference Card ──────────────────────────────
+            item {
+                val curLang = LocalAppLanguage.current
+                val updateLang = LocalUpdateAppLanguage.current
+                val dStrings = LocalAppStrings.current
+                Card(
+                    shape = RoundedCornerShape(22.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val nextLang = if (curLang == AppLanguage.NEPALI) AppLanguage.ENGLISH else AppLanguage.NEPALI
+                            updateLang(nextLang)
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFFE0F7FA),
+                            modifier = Modifier.size(46.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.Language,
+                                    contentDescription = null,
+                                    tint = Color(0xFF0284C7),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = dStrings.appLanguageLabel,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = Color(0xFF0F172A)
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = if (curLang == AppLanguage.NEPALI) "नेपाली (Nepali)" else "English (English)",
+                                fontSize = 11.sp,
+                                color = Color(0xFF64748B)
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (curLang == AppLanguage.NEPALI) Color(0xFFE0F2FE) else Color(0xFFF1F5F9),
+                            border = BorderStroke(1.dp, if (curLang == AppLanguage.NEPALI) Color(0xFF38BDF8) else Color(0xFFCBD5E1))
+                        ) {
+                            Text(
+                                text = if (curLang == AppLanguage.NEPALI) "नेपाली" else "EN",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 12.sp,
+                                color = Color(0xFF0284C7),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ── 7. Account Actions: Sign Out ────────────────────────────────────
             item {
                 Column(
                     modifier = Modifier.padding(top = 4.dp),

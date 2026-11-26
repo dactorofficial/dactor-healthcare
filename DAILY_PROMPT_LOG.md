@@ -7,6 +7,24 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-25
 
 ### Prompt:
+> "generate debug apk for patient app"
+
+#### Changes Applied:
+1. **Patient App Version Bump (`patient-app/app/build.gradle.kts`)**:
+   - Incremented `versionCode` from `143` to `144`.
+   - Incremented `versionName` from `"1.0.43"` to `"1.0.44"`.
+2. **Compilation Fixes in Patient App**:
+   - [`PatientMainScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt): Replaced non-existent `LocalDactorStrings.current` with `LocalAppStrings.current` and explicitly labeled `text = ...` in `Text()` calls within the Language Preference Card.
+3. **Debug APK Generation**:
+   - Built Debug APK using `.\build_apks.ps1 -App Patient -BuildType Debug`.
+   - Generated: [`APKs/Dactor-PatientApp-v1.0.44-debug.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-PatientApp-v1.0.44-debug.apk) (26.65 MB).
+   - Signed with shared debug keystore (`keystores/debug.keystore`, `debuggable = true`).
+4. **Handoff Tracking**:
+   - Updated `HANDOFF.md` version registry and platform overview table.
+
+---
+
+### Prompt:
 > "download the app into the mobile through adb"
 
 #### Changes Applied:
