@@ -111,6 +111,16 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "and what about our main website it also has the same problem configure it"
+
+#### Changes Applied:
+1. **Verified Main Website (`web-app/.env` + Live Deployment)**:
+   - Confirmed `web-app/.env` (`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`) bundled cleanly into `dist/assets/index-P63TX74g.js` (HTTP `200 OK`).
+   - Verified in live browser inspection that both `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/` render the full Dactor portal (`InteractiveNodes: 111`, 12 clinics, 19 featured doctors, Language modal) with **0 console errors** and **0 failed network requests**.
+
+---
+
+### Prompt:
 > "admin portal is not openening its just blank . i have opened it in the in app browser check"
 
 #### Changes Applied:
@@ -166,6 +176,16 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "and what about our main website it also has the same problem configure it"
+
+#### Changes Applied:
+1. **Verified Main Website (`web-app/.env` + Live Deployment)**:
+   - Confirmed `web-app/.env` (`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`) bundled cleanly into `dist/assets/index-P63TX74g.js` (HTTP `200 OK`).
+   - Verified in live browser inspection that both `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/` render the full Dactor portal (`InteractiveNodes: 111`, 12 clinics, 19 featured doctors, Language modal) with **0 console errors** and **0 failed network requests**.
+
+---
+
+### Prompt:
 > "admin portal is not openening its just blank . i have opened it in the in app browser check"
 
 #### Changes Applied:
@@ -219,6 +239,16 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-26
+
+### Prompt:
+> "and what about our main website it also has the same problem configure it"
+
+#### Changes Applied:
+1. **Verified Main Website (`web-app/.env` + Live Deployment)**:
+   - Confirmed `web-app/.env` (`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`) bundled cleanly into `dist/assets/index-P63TX74g.js` (HTTP `200 OK`).
+   - Verified in live browser inspection that both `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/` render the full Dactor portal (`InteractiveNodes: 111`, 12 clinics, 19 featured doctors, Language modal) with **0 console errors** and **0 failed network requests**.
+
+---
 
 ### Prompt:
 > "admin portal is not openening its just blank . i have opened it in the in app browser check"
@@ -278,6 +308,16 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-26
+
+### Prompt:
+> "and what about our main website it also has the same problem configure it"
+
+#### Changes Applied:
+1. **Verified Main Website (`web-app/.env` + Live Deployment)**:
+   - Confirmed `web-app/.env` (`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`) bundled cleanly into `dist/assets/index-P63TX74g.js` (HTTP `200 OK`).
+   - Verified in live browser inspection that both `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/` render the full Dactor portal (`InteractiveNodes: 111`, 12 clinics, 19 featured doctors, Language modal) with **0 console errors** and **0 failed network requests**.
+
+---
 
 ### Prompt:
 > "admin portal is not openening its just blank . i have opened it in the in app browser check"
@@ -359,6 +399,16 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "and what about our main website it also has the same problem configure it"
+
+#### Changes Applied:
+1. **Verified Main Website (`web-app/.env` + Live Deployment)**:
+   - Confirmed `web-app/.env` (`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`) bundled cleanly into `dist/assets/index-P63TX74g.js` (HTTP `200 OK`).
+   - Verified in live browser inspection that both `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/` render the full Dactor portal (`InteractiveNodes: 111`, 12 clinics, 19 featured doctors, Language modal) with **0 console errors** and **0 failed network requests**.
+
+---
+
+### Prompt:
 > "admin portal is not openening its just blank . i have opened it in the in app browser check"
 
 #### Changes Applied:
@@ -435,6 +485,16 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "and what about our main website it also has the same problem configure it"
+
+#### Changes Applied:
+1. **Verified Main Website (`web-app/.env` + Live Deployment)**:
+   - Confirmed `web-app/.env` (`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`) bundled cleanly into `dist/assets/index-P63TX74g.js` (HTTP `200 OK`).
+   - Verified in live browser inspection that both `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/` render the full Dactor portal (`InteractiveNodes: 111`, 12 clinics, 19 featured doctors, Language modal) with **0 console errors** and **0 failed network requests**.
+
+---
+
+### Prompt:
 > "admin portal is not openening its just blank . i have opened it in the in app browser check"
 
 #### Changes Applied:
@@ -492,6 +552,16 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-26
+
+### Prompt:
+> "and what about our main website it also has the same problem configure it"
+
+#### Changes Applied:
+1. **Verified Main Website (`web-app/.env` + Live Deployment)**:
+   - Confirmed `web-app/.env` (`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`) bundled cleanly into `dist/assets/index-P63TX74g.js` (HTTP `200 OK`).
+   - Verified in live browser inspection that both `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/` render the full Dactor portal (`InteractiveNodes: 111`, 12 clinics, 19 featured doctors, Language modal) with **0 console errors** and **0 failed network requests**.
+
+---
 
 ### Prompt:
 > "admin portal is not openening its just blank . i have opened it in the in app browser check"
@@ -3598,6 +3668,16 @@ epal_payment_security_audit.md](file:///C:/Users/dell/.gemini/antigravity/brain/
 ---
 
 ## 2026-11-26
+
+### Prompt:
+> "and what about our main website it also has the same problem configure it"
+
+#### Changes Applied:
+1. **Verified Main Website (`web-app/.env` + Live Deployment)**:
+   - Confirmed `web-app/.env` (`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`) bundled cleanly into `dist/assets/index-P63TX74g.js` (HTTP `200 OK`).
+   - Verified in live browser inspection that both `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/` render the full Dactor portal (`InteractiveNodes: 111`, 12 clinics, 19 featured doctors, Language modal) with **0 console errors** and **0 failed network requests**.
+
+---
 
 ### Prompt:
 > "admin portal is not openening its just blank . i have opened it in the in app browser check"
