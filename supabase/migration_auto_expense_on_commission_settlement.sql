@@ -12,8 +12,11 @@
 --    linked clinic_expenses record.
 -- =========================================================================
 
--- 1. Link column on clinic_expenses
+-- 1. Ensure required columns & link column exist on clinic_expenses
 ALTER TABLE public.clinic_expenses
+    ADD COLUMN IF NOT EXISTS expense_time VARCHAR(20),
+    ADD COLUMN IF NOT EXISTS voucher_number VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS remarks TEXT,
     ADD COLUMN IF NOT EXISTS settlement_id UUID;
 
 DO $$
