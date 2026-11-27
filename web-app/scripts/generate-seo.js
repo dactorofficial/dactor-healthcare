@@ -74,9 +74,19 @@ async function generateSEOArtifacts() {
   try {
     const cData = await fetchSupabase(
       'clinics',
-      'select=id,name,type,address_text,specialties,updated_at,verification_status,is_archived,contact_phone,contact_email,description,latitude,longitude,logo_url,pictures'
+      'select=id,name,type,address_text,specialties,updated_at,verification_status,is_archived,is_activated,activation_expires_at,contact_phone,contact_email,description,latitude,longitude,logo_url,pictures'
     )
-    clinics = (cData || []).filter(c => !c.is_archived && c.verification_status !== 'rejected')
+    const nowMs = Date.now()
+    clinics = (cData || []).filter((c) => {
+      const vStatus = String(c.verification_status || '').trim().toLowerCase()
+      const isVerified = vStatus === 'approved' || vStatus === 'verified'
+      if (!isVerified || c.is_archived || c.is_activated === false) return false
+      if (c.activation_expires_at) {
+        const expMs = new Date(c.activation_expires_at).getTime()
+        if (!Number.isNaN(expMs) && expMs <= nowMs) return false
+      }
+      return true
+    })
   } catch (e) {
     console.warn('Clinics query notice:', e.message)
   }
@@ -84,9 +94,14 @@ async function generateSEOArtifacts() {
   try {
     const dData = await fetchSupabase(
       'doctors',
-      'select=id,full_name,specialty,specialties,clinic_id,consultation_fee,education,nmc_license_number,updated_at'
+      'select=id,full_name,specialty,specialties,clinic_id,kyc_status,consultation_fee,education,nmc_license_number,updated_at'
     )
-    doctors = dData || []
+    const visibleClinicIds = new Set(clinics.map((c) => c.id))
+    doctors = (dData || []).filter((d) => {
+      const kStatus = String(d.kyc_status || '').trim().toLowerCase()
+      const isDocVerified = kStatus === 'approved' || kStatus === 'verified'
+      return isDocVerified && (!d.clinic_id || visibleClinicIds.has(d.clinic_id))
+    })
   } catch (e) {
     console.warn('Doctors query notice:', e.message)
   }

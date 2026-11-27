@@ -82,6 +82,23 @@ export function isDiagnosticLabClinic(
 // ==========================================
 // CLINICS API
 // ==========================================
+export function isClinicPubliclyVisible(c: Clinic): boolean {
+  const vStatus = (c.verificationStatus || '').trim().toLowerCase()
+  if (vStatus !== 'approved' && vStatus !== 'verified') return false
+  if (c.isArchived) return false
+  if (c.isActivated === false) return false
+  if (c.activationExpiresAt) {
+    const expMs = new Date(c.activationExpiresAt).getTime()
+    if (!Number.isNaN(expMs) && expMs <= Date.now()) return false
+  }
+  return true
+}
+
+export function isDoctorPubliclyVisible(d: Doctor): boolean {
+  const kStatus = (d.kycStatus || '').trim().toLowerCase()
+  return kStatus === 'approved' || kStatus === 'verified'
+}
+
 export async function getClinics(): Promise<Clinic[]> {
   try {
     const { data, error } = await supabase
@@ -92,7 +109,7 @@ export async function getClinics(): Promise<Clinic[]> {
     if (error) throw error
     return (data || [])
       .map(mapClinic)
-      .filter((c) => { const isVerified = c.verificationStatus === 'approved' || c.verificationStatus === 'verified'; return isVerified && !c.isArchived && c.isActivated !== false; })
+      .filter(isClinicPubliclyVisible)
   } catch (err) {
     console.error('Error fetching clinics:', err)
     return []
@@ -122,10 +139,7 @@ export async function getNearbyClinics(
     if (error) throw error
     return (data || [])
       .map(mapClinic)
-      .filter((c) => {
-        const isVerified = c.verificationStatus === 'approved' || c.verificationStatus === 'verified'
-        return isVerified && !c.isArchived
-      })
+      .filter(isClinicPubliclyVisible)
   } catch (err) {
     console.warn('RPC get_nearby_clinics failed, falling back to local distance filter:', err)
     const all = await getClinics()
@@ -150,7 +164,7 @@ export async function getClinicById(id: string): Promise<Clinic | null> {
 
     if (error || !data) return null
     const mapped = mapClinic(data)
-    const isVerified = mapped.verificationStatus === 'approved' || mapped.verificationStatus === 'verified'; if (!isVerified || mapped.isArchived || mapped.isActivated === false) return null
+    if (!isClinicPubliclyVisible(mapped)) return null
     return mapped
   } catch {
     return null
@@ -260,13 +274,40 @@ export async function createClinic(clinic: Partial<Clinic>): Promise<Clinic | nu
 // ==========================================
 export async function getDoctors(): Promise<Doctor[]> {
   try {
-    const { data, error } = await supabase
-      .from('doctors')
-      .select('*')
-      .order('full_name', { ascending: true })
+    const [{ data, error }, visibleClinics, invitesRes] = await Promise.all([
+      supabase.from('doctors').select('*').order('full_name', { ascending: true }),
+      getClinics(),
+      supabase.from('clinic_invitations').select('clinic_id,email').eq('status', 'accepted'),
+    ])
 
     if (error) throw error
-    return (data || []).map(mapDoctor)
+    const visibleClinicIds = new Set(visibleClinics.map((c) => c.id))
+    const invitedClinicIdsByEmail = new Map<string, Set<string>>()
+    for (const inv of invitesRes.data || []) {
+      const em = String(inv.email || '').trim().toLowerCase()
+      if (!em || !inv.clinic_id) continue
+      if (!invitedClinicIdsByEmail.has(em)) invitedClinicIdsByEmail.set(em, new Set())
+      invitedClinicIdsByEmail.get(em)!.add(inv.clinic_id)
+    }
+
+    return (data || [])
+      .map(mapDoctor)
+      .filter((d) => {
+        if (!isDoctorPubliclyVisible(d)) return false
+        const hasDirectVisible =
+          (d.clinicId && visibleClinicIds.has(d.clinicId)) ||
+          (d.activeClinicId && visibleClinicIds.has(d.activeClinicId)) ||
+          (d.primaryClinicId && visibleClinicIds.has(d.primaryClinicId))
+        if (hasDirectVisible) return true
+        const em = (d.email || '').trim().toLowerCase()
+        const invitedIds = em ? invitedClinicIdsByEmail.get(em) : undefined
+        if (invitedIds) {
+          for (const cid of invitedIds) {
+            if (visibleClinicIds.has(cid)) return true
+          }
+        }
+        return false
+      })
   } catch (err) {
     console.error('Error fetching doctors:', err)
     return []
@@ -288,7 +329,7 @@ export async function getDoctorsByClinic(clinicId: string): Promise<Doctor[]> {
       .order('full_name', { ascending: true })
 
     if (directErr) throw directErr
-    const directDocs = (directData || []).map(mapDoctor)
+    const directDocs = (directData || []).map(mapDoctor).filter(isDoctorPubliclyVisible)
 
     // 2. Doctors with accepted invitations for this clinic (parity with clinic-app DoctorRepository.kt lines 175-204)
     return directDocs

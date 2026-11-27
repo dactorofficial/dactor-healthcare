@@ -7,6 +7,20 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "if a clinic's subscription is over or doctor or clinic is not verified then hide them from showin up in out app and websited even when searched but dont affect their patient's appoinments etc only hide them /plan and proceed them"
+
+#### Changes Applied:
+1. **Android Patient App (`patient-app`)**:
+   - [`DoctorRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/repository/DoctorRepository.kt): Added `isDoctorVerified(doctor)` (`kycStatus in ("approved", "verified")`) and filtered `getAllDoctorsAndClinicRoster`, `getDoctors`, and `searchDoctors` so unverified doctors never appear in clinic rosters, home lists, or search results.
+   - [`PatientMainScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt) & [`PatientSearchScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/search/PatientSearchScreen.kt): Filtered home and search doctor lists to verified doctors linked to at least one active, verified, non-expired clinic (`linkedClinics.isNotEmpty()`), leaving `Appointments`, `Records`, and `QueueStatusScreen` untouched.
+2. **Web App (`web-app`)**:
+   - [`db.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/services/db.ts): Added `isClinicPubliclyVisible` (`verificationStatus`, `!isArchived`, `isActivated !== false`, and non-expired `activationExpiresAt`) and `isDoctorPubliclyVisible` (`kycStatus`). Applied to `getClinics`, `getNearbyClinics`, `getClinicById`, `getDoctors` (with clinic/invitation visibility check), and `getDoctorsByClinic`, while preserving `getAppointmentsByUser`, `getAppointmentByTrackingCode`, `getClinicForPortalById`, and `getDoctorById`.
+   - [`generate-seo.js`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/scripts/generate-seo.js): Excluded unverified/archived/deactivated/subscription-expired clinics and unverified doctors from `sitemap.xml`, `llms.txt`, and `index.html` JSON-LD.
+   - Built `web-app` (`tsc && vite build`) and deployed live to `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/`.
+
+---
+
+### Prompt:
 > "listen one error as for dactor 5 % commission . when i settled it through admin portal it simply did and also updated in both app but it should actually mark it as expense for the clinic automatically /plan"
 
 #### Changes Applied:

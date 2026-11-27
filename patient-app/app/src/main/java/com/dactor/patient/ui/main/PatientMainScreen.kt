@@ -1011,14 +1011,17 @@ fun HomeTab(
                                 ClinicHomeItem(clinic = clinic, doctors = docs, services = srvs, availableSlots = slots)
                             }.shuffled()
 
-                            val combinedDocs = (standaloneDocs + items.flatMap { it.doctors }).distinctBy { it.id }
-                            val docItems = combinedDocs.map { doc ->
+                            val combinedDocs = (standaloneDocs + items.flatMap { it.doctors })
+                                .distinctBy { it.id }
+                                .filter { doctorRepository?.isDoctorVerified(it) != false }
+                            val docItems = combinedDocs.mapNotNull { doc ->
                                 val linkedClinics = remoteClinics.filter { c ->
                                     c.id == doc.clinicId ||
                                         c.id == doc.activeClinicId ||
                                         c.id == doc.primaryClinicId ||
                                         rosterByClinic[c.id]?.any { d -> d.id == doc.id } == true
                                 }
+                                if (linkedClinics.isEmpty()) return@mapNotNull null
                                 OpenRouteSpatialEngine.indexDoctor(doc, linkedClinics)
                                 DoctorHomeItem(doctor = doc, practicingClinics = linkedClinics)
                             }.shuffled()

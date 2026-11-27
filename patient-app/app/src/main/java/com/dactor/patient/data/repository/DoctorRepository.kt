@@ -71,6 +71,11 @@ class DoctorRepository @Inject constructor(
         return doctor
     }
 
+    fun isDoctorVerified(doctor: Doctor): Boolean {
+        val status = doctor.kycStatus?.trim()?.lowercase()
+        return status == "approved" || status == "verified"
+    }
+
     /**
      * Fetches ALL doctors and ALL accepted clinic_invitations in 1 single parallel round-trip
      * (2 concurrent queries total instead of 3*N queries per clinic), and builds the per-clinic
@@ -108,7 +113,7 @@ class DoctorRepository @Inject constructor(
             }
         }
 
-        val allDocs = docsDeferred.await()
+        val allDocs = docsDeferred.await().filter { isDoctorVerified(it) }
         val allAcceptedInvites = invitesDeferred.await()
 
         cachedAllDoctors = allDocs
@@ -156,7 +161,9 @@ class DoctorRepository @Inject constructor(
         } else {
             cachedAllDoctors?.let { return it }
             try {
-                val list = supabaseClient.postgrest["doctors"].select().decodeList<Doctor>().map { enrichDoctor(it) }
+                val list = supabaseClient.postgrest["doctors"].select().decodeList<Doctor>()
+                    .map { enrichDoctor(it) }
+                    .filter { isDoctorVerified(it) }
                 cachedAllDoctors = list
                 list.forEach { cachedDoctorsById[it.id] = it }
                 list
@@ -171,13 +178,15 @@ class DoctorRepository @Inject constructor(
         if (current != null && query.isNotBlank()) {
             val q = query.trim().lowercase()
             return current.filter {
-                it.fullName.lowercase().contains(q) || (it.specialty ?: "").lowercase().contains(q)
+                isDoctorVerified(it) &&
+                    (it.fullName.lowercase().contains(q) || (it.specialty ?: "").lowercase().contains(q))
             }
         }
         return supabaseClient.postgrest["doctors"]
             .select { filter { ilike("full_name", "%$query%") } }
             .decodeList<Doctor>()
             .map { enrichDoctor(it) }
+            .filter { isDoctorVerified(it) }
     }
 
     suspend fun getDoctorById(id: String, forceRefresh: Boolean = false): Doctor? {
