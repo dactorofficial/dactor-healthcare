@@ -268,7 +268,7 @@ class DoctorQueueViewModel @Inject constructor(
 
                 val allAppts = (appts + extraRefreshed).distinctBy { it.id }
                 val approvedApptMap = allAppts.filter { appt ->
-                    (appt.doctorId == null || appt.doctorId == s.doctorId) &&
+                    (if (isLabClinic) true else appt.doctorId == s.doctorId) &&
                     appt.clinicId == s.clinicId &&
                     (appt.appointmentDate.isBlank() || appt.appointmentDate == s.selectedDate) &&
                     appt.status.equals("APPROVED", ignoreCase = true) &&

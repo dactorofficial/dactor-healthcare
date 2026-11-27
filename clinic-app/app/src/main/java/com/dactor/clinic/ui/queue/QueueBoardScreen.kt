@@ -501,7 +501,13 @@ fun QueueBoardScreen(
     }
 
     fun moveItemToPosition(item: QueueItemUi, targetPosition1Based: Int) {
-        val activeItems = queueItems.filter { it.status == "waiting" || it.status == "inside" }.toMutableList()
+        val scopedDoctorId = if (!isLabClinic) item.doctorId?.takeIf { it.isNotBlank() } else null
+        val activeItems = queueItems
+            .filter {
+                (it.status == "waiting" || it.status == "inside") &&
+                    (scopedDoctorId == null || it.doctorId == scopedDoctorId)
+            }
+            .toMutableList()
         val oldIndex = activeItems.indexOfFirst { it.id == item.id }
         if (oldIndex < 0) return
         val clampedTarget = targetPosition1Based.coerceIn(1, activeItems.size)
@@ -511,18 +517,19 @@ fun QueueBoardScreen(
         val moved = activeItems.removeAt(oldIndex)
         activeItems.add(targetIndex, moved)
 
-        val updatedQueue = activeItems.mapIndexed { idx, itm ->
+        val updatedScopedQueue = activeItems.mapIndexed { idx, itm ->
             itm.copy(queuePosition = idx + 1)
         }
-        val pastItems = queueItems.filter { it.status in allFinishedStatuses }
-        queueItems = updatedQueue + pastItems
+        val updatedById = updatedScopedQueue.associateBy { it.id }
+        queueItems = queueItems.map { updatedById[it.id] ?: it }
 
         coroutineScope.launch {
-            val entriesToUpdate = updatedQueue.map {
+            val entriesToUpdate = updatedScopedQueue.map {
                 QueueEntry(
                     id = it.id,
                     appointmentId = it.appointmentId,
                     clinicId = effectiveClinicId,
+                    doctorId = it.doctorId,
                     queuePosition = it.queuePosition,
                     status = it.status,
                     insideAt = it.insideAt,
@@ -534,7 +541,11 @@ fun QueueBoardScreen(
     }
 
     fun moveItemOneStep(item: QueueItemUi, direction: Int) { // direction: -1 (up), +1 (down)
-        val activeItems = queueItems.filter { it.status == "waiting" || it.status == "inside" }
+        val scopedDoctorId = if (!isLabClinic) item.doctorId?.takeIf { it.isNotBlank() } else null
+        val activeItems = queueItems.filter {
+            (it.status == "waiting" || it.status == "inside") &&
+                (scopedDoctorId == null || it.doctorId == scopedDoctorId)
+        }
         val currentIndex = activeItems.indexOfFirst { it.id == item.id }
         if (currentIndex < 0) return
         val targetIndex = currentIndex + direction
@@ -944,6 +955,14 @@ fun QueueBoardScreen(
                     queueItems = cached
                     isQueueLoading = false
                 }
+            } catch (_: Exception) {}
+        }
+    }
+
+    LaunchedEffect(selectedDoctorFilterId) {
+        if (effectiveClinicId.isNotBlank() && !isLabClinic) {
+            try {
+                loadQueue(isDeltaOnly = true)
             } catch (_: Exception) {}
         }
     }

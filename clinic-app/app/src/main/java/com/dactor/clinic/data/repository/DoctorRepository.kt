@@ -138,10 +138,16 @@ open class DoctorRepository @Inject constructor(
         val inMem = cachedAllDoctors.find { it.id == id } ?: cachedDoctorsByClinic.values.flatten().find { it.id == id }
         if (inMem != null) return inMem
         return try {
-            val serialized = prefs?.getString("doctor_$id", null) ?: prefs?.getString("last_active_doctor", null)
+            val serialized = prefs?.getString("doctor_$id", null)
             if (!serialized.isNullOrBlank()) {
                 json.decodeFromString(Doctor.serializer(), serialized)
-            } else null
+            } else {
+                val lastSerialized = prefs?.getString("last_active_doctor", null)
+                val lastDoc = if (!lastSerialized.isNullOrBlank()) {
+                    json.decodeFromString(Doctor.serializer(), lastSerialized)
+                } else null
+                lastDoc?.takeIf { it.id == id }
+            }
         } catch (e: Exception) {
             null
         }

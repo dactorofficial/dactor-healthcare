@@ -7,6 +7,22 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "also check the logic that live queue of different doctor will not get messed up"
+
+#### Changes Applied:
+1. **Doctor Cache Identity Guard ([`DoctorRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/DoctorRepository.kt))**:
+   - Prevented `getCachedDoctorById(id)` from returning `last_active_doctor` from `SharedPreferences` unless its `id` matches the requested `id`, avoiding cross-doctor profile/queue leakage on multi-doctor or dual-app logins.
+2. **Strict Doctor UUID Guard on Fast Queue RPC ([`QueueRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/QueueRepository.kt))**:
+   - In `getFastDoctorLiveQueue`, added an early return when `!isLab && cleanDocId == null` so a missing/invalid doctor ID never falls through to `get_doctor_live_queue` without `p_doctor_id`.
+3. **Legacy Fallback Doctor Filter ([`DoctorQueueViewModel.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/DoctorQueueViewModel.kt))**:
+   - Tightened `approvedApptMap` filter in the legacy fallback path from `(appt.doctorId == null || appt.doctorId == s.doctorId)` to `(if (isLabClinic) true else appt.doctorId == s.doctorId)` so unassigned/other appointments do not mix into an OPD doctor's queue.
+4. **Per-Doctor Reorder Scoping & Filter Sync ([`QueueBoardScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/QueueBoardScreen.kt))**:
+   - Scoped `moveItemToPosition` and `moveItemOneStep` to only reorder and renumber `queuePosition` within `item.doctorId` when in an OPD clinic (`!isLabClinic`), and preserved `doctorId` on `QueueEntry` updates so moving one doctor's patient never overwrites another doctor's positions.
+   - Added `LaunchedEffect(selectedDoctorFilterId)` to reload the selected doctor's queue immediately when switching doctor filters.
+
+---
+
+### Prompt:
 > "liaten check logs for clinci app mirrored or dual one i tried to log in the doctor account in it but it just teminated / crashed  the app"
 
 #### Changes Applied:

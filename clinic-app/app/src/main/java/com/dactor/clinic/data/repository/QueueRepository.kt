@@ -158,6 +158,9 @@ open class QueueRepository @Inject constructor(
         try {
             val isLab = isDiagnosticLab(clinicId)
             val cleanDocId = if (isLab) null else doctorId.takeIf { com.dactor.clinic.domain.util.PatientIdentitySync.isValidUuid(it) }
+            if (!isLab && cleanDocId == null) {
+                return@withContext emptyList()
+            }
             val params = buildJsonObject {
                 if (cleanDocId != null) {
                     put("p_doctor_id", cleanDocId)
