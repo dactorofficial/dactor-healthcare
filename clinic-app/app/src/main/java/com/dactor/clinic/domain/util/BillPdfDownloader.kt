@@ -564,7 +564,7 @@ object BillPdfDownloader {
             for (log in displayedLogs) {
                 val rowY = y + 14f
                 val token = log.trackingCode10Digit ?: "\u2013"
-                val dateStr = log.dateTime.take(16).replace("T", " ")
+                val dateStr = PaymentLedgerHelper.formatShortDateTime(log.dateTime)
                 val pName = if (log.patientName.length > 18) log.patientName.take(16) + ".." else log.patientName
                 val rawPersonOrTest = log.doctorName.ifBlank { log.testNames.joinToString(", ").ifBlank { "\u2013" } }
                 val dName = if (rawPersonOrTest.length > 15) rawPersonOrTest.take(13) + ".." else rawPersonOrTest
@@ -653,6 +653,70 @@ object BillPdfDownloader {
         } catch (e: Exception) {
             e.printStackTrace()
             Toast.makeText(context, "Failed to generate statement PDF: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Writes the Payment Logs CSV to app storage & public Downloads (Android 10+),
+     * then opens the share sheet with the actual `.csv` file URI attached.
+     */
+    fun downloadAndSharePaymentLogsCsv(
+        context: Context,
+        periodLabel: String,
+        csvContent: String
+    ) {
+        try {
+            val cleanPeriod = periodLabel.replace(Regex("[^a-zA-Z0-9_-]"), "_").trim('_').ifBlank { "export" }
+            val fileName = "Dactor_Payment_Logs_${cleanPeriod}_${System.currentTimeMillis()}.csv"
+            val downloadsDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                ?: throw IllegalStateException("External downloads directory unavailable")
+            if (!downloadsDir.exists()) downloadsDir.mkdirs()
+
+            val appFile = File(downloadsDir, fileName)
+            val bomBytes = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+            val csvBytes = csvContent.toByteArray(Charsets.UTF_8)
+            FileOutputStream(appFile).use { out ->
+                out.write(bomBytes)
+                out.write(csvBytes)
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "text/csv")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+                val resolver = context.contentResolver
+                val pubUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                if (pubUri != null) {
+                    resolver.openOutputStream(pubUri)?.use { out ->
+                        appFile.inputStream().copyTo(out)
+                    }
+                    contentValues.clear()
+                    contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    resolver.update(pubUri, contentValues, null, null)
+                }
+            }
+
+            Toast.makeText(context, "✓ CSV saved to Downloads: $fileName", Toast.LENGTH_SHORT).show()
+
+            val contentUri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                appFile
+            )
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/csv"
+                putExtra(Intent.EXTRA_STREAM, contentUri)
+                putExtra(Intent.EXTRA_SUBJECT, fileName)
+                clipData = android.content.ClipData.newRawUri(fileName, contentUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(sendIntent, "Export Payment Logs CSV"))
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(context, "Failed to export CSV: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 }

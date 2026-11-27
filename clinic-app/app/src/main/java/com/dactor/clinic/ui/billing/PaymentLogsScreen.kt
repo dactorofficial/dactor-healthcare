@@ -448,13 +448,11 @@ fun PaymentLogsScreen(
             expenses = periodExpenses,
             isLabClinic = isLabClinic
         )
-        val sendIntent = Intent().apply {
-            action = Intent.ACTION_SEND
-            putExtra(Intent.EXTRA_TEXT, csv)
-            putExtra(Intent.EXTRA_SUBJECT, "Payment-Logs-$exportPeriodLabel.csv")
-            type = "text/csv"
-        }
-        context.startActivity(Intent.createChooser(sendIntent, "Export Payment Logs CSV"))
+        BillPdfDownloader.downloadAndSharePaymentLogsCsv(
+            context = context,
+            periodLabel = exportPeriodLabel,
+            csvContent = csv
+        )
     }
 
     fun exportPdf() {

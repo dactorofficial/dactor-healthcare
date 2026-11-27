@@ -7,6 +7,20 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "the time log for payment in bill is wrong check the log through adb right now" / "fix this"
+
+### Changes Applied:
+- **Patient App (`patient-app`)**:
+  - Updated `patient-app/app/src/main/java/com/dactor/patient/util/PaymentLedgerHelper.kt` to parse ISO UTC timestamps (`Instant.parse`, `OffsetDateTime.parse`, `ZonedDateTime.parse`), convert them to `Asia/Kathmandu` (`normalizeTimestampForLedger` and `formatDisplayDateTime` with `Locale.US`), and stop truncating `paid_at` / `approved_at` with `.take(16)`.
+  - Updated `patient-app/app/src/main/java/com/dactor/patient/util/BillPdfDownloader.kt` header timestamp to use `Asia/Kathmandu` and `Locale.US`.
+  - Updated `patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt` and `QueueStatusScreen.kt` to render payment time logs through `PaymentLedgerHelper.formatDisplayDateTime(p.dateTime)`.
+- **Clinic App (`clinic-app`)**:
+  - Updated `clinic-app/app/src/main/java/com/dactor/clinic/domain/util/PaymentLedgerHelper.kt` (`normalizeTimestampForLedger`, `formatRowTime`, `extractLocalDate`, `parsePaymentRecords`, and combined billing summary) to convert UTC ISO timestamps to `Asia/Kathmandu` instead of truncating `.take(16)`.
+  - Updated `clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/BillingScreen.kt`, `QuickPushEditBillDialog.kt`, `BillingRepository.kt`, and `BillPdfDownloader.kt` to use `Asia/Kathmandu` + `Locale.US` and `PaymentLedgerHelper.normalizeTimestampForLedger` / `formatShortDateTime`.
+- **Web App (`web-app`)**:
+  - Updated `web-app/src/utils/paymentLedger.ts` (`formatPaymentTimestampKathmandu`) and `web-app/src/utils/medicalDocPrinter.ts` to format UTC ISO payment timestamps in `Asia/Kathmandu` instead of `.slice(0, 16).replace('T', ' ')`.
+
+### Prompt:
 > "i want a complete language change setting like if one changes the language should change everything to nepali" (and "continue")
 
 ### Changes Applied:
