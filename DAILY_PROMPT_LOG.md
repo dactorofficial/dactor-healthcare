@@ -7,6 +7,15 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "trying to export csv file for payment logs it is only giving to copy but not actually generating csv file"
+
+#### Changes Applied:
+1. **Actual `.csv` File Generation & FileProvider Share ([`BillPdfDownloader.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/BillPdfDownloader.kt), [`PaymentLogsScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/PaymentLogsScreen.kt))**:
+   - Added `BillPdfDownloader.downloadAndSharePaymentLogsCsv(...)` which writes a UTF-8 BOM `.csv` file (`Dactor_Payment_Logs_<period>_<timestamp>.csv`) to app downloads + public `MediaStore.Downloads` (Android 10+), shows a saved confirmation toast, and attaches the actual `FileProvider` `content://` URI via `Intent.EXTRA_STREAM` + `ClipData` + `FLAG_GRANT_READ_URI_PERMISSION` instead of plain `Intent.EXTRA_TEXT`.
+
+---
+
+### Prompt:
 > "the time log for payment in bill is wrong check the log through adb right now" / "fix this"
 
 ### Changes Applied:
@@ -54,6 +63,15 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "trying to export csv file for payment logs it is only giving to copy but not actually generating csv file"
+
+#### Changes Applied:
+1. **Actual `.csv` File Generation & FileProvider Share ([`BillPdfDownloader.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/BillPdfDownloader.kt), [`PaymentLogsScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/PaymentLogsScreen.kt))**:
+   - Added `BillPdfDownloader.downloadAndSharePaymentLogsCsv(...)` which writes a UTF-8 BOM `.csv` file (`Dactor_Payment_Logs_<period>_<timestamp>.csv`) to app downloads + public `MediaStore.Downloads` (Android 10+), shows a saved confirmation toast, and attaches the actual `FileProvider` `content://` URI via `Intent.EXTRA_STREAM` + `ClipData` + `FLAG_GRANT_READ_URI_PERMISSION` instead of plain `Intent.EXTRA_TEXT`.
+
+---
+
+### Prompt:
 > "add a button in clinic operational management section to acess patient and billing directory date wise directly and also change the ui"
 
 #### Changes Applied:
@@ -71,6 +89,15 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "trying to export csv file for payment logs it is only giving to copy but not actually generating csv file"
+
+#### Changes Applied:
+1. **Actual `.csv` File Generation & FileProvider Share ([`BillPdfDownloader.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/BillPdfDownloader.kt), [`PaymentLogsScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/PaymentLogsScreen.kt))**:
+   - Added `BillPdfDownloader.downloadAndSharePaymentLogsCsv(...)` which writes a UTF-8 BOM `.csv` file (`Dactor_Payment_Logs_<period>_<timestamp>.csv`) to app downloads + public `MediaStore.Downloads` (Android 10+), shows a saved confirmation toast, and attaches the actual `FileProvider` `content://` URI via `Intent.EXTRA_STREAM` + `ClipData` + `FLAG_GRANT_READ_URI_PERMISSION` instead of plain `Intent.EXTRA_TEXT`.
+
+---
+
+### Prompt:
 > "download through adb"
 
 #### Changes Applied:
@@ -86,6 +113,15 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-26
+
+### Prompt:
+> "trying to export csv file for payment logs it is only giving to copy but not actually generating csv file"
+
+#### Changes Applied:
+1. **Actual `.csv` File Generation & FileProvider Share ([`BillPdfDownloader.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/BillPdfDownloader.kt), [`PaymentLogsScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/PaymentLogsScreen.kt))**:
+   - Added `BillPdfDownloader.downloadAndSharePaymentLogsCsv(...)` which writes a UTF-8 BOM `.csv` file (`Dactor_Payment_Logs_<period>_<timestamp>.csv`) to app downloads + public `MediaStore.Downloads` (Android 10+), shows a saved confirmation toast, and attaches the actual `FileProvider` `content://` URI via `Intent.EXTRA_STREAM` + `ClipData` + `FLAG_GRANT_READ_URI_PERMISSION` instead of plain `Intent.EXTRA_TEXT`.
+
+---
 
 ### Prompt:
 > "generate debug apk clinic"
@@ -107,6 +143,15 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-26
+
+### Prompt:
+> "trying to export csv file for payment logs it is only giving to copy but not actually generating csv file"
+
+#### Changes Applied:
+1. **Actual `.csv` File Generation & FileProvider Share ([`BillPdfDownloader.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/BillPdfDownloader.kt), [`PaymentLogsScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/PaymentLogsScreen.kt))**:
+   - Added `BillPdfDownloader.downloadAndSharePaymentLogsCsv(...)` which writes a UTF-8 BOM `.csv` file (`Dactor_Payment_Logs_<period>_<timestamp>.csv`) to app downloads + public `MediaStore.Downloads` (Android 10+), shows a saved confirmation toast, and attaches the actual `FileProvider` `content://` URI via `Intent.EXTRA_STREAM` + `ClipData` + `FLAG_GRANT_READ_URI_PERMISSION` instead of plain `Intent.EXTRA_TEXT`.
+
+---
 
 ### Prompt:
 > "we need to make a good plan for the quality of the lab report if 1 image is used put it upto 100 kb and in the same way n * 100 kb as per the number of pictures uploaded /plan"
@@ -150,6 +195,15 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "trying to export csv file for payment logs it is only giving to copy but not actually generating csv file"
+
+#### Changes Applied:
+1. **Actual `.csv` File Generation & FileProvider Share ([`BillPdfDownloader.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/BillPdfDownloader.kt), [`PaymentLogsScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/PaymentLogsScreen.kt))**:
+   - Added `BillPdfDownloader.downloadAndSharePaymentLogsCsv(...)` which writes a UTF-8 BOM `.csv` file (`Dactor_Payment_Logs_<period>_<timestamp>.csv`) to app downloads + public `MediaStore.Downloads` (Android 10+), shows a saved confirmation toast, and attaches the actual `FileProvider` `content://` URI via `Intent.EXTRA_STREAM` + `ClipData` + `FLAG_GRANT_READ_URI_PERMISSION` instead of plain `Intent.EXTRA_TEXT`.
+
+---
+
+### Prompt:
 > "/plan why is the expected time a hard coded not dynamic yet for the first patient as well like if the person is the first and the expected time is 6 and if its already 7 it is not supposed to show 6 still solve this make a plan only" & "but you remeber the logic right that if a patient has booked for 9-10 and the current time is in between 8-9 and no patient it will still show time for 9 not the in between time of 8-9"
 
 #### Changes Applied:
@@ -188,6 +242,15 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "trying to export csv file for payment logs it is only giving to copy but not actually generating csv file"
+
+#### Changes Applied:
+1. **Actual `.csv` File Generation & FileProvider Share ([`BillPdfDownloader.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/BillPdfDownloader.kt), [`PaymentLogsScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/PaymentLogsScreen.kt))**:
+   - Added `BillPdfDownloader.downloadAndSharePaymentLogsCsv(...)` which writes a UTF-8 BOM `.csv` file (`Dactor_Payment_Logs_<period>_<timestamp>.csv`) to app downloads + public `MediaStore.Downloads` (Android 10+), shows a saved confirmation toast, and attaches the actual `FileProvider` `content://` URI via `Intent.EXTRA_STREAM` + `ClipData` + `FLAG_GRANT_READ_URI_PERMISSION` instead of plain `Intent.EXTRA_TEXT`.
+
+---
+
+### Prompt:
 > "generate debug apk clinic"
 
 #### Changes Applied:
@@ -207,6 +270,15 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-26
+
+### Prompt:
+> "trying to export csv file for payment logs it is only giving to copy but not actually generating csv file"
+
+#### Changes Applied:
+1. **Actual `.csv` File Generation & FileProvider Share ([`BillPdfDownloader.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/BillPdfDownloader.kt), [`PaymentLogsScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/PaymentLogsScreen.kt))**:
+   - Added `BillPdfDownloader.downloadAndSharePaymentLogsCsv(...)` which writes a UTF-8 BOM `.csv` file (`Dactor_Payment_Logs_<period>_<timestamp>.csv`) to app downloads + public `MediaStore.Downloads` (Android 10+), shows a saved confirmation toast, and attaches the actual `FileProvider` `content://` URI via `Intent.EXTRA_STREAM` + `ClipData` + `FLAG_GRANT_READ_URI_PERMISSION` instead of plain `Intent.EXTRA_TEXT`.
+
+---
 
 ### Prompt:
 > "hey listen check the logs through the adb so i just logged out of clinic and tried to login to doctor it shows that the account is associated with clinic portal but i am trying to log in with the account with doctor account logged in so solve it first gve me plan and the reason of this error i think session id is not getting removed /plan"
@@ -3275,6 +3347,15 @@ epal_payment_security_audit.md](file:///C:/Users/dell/.gemini/antigravity/brain/
 ---
 
 ## 2026-11-26
+
+### Prompt:
+> "trying to export csv file for payment logs it is only giving to copy but not actually generating csv file"
+
+#### Changes Applied:
+1. **Actual `.csv` File Generation & FileProvider Share ([`BillPdfDownloader.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/BillPdfDownloader.kt), [`PaymentLogsScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/PaymentLogsScreen.kt))**:
+   - Added `BillPdfDownloader.downloadAndSharePaymentLogsCsv(...)` which writes a UTF-8 BOM `.csv` file (`Dactor_Payment_Logs_<period>_<timestamp>.csv`) to app downloads + public `MediaStore.Downloads` (Android 10+), shows a saved confirmation toast, and attaches the actual `FileProvider` `content://` URI via `Intent.EXTRA_STREAM` + `ClipData` + `FLAG_GRANT_READ_URI_PERMISSION` instead of plain `Intent.EXTRA_TEXT`.
+
+---
 
 ### Prompt:
 > "generate debug apk  patient"
