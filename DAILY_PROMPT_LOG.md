@@ -7,6 +7,17 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "liaten check logs for clinci app mirrored or dual one i tried to log in the doctor account in it but it just teminated / crashed  the app"
+
+#### Changes Applied:
+1. **ADB Crash Log Diagnosis**:
+   - Inspected `adb logcat -b crash` from device `R9ZY504BE6M` and identified a `StackOverflowError` in `com.dactor.clinic.data.repository.DoctorRepository.getCachedDoctorById(DoctorRepository.kt:138)` triggered upon doctor login (`DoctorDashboardScreen`).
+2. **Clinic App Bugfix ([`DoctorRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/DoctorRepository.kt))**:
+   - Removed the accidental self-recursive `getCachedDoctorById(id) ?:` call on line 138 so `inMem` directly checks `cachedAllDoctors` and `cachedDoctorsByClinic` before falling back to `SharedPreferences`.
+
+---
+
+### Prompt:
 > "listen deploy the admin portal with latest files"
 
 #### Changes Applied:

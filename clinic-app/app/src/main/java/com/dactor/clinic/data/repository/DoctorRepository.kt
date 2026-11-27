@@ -135,7 +135,7 @@ open class DoctorRepository @Inject constructor(
 
     open fun getCachedDoctorById(id: String): Doctor? {
         if (id.isBlank()) return null
-        val inMem = getCachedDoctorById(id) ?: cachedAllDoctors.find { it.id == id } ?: cachedDoctorsByClinic.values.flatten().find { it.id == id }
+        val inMem = cachedAllDoctors.find { it.id == id } ?: cachedDoctorsByClinic.values.flatten().find { it.id == id }
         if (inMem != null) return inMem
         return try {
             val serialized = prefs?.getString("doctor_$id", null) ?: prefs?.getString("last_active_doctor", null)
