@@ -7,6 +7,24 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "listen deploy the admin portal with latest files"
+
+#### Changes Applied:
+1. **Admin Portal Production Build & Compilation Fix ([`admin-panel/src/pages/PayAtDeskSettlements.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/admin-panel/src/pages/PayAtDeskSettlements.tsx))**:
+   - Resolved unused variable compiler warning (`AlertTriangle`) preventing TypeScript strict compilation.
+   - Installed dependencies and successfully built production bundle in `admin-panel/dist` (`tsc && vite build`) generating optimized static assets.
+2. **Automated Remote Sync & Git Tree Integration ([`scripts/push_admin_portal.cjs`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/push_admin_portal.cjs))**:
+   - Upgraded sync script with SHA-1 git blob hash comparison (`computeGitBlobSha`), automatically detecting all 43 new and modified files across `src/`, `public/`, and configuration files.
+   - Pushed commit `0de10fa` to `dactorofficial/admin-portal:main` using active authenticated GitHub credentials.
+3. **GitHub Pages Deployment Verification**:
+   - Monitored GitHub Actions workflow `Deploy Admin Portal to Pages` on `dactorofficial/admin-portal` (Run #45808989270) until completion (`status: completed`, `conclusion: success`).
+   - Verified live site HTTP 200 response from [`https://dactorofficial.github.io/admin-portal/`](https://dactorofficial.github.io/admin-portal/).
+4. **Deploy Script Alignment ([`scripts/deploy_ghpages.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/deploy_ghpages.ps1))**:
+   - Added automatic mirroring of `admin-panel/dist` into `dactorofficial.github.io/admin-portal/` and `dactor/admin-portal/` alongside the main web portal deployment.
+
+---
+
+### Prompt:
 > "trying to export csv file for payment logs it is only giving to copy but not actually generating csv file"
 
 #### Changes Applied:

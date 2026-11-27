@@ -24,6 +24,7 @@ import { LiquidAuroraBackground } from './components/glass'
 import { signOutKeepingData, clearAllAppCache } from './utils/cacheCleaner'
 import { hasChosenInitialLanguage } from './utils/i18n'
 import { LanguageSelectionModal } from './components/LanguageSelectionModal'
+import { MobileAppDownloadDialog } from './components/MobileAppDownloadDialog'
 
 // Helper to normalize tab aliases to canonical router views
 export const normalizeTab = (tab: string): string => {

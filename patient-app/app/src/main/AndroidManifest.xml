@@ -83,6 +83,29 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="dactorpatient" />
             </intent-filter>
+
+            <!-- Verified Android App Links for Clinic Share URLs (https://dactorofficial.github.io/?clinic=...) -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="dactorofficial.github.io"
+                    android:path="/" />
+                <data
+                    android:scheme="https"
+                    android:host="dactorofficial.github.io"
+                    android:pathPrefix="/dactor" />
+            </intent-filter>
+
+            <!-- Custom scheme fallback for direct clinic open -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="dactor" android:host="clinic" />
+            </intent-filter>
         </activity>
 
         <service

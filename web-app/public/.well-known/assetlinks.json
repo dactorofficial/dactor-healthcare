@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.dactor.patient",
+      "sha256_cert_fingerprints": [
+        "71:6E:FA:2D:A6:81:C9:64:7D:9B:39:17:64:53:16:BA:DA:AC:78:32:90:B8:E0:35:8F:0E:69:50:D0:59:05:B0"
+      ]
+    }
+  }
+]

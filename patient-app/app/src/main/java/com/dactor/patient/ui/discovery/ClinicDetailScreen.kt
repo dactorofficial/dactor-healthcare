@@ -197,9 +197,15 @@ fun ClinicDetailScreen(
                         )
                     }
                     IconButton(onClick = {
+                        val shareUrl = "https://dactorofficial.github.io/?clinic=$clinicId"
+                        val locationPart = if (address.isNotBlank()) " ($address)" else ""
                         val shareIntent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, "Check out $clinicName on Dactor Nepal: $address. Book online instantly!")
+                            putExtra(Intent.EXTRA_SUBJECT, "$clinicName — Dactor Nepal")
+                            putExtra(
+                                Intent.EXTRA_TEXT,
+                                "Check out $clinicName$locationPart on Dactor Nepal. Book appointments & track live queue:\n$shareUrl"
+                            )
                         }
                         context.startActivity(Intent.createChooser(shareIntent, "Share Clinic"))
                     }) {

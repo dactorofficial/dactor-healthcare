@@ -47,6 +47,7 @@ class MainActivity : ComponentActivity() {
 
     private val confirmedPaymentTrackingFlow = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     private val pendingTrackerAppointmentFlow = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    private val pendingClinicIdFlow = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
     private var navHostControllerRef: androidx.navigation.NavHostController? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -250,6 +251,8 @@ class MainActivity : ComponentActivity() {
                                 sessionManager = sessionManager,
                                 confirmedPaymentTrackingFlow = confirmedPaymentTrackingFlow,
                                 onConsumeConfirmedPayment = { confirmedPaymentTrackingFlow.value = null },
+                                pendingClinicIdFlow = pendingClinicIdFlow,
+                                onConsumePendingClinic = { pendingClinicIdFlow.value = null },
                                 isOverlayBlockingHome = showFirstLaunchLanguagePrompt
                             )
 
@@ -518,6 +521,21 @@ class MainActivity : ComponentActivity() {
         val uri = intent?.data ?: return
         lifecycleScope.launch(Dispatchers.IO) {
             try {
+                // Handle Clinic Share App Link (https://dactorofficial.github.io/?clinic=... or dactor://clinic?clinic=...)
+                val isDactorWebHost = uri.scheme.equals("https", ignoreCase = true) &&
+                    uri.host.equals("dactorofficial.github.io", ignoreCase = true)
+                val isClinicCustomScheme = uri.scheme.equals("dactor", ignoreCase = true) &&
+                    uri.host.equals("clinic", ignoreCase = true)
+                if (isDactorWebHost || isClinicCustomScheme) {
+                    val sharedClinicId = (uri.getQueryParameter("clinic") ?: uri.getQueryParameter("id"))
+                        ?.trim()
+                        ?.takeIf { it.matches(Regex("^[A-Za-z0-9_-]{4,64}$")) }
+                    if (!sharedClinicId.isNullOrBlank()) {
+                        pendingClinicIdFlow.value = sharedClinicId
+                        return@launch
+                    }
+                }
+
                 // Handle online payment return deep link (eSewa / Khalti / Fonepay / ConnectIPS)
                 if (uri.scheme.equals("dactor", ignoreCase = true) && uri.host.equals("payment-result", ignoreCase = true)) {
                     val apptIdParam = uri.getQueryParameter("appointmentId")

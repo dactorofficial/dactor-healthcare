@@ -38,15 +38,27 @@ fun DactorNavHost(
     sessionManager: com.dactor.patient.data.local.UserSessionManager? = null,
     confirmedPaymentTrackingFlow: kotlinx.coroutines.flow.StateFlow<String?>? = null,
     onConsumeConfirmedPayment: (() -> Unit)? = null,
+    pendingClinicIdFlow: kotlinx.coroutines.flow.StateFlow<String?>? = null,
+    onConsumePendingClinic: (() -> Unit)? = null,
     isOverlayBlockingHome: Boolean = false
 ) {
     val observedConfirmedCode = confirmedPaymentTrackingFlow?.collectAsState()?.value
+    val observedSharedClinicId = pendingClinicIdFlow?.collectAsState()?.value
 
     androidx.compose.runtime.LaunchedEffect(observedConfirmedCode) {
         if (!observedConfirmedCode.isNullOrBlank()) {
             onConsumeConfirmedPayment?.invoke()
             navController.navigate(NavRoutes.AppointmentConfirmed.createRoute(observedConfirmedCode)) {
                 popUpTo(NavRoutes.PatientMain.route) { inclusive = false }
+                launchSingleTop = true
+            }
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(observedSharedClinicId) {
+        if (!observedSharedClinicId.isNullOrBlank()) {
+            onConsumePendingClinic?.invoke()
+            navController.navigate(NavRoutes.ClinicDetail.createRoute(observedSharedClinicId)) {
                 launchSingleTop = true
             }
         }

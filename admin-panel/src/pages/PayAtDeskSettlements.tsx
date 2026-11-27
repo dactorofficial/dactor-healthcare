@@ -18,8 +18,7 @@ import {
   Phone,
   MapPin,
   Info,
-  Wrench,
-  AlertTriangle
+  Wrench
 } from 'lucide-react'
 
 interface PayAtDeskSettlementsProps {

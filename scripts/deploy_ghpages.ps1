@@ -23,6 +23,18 @@ if (Test-Path "$rootTempDir\.git") {
     if (-not (Test-Path $dactorSubDir)) { New-Item -ItemType Directory -Path $dactorSubDir -Force | Out-Null }
     Copy-Item -Path "$distPath\*" -Destination $dactorSubDir -Recurse -Force
 
+    # Mirror admin-panel/dist into /admin-portal/ subfolder for https://dactorofficial.github.io/admin-portal/
+    $adminDist = Resolve-Path "admin-panel/dist" -ErrorAction SilentlyContinue
+    if ($adminDist -and (Test-Path $adminDist)) {
+        $adminSubDir = "$rootTempDir\admin-portal"
+        if (-not (Test-Path $adminSubDir)) { New-Item -ItemType Directory -Path $adminSubDir -Force | Out-Null }
+        Copy-Item -Path "$adminDist\*" -Destination $adminSubDir -Recurse -Force
+        # Also mirror into /dactor/admin-portal/
+        $dactorAdminSubDir = "$dactorSubDir\admin-portal"
+        if (-not (Test-Path $dactorAdminSubDir)) { New-Item -ItemType Directory -Path $dactorAdminSubDir -Force | Out-Null }
+        Copy-Item -Path "$adminDist\*" -Destination $dactorAdminSubDir -Recurse -Force
+    }
+
     Push-Location $rootTempDir
     git config user.name "Dactor AutoDeploy"
     git config user.email "deploy@dactor.health"

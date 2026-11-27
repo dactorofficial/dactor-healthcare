@@ -1,18 +1,25 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const ADMIN_DIR = path.resolve(__dirname, '..', 'admin-panel');
+const TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+
+if (!TOKEN) {
+  console.error('Error: GITHUB_TOKEN environment variable is required to push admin portal.');
+  process.exit(1);
+}
 
 const REPOS = [
   {
     owner: 'dactorofficial',
     repo: 'admin-portal',
-    token: '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'
+    token: TOKEN
   },
   {
     owner: 'rajanpurbe',
     repo: 'dactoradmin',
-    token: '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'
+    token: TOKEN
   }
 ];
 
@@ -31,6 +38,11 @@ function getAllFiles(dir, baseDir = dir) {
     }
   }
   return results;
+}
+
+function computeGitBlobSha(buffer) {
+  const header = `blob ${buffer.length}\0`;
+  return crypto.createHash('sha1').update(header).update(buffer).digest('hex');
 }
 
 async function githubApi(endpoint, token, options = {}) {
@@ -72,54 +84,51 @@ async function pushRepo(target) {
     }
   }
 
-  // 4. Scan all local files and find missing/changed
+  // 4. Scan all local files and find missing or modified by Git SHA
   const allLocal = getAllFiles(ADMIN_DIR);
+  const localRelPaths = new Set();
   const treeItems = [];
 
   for (const f of allLocal) {
+    localRelPaths.add(f.relPath);
     const isBinary = f.relPath.endsWith('.png') || f.relPath.endsWith('.jpg') || f.relPath.endsWith('.ico') || f.relPath.endsWith('.pfx');
-    
-    // Check if remote already has it
-    if (!remoteFilesMap.has(f.relPath)) {
-      console.log(`[NEW / MISSING ON REMOTE]: ${f.relPath}`);
+    const buffer = fs.readFileSync(f.fullPath);
+    const localSha = computeGitBlobSha(buffer);
+    const remoteSha = remoteFilesMap.get(f.relPath);
+
+    if (!remoteSha) {
+      console.log(`[NEW FILE]: ${f.relPath}`);
       if (isBinary) {
-        const buffer = fs.readFileSync(f.fullPath);
         const blobData = await githubApi(`/repos/${target.owner}/${target.repo}/git/blobs`, target.token, {
           method: 'POST',
           body: JSON.stringify({ content: buffer.toString('base64'), encoding: 'base64' })
         });
         treeItems.push({ path: f.relPath, mode: '100644', type: 'blob', sha: blobData.sha });
       } else {
-        const content = fs.readFileSync(f.fullPath, 'utf8');
+        const content = buffer.toString('utf8');
         treeItems.push({ path: f.relPath, mode: '100644', type: 'blob', content });
       }
-    } else {
-      // Check if specifically one of our recently edited files
-      const recentTargets = [
-        'public/checkout.html',
-        'src/App.tsx',
-        'src/pages/Login.tsx',
-        'src/pages/PaymentGateways.tsx',
-        'src/pages/AppVersionManager.tsx',
-        'src/pages/PayAtDeskSettlements.tsx',
-        'src/pages/PaymentLogs.tsx',
-        'src/pages/SupportSettings.tsx',
-        'HANDOFF.md'
-      ];
-      if (recentTargets.includes(f.relPath)) {
-        console.log(`[FORCE SYNC]: ${f.relPath}`);
-        const content = fs.readFileSync(f.fullPath, 'utf8');
+    } else if (remoteSha !== localSha) {
+      console.log(`[MODIFIED]: ${f.relPath} (remote: ${remoteSha.slice(0, 7)}, local: ${localSha.slice(0, 7)})`);
+      if (isBinary) {
+        const blobData = await githubApi(`/repos/${target.owner}/${target.repo}/git/blobs`, target.token, {
+          method: 'POST',
+          body: JSON.stringify({ content: buffer.toString('base64'), encoding: 'base64' })
+        });
+        treeItems.push({ path: f.relPath, mode: '100644', type: 'blob', sha: blobData.sha });
+      } else {
+        const content = buffer.toString('utf8');
         treeItems.push({ path: f.relPath, mode: '100644', type: 'blob', content });
       }
     }
   }
 
   if (treeItems.length === 0) {
-    console.log(`No files need updating on ${target.owner}/${target.repo}.`);
+    console.log(`No files need updating on ${target.owner}/${target.repo}. Everything is 100% up-to-date.`);
     return;
   }
 
-  console.log(`Creating new tree with ${treeItems.length} files...`);
+  console.log(`Creating new tree with ${treeItems.length} changed/new files...`);
   const newTreeData = await githubApi(`/repos/${target.owner}/${target.repo}/git/trees`, target.token, {
     method: 'POST',
     body: JSON.stringify({
@@ -130,7 +139,7 @@ async function pushRepo(target) {
   console.log(`New tree SHA: ${newTreeData.sha}`);
 
   // 5. Create new commit
-  const commitMessage = 'feat: add interactive try demo payment checkout and sandbox testing suite in payment gateways';
+  const commitMessage = 'deploy: sync latest admin portal source files and build configurations';
   console.log(`Creating commit...`);
   const newCommitData = await githubApi(`/repos/${target.owner}/${target.repo}/git/commits`, target.token, {
     method: 'POST',
