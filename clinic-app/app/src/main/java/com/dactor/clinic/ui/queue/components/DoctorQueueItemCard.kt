@@ -34,6 +34,8 @@ fun DoctorQueueItemCard(
     onCallInside: (QueueItemUi) -> Unit,
     onCompleteConsultation: (QueueItemUi) -> Unit,
     onNoShowClick: (QueueItemUi) -> Unit,
+    clinicName: String? = null,
+    onPatientDetailsClick: ((QueueItemUi) -> Unit)? = null,
     onClinicalRxClick: ((String) -> Unit)? = null,
     onMovePosition: ((QueueItemUi, Int) -> Unit)? = null,
     onSendAlertClick: ((QueueItemUi) -> Unit)? = null,
@@ -114,6 +116,22 @@ fun DoctorQueueItemCard(
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF7E22CE),
                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                            if (!clinicName.isNullOrBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Color(0xFFE0F2FE)
+                                ) {
+                                    Text(
+                                        text = clinicName,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFF0369A1),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
                                     )
                                 }
                             }
@@ -388,6 +406,30 @@ fun DoctorQueueItemCard(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
+                        )
+                    }
+                }
+
+                // Full Patient Details button (available for both live & completed items)
+                if (onPatientDetailsClick != null) {
+                    OutlinedButton(
+                        onClick = { onPatientDetailsClick(item) },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF0284C7)),
+                        border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = if (item.status !in listOf("waiting", "inside")) Modifier.weight(1f) else Modifier
+                    ) {
+                        Icon(
+                            Icons.Default.PersonSearch,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (isNepali) "पूर्ण विवरण" else "Full Details",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }

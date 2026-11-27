@@ -126,6 +126,9 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
   const [currentDoctor, setCurrentDoctor] = useState<Doctor | null>(null)
   const [affiliatedClinics, setAffiliatedClinics] = useState<Clinic[]>([])
   const [selectedClinic, setSelectedClinic] = useState<Clinic | null>(null)
+  const [queueClinicFilter, setQueueClinicFilter] = useState<string>('all')
+  const [fullDetailsAppt, setFullDetailsAppt] = useState<Appointment | null>(null)
+  const [fullDetailsTab, setFullDetailsTab] = useState<'overview' | 'history' | 'labs' | 'billing'>('overview')
 
   // Auth / Navigation State Machine
   const [currentView, setCurrentView] = useState<
@@ -1471,11 +1474,11 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
     return map
   }, [clinicSlots])
 
-  // Doctor Live Queue Filtered for selectedQueueDate
+  // Doctor Live Queue Filtered for selectedQueueDate & optional clinic filter
   const queueDateAppointments = useMemo(() => {
     return appointments.filter((a) => {
       if (a.appointmentDate !== selectedQueueDate) return false
-      if (selectedClinic && a.clinicId && a.clinicId !== selectedClinic.id) return false
+      if (queueClinicFilter !== 'all' && a.clinicId && a.clinicId !== queueClinicFilter) return false
       const st = (a.status || '').toUpperCase()
       const isPaidOnlineHealing = st === 'PENDING_PAYMENT' && String(a.paymentStatus || '').toLowerCase() === 'paid' && String(a.paymentMode || '').toUpperCase() === 'ONLINE'
       // Pay at Desk: Strictly exclude unapproved Pay at Desk appointments (WAITING_FOR_APPROVAL)
@@ -1490,7 +1493,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       }
       return true
     })
-  }, [appointments, selectedQueueDate, selectedClinic])
+  }, [appointments, selectedQueueDate, queueClinicFilter])
 
   const liveQueue = useMemo(() => {
     const live = queueDateAppointments.filter(
@@ -1569,6 +1572,41 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
       ).length,
     [liveQueue]
   )
+
+  const clinicQueueGroups = useMemo(() => {
+    const baseClinics =
+      affiliatedClinics.length > 0
+        ? affiliatedClinics
+        : selectedClinic
+        ? [selectedClinic]
+        : []
+    const filteredClinics =
+      queueClinicFilter === 'all'
+        ? baseClinics
+        : baseClinics.filter((c) => c.id === queueClinicFilter)
+
+    const groups = filteredClinics.map((c) => ({
+      clinic: c,
+      live: liveQueue.filter((a) => a.clinicId === c.id),
+      completed: completedQueue.filter((a) => a.clinicId === c.id),
+    }))
+
+    const knownIds = new Set(filteredClinics.map((c) => c.id))
+    const orphanLive = liveQueue.filter((a) => !a.clinicId || !knownIds.has(a.clinicId))
+    const orphanCompleted = completedQueue.filter((a) => !a.clinicId || !knownIds.has(a.clinicId))
+    if (orphanLive.length > 0 || orphanCompleted.length > 0) {
+      groups.push({
+        clinic: {
+          id: 'other',
+          name: selectedClinic?.name || 'Clinic Queue',
+          addressText: selectedClinic?.addressText || '',
+        } as Clinic,
+        live: orphanLive,
+        completed: orphanCompleted,
+      })
+    }
+    return groups
+  }, [affiliatedClinics, selectedClinic, queueClinicFilter, liveQueue, completedQueue])
 
   const waitingCount = useMemo(
     () => liveQueue.filter((a) => a.checkinStatus === 'waiting').length,
@@ -3081,6 +3119,81 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
             </button>
           </div>
 
+          {/* Clinic Filter Pills (All Affiliated Clinics vs Single Clinic) */}
+          {affiliatedClinics.length > 1 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setQueueClinicFilter('all')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                  queueClinicFilter === 'all'
+                    ? 'bg-[#0284C7] text-white border-[#0284C7] shadow-xs'
+                    : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                }`}
+              >
+                All Affiliated Clinics ({affiliatedClinics.length})
+              </button>
+              {affiliatedClinics.map((aff) => (
+                <button
+                  key={aff.id}
+                  type="button"
+                  onClick={() => setQueueClinicFilter(aff.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                    queueClinicFilter === aff.id
+                      ? 'bg-[#0284C7] text-white border-[#0284C7] shadow-xs'
+                      : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                  }`}
+                >
+                  {aff.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Clinic-Form Queue Summary Banner */}
+          {clinicQueueGroups.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {clinicQueueGroups.map((g) => {
+                const gInside = g.live.filter(
+                  (a) => a.checkinStatus === 'in_consultation' || a.checkinStatus === 'inside'
+                ).length
+                const gWaiting = g.live.length - gInside
+                const gDone = g.completed.filter(
+                  (a) => a.checkinStatus === 'completed' || a.checkinStatus === 'done'
+                ).length
+                return (
+                  <div
+                    key={g.clinic.id}
+                    className="bg-sky-50/80 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800/60 rounded-2xl px-4 py-3 flex items-center justify-between gap-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 font-bold text-sm text-sky-950 dark:text-sky-100 truncate">
+                        <Building2 className="w-4 h-4 text-sky-600 shrink-0" />
+                        <span className="truncate">{g.clinic.name}</span>
+                      </div>
+                      {g.clinic.addressText && (
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                          {g.clinic.addressText}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[11px] font-bold shrink-0">
+                      <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
+                        {gInside} In
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300">
+                        {gWaiting} Wait
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                        {gDone} Done
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
           {/* =========================================================
               E & F. PATIENT QUEUE ROWS (Live vs Completed)
               ========================================================= */}
@@ -3148,6 +3261,14 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                                   Walk-in
                                 </span>
                               )}
+                              {(() => {
+                                const cName = affiliatedClinics.find((c) => c.id === appt.clinicId)?.name || selectedClinic?.name
+                                return cName ? (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-800 dark:bg-sky-950/60 dark:text-sky-300">
+                                    {cName}
+                                  </span>
+                                ) : null
+                              })()}
                             </div>
 
                             {/* Demographics + Token / Tracking Code */}
@@ -3306,6 +3427,20 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                             <span>{strings.callNextPatient}</span>
                           </button>
                         )}
+
+                        {/* Full Patient Details */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFullDetailsTab('overview')
+                            setFullDetailsAppt(appt)
+                          }}
+                          className="py-2 px-3 rounded-xl border border-sky-200 dark:border-sky-800 bg-sky-50/70 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/50 text-xs font-bold transition-colors cursor-pointer flex items-center space-x-1 active:scale-[0.98]"
+                          title="View Complete Patient Details"
+                        >
+                          <User className="w-3.5 h-3.5" />
+                          <span>{isNe ? 'पूर्ण विवरण' : 'Full Details'}</span>
+                        </button>
 
                         {/* Patient Past History */}
                         <button
@@ -3492,7 +3627,19 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
                         </div>
                       </div>
 
-                      <div className="flex items-center space-x-2 shrink-0">
+                      <div className="flex items-center space-x-2 shrink-0 flex-wrap gap-y-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFullDetailsTab('overview')
+                            setFullDetailsAppt(c)
+                          }}
+                          className="py-1.5 px-3 rounded-xl border border-sky-200 dark:border-sky-800 bg-sky-50/70 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/50 text-xs font-bold transition-colors cursor-pointer flex items-center space-x-1"
+                        >
+                          <User className="w-3.5 h-3.5" />
+                          <span>Full Details</span>
+                        </button>
+
                         <button
                           type="button"
                           onClick={() => handleOpenPatientHistory(c.patientName)}
@@ -4519,6 +4666,187 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({ onLogout }) => {
           </div>
         </div>
       )}
+      {/* =========================================================
+          FULL PATIENT DETAILS MODAL (Demographics, Rx, History, Labs, Billing)
+          ========================================================= */}
+      {fullDetailsAppt && (() => {
+        const appt = fullDetailsAppt
+        const apptClinic = affiliatedClinics.find((c) => c.id === appt.clinicId) || selectedClinic
+        const patientVisits = appointments.filter(
+          (a) =>
+            (appt.trackingCode10Digit && a.trackingCode10Digit === appt.trackingCode10Digit) ||
+            (a.patientName?.trim().toLowerCase() === appt.patientName?.trim().toLowerCase() &&
+              (!appt.patientMobile || !a.patientMobile || a.patientMobile === appt.patientMobile))
+        )
+        const isInside = appt.checkinStatus === 'in_consultation' || appt.checkinStatus === 'inside'
+        const isWaiting = appt.checkinStatus === 'waiting'
+        const totalAmt = appt.totalAmount && appt.totalAmount > 0 ? appt.totalAmount : appt.feeAmount || 0
+        const paidAmt = appt.paymentStatus === 'paid' ? totalAmt : 0
+        const dueAmt = Math.max(0, totalAmt - paidAmt)
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-2xl w-full max-h-[88vh] flex flex-col shadow-2xl overflow-hidden">
+              <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+                      {appt.patientName}
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300 uppercase">
+                      {appt.checkinStatus || appt.status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {appt.patientAge ? `${appt.patientAge} yrs • ` : ''}
+                    {appt.patientGender ? `${appt.patientGender} • ` : ''}
+                    {appt.patientMobile ? `${appt.patientMobile} • ` : ''}
+                    Code #{appt.trackingCode10Digit}
+                  </p>
+                  <p className="text-xs font-semibold text-teal-700 dark:text-teal-400 flex items-center gap-1">
+                    <Building2 className="w-3.5 h-3.5" />
+                    <span>{apptClinic?.name || 'Clinic'}</span>
+                    {apptClinic?.addressText ? <span className="text-slate-400 font-normal">({apptClinic.addressText})</span> : null}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFullDetailsAppt(null)}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="px-4 sm:px-5 pt-3 border-b border-slate-200 dark:border-slate-800 flex items-center gap-4 overflow-x-auto">
+                {(['overview', 'history', 'labs', 'billing'] as const).map((tabKey) => (
+                  <button
+                    key={tabKey}
+                    type="button"
+                    onClick={() => setFullDetailsTab(tabKey)}
+                    className={`pb-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer capitalize ${
+                      fullDetailsTab === tabKey
+                        ? 'border-sky-600 text-sky-600 dark:text-sky-400'
+                        : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    {tabKey === 'overview' ? 'Overview & Rx' : tabKey === 'history' ? `Visit History (${patientVisits.length})` : tabKey === 'labs' ? 'Lab Tests' : 'Billing'}
+                  </button>
+                ))}
+              </div>
+
+              <div className="p-4 sm:p-5 overflow-y-auto space-y-3 text-sm flex-1">
+                {fullDetailsTab === 'overview' && (
+                  <>
+                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-1">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Appointment &amp; Slot</div>
+                      <div className="font-semibold text-slate-900 dark:text-white">
+                        {appt.appointmentDate} {appt.appointmentTime ? `• ${appt.appointmentTime}` : ''}
+                      </div>
+                      <div className="text-xs text-slate-600 dark:text-slate-300">
+                        Visit Type: {appt.visitType === 'follow_up' || (appt.attemptNumber && appt.attemptNumber > 1) ? 'Follow-Up' : 'New Visit'}
+                        {appt.isWalkin ? ' (Walk-in)' : ''}
+                      </div>
+                    </div>
+                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-1">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Clinical Notes / Remarks</div>
+                      <div className="text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
+                        {appt.notes || 'No clinical notes recorded yet.'}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {fullDetailsTab === 'history' && (
+                  <div className="space-y-2.5">
+                    {patientVisits.map((v) => {
+                      const vClinic = affiliatedClinics.find((c) => c.id === v.clinicId)
+                      return (
+                        <div key={v.id} className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                          <div className="flex items-center justify-between text-xs font-bold">
+                            <span>{vClinic?.name || apptClinic?.name || 'Clinic'}</span>
+                            <span className="text-slate-500">{v.appointmentDate} {v.appointmentTime || ''}</span>
+                          </div>
+                          <div className="text-xs text-slate-600 dark:text-slate-300 mt-1">
+                            Status: <span className="font-semibold">{v.checkinStatus || v.status}</span>
+                            {v.notes ? ` • ${v.notes}` : ''}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {fullDetailsTab === 'labs' && (
+                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Selected Lab Tests</div>
+                    <div className="text-xs text-slate-800 dark:text-slate-200">
+                      {appt.selectedLabTests || 'No lab tests requested for this visit.'}
+                    </div>
+                  </div>
+                )}
+
+                {fullDetailsTab === 'billing' && (
+                  <div className="grid grid-cols-3 gap-2.5 text-center">
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                      <div className="text-[11px] text-slate-500">Total Bill</div>
+                      <div className="font-bold text-slate-900 dark:text-white">Rs. {totalAmt}</div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                      <div className="text-[11px] text-slate-500">Paid</div>
+                      <div className="font-bold text-emerald-600">Rs. {paidAmt}</div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
+                      <div className="text-[11px] text-slate-500">Balance Due</div>
+                      <div className={`font-bold ${dueAmt > 0 ? 'text-rose-600' : 'text-slate-900 dark:text-white'}`}>Rs. {dueAmt}</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/80 flex items-center justify-between gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFullDetailsAppt(null)
+                    handleOpenPrescriptionModal(appt)
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold cursor-pointer flex items-center gap-1.5"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Write Rx &amp; Complete</span>
+                </button>
+                <div className="flex items-center gap-2">
+                  {isWaiting && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleMarkInsideCabin(appt)
+                        setFullDetailsAppt(null)
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-[#0284C7] hover:bg-[#0369A1] text-white text-xs font-bold cursor-pointer"
+                    >
+                      Call Inside
+                    </button>
+                  )}
+                  {isInside && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleMarkCompleted(appt)
+                        setFullDetailsAppt(null)
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-[#16A34A] hover:bg-[#15803D] text-white text-xs font-bold cursor-pointer"
+                    >
+                      Mark Completed
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

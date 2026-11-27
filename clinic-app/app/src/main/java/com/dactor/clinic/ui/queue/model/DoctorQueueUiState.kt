@@ -1,14 +1,29 @@
 package com.dactor.clinic.ui.queue.model
 
+import com.dactor.clinic.data.model.Clinic
 import com.dactor.clinic.ui.queue.QueueItemUi
 import java.time.LocalDate
+
+data class ClinicQueueGroup(
+    val clinicId: String,
+    val clinicName: String,
+    val clinicAddress: String = "",
+    val isOnBreak: Boolean = false,
+    val liveQueue: List<QueueItemUi> = emptyList(),
+    val completedQueue: List<QueueItemUi> = emptyList()
+)
 
 data class DoctorQueueUiState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
     val doctorId: String = "",
     val clinicId: String = "",
+    val clinicName: String = "",
+    val clinicAddress: String = "",
     val doctorName: String = "",
+    val affiliatedClinics: List<Clinic> = emptyList(),
+    val selectedFilterClinicId: String? = null, // null = All Affiliated Clinics
+    val clinicGroups: List<ClinicQueueGroup> = emptyList(),
     val currentDate: LocalDate = LocalDate.now(),
     val selectedDate: String = LocalDate.now().toString(),
     val selectedTab: Int = 0, // 0: Live, 1: Completed

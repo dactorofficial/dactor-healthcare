@@ -7,6 +7,22 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "in doctor portal is the live queue arranged in clinic form ? it should show clinic name and could check patients whole details through that /plan" -> "proceed with it"
+
+#### Changes Applied:
+1. **Android Clinic App (`clinic-app`)**:
+   - [`DoctorQueueUiState.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/model/DoctorQueueUiState.kt): Added `ClinicQueueGroup` data class and `clinicName`, `clinicAddress`, `affiliatedClinics`, `selectedFilterClinicId`, and `clinicGroups` fields to `DoctorQueueUiState`.
+   - [`DoctorQueueViewModel.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/DoctorQueueViewModel.kt): Resolved clinic metadata and affiliated clinics in `initialize`, added `setFilterClinicId`, and grouped `getFastDoctorLiveQueue` per affiliated clinic into `clinicGroups`.
+   - [`DoctorQueueItemCard.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/components/DoctorQueueItemCard.kt): Added optional `clinicName` badge and a **Full Details** button (`onPatientDetailsClick`) for both live and completed queue cards.
+   - [`DoctorQueueScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/DoctorQueueScreen.kt): Added clinic name to the top bar subtitle, clinic filter chips (`All Clinics` vs individual clinic), `ClinicGroupHeaderCard` per clinic (`Inside / Wait / Done` counts + address), and wired `onPatientDetailsClick` to `NavRoutes.PatientDetail`.
+   - [`DoctorDashboardScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/dashboard/DoctorDashboardScreen.kt): Added active clinic name badge on the Active Patient Consultation card and made "Next Patients in Queue" rows clickable to open `NavRoutes.PatientDetail`.
+2. **Web Portal (`web-app`)**:
+   - [`DoctorPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/DoctorPortal.tsx): Added `All Affiliated Clinics` vs single-clinic filter pills, clinic-form summary cards (`Clinic Name`, address, `In / Wait / Done` counts), clinic name badges on patient cards, and a **Full Details** modal (`Overview & Rx`, `Visit History`, `Lab Tests`, `Billing`, plus `Call Inside` / `Mark Completed` / `Write Rx & Complete` actions).
+   - Built `web-app` (`tsc && vite build`) and deployed live to `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/`.
+
+---
+
+### Prompt:
 > "also check the logic that live queue of different doctor will not get messed up"
 
 #### Changes Applied:

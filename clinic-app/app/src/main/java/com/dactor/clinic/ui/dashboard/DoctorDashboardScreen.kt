@@ -1179,11 +1179,31 @@ fun DoctorDashboardScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = if (activeAppointment != null) "Active Patient Consultation" else "Doctor Cabin Free / Ready",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = if (activeAppointment != null) "Active Patient Consultation" else "Doctor Cabin Free / Ready",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
+                            if (!clinic?.name.isNullOrBlank()) {
+                                Surface(
+                                    color = Color(0xFFE0F2FE),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        text = clinic?.name.orEmpty(),
+                                        color = Color(0xFF0369A1),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 10.sp,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
                         if (activeAppointment != null) {
                             Surface(
                                 color = Color(0xFFDBEAFE),
@@ -1377,14 +1397,21 @@ fun DoctorDashboardScreen(
                                         color = Color(0xFFF8FAFC),
                                         shape = RoundedCornerShape(8.dp),
                                         border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                                        modifier = Modifier.fillMaxWidth()
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                val code = waitAppt.trackingCode10Digit.ifBlank { waitAppt.id }
+                                                if (code.isNotBlank()) {
+                                                    navController.navigate("${NavRoutes.PatientDetail}/$code")
+                                                }
+                                            }
                                     ) {
                                         Row(
                                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f)) {
                                                 Surface(shape = CircleShape, color = Color(0xFF3B82F6), modifier = Modifier.size(20.dp)) {
                                                     Box(contentAlignment = Alignment.Center) {
                                                         Text("#${idx + 1}", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -1392,12 +1419,20 @@ fun DoctorDashboardScreen(
                                                 }
                                                 Text(waitAppt.patientName, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                             }
-                                            Text(
-                                                text = if (waitAppt.appointmentTime.isNotBlank()) "Slot: ${waitAppt.appointmentTime}" else "Waiting in Lobby",
-                                                fontSize = 11.sp,
-                                                color = Color(0xFF0284C7),
-                                                fontWeight = FontWeight.Medium
-                                            )
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Text(
+                                                    text = if (waitAppt.appointmentTime.isNotBlank()) "Slot: ${waitAppt.appointmentTime}" else "Waiting in Lobby",
+                                                    fontSize = 11.sp,
+                                                    color = Color(0xFF0284C7),
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                                Icon(
+                                                    Icons.Default.ChevronRight,
+                                                    contentDescription = "Patient Details",
+                                                    tint = Color(0xFF64748B),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }

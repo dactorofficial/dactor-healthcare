@@ -3,9 +3,12 @@ package com.dactor.clinic.ui.queue
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -55,9 +58,17 @@ fun DoctorQueueScreen(
                             fontSize = 18.sp
                         )
                         val uiState by viewModel.uiState.collectAsState()
-                        if (uiState.doctorName.isNotBlank()) {
+                        val subtitleParts = buildList {
+                            if (uiState.doctorName.isNotBlank()) add("Dr. ${uiState.doctorName}")
+                            if (uiState.selectedFilterClinicId == null && uiState.affiliatedClinics.size > 1) {
+                                add("All Affiliated Clinics (${uiState.affiliatedClinics.size})")
+                            } else if (uiState.clinicName.isNotBlank()) {
+                                add(uiState.clinicName)
+                            }
+                        }
+                        if (subtitleParts.isNotEmpty()) {
                             Text(
-                                text = "Dr. ${uiState.doctorName}",
+                                text = subtitleParts.joinToString(" • "),
                                 fontSize = 12.sp,
                                 color = Color(0xFF64748B)
                             )
@@ -228,6 +239,45 @@ fun DoctorLiveQueueContent(
                 )
             }
 
+            // 2b. Affiliated Clinic Filter Pills (when practicing at multiple clinics)
+            if (uiState.affiliatedClinics.size > 1) {
+                item(key = "clinic_filter_pills") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val isAll = uiState.selectedFilterClinicId == null
+                        FilterChip(
+                            selected = isAll,
+                            onClick = { viewModel.setFilterClinicId(null) },
+                            label = {
+                                Text(
+                                    text = "All Clinics (${uiState.affiliatedClinics.size})",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        )
+                        uiState.affiliatedClinics.forEach { aff ->
+                            val selected = uiState.selectedFilterClinicId == aff.id
+                            FilterChip(
+                                selected = selected,
+                                onClick = { viewModel.setFilterClinicId(aff.id) },
+                                label = {
+                                    Text(
+                                        text = aff.name,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
             // 3. Overloaded Slots Warning Banner (if any slot exceeds capacity)
             if (uiState.overloadedSlots.isNotEmpty()) {
                 item(key = "overloaded_banner") {
@@ -284,88 +334,143 @@ fun DoctorLiveQueueContent(
                 )
             }
 
-            // 5. Patient Queue Items
+            // 5. Clinic-Grouped Patient Queue Items
+            val groupsToRender = uiState.clinicGroups.ifEmpty {
+                listOf(
+                    com.dactor.clinic.ui.queue.model.ClinicQueueGroup(
+                        clinicId = uiState.clinicId,
+                        clinicName = uiState.clinicName.ifBlank { "Active Clinic Queue" },
+                        clinicAddress = uiState.clinicAddress,
+                        isOnBreak = uiState.isClinicOnBreak,
+                        liveQueue = uiState.liveQueue,
+                        completedQueue = uiState.completedQueue
+                    )
+                )
+            }
+            val openPatientDetails: (QueueItemUi) -> Unit = { targetItem ->
+                val code = targetItem.trackingCode.ifBlank { targetItem.appointmentId }
+                if (code.isNotBlank()) {
+                    navController.navigate("${com.dactor.clinic.ui.navigation.NavRoutes.PatientDetail}/$code")
+                }
+            }
+
             if (uiState.selectedTab == 0) {
-                // Live Queue
-                if (uiState.liveQueue.isEmpty() && !uiState.isLoading) {
+                // Live Queue arranged in Clinic Form
+                val hasAnyLive = groupsToRender.any { it.liveQueue.isNotEmpty() }
+                if (!hasAnyLive && !uiState.isLoading) {
                     item(key = "empty_live") {
                         EmptyQueueView(message = "No waiting patients in queue for this date.")
                     }
                 } else {
-                    itemsIndexed(
-                        items = uiState.liveQueue,
-                        key = { _, item -> item.id }
-                    ) { index, item ->
-                        val slotRatio = uiState.overloadedSlots[item.appointmentTime]?.let { "${it.first}/${it.second}" }
-                        val isOverloaded = slotRatio != null
-
-                        DoctorQueueItemCard(
-                            item = item,
-                            index = index,
-                            isExpanded = expandedItemId == item.id,
-                            onCardClick = {
-                                expandedItemId = if (expandedItemId == item.id) null else item.id
-                            },
-                            currentEpochSecond = if (item.status == "inside") currentEpochSecond else 0L,
-                            slotCapacityRatio = slotRatio,
-                            isSlotOverloaded = isOverloaded,
-                            onCallInside = { targetItem ->
-                                viewModel.startConsultation(targetItem)
-                            },
-                            onCompleteConsultation = { targetItem ->
-                                viewModel.completeConsultation(targetItem)
-                            },
-                            onNoShowClick = { targetItem ->
-                                viewModel.holdOrSkip(targetItem, newStatus = "no_show")
-                            },
-                            onMovePosition = { targetItem, step ->
-                                val curIndex = uiState.liveQueue.indexOfFirst { it.id == targetItem.id }
-                                val newIndex = (curIndex + step).coerceIn(0, uiState.liveQueue.size - 1)
-                                if (curIndex != newIndex && curIndex >= 0) {
-                                    val reordered = uiState.liveQueue.toMutableList()
-                                    val removed = reordered.removeAt(curIndex)
-                                    reordered.add(newIndex, removed)
-                                    viewModel.reorderQueue(reordered)
-                                }
-                            },
-                            cooldownUntilEpoch = uiState.alertCooldownUntilEpoch[item.id],
-                            isSendingAlert = uiState.inFlightAlerts.contains(item.id),
-                            alertSentBadge = uiState.alertSentBadges[item.id],
-                            onWalkInAlertClick = { targetItem ->
-                                pendingAlertConfirmation = targetItem to "arrive_soon"
-                            },
-                            onCallInAlertClick = { targetItem ->
-                                pendingAlertConfirmation = targetItem to "call_inside"
-                            },
-                            onSendAlertClick = { targetItem ->
-                                pendingAlertConfirmation = targetItem to "arrive_soon"
+                    groupsToRender.forEach { group ->
+                        item(key = "clinic_header_live_${group.clinicId}") {
+                            ClinicGroupHeaderCard(
+                                clinicName = group.clinicName,
+                                clinicAddress = group.clinicAddress,
+                                insideCount = group.liveQueue.count { it.status == "inside" },
+                                waitingCount = group.liveQueue.count { it.status == "waiting" },
+                                completedCount = group.completedQueue.count { it.status == "done" || it.status == "report_prepared" }
+                            )
+                        }
+                        if (group.liveQueue.isEmpty()) {
+                            item(key = "clinic_empty_live_${group.clinicId}") {
+                                EmptyQueueView(message = "No waiting patients at ${group.clinicName} for this date.")
                             }
-                        )
+                        } else {
+                            itemsIndexed(
+                                items = group.liveQueue,
+                                key = { _, item -> "live_${group.clinicId}_${item.id}" }
+                            ) { index, item ->
+                                val slotRatio = uiState.overloadedSlots[item.appointmentTime]?.let { "${it.first}/${it.second}" }
+                                val isOverloaded = slotRatio != null
+
+                                DoctorQueueItemCard(
+                                    item = item,
+                                    index = index,
+                                    isExpanded = expandedItemId == item.id,
+                                    onCardClick = {
+                                        expandedItemId = if (expandedItemId == item.id) null else item.id
+                                    },
+                                    currentEpochSecond = if (item.status == "inside") currentEpochSecond else 0L,
+                                    slotCapacityRatio = slotRatio,
+                                    isSlotOverloaded = isOverloaded,
+                                    clinicName = if (groupsToRender.size > 1) group.clinicName else null,
+                                    onPatientDetailsClick = openPatientDetails,
+                                    onCallInside = { targetItem ->
+                                        viewModel.startConsultation(targetItem)
+                                    },
+                                    onCompleteConsultation = { targetItem ->
+                                        viewModel.completeConsultation(targetItem)
+                                    },
+                                    onNoShowClick = { targetItem ->
+                                        viewModel.holdOrSkip(targetItem, newStatus = "no_show")
+                                    },
+                                    onMovePosition = { targetItem, step ->
+                                        val curIndex = group.liveQueue.indexOfFirst { it.id == targetItem.id }
+                                        val newIndex = (curIndex + step).coerceIn(0, group.liveQueue.size - 1)
+                                        if (curIndex != newIndex && curIndex >= 0) {
+                                            val reordered = group.liveQueue.toMutableList()
+                                            val removed = reordered.removeAt(curIndex)
+                                            reordered.add(newIndex, removed)
+                                            viewModel.reorderQueue(reordered)
+                                        }
+                                    },
+                                    cooldownUntilEpoch = uiState.alertCooldownUntilEpoch[item.id],
+                                    isSendingAlert = uiState.inFlightAlerts.contains(item.id),
+                                    alertSentBadge = uiState.alertSentBadges[item.id],
+                                    onWalkInAlertClick = { targetItem ->
+                                        pendingAlertConfirmation = targetItem to "arrive_soon"
+                                    },
+                                    onCallInAlertClick = { targetItem ->
+                                        pendingAlertConfirmation = targetItem to "call_inside"
+                                    },
+                                    onSendAlertClick = { targetItem ->
+                                        pendingAlertConfirmation = targetItem to "arrive_soon"
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             } else {
-                // Completed Queue
-                if (uiState.completedQueue.isEmpty() && !uiState.isLoading) {
+                // Completed Queue arranged in Clinic Form
+                val hasAnyCompleted = groupsToRender.any { it.completedQueue.isNotEmpty() }
+                if (!hasAnyCompleted && !uiState.isLoading) {
                     item(key = "empty_completed") {
                         EmptyQueueView(message = "No completed consultations for this date.")
                     }
                 } else {
-                    itemsIndexed(
-                        items = uiState.completedQueue,
-                        key = { _, item -> item.id }
-                    ) { index, item ->
-                        DoctorQueueItemCard(
-                            item = item,
-                            index = index,
-                            isExpanded = expandedItemId == item.id,
-                            onCardClick = {
-                                expandedItemId = if (expandedItemId == item.id) null else item.id
-                            },
-                            currentEpochSecond = if (item.status == "inside") currentEpochSecond else 0L,
-                            onCallInside = {},
-                            onCompleteConsultation = {},
-                            onNoShowClick = {}
-                        )
+                    groupsToRender.forEach { group ->
+                        if (group.completedQueue.isNotEmpty()) {
+                            item(key = "clinic_header_done_${group.clinicId}") {
+                                ClinicGroupHeaderCard(
+                                    clinicName = group.clinicName,
+                                    clinicAddress = group.clinicAddress,
+                                    insideCount = group.liveQueue.count { it.status == "inside" },
+                                    waitingCount = group.liveQueue.count { it.status == "waiting" },
+                                    completedCount = group.completedQueue.count { it.status == "done" || it.status == "report_prepared" }
+                                )
+                            }
+                            itemsIndexed(
+                                items = group.completedQueue,
+                                key = { _, item -> "done_${group.clinicId}_${item.id}" }
+                            ) { index, item ->
+                                DoctorQueueItemCard(
+                                    item = item,
+                                    index = index,
+                                    isExpanded = expandedItemId == item.id,
+                                    onCardClick = {
+                                        expandedItemId = if (expandedItemId == item.id) null else item.id
+                                    },
+                                    currentEpochSecond = if (item.status == "inside") currentEpochSecond else 0L,
+                                    clinicName = if (groupsToRender.size > 1) group.clinicName else null,
+                                    onPatientDetailsClick = openPatientDetails,
+                                    onCallInside = {},
+                                    onCompleteConsultation = {},
+                                    onNoShowClick = {}
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -419,6 +524,87 @@ fun DoctorLiveQueueContent(
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(color = Color(0xFF0284C7))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClinicGroupHeaderCard(
+    clinicName: String,
+    clinicAddress: String,
+    insideCount: Int,
+    waitingCount: Int,
+    completedCount: Int
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFFF0F9FF),
+        border = BorderStroke(1.dp, Color(0xFFBAE6FD)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    Icons.Default.LocalHospital,
+                    contentDescription = null,
+                    tint = Color(0xFF0284C7),
+                    modifier = Modifier.size(18.dp)
+                )
+                Column {
+                    Text(
+                        text = clinicName,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.5.sp,
+                        color = Color(0xFF0C4A6E)
+                    )
+                    if (clinicAddress.isNotBlank()) {
+                        Text(
+                            text = clinicAddress,
+                            fontSize = 11.sp,
+                            color = Color(0xFF475569)
+                        )
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFDCFCE7)) {
+                    Text(
+                        text = "$insideCount In",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF15803D),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+                Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFE0F2FE)) {
+                    Text(
+                        text = "$waitingCount Wait",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0369A1),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+                Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFF1F5F9)) {
+                    Text(
+                        text = "$completedCount Done",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF475569),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
             }
         }
     }
