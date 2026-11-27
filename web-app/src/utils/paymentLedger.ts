@@ -279,6 +279,38 @@ export function extractProviderReference(rawRemarks?: string | null): string | u
   return m?.[1]?.trim() || undefined
 }
 
+export function formatPaymentTimestampKathmandu(raw?: string | null): string {
+  if (!raw) {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kathmandu',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date())
+  }
+  const trimmed = String(raw).trim()
+  if (!trimmed) return 'Recorded'
+  if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed)) {
+    const d = new Date(trimmed)
+    if (!Number.isNaN(d.getTime())) {
+      const dateStr = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kathmandu',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(d)
+      const timeStr = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Kathmandu',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      }).format(d)
+      return `${dateStr} ${timeStr}`
+    }
+  }
+  return trimmed.replace('T', ' ')
+}
+
 export function parsePaymentRecords(
   rawRemarks?: string | null,
   fallbackPaidAmount = 0,
@@ -295,7 +327,7 @@ export function parsePaymentRecords(
           return parsed.map((item: any) => ({
             id: item.id || undefined,
             amount: Number(item.amount || 0),
-            dateTime: item.dateTime || item.date_time || 'Recorded',
+            dateTime: formatPaymentTimestampKathmandu(item.dateTime || item.date_time) || 'Recorded',
             note: item.note || 'Payment Received',
             paymentMethod: item.paymentMethod || item.payment_method || inferPaymentMethodFromText(item.note, undefined, fallbackMethod || 'CASH'),
             referenceId: item.referenceId || item.reference_id || undefined,
@@ -317,7 +349,7 @@ export function parsePaymentRecords(
           return parsed.map((item: any) => ({
             id: item.id || undefined,
             amount: Number(item.amount || 0),
-            dateTime: item.dateTime || item.date_time || 'Recorded',
+            dateTime: formatPaymentTimestampKathmandu(item.dateTime || item.date_time) || 'Recorded',
             note: item.note || 'Payment Received',
             paymentMethod: item.paymentMethod || item.payment_method || inferPaymentMethodFromText(item.note, undefined, fallbackMethod || 'CASH'),
             referenceId: item.referenceId || item.reference_id || undefined,
@@ -331,7 +363,7 @@ export function parsePaymentRecords(
   }
 
   if (fallbackPaidAmount > 0) {
-    const dStr = fallbackDate ? fallbackDate.slice(0, 16).replace('T', ' ') : new Date().toISOString().slice(0, 10)
+    const dStr = formatPaymentTimestampKathmandu(fallbackDate)
     const inferredMethod = inferPaymentMethodFromText(rawRemarks, undefined, fallbackMethod || 'CASH')
     const refId = extractProviderReference(rawRemarks)
     const cleanNote = rawRemarks && /paid\s+via|esewa|khalti|fonepay|connectips|desk/i.test(rawRemarks)
@@ -1531,10 +1563,13 @@ export function computeCombinedBillingSummary(
         ? visitTotal
         : 0
       if (synthPaid > 0) {
+        const rawStamp = inv?.paidAt || v.approvedAt
         allPayments.push({
           id: `pay_${v.id}`,
           amount: synthPaid,
-          dateTime: String(inv?.paidAt || v.approvedAt || `${v.appointmentDate || ''} ${v.appointmentTime || '10:00 AM'}`).slice(0, 16).replace('T', ' '),
+          dateTime: rawStamp
+            ? formatPaymentTimestampKathmandu(rawStamp)
+            : `${v.appointmentDate || ''} ${v.appointmentTime || '10:00 AM'}`.trim(),
           note: isPad ? 'Pay at Desk Collection' : 'Consultation Payment',
         })
       }

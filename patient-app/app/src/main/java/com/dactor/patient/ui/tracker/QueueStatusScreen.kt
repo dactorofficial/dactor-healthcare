@@ -3051,7 +3051,7 @@ fun QueueStatusScreen(
                                             ) {
                                                 Column(modifier = Modifier.weight(1f)) {
                                                     Text(
-                                                        text = p.dateTime,
+                                                        text = com.dactor.patient.util.PaymentLedgerHelper.formatDisplayDateTime(p.dateTime),
                                                         fontSize = 11.sp,
                                                         fontWeight = FontWeight.SemiBold,
                                                         color = Color(0xFF0F172A)

@@ -262,7 +262,7 @@ fun QuickPushEditBillDialog(
                     if (!isFollowUp && appt.paymentStatus.equals("paid", ignoreCase = true) && existingApptFee > 0.0) {
                         val rawStamp = appt.approvedAt?.takeIf { it.isNotBlank() } ?: appt.createdAt?.takeIf { it.isNotBlank() }
                         val payStamp = if (!rawStamp.isNullOrBlank()) {
-                            if (rawStamp.length >= 16) rawStamp.substring(0, 16).replace("T", " ") else rawStamp.replace("T", " ")
+                            PaymentLedgerHelper.normalizeTimestampForLedger(rawStamp)
                         } else {
                             "${appt.appointmentDate} ${appt.appointmentTime.ifBlank { "10:00 AM" }}"
                         }

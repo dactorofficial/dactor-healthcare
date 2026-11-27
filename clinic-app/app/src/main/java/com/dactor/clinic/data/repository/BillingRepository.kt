@@ -333,7 +333,8 @@ class BillingRepository @Inject constructor(
             val safeNewPayment = newPaymentAmount.coerceAtLeast(0.0)
             val updatedPayments = if (safeNewPayment > 0.0) {
                 val cleanTime = paymentDateTime.trim().ifBlank {
-                    java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd hh:mm a"))
+                    java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Kathmandu"))
+                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd hh:mm a", java.util.Locale.US))
                 }
                 existingPayments + com.dactor.clinic.data.model.PaymentRecord(
                     amount = safeNewPayment,
@@ -392,8 +393,9 @@ class BillingRepository @Inject constructor(
     ): BillingInvoice? = withContext(Dispatchers.IO) {
         try {
             val safePaid = paidAmount.coerceAtLeast(0.0)
-            val cleanDate = paymentDate.trim().ifBlank { java.time.LocalDate.now().toString() }
-            val currentTime = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a"))
+            val nepalZone = java.time.ZoneId.of("Asia/Kathmandu")
+            val cleanDate = paymentDate.trim().ifBlank { java.time.LocalDate.now(nepalZone).toString() }
+            val currentTime = java.time.LocalTime.now(nepalZone).format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a", java.util.Locale.US))
             val timeFormatted = "$cleanDate $currentTime"
             val existing = getInvoiceByAppointment(appointment.id)
             val cleanRemarks = com.dactor.clinic.domain.util.PaymentLedgerHelper.extractCleanClinicalRemarks(existing?.remarks)

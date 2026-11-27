@@ -4844,7 +4844,7 @@ fun RecordsTab(
                                                         ) {
                                                             Column(modifier = Modifier.weight(1f)) {
                                                                 Text(
-                                                                    text = p.dateTime,
+                                                                    text = com.dactor.patient.util.PaymentLedgerHelper.formatDisplayDateTime(p.dateTime),
                                                                     fontSize = 10.5.sp,
                                                                     fontWeight = FontWeight.SemiBold,
                                                                     color = Color(0xFF0F172A)
@@ -8278,7 +8278,7 @@ fun PatientRecordDetailDialog(
                                                         verticalAlignment = Alignment.CenterVertically
                                                     ) {
                                                         Column(modifier = Modifier.weight(1f)) {
-                                                            Text(p.dateTime, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF0F172A))
+                                                            Text(com.dactor.patient.util.PaymentLedgerHelper.formatDisplayDateTime(p.dateTime), fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF0F172A))
                                                             if (!p.note.isNullOrBlank()) {
                                                                 Text(p.note, fontSize = 9.5.sp, color = Color(0xFF64748B))
                                                             }

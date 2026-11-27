@@ -4,7 +4,7 @@ import {
   getEffectiveInvoiceItems,
   getEffectiveInvoiceTotal,
 } from '../types'
-import { parsePaymentRecords, extractCleanClinicalRemarks, computeCombinedBillingSummary } from './paymentLedger'
+import { parsePaymentRecords, extractCleanClinicalRemarks, computeCombinedBillingSummary, formatPaymentTimestampKathmandu } from './paymentLedger'
 import { getInvoiceForAppointment, getAllAppointmentsByTrackingCode, getInvoicesForAppointments } from '../services/db'
 import { escapeHtml } from './html'
 
@@ -82,7 +82,7 @@ export async function printAppointmentBill(appt: Appointment, invoice?: BillingI
               .map(
                 (p) => `
               <tr style="font-size:12px;border-bottom:1px solid #e2e8f0;">
-                <td style="padding:6px;font-family:monospace;">${escapeHtml(p.dateTime)}</td>
+                <td style="padding:6px;font-family:monospace;">${escapeHtml(formatPaymentTimestampKathmandu(p.dateTime))}</td>
                 <td style="padding:6px;color:#475569;">${escapeHtml(p.note || 'Payment Received')}</td>
                 <td style="padding:6px;text-align:right;font-weight:700;color:#15803d;">Rs. ${escapeHtml(p.amount)}</td>
               </tr>`

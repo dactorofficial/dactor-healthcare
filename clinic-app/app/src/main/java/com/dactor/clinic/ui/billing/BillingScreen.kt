@@ -128,7 +128,7 @@ fun BillingScreen(
     var newPaymentTime by remember {
         mutableStateOf(
             try {
-                java.time.LocalTime.now().format(DateTimeFormatter.ofPattern("hh:mm a"))
+                java.time.LocalTime.now(java.time.ZoneId.of("Asia/Kathmandu")).format(DateTimeFormatter.ofPattern("hh:mm a", java.util.Locale.US))
             } catch (_: Exception) {
                 "12:00 PM"
             }
@@ -154,7 +154,7 @@ fun BillingScreen(
         realTrackingCode = appt.trackingCode10Digit
         newPaymentDate = today
         newPaymentTime = try {
-            java.time.LocalTime.now().format(DateTimeFormatter.ofPattern("hh:mm a"))
+            java.time.LocalTime.now(java.time.ZoneId.of("Asia/Kathmandu")).format(DateTimeFormatter.ofPattern("hh:mm a", java.util.Locale.US))
         } catch (_: Exception) {
             "12:00 PM"
         }
@@ -235,7 +235,7 @@ fun BillingScreen(
                 if (!isFollowUp && appt.paymentStatus.equals("paid", ignoreCase = true) && existingApptFee > 0.0) {
                     val rawStamp = appt.approvedAt?.takeIf { it.isNotBlank() } ?: appt.createdAt?.takeIf { it.isNotBlank() }
                     val payStamp = if (!rawStamp.isNullOrBlank()) {
-                        if (rawStamp.length >= 16) rawStamp.substring(0, 16).replace("T", " ") else rawStamp.replace("T", " ")
+                        PaymentLedgerHelper.normalizeTimestampForLedger(rawStamp)
                     } else {
                         "${appt.appointmentDate} ${appt.appointmentTime.ifBlank { "10:00 AM" }}"
                     }

@@ -17,6 +17,40 @@ object PaymentLedgerHelper {
     private const val START_TAG = "<!--PAYMENT_LOG_START-->"
     private const val END_TAG = "<!--PAYMENT_LOG_END-->"
 
+    private val NEPAL_ZONE: java.time.ZoneId
+        get() = try {
+            java.time.ZoneId.of("Asia/Kathmandu")
+        } catch (_: Exception) {
+            java.time.ZoneId.systemDefault()
+        }
+
+    private fun parseIsoToNepalDateTime(raw: String): java.time.ZonedDateTime? {
+        val trimmed = raw.trim()
+        if (!trimmed.contains("T")) return null
+        return try {
+            java.time.Instant.parse(trimmed).atZone(NEPAL_ZONE)
+        } catch (_: Exception) {
+            try {
+                java.time.OffsetDateTime.parse(trimmed).atZoneSameInstant(NEPAL_ZONE)
+            } catch (_: Exception) {
+                try {
+                    java.time.ZonedDateTime.parse(trimmed).withZoneSameInstant(NEPAL_ZONE)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }
+    }
+
+    fun normalizeTimestampForLedger(raw: String?): String {
+        if (raw.isNullOrBlank()) return java.time.LocalDate.now(NEPAL_ZONE).toString()
+        val trimmed = raw.trim()
+        parseIsoToNepalDateTime(trimmed)?.let { zdt ->
+            return zdt.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd hh:mm a", java.util.Locale.US))
+        }
+        return trimmed.replace("T", " ")
+    }
+
     fun parsePaymentRecords(
         rawRemarks: String?,
         fallbackPaidAmount: Double = 0.0,
@@ -35,7 +69,7 @@ object PaymentLedgerHelper {
         }
         // Fallback: If legacy invoice has paidAmount > 0 and no payment log tag
         if (fallbackPaidAmount > 0.0) {
-            val dateStr = fallbackDate?.take(16)?.replace("T", " ") ?: java.time.LocalDate.now().toString()
+            val dateStr = normalizeTimestampForLedger(fallbackDate)
             return listOf(
                 PaymentRecord(
                     amount = fallbackPaidAmount,
@@ -78,17 +112,22 @@ object PaymentLedgerHelper {
         if (raw.isNullOrBlank()) return "Date Logged"
         val trimmed = raw.trim()
         return try {
-            if (trimmed.contains("T")) {
-                val instant = java.time.Instant.parse(trimmed)
-                val zdt = instant.atZone(java.time.ZoneId.systemDefault())
-                zdt.format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a"))
+            val zdt = parseIsoToNepalDateTime(trimmed)
+            if (zdt != null) {
+                zdt.format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a", java.util.Locale.US))
             } else if (trimmed.contains("-") && trimmed.length >= 10) {
-                val parts = trimmed.split(" ")
+                val parts = trimmed.split(" ", limit = 2)
                 val datePart = java.time.LocalDate.parse(parts[0])
-                val dateFmt = datePart.format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy"))
-                if (parts.size > 1) {
-                    val timePart = parts.subList(1, parts.size).joinToString(" ")
-                    "$dateFmt, $timePart"
+                val dateFmt = datePart.format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy", java.util.Locale.US))
+                if (parts.size > 1 && parts[1].isNotBlank()) {
+                    val rawTime = parts[1].trim()
+                    val formattedTime = try {
+                        java.time.LocalTime.parse(rawTime, java.time.format.DateTimeFormatter.ofPattern("H:mm[:ss]", java.util.Locale.US))
+                            .format(java.time.format.DateTimeFormatter.ofPattern("hh:mm a", java.util.Locale.US))
+                    } catch (_: Exception) {
+                        rawTime
+                    }
+                    "$dateFmt, $formattedTime"
                 } else {
                     dateFmt
                 }
@@ -253,9 +292,11 @@ object PaymentLedgerHelper {
                     else -> 0.0
                 }
                 if (synthPaid > 0.0) {
-                    val stamp = inv?.paidAt?.take(16)?.replace("T", " ")
-                        ?: v.approvedAt?.take(16)?.replace("T", " ")
-                        ?: "${v.appointmentDate} ${v.appointmentTime.ifBlank { "10:00 AM" }}"
+                    val stamp = when {
+                        !inv?.paidAt.isNullOrBlank() -> normalizeTimestampForLedger(inv?.paidAt)
+                        !v.approvedAt.isNullOrBlank() -> normalizeTimestampForLedger(v.approvedAt)
+                        else -> "${v.appointmentDate} ${v.appointmentTime.ifBlank { "10:00 AM" }}"
+                    }
                     allPayments.add(
                         PaymentRecord(
                             amount = synthPaid,

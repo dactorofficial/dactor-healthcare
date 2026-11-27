@@ -21,6 +21,40 @@ object PaymentLedgerHelper {
     private const val START_TAG = "<!--PAYMENT_LOG_START-->"
     private const val END_TAG = "<!--PAYMENT_LOG_END-->"
 
+    private val NEPAL_ZONE: ZoneId
+        get() = try {
+            ZoneId.of("Asia/Kathmandu")
+        } catch (_: Exception) {
+            ZoneId.systemDefault()
+        }
+
+    private fun parseIsoToNepalDateTime(raw: String): java.time.ZonedDateTime? {
+        val trimmed = raw.trim()
+        if (!trimmed.contains("T")) return null
+        return try {
+            Instant.parse(trimmed).atZone(NEPAL_ZONE)
+        } catch (_: Exception) {
+            try {
+                java.time.OffsetDateTime.parse(trimmed).atZoneSameInstant(NEPAL_ZONE)
+            } catch (_: Exception) {
+                try {
+                    java.time.ZonedDateTime.parse(trimmed).withZoneSameInstant(NEPAL_ZONE)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }
+    }
+
+    fun normalizeTimestampForLedger(raw: String?): String {
+        if (raw.isNullOrBlank()) return LocalDate.now(NEPAL_ZONE).toString()
+        val trimmed = raw.trim()
+        parseIsoToNepalDateTime(trimmed)?.let { zdt ->
+            return zdt.format(DateTimeFormatter.ofPattern("yyyy-MM-dd hh:mm a", Locale.US))
+        }
+        return trimmed.replace("T", " ")
+    }
+
     fun parsePaymentRecords(
         rawRemarks: String?,
         fallbackPaidAmount: Double = 0.0,
@@ -53,8 +87,7 @@ object PaymentLedgerHelper {
         }
         // Fallback: If legacy invoice has paidAmount > 0 and no payment log tag
         if (fallbackPaidAmount > 0.0) {
-            val dateStr = fallbackDate?.take(16)?.replace("T", " ")
-                ?: java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date())
+            val dateStr = normalizeTimestampForLedger(fallbackDate)
             val inferredMethod = inferPaymentMethodFromText(rawRemarks, null, null)
             val refId = Regex("(?:provider\\s*reference|reference|ref|txn)\\s*[:#]\\s*([A-Za-z0-9_-]+)", RegexOption.IGNORE_CASE)
                 .find(rawRemarks ?: "")?.groupValues?.getOrNull(1)?.trim()
@@ -175,16 +208,9 @@ object PaymentLedgerHelper {
         val trimmed = raw.trim()
         // ISO timestamp e.g. 2026-11-24T10:42:00Z
         if (trimmed.contains("T")) {
-            try {
-                val instant = Instant.parse(trimmed)
-                return instant.atZone(ZoneId.systemDefault())
-                    .format(DateTimeFormatter.ofPattern("hh:mm a", Locale.US))
-            } catch (_: Exception) {}
-            try {
-                val odt = java.time.OffsetDateTime.parse(trimmed)
-                return odt.atZoneSameInstant(ZoneId.systemDefault())
-                    .format(DateTimeFormatter.ofPattern("hh:mm a", Locale.US))
-            } catch (_: Exception) {}
+            parseIsoToNepalDateTime(trimmed)?.let { zdt ->
+                return zdt.format(DateTimeFormatter.ofPattern("hh:mm a", Locale.US))
+            }
         }
         // Space-separated time e.g. "2026-11-24 10:42 AM" or "2026-11-24 14:30:00"
         val timeMatch = Regex("(\\d{1,2}:\\d{2})(?::\\d{2})?\\s*([APap][Mm])?").find(
@@ -220,18 +246,9 @@ object PaymentLedgerHelper {
         if (raw.isNullOrBlank()) return ""
         val trimmed = raw.trim()
         if (trimmed.contains("T")) {
-            try {
-                return Instant.parse(trimmed)
-                    .atZone(ZoneId.systemDefault())
-                    .toLocalDate()
-                    .toString()
-            } catch (_: Exception) {}
-            try {
-                return java.time.OffsetDateTime.parse(trimmed)
-                    .atZoneSameInstant(ZoneId.systemDefault())
-                    .toLocalDate()
-                    .toString()
-            } catch (_: Exception) {}
+            parseIsoToNepalDateTime(trimmed)?.let { zdt ->
+                return zdt.toLocalDate().toString()
+            }
         }
         return if (trimmed.length >= 10 && trimmed[4] == '-' && trimmed[7] == '-') {
             trimmed.substring(0, 10)
@@ -1398,7 +1415,7 @@ object PaymentLedgerHelper {
                             PaymentRecord(
                                 id = tx.id,
                                 amount = tx.amount,
-                                dateTime = tx.createdAt?.take(16)?.replace("T", " ") ?: v.appointmentDate,
+                                dateTime = if (!tx.createdAt.isNullOrBlank()) normalizeTimestampForLedger(tx.createdAt) else v.appointmentDate,
                                 note = tx.notes ?: "Payment Received",
                                 paymentMethod = tx.paymentMethod,
                                 referenceId = tx.referenceId
@@ -1413,9 +1430,11 @@ object PaymentLedgerHelper {
                         else -> 0.0
                     }
                     if (synthPaid > 0.0) {
-                        val stamp = inv?.paidAt?.take(16)?.replace("T", " ")
-                            ?: v.approvedAt?.take(16)?.replace("T", " ")
-                            ?: "${v.appointmentDate} ${v.appointmentTime.ifBlank { "10:00 AM" }}"
+                        val stamp = when {
+                            !inv?.paidAt.isNullOrBlank() -> normalizeTimestampForLedger(inv?.paidAt)
+                            !v.approvedAt.isNullOrBlank() -> normalizeTimestampForLedger(v.approvedAt)
+                            else -> "${v.appointmentDate} ${v.appointmentTime.ifBlank { "10:00 AM" }}"
+                        }
                         allPayments.add(
                             PaymentRecord(
                                 amount = synthPaid,

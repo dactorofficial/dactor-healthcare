@@ -87,7 +87,8 @@ object BillPdfDownloader {
 
             textPaint.textSize = 10f
             val nowStr = try {
-                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+                LocalDateTime.now(java.time.ZoneId.of("Asia/Kathmandu"))
+                    .format(DateTimeFormatter.ofPattern("yyyy-MM-dd hh:mm a", java.util.Locale.US))
             } catch (e: Exception) {
                 appointment.appointmentDate
             }
