@@ -111,6 +111,19 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "admin portal is not openening its just blank . i have opened it in the in app browser check"
+
+#### Changes Applied:
+1. **Diagnosed Blank Screen via Browser Console**:
+   - Observed `Uncaught Error: supabaseKey is required.` on `https://dactorofficial.github.io/admin-portal/` because neither `admin-panel/.env` nor `web-app/.env` existed on the local machine when building.
+2. **Environment Configuration & Live Redeployment (Rule 5)**:
+   - Created gitignored `.env` files in `admin-panel/.env` and `web-app/.env` with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+   - Rebuilt `admin-panel` (`vite build` in `6.93s`) and `web-app` (`generate-seo.js` + `vite build` in `11.71s`, indexing `12` clinics, `23` doctors, `4` services).
+   - Deployed live via `scripts/deploy_ghpages.ps1` to `https://dactorofficial.github.io/admin-portal/`, `https://dactorofficial.github.io/`, and `https://dactorofficial.github.io/dactor/`.
+
+---
+
+### Prompt:
 > "the share link at the top of clinics , i want it to give link of the clinic how to setup that ? and if the person has app it should open the app and if not then should maybe make the person download app or just directly open on web even if its just mobile /plan"
 
 #### Changes Applied:
@@ -153,6 +166,19 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "admin portal is not openening its just blank . i have opened it in the in app browser check"
+
+#### Changes Applied:
+1. **Diagnosed Blank Screen via Browser Console**:
+   - Observed `Uncaught Error: supabaseKey is required.` on `https://dactorofficial.github.io/admin-portal/` because neither `admin-panel/.env` nor `web-app/.env` existed on the local machine when building.
+2. **Environment Configuration & Live Redeployment (Rule 5)**:
+   - Created gitignored `.env` files in `admin-panel/.env` and `web-app/.env` with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+   - Rebuilt `admin-panel` (`vite build` in `6.93s`) and `web-app` (`generate-seo.js` + `vite build` in `11.71s`, indexing `12` clinics, `23` doctors, `4` services).
+   - Deployed live via `scripts/deploy_ghpages.ps1` to `https://dactorofficial.github.io/admin-portal/`, `https://dactorofficial.github.io/`, and `https://dactorofficial.github.io/dactor/`.
+
+---
+
+### Prompt:
 > "the share link at the top of clinics , i want it to give link of the clinic how to setup that ? and if the person has app it should open the app and if not then should maybe make the person download app or just directly open on web even if its just mobile /plan"
 
 #### Changes Applied:
@@ -193,6 +219,19 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-26
+
+### Prompt:
+> "admin portal is not openening its just blank . i have opened it in the in app browser check"
+
+#### Changes Applied:
+1. **Diagnosed Blank Screen via Browser Console**:
+   - Observed `Uncaught Error: supabaseKey is required.` on `https://dactorofficial.github.io/admin-portal/` because neither `admin-panel/.env` nor `web-app/.env` existed on the local machine when building.
+2. **Environment Configuration & Live Redeployment (Rule 5)**:
+   - Created gitignored `.env` files in `admin-panel/.env` and `web-app/.env` with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+   - Rebuilt `admin-panel` (`vite build` in `6.93s`) and `web-app` (`generate-seo.js` + `vite build` in `11.71s`, indexing `12` clinics, `23` doctors, `4` services).
+   - Deployed live via `scripts/deploy_ghpages.ps1` to `https://dactorofficial.github.io/admin-portal/`, `https://dactorofficial.github.io/`, and `https://dactorofficial.github.io/dactor/`.
+
+---
 
 ### Prompt:
 > "the share link at the top of clinics , i want it to give link of the clinic how to setup that ? and if the person has app it should open the app and if not then should maybe make the person download app or just directly open on web even if its just mobile /plan"
@@ -239,6 +278,19 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-26
+
+### Prompt:
+> "admin portal is not openening its just blank . i have opened it in the in app browser check"
+
+#### Changes Applied:
+1. **Diagnosed Blank Screen via Browser Console**:
+   - Observed `Uncaught Error: supabaseKey is required.` on `https://dactorofficial.github.io/admin-portal/` because neither `admin-panel/.env` nor `web-app/.env` existed on the local machine when building.
+2. **Environment Configuration & Live Redeployment (Rule 5)**:
+   - Created gitignored `.env` files in `admin-panel/.env` and `web-app/.env` with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+   - Rebuilt `admin-panel` (`vite build` in `6.93s`) and `web-app` (`generate-seo.js` + `vite build` in `11.71s`, indexing `12` clinics, `23` doctors, `4` services).
+   - Deployed live via `scripts/deploy_ghpages.ps1` to `https://dactorofficial.github.io/admin-portal/`, `https://dactorofficial.github.io/`, and `https://dactorofficial.github.io/dactor/`.
+
+---
 
 ### Prompt:
 > "the share link at the top of clinics , i want it to give link of the clinic how to setup that ? and if the person has app it should open the app and if not then should maybe make the person download app or just directly open on web even if its just mobile /plan"
@@ -307,6 +359,19 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "admin portal is not openening its just blank . i have opened it in the in app browser check"
+
+#### Changes Applied:
+1. **Diagnosed Blank Screen via Browser Console**:
+   - Observed `Uncaught Error: supabaseKey is required.` on `https://dactorofficial.github.io/admin-portal/` because neither `admin-panel/.env` nor `web-app/.env` existed on the local machine when building.
+2. **Environment Configuration & Live Redeployment (Rule 5)**:
+   - Created gitignored `.env` files in `admin-panel/.env` and `web-app/.env` with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+   - Rebuilt `admin-panel` (`vite build` in `6.93s`) and `web-app` (`generate-seo.js` + `vite build` in `11.71s`, indexing `12` clinics, `23` doctors, `4` services).
+   - Deployed live via `scripts/deploy_ghpages.ps1` to `https://dactorofficial.github.io/admin-portal/`, `https://dactorofficial.github.io/`, and `https://dactorofficial.github.io/dactor/`.
+
+---
+
+### Prompt:
 > "the share link at the top of clinics , i want it to give link of the clinic how to setup that ? and if the person has app it should open the app and if not then should maybe make the person download app or just directly open on web even if its just mobile /plan"
 
 #### Changes Applied:
@@ -370,6 +435,19 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "admin portal is not openening its just blank . i have opened it in the in app browser check"
+
+#### Changes Applied:
+1. **Diagnosed Blank Screen via Browser Console**:
+   - Observed `Uncaught Error: supabaseKey is required.` on `https://dactorofficial.github.io/admin-portal/` because neither `admin-panel/.env` nor `web-app/.env` existed on the local machine when building.
+2. **Environment Configuration & Live Redeployment (Rule 5)**:
+   - Created gitignored `.env` files in `admin-panel/.env` and `web-app/.env` with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+   - Rebuilt `admin-panel` (`vite build` in `6.93s`) and `web-app` (`generate-seo.js` + `vite build` in `11.71s`, indexing `12` clinics, `23` doctors, `4` services).
+   - Deployed live via `scripts/deploy_ghpages.ps1` to `https://dactorofficial.github.io/admin-portal/`, `https://dactorofficial.github.io/`, and `https://dactorofficial.github.io/dactor/`.
+
+---
+
+### Prompt:
 > "the share link at the top of clinics , i want it to give link of the clinic how to setup that ? and if the person has app it should open the app and if not then should maybe make the person download app or just directly open on web even if its just mobile /plan"
 
 #### Changes Applied:
@@ -414,6 +492,19 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-26
+
+### Prompt:
+> "admin portal is not openening its just blank . i have opened it in the in app browser check"
+
+#### Changes Applied:
+1. **Diagnosed Blank Screen via Browser Console**:
+   - Observed `Uncaught Error: supabaseKey is required.` on `https://dactorofficial.github.io/admin-portal/` because neither `admin-panel/.env` nor `web-app/.env` existed on the local machine when building.
+2. **Environment Configuration & Live Redeployment (Rule 5)**:
+   - Created gitignored `.env` files in `admin-panel/.env` and `web-app/.env` with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+   - Rebuilt `admin-panel` (`vite build` in `6.93s`) and `web-app` (`generate-seo.js` + `vite build` in `11.71s`, indexing `12` clinics, `23` doctors, `4` services).
+   - Deployed live via `scripts/deploy_ghpages.ps1` to `https://dactorofficial.github.io/admin-portal/`, `https://dactorofficial.github.io/`, and `https://dactorofficial.github.io/dactor/`.
+
+---
 
 ### Prompt:
 > "the share link at the top of clinics , i want it to give link of the clinic how to setup that ? and if the person has app it should open the app and if not then should maybe make the person download app or just directly open on web even if its just mobile /plan"
@@ -3507,6 +3598,19 @@ epal_payment_security_audit.md](file:///C:/Users/dell/.gemini/antigravity/brain/
 ---
 
 ## 2026-11-26
+
+### Prompt:
+> "admin portal is not openening its just blank . i have opened it in the in app browser check"
+
+#### Changes Applied:
+1. **Diagnosed Blank Screen via Browser Console**:
+   - Observed `Uncaught Error: supabaseKey is required.` on `https://dactorofficial.github.io/admin-portal/` because neither `admin-panel/.env` nor `web-app/.env` existed on the local machine when building.
+2. **Environment Configuration & Live Redeployment (Rule 5)**:
+   - Created gitignored `.env` files in `admin-panel/.env` and `web-app/.env` with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+   - Rebuilt `admin-panel` (`vite build` in `6.93s`) and `web-app` (`generate-seo.js` + `vite build` in `11.71s`, indexing `12` clinics, `23` doctors, `4` services).
+   - Deployed live via `scripts/deploy_ghpages.ps1` to `https://dactorofficial.github.io/admin-portal/`, `https://dactorofficial.github.io/`, and `https://dactorofficial.github.io/dactor/`.
+
+---
 
 ### Prompt:
 > "the share link at the top of clinics , i want it to give link of the clinic how to setup that ? and if the person has app it should open the app and if not then should maybe make the person download app or just directly open on web even if its just mobile /plan"
