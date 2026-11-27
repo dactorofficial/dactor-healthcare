@@ -21,6 +21,9 @@ This file tracks user prompts and the exact changes applied across the codebase,
    - Verified live site HTTP 200 response from [`https://dactorofficial.github.io/admin-portal/`](https://dactorofficial.github.io/admin-portal/).
 4. **Deploy Script Alignment ([`scripts/deploy_ghpages.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/deploy_ghpages.ps1))**:
    - Added automatic mirroring of `admin-panel/dist` into `dactorofficial.github.io/admin-portal/` and `dactor/admin-portal/` alongside the main web portal deployment.
+5. **Web Portal Integration & Build ([`web-app/src/App.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/App.tsx))**:
+   - Mounted `MobileAppDownloadDialog` component to surface app download prompt dialogs.
+   - Built production bundle (`web-app/dist`) and deployed live via `scripts/deploy_ghpages.ps1`.
 
 ---
 
@@ -81,6 +84,22 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "the share link at the top of clinics , i want it to give link of the clinic how to setup that ? and if the person has app it should open the app and if not then should maybe make the person download app or just directly open on web even if its just mobile /plan"
+
+#### Changes Applied:
+1. **Verified Android App Links & Clinic Share URL**:
+   - [`ClinicDetailScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/discovery/ClinicDetailScreen.kt): Updated the top Share button to include `https://dactorofficial.github.io/?clinic=$clinicId`.
+   - [`AndroidManifest.xml`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/AndroidManifest.xml): Added `<intent-filter android:autoVerify="true">` for `https://dactorofficial.github.io` (`/` and `/dactor`) plus `dactor://clinic` fallback.
+   - [`MainActivity.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/MainActivity.kt) & [`DactorNavHost.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/navigation/DactorNavHost.kt): Added `pendingClinicIdFlow` deep-link handler routing incoming clinic share links straight to `NavRoutes.ClinicDetail`.
+   - [`web-app/public/.well-known/assetlinks.json`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/public/.well-known/assetlinks.json): Hosted Digital Asset Links manifest for `com.dactor.patient` (`dactor-upload.jks` SHA-256).
+2. **Mobile Web App Download Popup (`web-app`)**:
+   - [`MobileAppDownloadDialog.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/components/MobileAppDownloadDialog.tsx) & [`App.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/App.tsx): Added a cancellable mobile-only download dialog recommending **Dactor Patient App** (`com.dactor.patient`) across general/clinic/patient pages and **Dactor Clinic & Doctor App** (`com.dactor.clinic`) exclusively inside Clinic/Doctor portals.
+3. **Live Website Deployment (Rule 5)**:
+   - Built `web-app` (`npm run build`, `vite build` succeeded in `15.59s`) and deployed live via `scripts/deploy_ghpages.ps1` to `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/`.
+
+---
+
+### Prompt:
 > "trying to export csv file for payment logs it is only giving to copy but not actually generating csv file"
 
 #### Changes Applied:
@@ -107,6 +126,22 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "the share link at the top of clinics , i want it to give link of the clinic how to setup that ? and if the person has app it should open the app and if not then should maybe make the person download app or just directly open on web even if its just mobile /plan"
+
+#### Changes Applied:
+1. **Verified Android App Links & Clinic Share URL**:
+   - [`ClinicDetailScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/discovery/ClinicDetailScreen.kt): Updated the top Share button to include `https://dactorofficial.github.io/?clinic=$clinicId`.
+   - [`AndroidManifest.xml`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/AndroidManifest.xml): Added `<intent-filter android:autoVerify="true">` for `https://dactorofficial.github.io` (`/` and `/dactor`) plus `dactor://clinic` fallback.
+   - [`MainActivity.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/MainActivity.kt) & [`DactorNavHost.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/navigation/DactorNavHost.kt): Added `pendingClinicIdFlow` deep-link handler routing incoming clinic share links straight to `NavRoutes.ClinicDetail`.
+   - [`web-app/public/.well-known/assetlinks.json`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/public/.well-known/assetlinks.json): Hosted Digital Asset Links manifest for `com.dactor.patient` (`dactor-upload.jks` SHA-256).
+2. **Mobile Web App Download Popup (`web-app`)**:
+   - [`MobileAppDownloadDialog.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/components/MobileAppDownloadDialog.tsx) & [`App.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/App.tsx): Added a cancellable mobile-only download dialog recommending **Dactor Patient App** (`com.dactor.patient`) across general/clinic/patient pages and **Dactor Clinic & Doctor App** (`com.dactor.clinic`) exclusively inside Clinic/Doctor portals.
+3. **Live Website Deployment (Rule 5)**:
+   - Built `web-app` (`npm run build`, `vite build` succeeded in `15.59s`) and deployed live via `scripts/deploy_ghpages.ps1` to `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/`.
+
+---
+
+### Prompt:
 > "trying to export csv file for payment logs it is only giving to copy but not actually generating csv file"
 
 #### Changes Applied:
@@ -131,6 +166,22 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-26
+
+### Prompt:
+> "the share link at the top of clinics , i want it to give link of the clinic how to setup that ? and if the person has app it should open the app and if not then should maybe make the person download app or just directly open on web even if its just mobile /plan"
+
+#### Changes Applied:
+1. **Verified Android App Links & Clinic Share URL**:
+   - [`ClinicDetailScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/discovery/ClinicDetailScreen.kt): Updated the top Share button to include `https://dactorofficial.github.io/?clinic=$clinicId`.
+   - [`AndroidManifest.xml`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/AndroidManifest.xml): Added `<intent-filter android:autoVerify="true">` for `https://dactorofficial.github.io` (`/` and `/dactor`) plus `dactor://clinic` fallback.
+   - [`MainActivity.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/MainActivity.kt) & [`DactorNavHost.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/navigation/DactorNavHost.kt): Added `pendingClinicIdFlow` deep-link handler routing incoming clinic share links straight to `NavRoutes.ClinicDetail`.
+   - [`web-app/public/.well-known/assetlinks.json`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/public/.well-known/assetlinks.json): Hosted Digital Asset Links manifest for `com.dactor.patient` (`dactor-upload.jks` SHA-256).
+2. **Mobile Web App Download Popup (`web-app`)**:
+   - [`MobileAppDownloadDialog.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/components/MobileAppDownloadDialog.tsx) & [`App.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/App.tsx): Added a cancellable mobile-only download dialog recommending **Dactor Patient App** (`com.dactor.patient`) across general/clinic/patient pages and **Dactor Clinic & Doctor App** (`com.dactor.clinic`) exclusively inside Clinic/Doctor portals.
+3. **Live Website Deployment (Rule 5)**:
+   - Built `web-app` (`npm run build`, `vite build` succeeded in `15.59s`) and deployed live via `scripts/deploy_ghpages.ps1` to `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/`.
+
+---
 
 ### Prompt:
 > "trying to export csv file for payment logs it is only giving to copy but not actually generating csv file"
@@ -161,6 +212,22 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-26
+
+### Prompt:
+> "the share link at the top of clinics , i want it to give link of the clinic how to setup that ? and if the person has app it should open the app and if not then should maybe make the person download app or just directly open on web even if its just mobile /plan"
+
+#### Changes Applied:
+1. **Verified Android App Links & Clinic Share URL**:
+   - [`ClinicDetailScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/discovery/ClinicDetailScreen.kt): Updated the top Share button to include `https://dactorofficial.github.io/?clinic=$clinicId`.
+   - [`AndroidManifest.xml`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/AndroidManifest.xml): Added `<intent-filter android:autoVerify="true">` for `https://dactorofficial.github.io` (`/` and `/dactor`) plus `dactor://clinic` fallback.
+   - [`MainActivity.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/MainActivity.kt) & [`DactorNavHost.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/navigation/DactorNavHost.kt): Added `pendingClinicIdFlow` deep-link handler routing incoming clinic share links straight to `NavRoutes.ClinicDetail`.
+   - [`web-app/public/.well-known/assetlinks.json`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/public/.well-known/assetlinks.json): Hosted Digital Asset Links manifest for `com.dactor.patient` (`dactor-upload.jks` SHA-256).
+2. **Mobile Web App Download Popup (`web-app`)**:
+   - [`MobileAppDownloadDialog.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/components/MobileAppDownloadDialog.tsx) & [`App.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/App.tsx): Added a cancellable mobile-only download dialog recommending **Dactor Patient App** (`com.dactor.patient`) across general/clinic/patient pages and **Dactor Clinic & Doctor App** (`com.dactor.clinic`) exclusively inside Clinic/Doctor portals.
+3. **Live Website Deployment (Rule 5)**:
+   - Built `web-app` (`npm run build`, `vite build` succeeded in `15.59s`) and deployed live via `scripts/deploy_ghpages.ps1` to `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/`.
+
+---
 
 ### Prompt:
 > "trying to export csv file for payment logs it is only giving to copy but not actually generating csv file"
@@ -213,6 +280,22 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "the share link at the top of clinics , i want it to give link of the clinic how to setup that ? and if the person has app it should open the app and if not then should maybe make the person download app or just directly open on web even if its just mobile /plan"
+
+#### Changes Applied:
+1. **Verified Android App Links & Clinic Share URL**:
+   - [`ClinicDetailScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/discovery/ClinicDetailScreen.kt): Updated the top Share button to include `https://dactorofficial.github.io/?clinic=$clinicId`.
+   - [`AndroidManifest.xml`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/AndroidManifest.xml): Added `<intent-filter android:autoVerify="true">` for `https://dactorofficial.github.io` (`/` and `/dactor`) plus `dactor://clinic` fallback.
+   - [`MainActivity.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/MainActivity.kt) & [`DactorNavHost.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/navigation/DactorNavHost.kt): Added `pendingClinicIdFlow` deep-link handler routing incoming clinic share links straight to `NavRoutes.ClinicDetail`.
+   - [`web-app/public/.well-known/assetlinks.json`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/public/.well-known/assetlinks.json): Hosted Digital Asset Links manifest for `com.dactor.patient` (`dactor-upload.jks` SHA-256).
+2. **Mobile Web App Download Popup (`web-app`)**:
+   - [`MobileAppDownloadDialog.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/components/MobileAppDownloadDialog.tsx) & [`App.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/App.tsx): Added a cancellable mobile-only download dialog recommending **Dactor Patient App** (`com.dactor.patient`) across general/clinic/patient pages and **Dactor Clinic & Doctor App** (`com.dactor.clinic`) exclusively inside Clinic/Doctor portals.
+3. **Live Website Deployment (Rule 5)**:
+   - Built `web-app` (`npm run build`, `vite build` succeeded in `15.59s`) and deployed live via `scripts/deploy_ghpages.ps1` to `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/`.
+
+---
+
+### Prompt:
 > "trying to export csv file for payment logs it is only giving to copy but not actually generating csv file"
 
 #### Changes Applied:
@@ -260,6 +343,22 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "the share link at the top of clinics , i want it to give link of the clinic how to setup that ? and if the person has app it should open the app and if not then should maybe make the person download app or just directly open on web even if its just mobile /plan"
+
+#### Changes Applied:
+1. **Verified Android App Links & Clinic Share URL**:
+   - [`ClinicDetailScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/discovery/ClinicDetailScreen.kt): Updated the top Share button to include `https://dactorofficial.github.io/?clinic=$clinicId`.
+   - [`AndroidManifest.xml`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/AndroidManifest.xml): Added `<intent-filter android:autoVerify="true">` for `https://dactorofficial.github.io` (`/` and `/dactor`) plus `dactor://clinic` fallback.
+   - [`MainActivity.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/MainActivity.kt) & [`DactorNavHost.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/navigation/DactorNavHost.kt): Added `pendingClinicIdFlow` deep-link handler routing incoming clinic share links straight to `NavRoutes.ClinicDetail`.
+   - [`web-app/public/.well-known/assetlinks.json`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/public/.well-known/assetlinks.json): Hosted Digital Asset Links manifest for `com.dactor.patient` (`dactor-upload.jks` SHA-256).
+2. **Mobile Web App Download Popup (`web-app`)**:
+   - [`MobileAppDownloadDialog.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/components/MobileAppDownloadDialog.tsx) & [`App.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/App.tsx): Added a cancellable mobile-only download dialog recommending **Dactor Patient App** (`com.dactor.patient`) across general/clinic/patient pages and **Dactor Clinic & Doctor App** (`com.dactor.clinic`) exclusively inside Clinic/Doctor portals.
+3. **Live Website Deployment (Rule 5)**:
+   - Built `web-app` (`npm run build`, `vite build` succeeded in `15.59s`) and deployed live via `scripts/deploy_ghpages.ps1` to `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/`.
+
+---
+
+### Prompt:
 > "trying to export csv file for payment logs it is only giving to copy but not actually generating csv file"
 
 #### Changes Applied:
@@ -288,6 +387,22 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ---
 
 ## 2026-11-26
+
+### Prompt:
+> "the share link at the top of clinics , i want it to give link of the clinic how to setup that ? and if the person has app it should open the app and if not then should maybe make the person download app or just directly open on web even if its just mobile /plan"
+
+#### Changes Applied:
+1. **Verified Android App Links & Clinic Share URL**:
+   - [`ClinicDetailScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/discovery/ClinicDetailScreen.kt): Updated the top Share button to include `https://dactorofficial.github.io/?clinic=$clinicId`.
+   - [`AndroidManifest.xml`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/AndroidManifest.xml): Added `<intent-filter android:autoVerify="true">` for `https://dactorofficial.github.io` (`/` and `/dactor`) plus `dactor://clinic` fallback.
+   - [`MainActivity.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/MainActivity.kt) & [`DactorNavHost.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/navigation/DactorNavHost.kt): Added `pendingClinicIdFlow` deep-link handler routing incoming clinic share links straight to `NavRoutes.ClinicDetail`.
+   - [`web-app/public/.well-known/assetlinks.json`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/public/.well-known/assetlinks.json): Hosted Digital Asset Links manifest for `com.dactor.patient` (`dactor-upload.jks` SHA-256).
+2. **Mobile Web App Download Popup (`web-app`)**:
+   - [`MobileAppDownloadDialog.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/components/MobileAppDownloadDialog.tsx) & [`App.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/App.tsx): Added a cancellable mobile-only download dialog recommending **Dactor Patient App** (`com.dactor.patient`) across general/clinic/patient pages and **Dactor Clinic & Doctor App** (`com.dactor.clinic`) exclusively inside Clinic/Doctor portals.
+3. **Live Website Deployment (Rule 5)**:
+   - Built `web-app` (`npm run build`, `vite build` succeeded in `15.59s`) and deployed live via `scripts/deploy_ghpages.ps1` to `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/`.
+
+---
 
 ### Prompt:
 > "trying to export csv file for payment logs it is only giving to copy but not actually generating csv file"
@@ -3365,6 +3480,22 @@ epal_payment_security_audit.md](file:///C:/Users/dell/.gemini/antigravity/brain/
 ---
 
 ## 2026-11-26
+
+### Prompt:
+> "the share link at the top of clinics , i want it to give link of the clinic how to setup that ? and if the person has app it should open the app and if not then should maybe make the person download app or just directly open on web even if its just mobile /plan"
+
+#### Changes Applied:
+1. **Verified Android App Links & Clinic Share URL**:
+   - [`ClinicDetailScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/discovery/ClinicDetailScreen.kt): Updated the top Share button to include `https://dactorofficial.github.io/?clinic=$clinicId`.
+   - [`AndroidManifest.xml`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/AndroidManifest.xml): Added `<intent-filter android:autoVerify="true">` for `https://dactorofficial.github.io` (`/` and `/dactor`) plus `dactor://clinic` fallback.
+   - [`MainActivity.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/MainActivity.kt) & [`DactorNavHost.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/navigation/DactorNavHost.kt): Added `pendingClinicIdFlow` deep-link handler routing incoming clinic share links straight to `NavRoutes.ClinicDetail`.
+   - [`web-app/public/.well-known/assetlinks.json`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/public/.well-known/assetlinks.json): Hosted Digital Asset Links manifest for `com.dactor.patient` (`dactor-upload.jks` SHA-256).
+2. **Mobile Web App Download Popup (`web-app`)**:
+   - [`MobileAppDownloadDialog.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/components/MobileAppDownloadDialog.tsx) & [`App.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/App.tsx): Added a cancellable mobile-only download dialog recommending **Dactor Patient App** (`com.dactor.patient`) across general/clinic/patient pages and **Dactor Clinic & Doctor App** (`com.dactor.clinic`) exclusively inside Clinic/Doctor portals.
+3. **Live Website Deployment (Rule 5)**:
+   - Built `web-app` (`npm run build`, `vite build` succeeded in `15.59s`) and deployed live via `scripts/deploy_ghpages.ps1` to `https://dactorofficial.github.io/` and `https://dactorofficial.github.io/dactor/`.
+
+---
 
 ### Prompt:
 > "trying to export csv file for payment logs it is only giving to copy but not actually generating csv file"

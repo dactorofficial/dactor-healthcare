@@ -1045,6 +1045,10 @@ export const App: React.FC = () => {
         isFirstVisit={true}
         onClose={() => setFirstVisitLangModalOpen(false)}
       />
+      <MobileAppDownloadDialog
+        activeTab={activeTab}
+        blockedByOtherModal={firstVisitLangModalOpen}
+      />
     </LiquidAuroraBackground>
   )
 }
