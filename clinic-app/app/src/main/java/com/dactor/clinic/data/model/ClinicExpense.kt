@@ -18,9 +18,12 @@ data class ClinicExpense(
     @SerialName("receipt_no") val receiptNo: String? = null,
     @SerialName("notes") val notes: String? = null,
     @SerialName("payee_name") val payeeName: String? = null,
+    @SerialName("settlement_id") val settlementId: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null
 ) {
+    val isAutoSettledCommission: Boolean
+        get() = !settlementId.isNullOrBlank() || category.equals("PLATFORM_COMMISSION", ignoreCase = true)
     val displayVoucherNumber: String?
         get() = voucherNumber?.ifBlank { null } ?: receiptNo?.ifBlank { null }
 

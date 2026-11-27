@@ -896,6 +896,8 @@ object PaymentLedgerHelper {
         val collected = periodLogs.sumOf { it.amount }
         val pendingTotal = periodPendingBills.sumOf { it.balanceDue }
         val expenses = periodExpenses.sumOf { it.amount }
+        // Exclude auto-settled 5% commission expenses from net deduction because platformFees already deducts the 5% fee
+        val operationalExpenses = periodExpenses.filter { !it.isAutoSettledCommission }.sumOf { it.amount }
         val platformFees = periodLogs.sumOf { it.serviceChargeAmount }
         val subscriptionDue = subscriptionsInPeriod
             .filter {
@@ -903,7 +905,7 @@ object PaymentLedgerHelper {
                 st.contains("due") || st.contains("unpaid")
             }
             .sumOf { it.amount }
-        val net = collected - expenses - platformFees - subscriptionDue
+        val net = collected - operationalExpenses - platformFees - subscriptionDue
         return PaymentPeriodSummary(
             collected = collected,
             collectedCount = periodLogs.size,

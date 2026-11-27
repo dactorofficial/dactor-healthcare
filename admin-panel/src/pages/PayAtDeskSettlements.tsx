@@ -546,7 +546,11 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
 
       setSettlements((prev) => [normalizedInsert as any, ...prev])
       setShowSettleModal(false)
-      alert(`Settlement of NPR ${commAmt.toLocaleString()} successfully recorded for ${targetClinic?.name || 'Clinic'}! Voucher Ref: ${generatedRef}`)
+      const autoExpenseMsg =
+        settleStatus === 'settled' && commAmt > 0
+          ? ' It has also been automatically recorded in the clinic\'s Expenses ledger.'
+          : ''
+      alert(`Settlement of NPR ${commAmt.toLocaleString()} successfully recorded for ${targetClinic?.name || 'Clinic'}! Voucher Ref: ${generatedRef}.${autoExpenseMsg}`)
       loadAllData()
     } catch (err: any) {
       console.error('Error saving settlement:', err)
@@ -1553,6 +1557,13 @@ export default function PayAtDeskSettlements({ onNavigate: _onNavigate }: PayAtD
                   />
                 </div>
               </div>
+
+              {settleStatus === 'settled' && (
+                <div className="rounded-xl bg-teal-500/10 border border-teal-500/25 px-3 py-2 text-[11px] text-teal-200 flex items-center gap-2">
+                  <Info className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+                  <span>Marking as <strong>Settled</strong> automatically logs this 5% commission as an expense in the clinic&apos;s Expenses ledger.</span>
+                </div>
+              )}
 
               <div className="pt-3 border-t border-slate-800 flex items-center justify-end gap-3">
                 <button

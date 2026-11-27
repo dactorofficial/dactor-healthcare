@@ -1026,7 +1026,9 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
                           {formatNPR(-daySum)} · {dayExps.length}
                         </span>
                       </div>
-                      {dayExps.map((exp) => (
+                      {dayExps.map((exp) => {
+                        const isAutoSettled = Boolean(exp.settlement_id) || String(exp.category || '').toUpperCase() === 'PLATFORM_COMMISSION'
+                        return (
                         <div
                           key={exp.id}
                           className="border border-slate-200 dark:border-slate-800 rounded-xl p-3 flex items-center justify-between gap-3"
@@ -1034,9 +1036,20 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
                           <div className="min-w-0 space-y-1">
                             <div className="text-sm font-semibold text-slate-900 dark:text-white truncate">{exp.title}</div>
                             <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                  isAutoSettled
+                                    ? 'bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300'
+                                    : 'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
+                                }`}
+                              >
                                 {String(exp.category || 'OTHER').replace(/_/g, ' ')}
                               </span>
+                              {isAutoSettled && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                  Auto-settled
+                                </span>
+                              )}
                               <span>{formatMethodLabel(exp.payment_method || 'CASH')}</span>
                               {exp.expense_time && <span>· {formatRowTime(`2026-01-01 ${exp.expense_time}`)}</span>}
                               {(exp.voucher_number || exp.receipt_no) && <span>· Voucher #{exp.voucher_number || exp.receipt_no}</span>}
@@ -1046,16 +1059,19 @@ export const ClinicPaymentLogsView: React.FC<ClinicPaymentLogsViewProps> = ({
                             <span className="text-sm font-bold text-rose-700 dark:text-rose-400">
                               {formatNPR(-Number(exp.amount || 0))}
                             </span>
-                            <button
-                              onClick={() => setExpenseToDelete(exp)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20"
-                              title="Delete Expense"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {!isAutoSettled && (
+                              <button
+                                onClick={() => setExpenseToDelete(exp)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20"
+                                title="Delete Expense"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )
                 })

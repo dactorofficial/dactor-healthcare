@@ -1849,6 +1849,14 @@ private fun LazyListScope.expensesTabItems(
                                 fg = getExpenseCategoryTextColor(expense.category),
                                 cornerDp = 4
                             )
+                            if (expense.isAutoSettledCommission) {
+                                PillBadge(
+                                    text = "Auto-settled",
+                                    bg = MaterialTheme.colorScheme.surfaceVariant,
+                                    fg = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    cornerDp = 4
+                                )
+                            }
                             Text(
                                 text = formatMethodDisplayName(expense.paymentMethod),
                                 fontSize = 12.sp,
@@ -1879,38 +1887,40 @@ private fun LazyListScope.expensesTabItems(
                         }
                     }
 
-                    Box {
-                        IconButton(
-                            onClick = { menuExpanded = true },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.MoreVert,
-                                contentDescription = "Expense options",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Edit") },
-                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                                onClick = {
-                                    menuExpanded = false
-                                    onEditExpense(expense)
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Delete", color = ExpenseRed) },
-                                leadingIcon = { Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = ExpenseRed, modifier = Modifier.size(18.dp)) },
-                                onClick = {
-                                    menuExpanded = false
-                                    onDeleteExpense(expense)
-                                }
-                            )
+                    if (!expense.isAutoSettledCommission) {
+                        Box {
+                            IconButton(
+                                onClick = { menuExpanded = true },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.MoreVert,
+                                    contentDescription = "Expense options",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = menuExpanded,
+                                onDismissRequest = { menuExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Edit") },
+                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onEditExpense(expense)
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Delete", color = ExpenseRed) },
+                                    leadingIcon = { Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = ExpenseRed, modifier = Modifier.size(18.dp)) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onDeleteExpense(expense)
+                                    }
+                                )
+                            }
                         }
                     }
                 }

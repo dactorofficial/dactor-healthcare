@@ -1082,6 +1082,7 @@ internal fun getExpenseCategoryIcon(category: String) = when (category.uppercase
     "UTILITIES" -> Icons.Default.Bolt
     "EQUIPMENT" -> Icons.Default.Build
     "REFRESHMENTS" -> Icons.Default.LocalCafe
+    "PLATFORM_COMMISSION" -> Icons.Default.AccountBalance
     else -> Icons.Default.ReceiptLong
 }
 
@@ -1093,6 +1094,7 @@ internal fun getExpenseCategoryBgColor(category: String) = when (category.upperc
     "UTILITIES" -> Color(0xFFFEF9C3)
     "EQUIPMENT" -> Color(0xFFF1F5F9)
     "REFRESHMENTS" -> Color(0xFFFFEDD5)
+    "PLATFORM_COMMISSION" -> Color(0xFFCCFBF1)
     else -> Color(0xFFFEE2E2)
 }
 
@@ -1104,5 +1106,6 @@ internal fun getExpenseCategoryTextColor(category: String) = when (category.uppe
     "UTILITIES" -> Color(0xFFA16207)
     "EQUIPMENT" -> Color(0xFF475569)
     "REFRESHMENTS" -> Color(0xFFC2410C)
+    "PLATFORM_COMMISSION" -> Color(0xFF0F766E)
     else -> Color(0xFFB91C1C)
 }

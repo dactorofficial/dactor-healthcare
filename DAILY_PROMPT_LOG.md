@@ -7,6 +7,24 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-26
 
 ### Prompt:
+> "listen one error as for dactor 5 % commission . when i settled it through admin portal it simply did and also updated in both app but it should actually mark it as expense for the clinic automatically /plan"
+
+#### Changes Applied:
+1. **Supabase Database Migration ([`migration_auto_expense_on_commission_settlement.sql`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/supabase/migration_auto_expense_on_commission_settlement.sql))**:
+   - Added `settlement_id UUID` (unique FK to `public.platform_commission_settlements` with `ON DELETE CASCADE`) on `public.clinic_expenses`.
+   - Added `AFTER INSERT OR UPDATE OR DELETE` trigger (`sync_platform_settlement_to_clinic_expense`) to automatically upsert a `PLATFORM_COMMISSION` expense in `clinic_expenses` when a settlement is `settled` (with Nepal date/time, voucher reference, and payee `'Dactor Platform'`), and delete it if deleted or changed away from `settled`.
+   - Added one-time backfill for existing `settled` commission records.
+2. **Admin Portal ([`PayAtDeskSettlements.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/admin-panel/src/pages/PayAtDeskSettlements.tsx))**:
+   - Added settlement modal helper notice and updated confirmation alert to indicate that settled commissions are automatically logged in the clinic's Expenses ledger.
+3. **Web App Clinic Portal ([`paymentLedger.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/utils/paymentLedger.ts), [`ClinicPaymentLogsView.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/components/ClinicPaymentLogsView.tsx))**:
+   - Added `settlement_id` and `isPlatformCommissionExpense` to `ClinicExpense` and excluded auto-settled commission expenses from `net` deduction in `computePaymentPeriodSummary` to prevent double-counting against `platformFees`.
+   - Styled `PLATFORM_COMMISSION` and `Auto-settled` badges in the Expenses tab and hid manual delete on auto-settled rows.
+4. **Android Clinic App ([`ClinicExpense.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/model/ClinicExpense.kt), [`PaymentLedgerHelper.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/util/PaymentLedgerHelper.kt), [`PaymentLogsSheets.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/PaymentLogsSheets.kt), [`PaymentLogsScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/billing/PaymentLogsScreen.kt))**:
+   - Added `settlementId` and `isAutoSettledCommission`, excluded auto-settled rows from `net` double-deduction in `computeSummary`, added `PLATFORM_COMMISSION` icon/colors, and marked auto-settled rows read-only with an `Auto-settled` badge.
+
+---
+
+### Prompt:
 > "in doctor portal is the live queue arranged in clinic form ? it should show clinic name and could check patients whole details through that /plan" -> "proceed with it"
 
 #### Changes Applied:

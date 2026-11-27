@@ -113,8 +113,13 @@ export interface ClinicExpense {
   notes?: string
   payee_name?: string
   receipt_url?: string
+  settlement_id?: string | null
   created_at?: string
   updated_at?: string
+}
+
+export function isPlatformCommissionExpense(expense: ClinicExpense): boolean {
+  return Boolean(expense.settlement_id) || String(expense.category || '').toUpperCase() === 'PLATFORM_COMMISSION'
 }
 
 export interface DoctorVisitAnalytics {
@@ -1017,6 +1022,10 @@ export function computePaymentPeriodSummary(
   const collected = periodLogs.reduce((acc, l) => acc + (Number(l.amount) || 0), 0)
   const pendingTotal = periodPendingBills.reduce((acc, b) => acc + (Number(b.balanceDue) || 0), 0)
   const expenses = periodExpenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0)
+  // Exclude auto-settled 5% commission expenses from net deduction because platformFees already deducts the 5% fee
+  const operationalExpenses = periodExpenses
+    .filter((e) => !isPlatformCommissionExpense(e))
+    .reduce((acc, e) => acc + (Number(e.amount) || 0), 0)
   const platformFees = periodLogs.reduce((acc, l) => acc + (Number(l.serviceChargeAmount) || 0), 0)
   const subscriptionDue = subscriptionsInPeriod
     .filter((s) => {
@@ -1024,7 +1033,7 @@ export function computePaymentPeriodSummary(
       return st.includes('due') || st.includes('unpaid')
     })
     .reduce((acc, s) => acc + (Number(s.amount_npr || s.amount) || 0), 0)
-  const net = collected - expenses - platformFees - subscriptionDue
+  const net = collected - operationalExpenses - platformFees - subscriptionDue
   return {
     collected,
     collectedCount: periodLogs.length,
