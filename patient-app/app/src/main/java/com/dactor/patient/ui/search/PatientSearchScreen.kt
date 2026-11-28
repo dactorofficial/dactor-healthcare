@@ -1680,7 +1680,7 @@ fun PatientSearchScreen(
                                         selectedDoctorForProfileView = Pair(docItem, targetBookingDate)
                                     },
                                     onBookClick = {
-                                        selectedDoctorForClinicPicker = Pair(docItem, targetBookingDate)
+                                        selectedDoctorForProfileView = Pair(docItem, targetBookingDate)
                                     }
                                 )
                             }
@@ -2030,7 +2030,7 @@ fun PatientSearchScreen(
                     Surface(
                         shape = CircleShape,
                         color = Color(0xFFE0F2FE),
-                        modifier = Modifier.size(54.dp)
+                        modifier = Modifier.size(72.dp)
                     ) {
                         val avatarUrl = doctor.resolvedProfilePictureUrl
                         if (!avatarUrl.isNullOrBlank()) {
@@ -2052,24 +2052,22 @@ fun PatientSearchScreen(
                     }
                     Column {
                         Text("Dr. ${doctor.fullName}", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                        Text(specs.joinToString(" \u2022 "), fontSize = 13.sp, color = Color(0xFF00796B), fontWeight = FontWeight.SemiBold)
+                        Text(specs.joinToString(" \u2022 "), fontSize = 13.sp, color = Color(0xFF0284C7), fontWeight = FontWeight.SemiBold)
                     }
                 }
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    doctor.startingPracticingYear?.let { yr ->
+                        val yrs = (java.time.LocalDate.now().year - yr).coerceAtLeast(1)
+                        Text("Experience: $yrs+ Years", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0284C7))
+                    }
                     if (!doctor.education.isNullOrBlank()) {
                         Text("Qualifications: ${doctor.education}", fontSize = 13.sp, color = Color(0xFF334155))
                     }
                     if (!doctor.bio.isNullOrBlank()) {
                         Text(doctor.bio.orEmpty(), fontSize = 12.5.sp, color = Color(0xFF475569))
                     }
-                    Text(
-                        "Consultation Fee: ${CurrencyFormatter.formatNPR(doctor.consultationFee ?: 500.0)}",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        color = Color(0xFF0F172A)
-                    )
                     if (docItem.practicingClinics.isNotEmpty()) {
                         Text(
                             "Practicing Clinics:",

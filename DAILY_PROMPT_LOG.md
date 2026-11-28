@@ -7,6 +7,20 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-28
 
 ### Prompt:
+> "the home screen of patient app where the clinics and doctor are shown it should actually be scrollable till everything is not completed and also when clicked on doctor for booking it should first show the profile of doctor like a big picture, experiences , description etc then the patient should chose the clinic for further appoinment" -> "hide consultation fee in the doctor profile . actually i want you to change the complete ui of the home screen show me /generative_ui" -> "the color pattern should be the same as previous one show me again" -> "it should show profile , the icon at the bottom are terrible keep the old one and proceed"
+
+#### Changes Applied:
+1. **Android Patient App (`patient-app`)**:
+   - [`DoctorProfileScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/discovery/DoctorProfileScreen.kt): Added dedicated Doctor Profile screen in the existing Dactor light sky-blue palette (`#F0F9FF`/`#FFFFFF`/`#0284C7`/`#DCFCE7`) showing a `116.dp` circular avatar (`resolvedProfilePictureUrl` with initials fallback), live `In Clinic` badge, specialties, NMC license number, **Clinical Experience** (`startingPracticingYear`) and **Practicing Clinics** count (**consultation fee intentionally hidden**), education & qualifications, full bio/description, and affiliated clinic cards with live slot availability to proceed to booking.
+   - [`NavRoutes.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/navigation/NavRoutes.kt) & [`DactorNavHost.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/navigation/DactorNavHost.kt): Wired `NavRoutes.DoctorDetail` (`doctor_detail/{doctorId}` and `doctor_detail/{doctorId}?date={date}`) to `DoctorProfileScreen`.
+   - [`PatientMainScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt): Kept the existing bottom `NavigationBar` untouched; redesigned `HomeTab` with a compact white top header (location + search pill), moved the date strip, segmented `All / Doctors / Clinics / Labs` filter bar, and sort pill inside the unified scrollable `LazyColumn`, removed `.take(3)` / `.take(2)` truncation caps on clinics, doctors, and labs with an `"Everything Completed"` end footer, hid consultation fees on home doctor discovery cards in favor of experience years, and routed all doctor clicks (Walk-In carousel and Doctors feed) to `NavRoutes.DoctorDetail`.
+   - [`DiscoveryScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/discovery/DiscoveryScreen.kt) & [`PatientSearchScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/search/PatientSearchScreen.kt): Routed doctor card clicks in `DiscoveryScreen` to `NavRoutes.DoctorDetail`, removed Consultation Fee from `PatientSearchScreen`'s doctor profile view while showing clinical experience and larger `72.dp` photo, and routed `onBookClick` to show the profile first.
+2. **Web App (`web-app` — Rule 7 Parity)**:
+   - [`PatientPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/PatientPortal.tsx): Updated `handleSelectDoctorFromCard` so clicking any doctor opens the Doctor Profile & Clinic Selection modal first (showing big avatar, live status, specialties, NMC license, clinical experience & practicing clinics count with consultation fee hidden, education, and about bio), replaced consultation fee with clinical experience on doctor discovery cards, rebuilt `web-app/dist`, and deployed live to GitHub Pages.
+
+---
+
+### Prompt:
 > "but if the tracker device is logged in with same number then do show complete name , number and information without masking"
 
 #### Changes Applied:

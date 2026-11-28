@@ -13,7 +13,9 @@ sealed class NavRoutes(val route: String) {
         fun createRoute(clinicId: String) = "clinic_detail/$clinicId"
     }
     object DoctorDetail : NavRoutes("doctor_detail/{doctorId}") {
-        fun createRoute(doctorId: String) = "doctor_detail/$doctorId"
+        fun createRoute(doctorId: String, date: String? = null): String {
+            return if (!date.isNullOrBlank()) "doctor_detail/$doctorId?date=$date" else "doctor_detail/$doctorId"
+        }
     }
     object Booking : NavRoutes("booking/{clinicId}") {
         fun createRoute(clinicId: String) = "booking/$clinicId"

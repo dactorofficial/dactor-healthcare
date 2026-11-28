@@ -14,6 +14,7 @@ import com.dactor.patient.ui.booking.BookingScreen
 import com.dactor.patient.ui.booking.PaymentScreen
 import com.dactor.patient.ui.discovery.ClinicDetailScreen
 import com.dactor.patient.ui.discovery.DiscoveryScreen
+import com.dactor.patient.ui.discovery.DoctorProfileScreen
 import com.dactor.patient.ui.labreport.LabReportScreen
 import com.dactor.patient.ui.notifications.NotificationsScreen
 import com.dactor.patient.ui.profile.ProfileScreen
@@ -256,6 +257,31 @@ fun DactorNavHost(
                 clinicId = clinicId,
                 clinicRepository = clinicRepository,
                 doctorRepository = doctorRepository,
+                slotRepository = slotRepository,
+                sessionManager = sessionManager
+            )
+        }
+        composable(NavRoutes.DoctorDetail.route) { backStackEntry ->
+            val doctorId = backStackEntry.arguments?.getString("doctorId") ?: ""
+            DoctorProfileScreen(
+                navController = navController,
+                doctorId = doctorId,
+                initialDate = null,
+                doctorRepository = doctorRepository,
+                clinicRepository = clinicRepository,
+                slotRepository = slotRepository,
+                sessionManager = sessionManager
+            )
+        }
+        composable("doctor_detail/{doctorId}?date={date}") { backStackEntry ->
+            val doctorId = backStackEntry.arguments?.getString("doctorId") ?: ""
+            val date = backStackEntry.arguments?.getString("date")
+            DoctorProfileScreen(
+                navController = navController,
+                doctorId = doctorId,
+                initialDate = date,
+                doctorRepository = doctorRepository,
+                clinicRepository = clinicRepository,
                 slotRepository = slotRepository,
                 sessionManager = sessionManager
             )

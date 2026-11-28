@@ -986,8 +986,6 @@ fun HomeTab(
 
     var isLoadingClinics by remember { mutableStateOf(allClinics.isEmpty() && allDoctors.isEmpty()) }
 
-    // Modal state for "Select Clinic to Book" when clicking a Doctor
-    var selectedDoctorForClinicPicker by remember { mutableStateOf<DoctorHomeItem?>(null) }
     var clinicsNextAvailableDates by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
     val dateListState = rememberLazyListState()
@@ -1274,39 +1272,6 @@ fun HomeTab(
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     val clinicListState = rememberLazyListState()
-    var isDateAndSortVisible by remember { mutableStateOf(true) }
-
-    LaunchedEffect(clinicListState.firstVisibleItemIndex) {
-        if (clinicListState.firstVisibleItemIndex == 0) {
-            isDateAndSortVisible = true
-        }
-    }
-
-    val homeNestedScrollConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(
-                available: Offset,
-                source: NestedScrollSource
-            ): Offset {
-                val deltaY = available.y
-                if (deltaY < -15f && clinicListState.firstVisibleItemIndex > 0) {
-                    // Scrolling down the clinic list -> collapse Date & Sort section smoothly
-                    if (isDateAndSortVisible) {
-                        isDateAndSortVisible = false
-                    }
-                    if (isSearchFocused && searchQuery.isBlank()) {
-                        focusManager.clearFocus()
-                    }
-                } else if (deltaY > 10f) {
-                    // Scrolled back up -> pop Date & Sort section right back immediately!
-                    if (!isDateAndSortVisible) {
-                        isDateAndSortVisible = true
-                    }
-                }
-                return Offset.Zero
-            }
-        }
-    }
 
     var unreadCount by remember { mutableIntStateOf(0) }
     LaunchedEffect(notificationRepository, sessionManager, homeResumeCounter) {
@@ -1340,8 +1305,18 @@ fun HomeTab(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFFF0F9FF).copy(alpha = 0.4f))
-            .nestedScroll(homeNestedScrollConnection)
     ) {
+        // ── COMPACT PINNED WHITE HEADER (Location + Notification Bell + Search Pill) ──
+        Surface(
+            color = Color.White,
+            shadowElevation = 1.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+            ) {
         // ── TOP BAR: Location Selector (Left) + Notification Bell Button (Top-Right, Non-Overlapping) ──
         Row(
             modifier = Modifier
@@ -1525,246 +1500,27 @@ fun HomeTab(
                 }
             }
         }
+            }
+        }
+        HorizontalDivider(color = Color(0xFFE2E8F0))
 
-        // ── COLLAPSIBLE DATE & SORT SECTION (Hides on scroll down, pops back immediately on slight scroll up) ──
-        AnimatedVisibility(
-            visible = isDateAndSortVisible,
-            enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
-            exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
-        ) {
-            Column {
-                Spacer(Modifier.height(6.dp))
-
-                // ── MONTH & YEAR SELECTOR (< October 2026 >) ─────────────────────
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    val isCurrentMonth = viewedYearMonth <= YearMonth.from(today)
-                    IconButton(
-                        onClick = {
-                            if (!isCurrentMonth) {
-                                val prev = viewedYearMonth.minusMonths(1)
-                                viewedYearMonth = prev
-                                selectedDate = if (prev == YearMonth.from(today)) today else prev.atDay(1)
-                                coroutineScope.launch { dateListState.scrollToItem(0) }
-                            }
-                        },
-                        enabled = !isCurrentMonth
-                    ) {
-                        Icon(
-                            Icons.Default.ChevronLeft,
-                            contentDescription = "Previous Month",
-                            tint = if (isCurrentMonth) Color.LightGray else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    Text(
-                        text = "${viewedYearMonth.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)} ${viewedYearMonth.year}",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-
-                    IconButton(
-                        onClick = {
-                            val next = viewedYearMonth.plusMonths(1)
-                            viewedYearMonth = next
-                            selectedDate = next.atDay(1)
-                            coroutineScope.launch { dateListState.scrollToItem(0) }
-                        }
-                    ) {
-                        Icon(
-                            Icons.Default.ChevronRight,
-                            contentDescription = "Next Month",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(6.dp))
-
-                // ── HORIZONTAL DATE CARDS (Past dates removed) ────────────────────
-                LazyRow(
-                    state = dateListState,
-                    contentPadding = PaddingValues(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(daysInMonth, key = { it.toString() }) { date ->
-                        val isSelected = (date == selectedDate)
-                        val dayOfWeekStr = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
-
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White,
-                            border = BorderStroke(
-                                1.dp,
-                                if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-                            ),
-                            modifier = Modifier
-                                .width(62.dp)
-                                .defaultMinSize(minHeight = 76.dp)
-                                .clickable { selectedDate = date }
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                                modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)
-                            ) {
-                                Text(
-                                    text = dayOfWeekStr,
-                                    fontSize = 12.sp,
-                                    lineHeight = 14.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    text = "${date.dayOfMonth}",
-                                    fontSize = 18.sp,
-                                    lineHeight = 20.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(10.dp))
-
-                // ── ENTITY FILTER PILLS (All / Doctors / Clinics) & SORT PILL ──────
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        listOf(
-                            "all" to "${strings.homeFilterAll} (${displayedDoctors.size + displayedClinics.size})",
-                            "doctors" to "${strings.homeFilterDoctors} (${displayedDoctors.size})",
-                            "clinics" to "${strings.homeFilterClinics} (${displayedClinics.size})"
-                        ).forEach { (key, label) ->
-                            val isSel = selectedEntityFilter == key
-                            Surface(
-                                shape = RoundedCornerShape(18.dp),
-                                color = if (isSel) Color(0xFF0284C7) else Color.White,
-                                border = BorderStroke(1.dp, if (isSel) Color(0xFF0284C7) else Color(0xFFCBD5E1)),
-                                modifier = Modifier
-                                    .defaultMinSize(minHeight = 32.dp)
-                                    .clickable { selectedEntityFilter = key }
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = label,
-                                        fontSize = 11.5.sp,
-                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSel) Color.White else Color(0xFF334155),
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(Modifier.width(8.dp))
-
-                    Box {
-                        val sortLabel = when (selectedSort) {
-                            "in_clinic" -> strings.commonInClinic
-                            "fee_asc" -> strings.homeSortLowFee
-                            "name" -> strings.homeSortName
-                            else -> strings.homeSortLabel
-                        }
-                        val isCustomSort = selectedSort != "default"
-
-                        Surface(
-                            onClick = { showSortMenu = true },
-                            shape = RoundedCornerShape(20.dp),
-                            color = if (isCustomSort) MaterialTheme.colorScheme.primaryContainer else Color.White,
-                            border = BorderStroke(
-                                1.dp,
-                                if (isCustomSort) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-                            ),
-                            shadowElevation = 1.dp,
-                            modifier = Modifier
-                                .defaultMinSize(minHeight = 32.dp)
-                                .widthIn(max = 140.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Tune,
-                                    contentDescription = "Sort Options",
-                                    modifier = Modifier.size(14.dp),
-                                    tint = if (isCustomSort) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = sortLabel,
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (isCustomSort) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-
-                        DropdownMenu(
-                            expanded = showSortMenu,
-                            onDismissRequest = { showSortMenu = false },
-                            modifier = Modifier.background(Color.White)
-                        ) {
-                            DropdownMenuItem(
-                                leadingIcon = { Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(18.dp), tint = if (selectedSort == "default") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) },
-                                text = { Text(strings.homeSortRecommended, fontWeight = if (selectedSort == "default") FontWeight.Bold else FontWeight.Normal) },
-                                onClick = { selectedSort = "default"; showSortMenu = false }
-                            )
-                            DropdownMenuItem(
-                                leadingIcon = { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(0xFF16A34A)) },
-                                text = { Text(strings.homeSortInClinic, fontWeight = if (selectedSort == "in_clinic") FontWeight.Bold else FontWeight.Normal) },
-                                onClick = { selectedSort = "in_clinic"; showSortMenu = false }
-                            )
-                            DropdownMenuItem(
-                                leadingIcon = { Icon(Icons.Default.Payments, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                                text = { Text(strings.homeSortLowFee, fontWeight = if (selectedSort == "fee_asc") FontWeight.Bold else FontWeight.Normal) },
-                                onClick = { selectedSort = "fee_asc"; showSortMenu = false }
-                            )
-                            DropdownMenuItem(
-                                leadingIcon = { Icon(Icons.Default.SortByAlpha, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-                                text = { Text(strings.homeSortName, fontWeight = if (selectedSort == "name") FontWeight.Bold else FontWeight.Normal) },
-                                onClick = { selectedSort = "name"; showSortMenu = false }
-                            )
-                        }
-                    }
+        val diagnosticLabs = remember(displayedClinics) {
+            displayedClinics.filter {
+                it.first.clinic.type == "diagnostic_lab" ||
+                it.first.services.any { s ->
+                    val n = s.serviceName.lowercase(java.util.Locale.ROOT)
+                    n.contains("scan") || n.contains("test") || n.contains("lab") || n.contains("ray") || n.contains("mri") || n.contains("usg")
                 }
             }
         }
-
-        Spacer(Modifier.height(10.dp))
-
         val showDoctorsSection = selectedEntityFilter == "all" || selectedEntityFilter == "doctors"
         val showClinicsSection = selectedEntityFilter == "all" || selectedEntityFilter == "clinics"
-        val isNothingFound = (!showDoctorsSection || displayedDoctors.isEmpty()) && (!showClinicsSection || displayedClinics.isEmpty())
+        val showLabsSection = selectedEntityFilter == "labs"
+        val isNothingFound = (!showDoctorsSection || displayedDoctors.isEmpty()) &&
+            (!showClinicsSection || displayedClinics.isEmpty()) &&
+            (!showLabsSection || diagnosticLabs.isEmpty())
 
-        // ── AVAILABLE DOCTORS & CLINICS LIST ──────────────────────────────
+        // ── AVAILABLE DOCTORS & CLINICS LIST (Full Unified Scroll) ──────
         if (isLoadingClinics) {
             // ── RADAR LOADING STATE ─────────────────────────────────────────
             val radarTransition = rememberInfiniteTransition(label = "radarTransition")
@@ -1971,22 +1727,213 @@ fun HomeTab(
                 val nonLabs = displayedClinics.filter { it.first.clinic.type != "diagnostic_lab" }
                 if (nonLabs.isNotEmpty()) nonLabs else displayedClinics
             }
-            val diagnosticLabs = remember(displayedClinics) {
-                displayedClinics.filter {
-                    it.first.clinic.type == "diagnostic_lab" ||
-                    it.first.services.any { s ->
-                        val n = s.serviceName.lowercase(java.util.Locale.ROOT)
-                        n.contains("scan") || n.contains("test") || n.contains("lab") || n.contains("ray") || n.contains("mri") || n.contains("usg")
-                    }
-                }
-            }
 
             LazyColumn(
                 state = clinicListState,
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
+                // ── 0. SCROLLABLE DATE STRIP + ENTITY FILTER BAR ─────────────────────────────────────
+                item(key = "home_date_and_filters") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        // Compact Month Stepper + Date Pill Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            val isCurrentMonth = viewedYearMonth <= YearMonth.from(today)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        if (!isCurrentMonth) {
+                                            val prev = viewedYearMonth.minusMonths(1)
+                                            viewedYearMonth = prev
+                                            selectedDate = if (prev == YearMonth.from(today)) today else prev.atDay(1)
+                                            coroutineScope.launch { dateListState.scrollToItem(0) }
+                                        }
+                                    },
+                                    enabled = !isCurrentMonth,
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.ChevronLeft,
+                                        contentDescription = "Previous Month",
+                                        tint = if (isCurrentMonth) Color(0xFFCBD5E1) else Color(0xFF0F172A),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Text(
+                                    text = "${viewedYearMonth.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)} ${viewedYearMonth.year}",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF0F172A)
+                                )
+                                IconButton(
+                                    onClick = {
+                                        val next = viewedYearMonth.plusMonths(1)
+                                        viewedYearMonth = next
+                                        selectedDate = next.atDay(1)
+                                        coroutineScope.launch { dateListState.scrollToItem(0) }
+                                    },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.ChevronRight,
+                                        contentDescription = "Next Month",
+                                        tint = Color(0xFF0F172A),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+
+                            Box {
+                                val sortLabel = when (selectedSort) {
+                                    "in_clinic" -> strings.commonInClinic
+                                    "fee_asc" -> strings.homeSortLowFee
+                                    "name" -> strings.homeSortName
+                                    else -> strings.homeSortLabel
+                                }
+                                val isCustomSort = selectedSort != "default"
+
+                                Surface(
+                                    onClick = { showSortMenu = true },
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = if (isCustomSort) Color(0xFFE0F2FE) else Color.White,
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isCustomSort) Color(0xFF0284C7) else Color(0xFFE2E8F0)
+                                    ),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Tune,
+                                            contentDescription = "Sort Options",
+                                            modifier = Modifier.size(13.dp),
+                                            tint = if (isCustomSort) Color(0xFF0284C7) else Color(0xFF64748B)
+                                        )
+                                        Text(
+                                            text = sortLabel,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isCustomSort) Color(0xFF0284C7) else Color(0xFF334155),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+
+                                DropdownMenu(
+                                    expanded = showSortMenu,
+                                    onDismissRequest = { showSortMenu = false },
+                                    modifier = Modifier.background(Color.White)
+                                ) {
+                                    DropdownMenuItem(
+                                        leadingIcon = { Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(18.dp), tint = if (selectedSort == "default") Color(0xFF0284C7) else Color(0xFF64748B)) },
+                                        text = { Text(strings.homeSortRecommended, fontWeight = if (selectedSort == "default") FontWeight.Bold else FontWeight.Normal) },
+                                        onClick = { selectedSort = "default"; showSortMenu = false }
+                                    )
+                                    DropdownMenuItem(
+                                        leadingIcon = { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(0xFF16A34A)) },
+                                        text = { Text(strings.homeSortInClinic, fontWeight = if (selectedSort == "in_clinic") FontWeight.Bold else FontWeight.Normal) },
+                                        onClick = { selectedSort = "in_clinic"; showSortMenu = false }
+                                    )
+                                    DropdownMenuItem(
+                                        leadingIcon = { Icon(Icons.Default.SortByAlpha, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(0xFF64748B)) },
+                                        text = { Text(strings.homeSortName, fontWeight = if (selectedSort == "name") FontWeight.Bold else FontWeight.Normal) },
+                                        onClick = { selectedSort = "name"; showSortMenu = false }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Compact Single-Row Horizontal Date Chips
+                        LazyRow(
+                            state = dateListState,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(daysInMonth, key = { it.toString() }) { date ->
+                                val isSelected = (date == selectedDate)
+                                val isTodayDate = (date == today)
+                                val dayOfWeekStr = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
+
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = if (isSelected) Color(0xFF0284C7) else Color.White,
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isSelected) Color(0xFF0284C7) else Color(0xFFE2E8F0)
+                                    ),
+                                    modifier = Modifier.clickable { selectedDate = date }
+                                ) {
+                                    Text(
+                                        text = if (isTodayDate) "Today \u2022 ${date.dayOfMonth}" else "$dayOfWeekStr ${date.dayOfMonth}",
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                        color = if (isSelected) Color.White else Color(0xFF334155),
+                                        maxLines = 1,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Clean Segmented Entity Tabs (All / Doctors / Clinics / Labs)
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color.White,
+                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                listOf(
+                                    "all" to strings.homeFilterAll,
+                                    "doctors" to "${strings.homeFilterDoctors} (${displayedDoctors.size})",
+                                    "clinics" to "${strings.homeFilterClinics} (${opdClinics.size})",
+                                    "labs" to "Labs (${diagnosticLabs.size})"
+                                ).forEach { (key, label) ->
+                                    val isSel = selectedEntityFilter == key
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = if (isSel) Color(0xFF0284C7) else Color.Transparent,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { selectedEntityFilter = key }
+                                    ) {
+                                        Box(
+                                            contentAlignment = Alignment.Center,
+                                            modifier = Modifier.padding(vertical = 7.dp, horizontal = 4.dp)
+                                        ) {
+                                            Text(
+                                                text = label,
+                                                fontSize = 11.sp,
+                                                fontWeight = if (isSel) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                                color = if (isSel) Color.White else Color(0xFF475569),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 // ── 1. URGENT CARE IN-CLINIC DOCTOR CAROUSEL ──────────────────────────────────────────────────────────
                 if (inClinicDoctors.isNotEmpty() && activeCategoryFilter == null && searchQuery.isBlank() && selectedEntityFilter != "clinics") {
                     item(key = "section_in_clinic_carousel") {
@@ -2059,7 +2006,11 @@ fun HomeTab(
                                         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                                         modifier = Modifier
                                             .width(185.dp)
-                                            .clickable { selectedDoctorForClinicPicker = docItem }
+                                            .clickable {
+                                                navController.navigate(
+                                                    NavRoutes.DoctorDetail.createRoute(doc.id, selectedDate.toString())
+                                                )
+                                            }
                                     ) {
                                         Column(
                                             modifier = Modifier.padding(12.dp),
@@ -2148,20 +2099,27 @@ fun HomeTab(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
+                                                val carouselExpText = doc.startingPracticingYear?.let { yr ->
+                                                    "${(today.year - yr).coerceAtLeast(1)}+ yrs exp"
+                                                } ?: "${docItem.practicingClinics.size} clinic(s)"
                                                 Text(
-                                                    text = CurrencyFormatter.formatNPR(doc.consultationFee ?: 500.0),
-                                                    fontSize = 11.5.sp,
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    color = Color(0xFF0F172A)
+                                                    text = carouselExpText,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFF0284C7)
                                                 )
                                                 Surface(
                                                     shape = RoundedCornerShape(8.dp),
                                                     color = Color(0xFF16A34A),
-                                                    modifier = Modifier.clickable { selectedDoctorForClinicPicker = docItem }
+                                                    modifier = Modifier.clickable {
+                                                        navController.navigate(
+                                                            NavRoutes.DoctorDetail.createRoute(doc.id, selectedDate.toString())
+                                                        )
+                                                    }
                                                 ) {
                                                     Text(
-                                                        text = "Walk In",
-                                                        fontSize = 10.5.sp,
+                                                        text = "View Profile",
+                                                        fontSize = 10.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = Color.White,
                                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -2340,25 +2298,16 @@ fun HomeTab(
                                 ) {
                                     Icon(Icons.Default.LocalHospital, contentDescription = null, tint = Color(0xFF0891B2), modifier = Modifier.size(18.dp))
                                     Text(
-                                        text = "Live OPD Clinics & Hospitals",
+                                        text = "Live OPD Clinics & Hospitals (${opdClinics.size})",
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                         color = Color(0xFF0F172A)
                                     )
                                 }
-                                if (displayedClinics.size > 3) {
-                                    Text(
-                                        text = "View All (${displayedClinics.size})",
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF0891B2),
-                                        modifier = Modifier.clickable { selectedEntityFilter = "clinics" }
-                                    )
-                                }
                             }
                         }
 
-                        items(opdClinics.take(3), key = { "clinic_${it.first.clinic.id}" }) { (item, matchResult) ->
+                        items(opdClinics, key = { "clinic_${it.first.clinic.id}" }) { (item, matchResult) ->
                             PatientHomeClinicCard(
                                 item = item,
                                 matchResult = matchResult,
@@ -2400,25 +2349,16 @@ fun HomeTab(
                                 ) {
                                     Icon(Icons.Default.MedicalServices, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(18.dp))
                                     Text(
-                                        text = "Doctors Available Today",
+                                        text = "Doctors Available Today (${displayedDoctors.size})",
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                         color = Color(0xFF0F172A)
                                     )
                                 }
-                                if (displayedDoctors.size > 3) {
-                                    Text(
-                                        text = "View All (${displayedDoctors.size})",
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF0284C7),
-                                        modifier = Modifier.clickable { selectedEntityFilter = "doctors" }
-                                    )
-                                }
                             }
                         }
 
-                        items(displayedDoctors.take(3), key = { "doc_${it.first.doctor.id}" }) { (docItem, matchResult) ->
+                        items(displayedDoctors, key = { "doc_${it.first.doctor.id}" }) { (docItem, matchResult) ->
                             PatientHomeDoctorCard(
                                 docItem = docItem,
                                 matchResult = matchResult,
@@ -2428,7 +2368,11 @@ fun HomeTab(
                                 userLatitude = userLatitude,
                                 userLongitude = userLongitude,
                                 searchQuery = searchQuery,
-                                onSelectDoctorToBook = { selectedDoctorForClinicPicker = it }
+                                onSelectDoctorToBook = {
+                                    navController.navigate(
+                                        NavRoutes.DoctorDetail.createRoute(it.doctor.id, selectedDate.toString())
+                                    )
+                                }
                             )
                         }
                     }
@@ -2445,7 +2389,7 @@ fun HomeTab(
                             ) {
                                 Icon(Icons.Default.Biotech, contentDescription = null, tint = Color(0xFF9333EA), modifier = Modifier.size(18.dp))
                                 Text(
-                                    text = "Diagnostic Scans & Pathology Labs",
+                                    text = "Diagnostic Scans & Pathology Labs (${diagnosticLabs.size})",
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = Color(0xFF0F172A)
@@ -2453,7 +2397,7 @@ fun HomeTab(
                             }
                         }
 
-                        items(diagnosticLabs.take(2), key = { "lab_${it.first.clinic.id}" }) { (item, matchResult) ->
+                        items(diagnosticLabs, key = { "lab_${it.first.clinic.id}" }) { (item, matchResult) ->
                             PatientHomeClinicCard(
                                 item = item,
                                 matchResult = matchResult,
@@ -2550,7 +2494,88 @@ fun HomeTab(
                                 userLatitude = userLatitude,
                                 userLongitude = userLongitude,
                                 searchQuery = searchQuery,
-                                onSelectDoctorToBook = { selectedDoctorForClinicPicker = it }
+                                onSelectDoctorToBook = {
+                                    navController.navigate(
+                                        NavRoutes.DoctorDetail.createRoute(it.doctor.id, selectedDate.toString())
+                                    )
+                                }
+                            )
+                        }
+                    }
+
+                    if (showLabsSection && diagnosticLabs.isNotEmpty()) {
+                        item(key = "header_matching_labs") {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                            ) {
+                                Icon(Icons.Default.Biotech, contentDescription = null, tint = Color(0xFF9333EA), modifier = Modifier.size(18.dp))
+                                Text(
+                                    text = "Diagnostic Scans & Pathology Labs (${diagnosticLabs.size})",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF0F172A)
+                                )
+                            }
+                        }
+
+                        items(diagnosticLabs, key = { "filtered_lab_${it.first.clinic.id}" }) { (item, matchResult) ->
+                            PatientHomeClinicCard(
+                                item = item,
+                                matchResult = matchResult,
+                                clinicsNextAvailableDates = clinicsNextAvailableDates,
+                                selectedDate = selectedDate,
+                                userLatitude = userLatitude,
+                                userLongitude = userLongitude,
+                                searchQuery = searchQuery,
+                                isExplicitLabSection = true,
+                                isCategoryTabSelected = (activeCategoryFilter != null),
+                                onNavigateToClinic = { clinicId ->
+                                    navController.navigate(NavRoutes.ClinicDetail.createRoute(clinicId))
+                                },
+                                onCallClinic = { phone ->
+                                    if (phone.isNotBlank()) {
+                                        try {
+                                            val intent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:$phone"))
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {}
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // ── END-OF-FEED FOOTER (Confirms all items scrolled cleanly) ──
+                item(key = "home_scroll_end_footer") {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.White,
+                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp, bottom = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = Color(0xFF16A34A),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "You've reached the end \u2022 All clinics & doctors shown",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF475569)
                             )
                         }
                     }
@@ -2569,7 +2594,6 @@ fun HomeTab(
                 FloatingActionButton(
                     onClick = {
                         coroutineScope.launch {
-                            isDateAndSortVisible = true
                             clinicListState.animateScrollToItem(0)
                         }
                     },
@@ -2587,203 +2611,6 @@ fun HomeTab(
             }
         }
     }
-
-    // ── SELECT CLINIC FOR DOCTOR BOOKING DIALOG ───────────────────────────
-    if (selectedDoctorForClinicPicker != null) {
-        val docItem = selectedDoctorForClinicPicker!!
-        val doctor = docItem.doctor
-        val dateStr = selectedDate.toString()
-        val clinicsForDoctor = remember(docItem) {
-            docItem.practicingClinics
-        }
-
-        AlertDialog(
-            onDismissRequest = { selectedDoctorForClinicPicker = null },
-            title = {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        text = "Select Clinic to Book",
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 18.sp,
-                        color = Color(0xFF0F172A)
-                    )
-                    Text(
-                        text = "Dr. ${doctor.fullName} \u2022 ${doctor.specialty ?: "Specialist"}",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF0284C7)
-                    )
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (clinicsForDoctor.isEmpty()) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFFF1F5F9),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(16.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.DomainDisabled,
-                                    contentDescription = null,
-                                    tint = Color(0xFF64748B),
-                                    modifier = Modifier.size(32.dp)
-                                )
-                                Text(
-                                    text = "Not Affiliated",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = Color(0xFF0F172A)
-                                )
-                                Text(
-                                    text = "Dr. ${doctor.fullName} is currently not affiliated with any active clinic.",
-                                    fontSize = 12.sp,
-                                    color = Color(0xFF64748B),
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                )
-                            }
-                        }
-                    } else {
-                        Text(
-                            text = "Choose the clinic where you want to book your appointment with Dr. ${doctor.fullName}:",
-                            fontSize = 12.sp,
-                            color = Color(0xFF64748B)
-                        )
-
-                        LazyColumn(
-                            modifier = Modifier.heightIn(max = 320.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                        items(clinicsForDoctor, key = { it.id }) { clinic ->
-                            Card(
-                                shape = RoundedCornerShape(14.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
-                                border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        selectedDoctorForClinicPicker = null
-                                        val isDemo = sessionManager?.isGuestMode() == true || sessionManager?.isLoggedIn() != true
-                                        val targetRoute = NavRoutes.Booking.createRoute(
-                                            clinicId = clinic.id,
-                                            doctorId = doctor.id,
-                                            date = dateStr
-                                        )
-                                        if (isDemo) {
-                                            sessionManager?.savePendingBookingRedirect(
-                                                route = targetRoute,
-                                                clinicId = clinic.id,
-                                                doctorId = doctor.id,
-                                                selectedDate = dateStr
-                                            )
-                                            Toast.makeText(context, "Please sign in with Google to book an appointment", Toast.LENGTH_SHORT).show()
-                                            navController.navigate(NavRoutes.Login.route)
-                                        } else {
-                                            navController.navigate(targetRoute)
-                                        }
-                                    }
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = Color(0xFFE0F2FE),
-                                        modifier = Modifier.size(42.dp)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Icon(
-                                                Icons.Default.LocalHospital,
-                                                contentDescription = null,
-                                                tint = Color(0xFF0284C7),
-                                                modifier = Modifier.size(22.dp)
-                                            )
-                                        }
-                                    }
-
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = clinic.name,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp,
-                                            color = Color(0xFF0F172A)
-                                        )
-                                        Text(
-                                            text = clinic.addressText ?: "Kathmandu, Nepal",
-                                            fontSize = 12.sp,
-                                            color = Color(0xFF64748B),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            text = "Fee: ${CurrencyFormatter.formatNPR(doctor.consultationFee ?: 500.0)}",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF0284C7)
-                                        )
-                                    }
-
-                                    val hasSlotForDoc = remember(clinic, doctor, allClinics, selectedDate) {
-                                        val slots = allClinics.firstOrNull { it.clinic.id == clinic.id }?.availableSlots ?: emptyList()
-                                        slots.any { s ->
-                                            s.isPublished && (s.doctorId == doctor.id || s.doctorId.isNullOrBlank()) &&
-                                                (s.maxCapacity - s.bookedCount) > 0 &&
-                                                !com.dactor.patient.data.repository.SlotRepository.isSlotEndTimeOver(s.endTime, dateStr, s.startTime)
-                                        }
-                                    }
-
-                                    Button(
-                                        onClick = {
-                                            selectedDoctorForClinicPicker = null
-                                            val isDemo = sessionManager?.isGuestMode() == true || sessionManager?.isLoggedIn() != true
-                                            val targetRoute = NavRoutes.Booking.createRoute(
-                                                clinicId = clinic.id,
-                                                doctorId = doctor.id,
-                                                date = dateStr
-                                            )
-                                            if (isDemo) {
-                                                sessionManager?.savePendingBookingRedirect(
-                                                    route = targetRoute,
-                                                    clinicId = clinic.id,
-                                                    doctorId = doctor.id,
-                                                    selectedDate = dateStr
-                                                )
-                                                Toast.makeText(context, "Please sign in with Google to book an appointment", Toast.LENGTH_SHORT).show()
-                                                navController.navigate(NavRoutes.Login.route)
-                                            } else {
-                                                navController.navigate(targetRoute)
-                                            }
-                                        },
-                                        shape = RoundedCornerShape(10.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                        modifier = Modifier.height(36.dp)
-                                    ) {
-                                        Text("Book", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { selectedDoctorForClinicPicker = null }) {
-                Text("Cancel")
-            }
-        }
-    )
-}
 
     // ── LOCATION SELECTOR DIALOG ──────────────────────────────────────────
     if (showLocationDialog) {
@@ -3219,13 +3046,18 @@ private fun PatientHomeDoctorCard(
 
             HorizontalDivider(color = Color(0xFFF1F5F9), modifier = Modifier.padding(vertical = 2.dp))
 
-            // Bottom Row: Earliest Slot & Consultation Fee (Left) + Select Clinic & Book Button (Right)
+            // Bottom Row: Earliest Slot & Experience (Left) + Profile & Book Button (Right)
+            val expYearsLabel = doctor.startingPracticingYear?.let { yr ->
+                val yrs = (LocalDate.now().year - yr).coerceAtLeast(1)
+                "$yrs+ yrs experience"
+            } ?: "${clinicsForDoc.size} practicing clinic(s)"
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         Box(
                             modifier = Modifier
@@ -3240,10 +3072,12 @@ private fun PatientHomeDoctorCard(
                         )
                     }
                     Text(
-                        text = "Fee: ${CurrencyFormatter.formatNPR(doctor.consultationFee ?: 500.0)}",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color(0xFF0F172A)
+                        text = expYearsLabel,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF334155),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
@@ -3255,7 +3089,7 @@ private fun PatientHomeDoctorCard(
                         colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xFFF8FAFC)),
                         modifier = Modifier.height(40.dp)
                     ) {
-                        Text("Not Affiliated", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF64748B))
+                        Text("View Profile", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF64748B))
                     }
                 } else {
                     Button(
@@ -3264,9 +3098,9 @@ private fun PatientHomeDoctorCard(
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                         modifier = Modifier.height(40.dp)
                     ) {
-                        Icon(Icons.Default.Storefront, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(15.dp))
                         Spacer(Modifier.width(5.dp))
-                        Text(if (clinicsForDoc.size > 1) "Select Clinic" else "Book Slot", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                        Text("Profile & Book", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 }
             }
@@ -3334,7 +3168,7 @@ private fun PatientHomeClinicCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(118.dp)
+                    .height(92.dp)
                     .background(Color(0xFFE0F2FE)),
                 contentAlignment = Alignment.Center
             ) {

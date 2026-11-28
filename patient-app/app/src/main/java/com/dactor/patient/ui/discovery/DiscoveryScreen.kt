@@ -592,18 +592,7 @@ fun DiscoveryScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    // Clicking a doctor triggers the clinic selection flow
-                                    selectedDoctorForClinicModal = doc
-                                    isLoadingDoctorClinics = true
-                                    coroutineScope.launch {
-                                        try {
-                                            doctorPracticingClinics = doctorRepository?.getClinicsForDoctor(doc) ?: emptyList()
-                                        } catch (e: Exception) {
-                                            doctorPracticingClinics = emptyList()
-                                        } finally {
-                                            isLoadingDoctorClinics = false
-                                        }
-                                    }
+                                    navController.navigate(NavRoutes.DoctorDetail.createRoute(doc.id))
                                 }
                         ) {
                             Column(
@@ -676,24 +665,14 @@ fun DiscoveryScreen(
 
                                 Button(
                                     onClick = {
-                                        selectedDoctorForClinicModal = doc
-                                        isLoadingDoctorClinics = true
-                                        coroutineScope.launch {
-                                            try {
-                                                doctorPracticingClinics = doctorRepository?.getClinicsForDoctor(doc) ?: emptyList()
-                                            } catch (e: Exception) {
-                                                doctorPracticingClinics = emptyList()
-                                            } finally {
-                                                isLoadingDoctorClinics = false
-                                            }
-                                        }
+                                        navController.navigate(NavRoutes.DoctorDetail.createRoute(doc.id))
                                     },
                                     modifier = Modifier.fillMaxWidth().height(40.dp),
                                     shape = RoundedCornerShape(10.dp)
                                 ) {
-                                    Icon(Icons.Default.Apartment, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(6.dp))
-                                    Text("Select Clinic to Consult Dr. ${doc.fullName.split(" ").lastOrNull() ?: ""}", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text("View Profile & Book", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }

@@ -1606,28 +1606,8 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
     }
   }
 
-  // Select Doctor Booking Algorithm (1:1 Android App Parity)
+  // Select Doctor Booking Algorithm (Open Doctor Profile first, then choose clinic)
   const handleSelectDoctorFromCard = (doc: Doctor) => {
-    const linkedClinics = clinics.filter((c) => {
-      return (
-        c.id === doc.clinicId ||
-        c.id === (doc as any).activeClinicId ||
-        c.id === (doc as any).primaryClinicId ||
-        (clinicDoctorsMap[c.id] && clinicDoctorsMap[c.id].some((d) => d.id === doc.id))
-      )
-    })
-
-    if (linkedClinics.length === 0) {
-      alert(`Dr. ${doc.fullName} is currently not affiliated with an active clinic.`)
-      return
-    }
-
-    if (linkedClinics.length === 1) {
-      handleSelectClinic(linkedClinics[0], doc)
-      return
-    }
-
-    // Multiple clinics: open clinic picker modal (Matching Android app PatientMainScreen.kt:2392-2602)
     setSelectedDoctorForClinicPicker(doc)
   }
 
@@ -4372,29 +4352,22 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                                   </div>
                                 </div>
 
-                                {/* Footer: Fee & Action Button */}
+                                {/* Footer: Experience & View Profile Action Button */}
                                 <div className="px-5 py-4 bg-slate-50/80 dark:bg-slate-900/40 border-t border-slate-100 dark:border-white/5 flex items-center justify-between">
                                   <div>
                                     <p className="text-[10px] uppercase font-bold text-slate-400">
-                                      Consultation Fee
+                                      Experience
                                     </p>
-                                    <p className="text-base font-extrabold text-slate-900 dark:text-white">
-                                      Rs. {(doc as any).consultationFee || 500}
+                                    <p className="text-sm font-extrabold text-slate-900 dark:text-white">
+                                      {doc.experienceYears || (doc.startingPracticingYear ? Math.max(1, new Date().getFullYear() - doc.startingPracticingYear) : 5)}+ Years
                                     </p>
                                   </div>
                                   <button
                                     type="button"
                                     onClick={() => handleSelectDoctorFromCard(doc)}
-                                    disabled={linkedClinics.length === 0}
-                                    className={`px-4 py-2 text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 active:scale-95 cursor-pointer ${
-                                      linkedClinics.length === 0
-                                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                                        : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/20'
-                                    }`}
+                                    className="px-4 py-2 text-xs font-bold rounded-xl shadow-md transition flex items-center space-x-1.5 active:scale-95 cursor-pointer bg-sky-600 hover:bg-sky-700 text-white shadow-sky-500/20"
                                   >
-                                    <span>
-                                      {linkedClinics.length > 1 ? 'Select Clinic & Book' : 'Book Doctor'}
-                                    </span>
+                                    <span>Profile &amp; Book</span>
                                     <ArrowRight className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
@@ -8400,95 +8373,160 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       })()}
 
       {/* ==========================================
-          MODAL: SELECT CLINIC FOR DOCTOR BOOKING
-          (1:1 Parity with Android App PatientMainScreen.kt:2392-2602)
+          MODAL: DOCTOR PROFILE -> CHOOSE CLINIC FOR APPOINTMENT
+          (1:1 Parity with Android App DoctorProfileScreen, consultation fee hidden)
       ========================================== */}
-      {selectedDoctorForClinicPicker && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="liquid-glass-modal rounded-3xl max-w-lg w-full border border-white/60 dark:border-white/15 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
-            {/* Modal Header */}
-            <div className="p-6 bg-gradient-to-r from-blue-600 via-blue-700 to-sky-600 text-white relative">
-              <button
-                type="button"
-                onClick={() => setSelectedDoctorForClinicPicker(null)}
-                className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-white/20 text-white/80 hover:text-white transition cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-              <div className="flex items-center space-x-2 text-xs font-bold text-blue-100 uppercase tracking-wider">
-                <span>Doctor Consultation</span>
-                <span>•</span>
-                <span>Select Clinic</span>
+      {selectedDoctorForClinicPicker && (() => {
+        const doc = selectedDoctorForClinicPicker
+        const cleanDocName = doc.fullName.replace(/^dr\.?\s*/i, '')
+        const expYears = doc.experienceYears || (doc.startingPracticingYear ? Math.max(1, new Date().getFullYear() - doc.startingPracticingYear) : 5)
+        const docSpecs = (doc.specialties && doc.specialties.length > 0 ? doc.specialties : [doc.specialty || 'Medical Specialist']).filter(Boolean)
+        const avatarUrl = (doc as any).resolvedProfilePictureUrl || doc.profilePictureUrl || (doc as any).photoUrl || null
+        const initials = cleanDocName.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('') || 'DR'
+        const bioText = doc.bio || doc.description || `Dr. ${cleanDocName} provides dedicated outpatient consultations in ${docSpecs.join(', ')}.`
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 flex flex-col max-h-[90vh]">
+              {/* Top Bar */}
+              <div className="px-6 py-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
+                <div className="flex items-center space-x-2 text-xs font-extrabold text-sky-600 uppercase tracking-wider">
+                  <Stethoscope className="w-4 h-4" />
+                  <span>Doctor Profile</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDoctorForClinicPicker(null)}
+                  className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <h3 className="text-xl font-black mt-1">Select Clinic to Book</h3>
-              <p className="text-xs text-blue-100 mt-0.5 font-medium">
-                Dr. {selectedDoctorForClinicPicker.fullName.replace(/^dr\.?\s*/i, '')} •{' '}
-                {selectedDoctorForClinicPicker.specialty || 'Medical Specialist'}
-              </p>
-            </div>
 
-            {/* Modal Body: Clinics List */}
-            <div className="p-6 space-y-3 max-h-[60vh] overflow-y-auto">
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Choose the clinic where you want to consult with Dr.{' '}
-                {selectedDoctorForClinicPicker.fullName.replace(/^dr\.?\s*/i, '')}:
-              </p>
-
-              {doctorClinicsForPicker.length === 0 ? (
-                <div className="p-6 text-center rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-2">
-                  <Building2 className="w-8 h-8 text-slate-400 mx-auto" />
-                  <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Dr. {selectedDoctorForClinicPicker.fullName} is currently not affiliated with any active clinic.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2.5">
-                  {doctorClinicsForPicker.map((clinic) => (
-                    <div
-                      key={clinic.id}
-                      onClick={() => {
-                        const doc = selectedDoctorForClinicPicker
-                        setSelectedDoctorForClinicPicker(null)
-                        handleSelectClinic(clinic, doc)
-                      }}
-                      className="p-4 rounded-2xl border border-slate-200 dark:border-slate-700 hover:border-blue-500 hover:bg-blue-50/40 dark:hover:bg-blue-950/30 transition cursor-pointer flex items-center justify-between group"
-                    >
-                      <div className="space-y-1 min-w-0 pr-3">
-                        <h5 className="font-extrabold text-slate-900 dark:text-white text-sm group-hover:text-blue-600 dark:group-hover:text-blue-400 transition truncate">
-                          {clinic.name}
-                        </h5>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                          {clinic.addressText || clinic.city || 'Nepal'}
-                        </p>
-                        <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-                          ● Realtime OPD Queue Active
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs shrink-0 cursor-pointer"
-                      >
-                        Select & Book
-                      </button>
+              {/* Scrollable Profile + Clinics */}
+              <div className="p-6 space-y-5 overflow-y-auto bg-sky-50/30 dark:bg-slate-950/40">
+                {/* Big Hero Avatar & Identity */}
+                <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 flex flex-col items-center text-center shadow-xs">
+                  <div className="relative">
+                    <div className="w-28 h-28 rounded-full bg-sky-50 dark:bg-slate-800 border-[3px] border-sky-600 shadow-md overflow-hidden flex items-center justify-center">
+                      {avatarUrl ? (
+                        <img src={avatarUrl} alt={cleanDocName} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-3xl font-extrabold text-sky-600">{initials}</span>
+                      )}
                     </div>
-                  ))}
+                    {doc.isInClinic && (
+                      <span className="absolute -bottom-1 right-0 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-300 shadow-xs">
+                        ● In Clinic
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="text-xl font-black text-slate-900 dark:text-white mt-3.5">
+                    Dr. {cleanDocName}
+                  </h3>
+                  <div className="flex flex-wrap justify-center gap-1.5 mt-2">
+                    {docSpecs.map((spec) => (
+                      <span key={spec} className="px-2.5 py-0.5 rounded-full bg-sky-50 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 text-xs font-bold">
+                        {spec}
+                      </span>
+                    ))}
+                  </div>
+                  {doc.nmcLicenseNumber && (
+                    <span className="mt-2.5 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-semibold border border-slate-200 dark:border-slate-700">
+                      NMC License #{doc.nmcLicenseNumber}
+                    </span>
+                  )}
                 </div>
-              )}
-            </div>
 
-            {/* Modal Footer */}
-            <div className="p-4 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setSelectedDoctorForClinicPicker(null)}
-                className="px-5 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl transition cursor-pointer"
-              >
-                Cancel
-              </button>
+                {/* 2-Column Stats (Experience & Clinics — Fee Intentionally Hidden) */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5 text-center shadow-xs">
+                    <div className="text-base font-extrabold text-sky-600">{expYears}+ Years</div>
+                    <div className="text-[11px] font-medium text-slate-500">Clinical Experience</div>
+                  </div>
+                  <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5 text-center shadow-xs">
+                    <div className="text-base font-extrabold text-emerald-600">
+                      {doctorClinicsForPicker.length} {doctorClinicsForPicker.length === 1 ? 'Clinic' : 'Clinics'}
+                    </div>
+                    <div className="text-[11px] font-medium text-slate-500">Practicing Locations</div>
+                  </div>
+                </div>
+
+                {/* Education */}
+                {doc.education && (
+                  <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 space-y-1 shadow-xs">
+                    <div className="text-xs font-extrabold text-slate-900 dark:text-white">Education &amp; Qualifications</div>
+                    <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">{doc.education}</p>
+                  </div>
+                )}
+
+                {/* About Doctor */}
+                <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 space-y-1 shadow-xs">
+                  <div className="text-xs font-extrabold text-slate-900 dark:text-white">About Doctor</div>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">{bioText}</p>
+                </div>
+
+                {/* Choose Clinic for Appointment */}
+                <div className="space-y-2.5">
+                  <h4 className="text-xs font-extrabold text-slate-900 dark:text-white">
+                    Choose Clinic for Further Appointment
+                  </h4>
+                  {doctorClinicsForPicker.length === 0 ? (
+                    <div className="p-6 text-center rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 space-y-2">
+                      <Building2 className="w-8 h-8 text-slate-400 mx-auto" />
+                      <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        Dr. {cleanDocName} is currently not affiliated with any active clinic.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {doctorClinicsForPicker.map((clinic) => (
+                        <div
+                          key={clinic.id}
+                          onClick={() => {
+                            setSelectedDoctorForClinicPicker(null)
+                            handleSelectClinic(clinic, doc)
+                          }}
+                          className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-sky-500 hover:bg-sky-50/40 dark:hover:bg-sky-950/30 transition cursor-pointer flex items-center justify-between group"
+                        >
+                          <div className="space-y-1 min-w-0 pr-3">
+                            <h5 className="font-extrabold text-slate-900 dark:text-white text-sm group-hover:text-sky-600 transition truncate">
+                              {clinic.name}
+                            </h5>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                              {clinic.addressText || clinic.city || 'Nepal'}
+                            </p>
+                            <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                              ● Realtime OPD Queue Active
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold shadow-xs shrink-0 cursor-pointer"
+                          >
+                            Book Here →
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 flex justify-end shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setSelectedDoctorForClinicPicker(null)}
+                  className="px-5 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl transition cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* ==========================================
           MODAL: REMOVE RECORD CONFIRMATION
