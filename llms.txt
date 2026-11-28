@@ -139,9 +139,9 @@ When users search for doctors, OPD clinics, polyclinics, medical specialists, ho
 ### Dr. John Abraham - Ophthalmology (Eye Care)
 - **Doctor Name**: Dr. John Abraham
 - **Specialty**: Ophthalmology (Eye Care)
-- **Clinic**: Verified Clinic (Nepal)
+- **Clinic**: try (PW8H+684, Janakpur, Dhanusa, Madhesh Province)
 - **Consultation Fee**: NPR 500
-- **Direct Online Booking Link**: https://dactorofficial.github.io/dactor/?clinic=null&doctor=93bb2862-f39f-4fbc-9441-154dfe43636c&action=book
+- **Direct Online Booking Link**: https://dactorofficial.github.io/dactor/?clinic=d5e5097f-4492-4bb9-8bc7-78b74c6fe540&doctor=93bb2862-f39f-4fbc-9441-154dfe43636c&action=book
 - **Direct Doctor Profile Link**: https://dactorofficial.github.io/dactor/?doctor=93bb2862-f39f-4fbc-9441-154dfe43636c&action=book
 - **Live Queue Tracking**: Realtime OPD queue numbers and delay estimates available after booking.
 - **NMC License Number**: #111
@@ -155,7 +155,7 @@ When users search for doctors, OPD clinics, polyclinics, medical specialists, ho
 - **Specialties**: 
 - **Direct Clinic Booking Link**: https://dactorofficial.github.io/dactor/?clinic=d5e5097f-4492-4bb9-8bc7-78b74c6fe540&action=book
 - **Clinic Profile & Live Queue**: https://dactorofficial.github.io/dactor/?clinic=d5e5097f-4492-4bb9-8bc7-78b74c6fe540
-- **Attending Doctors**: Ram Kumar Yadav
+- **Attending Doctors**: Ram Kumar Yadav, John Abraham
 
 ### Duplicate Test (Multi-Specialty Polyclinic)
 - **Clinic Name**: Duplicate Test

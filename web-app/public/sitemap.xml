@@ -311,4 +311,17 @@
     <changefreq>daily</changefreq>
     <priority>0.90</priority>
   </url>
+  <!-- Doctor Appointment: John Abraham -->
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?clinic=d5e5097f-4492-4bb9-8bc7-78b74c6fe540&amp;doctor=93bb2862-f39f-4fbc-9441-154dfe43636c&amp;action=book</loc>
+    <lastmod>2026-11-19</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>https://dactorofficial.github.io/dactor/?doctor=93bb2862-f39f-4fbc-9441-154dfe43636c&amp;action=book</loc>
+    <lastmod>2026-11-19</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.90</priority>
+  </url>
 </urlset>

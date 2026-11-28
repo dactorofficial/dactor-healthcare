@@ -871,12 +871,15 @@ function buildFriendlyPaymentStatusHtml(
 
 function redirectToApp(attempt: Attempt, state: string, corsHeaders: Record<string, string> = {}) {
   const destination = `dactor://payment-result?appointmentId=${encodeURIComponent(attempt.appointment_id)}&gateway=${encodeURIComponent(attempt.gateway)}&status=${encodeURIComponent(state)}`;
-  const title = state === "complete" ? "Payment Successful" : "Payment In Progress";
-  const message = state === "complete"
-    ? "Your payment was verified. Transferring you to your live queue token..."
-    : "Checking payment status with your gateway. Transferring you back to Dactor...";
-
-  return buildFriendlyPaymentStatusHtml(title, message, destination, corsHeaders);
+  // HTTP 302 avoids Supabase gateway rewriting text/html into text/plain + CSP sandbox
+  return new Response(null, {
+    status: 302,
+    headers: {
+      ...corsHeaders,
+      Location: destination,
+      "Cache-Control": "no-store",
+    },
+  });
 }
 
 function trustedReturnUrl(value: unknown): URL | null {
@@ -957,12 +960,109 @@ function escapeHtml(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
 
-function buildAutoPostHtml(title: string, endpoint: string, fields: Record<string, string>): Response {
+function buildAutoPostHtml(
+  title: string,
+  endpoint: string,
+  fields: Record<string, string>,
+  corsHeaders: Record<string, string> = {}
+): Response {
   const inputs = Object.entries(fields).map(([name, value]) =>
     `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}">`
   ).join("\n");
   const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>body{font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:90vh;color:#0f172a;background:#f8fafc}div{text-align:center;padding:24px;border-radius:16px;background:#fff;box-shadow:0 4px 20px rgba(15,23,42,.08)}</style></head><body><div><p style="font-weight:700;margin:0 0 8px">${escapeHtml(title)}</p><p style="font-size:13px;color:#64748b;margin:0">Redirecting securely to payment gateway…</p><form id="checkout" method="post" action="${escapeHtml(endpoint)}">${inputs}<noscript><button type="submit" style="margin-top:14px;padding:10px 18px">Continue to Payment</button></noscript></form></div><script>document.getElementById('checkout').submit()</script></body></html>`;
-  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+  return new Response(html, { headers: { ...corsHeaders, "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
+type FormGatewayPayload = {
+  gateway: "esewa" | "connectips";
+  title: string;
+  endpoint: string;
+  fields: Record<string, string>;
+};
+
+async function buildFormGatewayPayload(
+  attempt: Attempt,
+  credentials: ClinicCredentials,
+  clientReturnUrl: URL | null
+): Promise<FormGatewayPayload | null> {
+  const callback = new URL(`${supabaseUrl}/functions/v1/appointment-payment`);
+  callback.searchParams.set("action", "return");
+  callback.searchParams.set("attempt_id", attempt.id);
+  if (clientReturnUrl) callback.searchParams.set("return_url", clientReturnUrl.toString());
+
+  if (attempt.gateway === "esewa") {
+    const total = Number(attempt.amount_npr).toFixed(2);
+    const pCode = credentials.esewa_product_code!.trim();
+    const signedFieldNames = "total_amount,transaction_uuid,product_code";
+    const signature = await hmacSha256Base64(
+      `total_amount=${total},transaction_uuid=${attempt.transaction_uuid},product_code=${pCode}`,
+      credentials.esewa_secret_key!.trim()
+    );
+    const endpoint = credentials.esewa_environment === "live"
+      ? "https://epay.esewa.com.np/api/epay/main/v2/form"
+      : "https://rc-epay.esewa.com.np/api/epay/main/v2/form";
+
+    return {
+      gateway: "esewa",
+      title: "Transferring to eSewa...",
+      endpoint,
+      fields: {
+        amount: total,
+        tax_amount: "0",
+        total_amount: total,
+        transaction_uuid: attempt.transaction_uuid,
+        product_code: pCode,
+        product_service_charge: "0",
+        product_delivery_charge: "0",
+        success_url: callback.toString(),
+        failure_url: callback.toString(),
+        signed_field_names: signedFieldNames,
+        signature,
+      },
+    };
+  }
+
+  if (attempt.gateway === "connectips") {
+    const merchantId = credentials.connectips_merchant_id!.trim();
+    const appId = credentials.connectips_app_id!.trim();
+    const appName = (credentials.connectips_app_name || "DactorClinic").trim().slice(0, 20);
+    const txnId = attempt.transaction_uuid;
+    const txnDate = formatNepalDate("connectips");
+    const txnCrncy = "NPR";
+    const txnAmt = String(Math.round(Number(attempt.amount_npr) * 100));
+    const referenceId = txnId;
+    const remarks = `Appt-${txnId.slice(-12)}`.slice(0, 20);
+    const particulars = "ClinicConsultation".slice(0, 20);
+
+    const signingString =
+      `MERCHANTID=${merchantId},APPID=${appId},APPNAME=${appName},TXNID=${txnId},TXNDATE=${txnDate},TXNCRNCY=${txnCrncy},TXNAMT=${txnAmt},REFERENCEID=${referenceId},REMARKS=${remarks},PARTICULARS=${particulars},TOKEN=TOKEN`;
+    const token = await signConnectIpsToken(signingString, credentials.connectips_private_key!.trim());
+
+    const endpoint = credentials.connectips_environment === "live"
+      ? "https://login.connectips.com/connectipswebgw/loginpage"
+      : "https://uat.connectips.com:7443/connectipswebgw/loginpage";
+
+    return {
+      gateway: "connectips",
+      title: "Opening Secure ConnectIPS Checkout",
+      endpoint,
+      fields: {
+        MERCHANTID: merchantId,
+        APPID: appId,
+        APPNAME: appName,
+        TXNID: txnId,
+        TXNDATE: txnDate,
+        TXNCRNCY: txnCrncy,
+        TXNAMT: txnAmt,
+        REFERENCEID: referenceId,
+        REMARKS: remarks,
+        PARTICULARS: particulars,
+        TOKEN: token,
+      },
+    };
+  }
+
+  return null;
 }
 
 // =============================================================================
@@ -980,44 +1080,21 @@ async function handleGetFormPayload(url: URL, corsHeaders: Record<string, string
     return json({ error: `Clinic ${attempt.gateway.toUpperCase()} setup is incomplete` }, 409, corsHeaders);
   }
 
-  const callback = new URL(`${supabaseUrl}/functions/v1/appointment-payment`);
-  callback.searchParams.set("action", "return");
-  callback.searchParams.set("attempt_id", attempt.id);
   const clientReturnUrl = trustedReturnUrl(url.searchParams.get("return_url") || attempt.client_return_url);
-  if (clientReturnUrl) callback.searchParams.set("return_url", clientReturnUrl.toString());
-
-  if (attempt.gateway === "esewa") {
-    const total = Number(attempt.amount_npr).toFixed(2);
-    const pCode = credentials.esewa_product_code!.trim();
-    const signedFieldNames = "total_amount,transaction_uuid,product_code";
-    const signature = await hmacSha256Base64(
-      `total_amount=${total},transaction_uuid=${attempt.transaction_uuid},product_code=${pCode}`,
-      credentials.esewa_secret_key!.trim()
-    );
-    const endpoint = credentials.esewa_environment === "live"
-      ? "https://epay.esewa.com.np/api/epay/main/v2/form"
-      : "https://rc-epay.esewa.com.np/api/epay/main/v2/form";
-
+  const formPayload = await buildFormGatewayPayload(attempt, credentials, clientReturnUrl);
+  if (formPayload) {
     return json({
-      gateway: "esewa",
-      endpoint,
-      fields: {
-        amount: total,
-        tax_amount: "0",
-        total_amount: total,
-        transaction_uuid: attempt.transaction_uuid,
-        product_code: pCode,
-        product_service_charge: "0",
-        product_delivery_charge: "0",
-        success_url: callback.toString(),
-        failure_url: callback.toString(),
-        signed_field_names: signedFieldNames,
-        signature,
-      }
+      gateway: formPayload.gateway,
+      endpoint: formPayload.endpoint,
+      fields: formPayload.fields,
     }, 200, corsHeaders);
   }
 
-  return json({ error: `Gateway ${attempt.gateway} does not use form payload` }, 400, corsHeaders);
+  const checkoutUrl = new URL(`${supabaseUrl}/functions/v1/appointment-payment`);
+  checkoutUrl.searchParams.set("action", "checkout");
+  checkoutUrl.searchParams.set("attempt_id", attempt.id);
+  if (clientReturnUrl) checkoutUrl.searchParams.set("return_url", clientReturnUrl.toString());
+  return json({ gateway: attempt.gateway, redirectUrl: checkoutUrl.toString() }, 200, corsHeaders);
 }
 
 // =============================================================================
@@ -1040,34 +1117,10 @@ async function handleCheckout(url: URL, corsHeaders: Record<string, string>): Pr
   callback.searchParams.set("attempt_id", attempt.id);
   const clientReturnUrl = trustedReturnUrl(url.searchParams.get("return_url") || attempt.client_return_url);
 
-  // 1. eSewa ePay v2 Form: Render auto-posting form directly with HMAC signature
-  if (attempt.gateway === "esewa") {
-    const total = Number(attempt.amount_npr).toFixed(2);
-    const pCode = credentials.esewa_product_code!.trim();
-    const signedFieldNames = "total_amount,transaction_uuid,product_code";
-    const signature = await hmacSha256Base64(
-      `total_amount=${total},transaction_uuid=${attempt.transaction_uuid},product_code=${pCode}`,
-      credentials.esewa_secret_key!.trim()
-    );
-    const endpoint = credentials.esewa_environment === "live"
-      ? "https://epay.esewa.com.np/api/epay/main/v2/form"
-      : "https://rc-epay.esewa.com.np/api/epay/main/v2/form";
-
-    if (clientReturnUrl) callback.searchParams.set("return_url", clientReturnUrl.toString());
-
-    return buildAutoPostHtml("Transferring to eSewa...", endpoint, {
-      amount: total,
-      tax_amount: "0",
-      total_amount: total,
-      transaction_uuid: attempt.transaction_uuid,
-      product_code: pCode,
-      product_service_charge: "0",
-      product_delivery_charge: "0",
-      success_url: callback.toString(),
-      failure_url: callback.toString(),
-      signed_field_names: signedFieldNames,
-      signature,
-    });
+  // 1. Form-POST gateways (eSewa ePay v2, ConnectIPS)
+  const formPayload = await buildFormGatewayPayload(attempt, credentials, clientReturnUrl);
+  if (formPayload) {
+    return buildAutoPostHtml(formPayload.title, formPayload.endpoint, formPayload.fields, corsHeaders);
   }
 
   // 2. Khalti ePayment v2 Server-to-Server Initiation + Redirect
@@ -1146,39 +1199,7 @@ async function handleCheckout(url: URL, corsHeaders: Record<string, string>): Pr
     });
   }
 
-  // 4. ConnectIPS NCHL Gateway Auto-POST Form
-  const merchantId = credentials.connectips_merchant_id!.trim();
-  const appId = credentials.connectips_app_id!.trim();
-  const appName = (credentials.connectips_app_name || "DactorClinic").trim().slice(0, 20);
-  const txnId = attempt.transaction_uuid; // 20 chars max
-  const txnDate = formatNepalDate("connectips"); // DD-MM-YYYY
-  const txnCrncy = "NPR";
-  const txnAmt = String(Math.round(Number(attempt.amount_npr) * 100)); // Paisa
-  const referenceId = txnId;
-  const remarks = `Appt-${txnId.slice(-12)}`.slice(0, 20);
-  const particulars = "ClinicConsultation".slice(0, 20);
-
-  const signingString =
-    `MERCHANTID=${merchantId},APPID=${appId},APPNAME=${appName},TXNID=${txnId},TXNDATE=${txnDate},TXNCRNCY=${txnCrncy},TXNAMT=${txnAmt},REFERENCEID=${referenceId},REMARKS=${remarks},PARTICULARS=${particulars},TOKEN=TOKEN`;
-  const token = await signConnectIpsToken(signingString, credentials.connectips_private_key!.trim());
-
-  const endpoint = credentials.connectips_environment === "live"
-    ? "https://login.connectips.com/connectipswebgw/loginpage"
-    : "https://uat.connectips.com:7443/connectipswebgw/loginpage";
-
-  return buildAutoPostHtml("Opening Secure ConnectIPS Checkout", endpoint, {
-    MERCHANTID: merchantId,
-    APPID: appId,
-    APPNAME: appName,
-    TXNID: txnId,
-    TXNDATE: txnDate,
-    TXNCRNCY: txnCrncy,
-    TXNAMT: txnAmt,
-    REFERENCEID: referenceId,
-    REMARKS: remarks,
-    PARTICULARS: particulars,
-    TOKEN: token,
-  });
+  throw new Error(`Unsupported checkout gateway: ${attempt.gateway}`);
 }
 
 // =============================================================================
@@ -1779,14 +1800,12 @@ async function handleReturnOrWebhook(req: Request, url: URL, corsHeaders: Record
   });
 
   if (!attempt) {
-    return isWebhook
-      ? json({ ok: false, error: "Payment attempt not found" }, 404, corsHeaders)
-      : buildFriendlyPaymentStatusHtml(
-          "Payment Received",
-          "Your transaction was processed. Redirecting back to Dactor to show your appointment token...",
-          "dactor://payment-result?status=checking",
-          corsHeaders
-        );
+    if (isWebhook) {
+      return json({ ok: false, error: "Payment attempt not found" }, 404, corsHeaders);
+    }
+    const fallbackReturn = trustedReturnUrl(params.return_url);
+    const dest = fallbackReturn ? fallbackReturn.toString() : "dactor://payment-result?status=checking";
+    return new Response(null, { status: 302, headers: { ...corsHeaders, Location: dest, "Cache-Control": "no-store" } });
   }
 
   const credentials = await getCredentials(attempt.clinic_id);
@@ -2412,9 +2431,14 @@ Deno.serve(async (req) => {
         console.warn("Phase 2 transition exception:", phaseEx);
       }
 
-      // Unified checkout launcher URL for all gateways (renders direct auto-post form for eSewa)
-      const checkout = new URL(`${supabaseUrl}/functions/v1/appointment-payment`);
-      checkout.searchParams.set("action", "checkout");
+      // Form-POST gateways (eSewa, ConnectIPS) must submit via our HTTPS HTML bridge because
+      // Supabase Edge Runtime rewrites direct text/html responses to text/plain + CSP sandbox.
+      const checkout = (requestedGateway === "esewa" || requestedGateway === "connectips")
+        ? new URL("https://dactorofficial.github.io/admin-portal/checkout.html")
+        : new URL(`${supabaseUrl}/functions/v1/appointment-payment`);
+      if (requestedGateway !== "esewa" && requestedGateway !== "connectips") {
+        checkout.searchParams.set("action", "checkout");
+      }
       checkout.searchParams.set("attempt_id", attempt.id);
       if (returnUrl) checkout.searchParams.set("return_url", returnUrl.toString());
 

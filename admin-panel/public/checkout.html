@@ -83,6 +83,7 @@
     async function loadAndSubmit() {
       const params = new URLSearchParams(window.location.search);
       const attemptId = params.get('attempt_id');
+      const returnUrl = params.get('return_url');
       const heading = document.getElementById('heading');
       const subtext = document.getElementById('subtext');
       const spinner = document.getElementById('spinner');
@@ -98,65 +99,110 @@
         return;
       }
 
-      try {
-        // Fetch the checkout payload from Supabase Edge Function
-        const url = `https://ojfoofojcpabqegxmsab.supabase.co/functions/v1/appointment-payment?action=get_form_payload&attempt_id=${encodeURIComponent(attemptId)}`;
-        const res = await fetch(url);
-        const text = await res.text();
+      const baseFnUrl = 'https://ojfoofojcpabqegxmsab.supabase.co/functions/v1/appointment-payment';
+      const buildFnUrl = (actionName) => {
+        const u = new URL(baseFnUrl);
+        u.searchParams.set('action', actionName);
+        u.searchParams.set('attempt_id', attemptId);
+        if (returnUrl) u.searchParams.set('return_url', returnUrl);
+        return u.toString();
+      };
 
-        // 1. Try JSON payload
-        try {
-          const json = JSON.parse(text);
-          if (json.fields && json.endpoint) {
-            form.action = json.endpoint;
-            fieldsDiv.innerHTML = '';
-            Object.entries(json.fields).forEach(([k, v]) => {
-              const inp = document.createElement('input');
-              inp.type = 'hidden';
-              inp.name = k;
-              inp.value = v;
-              fieldsDiv.appendChild(inp);
-            });
-            form.submit();
-            return;
-          }
-        } catch (_) {}
+      const tryHtmlFormSubmit = (htmlText) => {
+        const actionMatch = htmlText.match(/action="([^"]+)"/i);
+        if (!actionMatch) return false;
 
-        // 2. Parse HTML response from edge function
-        const actionMatch = text.match(/action="([^"]+)"/i);
-        if (!actionMatch) {
-          throw new Error('Payment session is invalid or already completed. Please return to the app and choose Pay at Desk or start a new payment.');
-        }
+        const inputMatches = [...htmlText.matchAll(/<input[^>]+type="hidden"[^>]+name="([^"]+)"[^>]+value="([^"]*)"/gi)];
+        if (inputMatches.length === 0) return false;
 
         form.action = actionMatch[1];
         fieldsDiv.innerHTML = '';
-
-        const inputMatches = [...text.matchAll(/<input type="hidden" name="([^"]+)" value="([^"]*)"/gi)];
-        if (inputMatches.length === 0) {
-          throw new Error('No payment gateway parameters received from server.');
-        }
 
         inputMatches.forEach(m => {
           const inp = document.createElement('input');
           inp.type = 'hidden';
           inp.name = m[1];
-          // Unescape HTML entities if any
           let val = m[2];
           val = val.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>');
           inp.value = val;
           fieldsDiv.appendChild(inp);
         });
 
-        // Submit form directly to eSewa
         form.submit();
 
-        // Show fallback button after 2.5s if auto-submit doesn't redirect instantly
         setTimeout(() => {
           spinner.style.display = 'none';
           manualBtn.style.display = 'inline-block';
           subtext.textContent = 'If you are not redirected automatically, tap below:';
         }, 2500);
+        return true;
+      };
 
+      const submitJsonPayload = (payload) => {
+        if (payload && payload.redirectUrl) {
+          window.location.replace(payload.redirectUrl);
+          return true;
+        }
+        if (payload && payload.fields && payload.endpoint) {
+          form.action = payload.endpoint;
+          fieldsDiv.innerHTML = '';
+          Object.entries(payload.fields).forEach(([k, v]) => {
+            const inp = document.createElement('input');
+            inp.type = 'hidden';
+            inp.name = k;
+            inp.value = v;
+            fieldsDiv.appendChild(inp);
+          });
+          form.submit();
+          setTimeout(() => {
+            spinner.style.display = 'none';
+            manualBtn.style.display = 'inline-block';
+            subtext.textContent = 'If you are not redirected automatically, tap below:';
+          }, 2500);
+          return true;
+        }
+        return false;
+      };
+
+      try {
+        // 1. Primary path: fetch structured form payload (works with current Edge Function)
+        const res = await fetch(buildFnUrl('get_form_payload'));
+        const text = await res.text();
+
+        let parsedJson = null;
+        try {
+          parsedJson = JSON.parse(text);
+        } catch (_) {}
+
+        if (res.ok && submitJsonPayload(parsedJson)) return;
+        if (res.ok && tryHtmlFormSubmit(text)) return;
+
+        // Session definitively completed, missing, or gateway config incomplete
+        if (res.status === 404 || res.status === 409) {
+          throw new Error(
+            (parsedJson && parsedJson.error) ||
+            'Payment session is invalid or already completed. Please return to the app and choose Pay at Desk or start a new payment.'
+          );
+        }
+
+        // 2. Fallback path: fetch ?action=checkout HTML over CORS (Supabase gateway serves text/html as text/plain CSP,
+        //    so we fetch the form markup and auto-submit it from this HTTPS page instead of navigating there directly)
+        const fallbackRes = await fetch(buildFnUrl('checkout'));
+        const fallbackText = await fallbackRes.text();
+
+        let fallbackJson = null;
+        try {
+          fallbackJson = JSON.parse(fallbackText);
+        } catch (_) {}
+
+        if (fallbackRes.ok && submitJsonPayload(fallbackJson)) return;
+        if (fallbackRes.ok && tryHtmlFormSubmit(fallbackText)) return;
+
+        throw new Error(
+          (fallbackJson && fallbackJson.error) ||
+          (parsedJson && parsedJson.error) ||
+          'Payment session is invalid or already completed. Please return to the app and choose Pay at Desk or start a new payment.'
+        );
       } catch (err) {
         spinner.style.display = 'none';
         heading.textContent = 'Unable to Load Payment';
