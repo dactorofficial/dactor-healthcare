@@ -116,6 +116,8 @@ data class LiveQueueDelta(
     @SerialName("appointment_id") val appointmentId: String = "",
     @SerialName("clinic_id") val clinicId: String = "",
     @SerialName("clinic_name") val clinicName: String = "",
+    @SerialName("clinic_type") val clinicType: String? = null,
+    @SerialName("is_lab_appointment") val isLabAppointment: Boolean = false,
     @SerialName("doctor_id") val doctorId: String? = null,
     @SerialName("doctor_name") val doctorName: String = "",
     @SerialName("doctor_specialty") val doctorSpecialty: String = "",

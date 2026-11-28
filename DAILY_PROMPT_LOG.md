@@ -7,6 +7,24 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-28
 
 ### Prompt:
+> "add rule that whenever one tries to downoad bill check that the specific tracking code belongs to that gmail if logged in and if its guest make them input mobile number associated with it and to book follow up or reschedule the same logic to be applied"
+
+#### Changes Applied:
+1. **Supabase Ownership & Claim RPCs (`supabase/migration_tracking_ownership_verification.sql`)**:
+   - Added `verify_appointment_ownership` RPC enforcing Gmail ownership match when logged in, strict block on mismatched Gmail, and rate-limited (5 attempts / 15 min) 10-digit mobile verification for guests or unclaimed walk-in bookings.
+   - Added `claim_appointment_verified` RPC preventing logged-in users from overwriting another Gmail's appointment record.
+2. **Android Patient App (`patient-app`)**:
+   - Created [`AppointmentOwnershipGuard.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/components/AppointmentOwnershipGuard.kt) (`rememberAppointmentOwnershipController`, `GuestMobileVerificationDialog`, `maskPatientName` in `R***n` format, `maskMobileNumber`) keyed strictly per tracking code.
+   - Added `verifyAppointmentOwnership`, `verifyGuestAppointmentIdentity`, and guarded `claimAppointment` in [`AppointmentRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/repository/AppointmentRepository.kt).
+   - Wired ownership verification across Bill PDF download, Follow-Up, Reschedule, and Record Claiming in [`QueueStatusScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt), [`PatientMainScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt), [`BookingFormScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/booking/BookingFormScreen.kt), [`BookingScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/booking/BookingScreen.kt), and [`ProfileScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/profile/ProfileScreen.kt).
+3. **Web App Parity & Live Deployment (`web-app`)**:
+   - Created [`appointmentOwnershipGuard.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/utils/appointmentOwnershipGuard.ts) and [`IdentityVerifyModal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/components/IdentityVerifyModal.tsx), plus `verifyAppointmentOwnership` in [`db.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/services/db.ts).
+   - Wired ownership verification & `R***n` masking into [`LiveTrackerModal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/components/LiveTrackerModal.tsx), [`LiveQueue.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/LiveQueue.tsx), [`ClinicDetail.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/ClinicDetail.tsx), and [`PatientPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/PatientPortal.tsx).
+   - Built `web-app/dist` (`tsc && vite build`) cleanly and deployed live to GitHub Pages.
+
+---
+
+### Prompt:
 > "change that health records text to records text and make it exactly just below the icon and also make everything nepali from now on except the number ."
 
 #### Changes Applied:

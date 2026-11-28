@@ -141,4 +141,93 @@ class DiagnosticLabPolicyTest {
         assertFalse("Live tracker must NEVER show an appointment as no-show once sample is collected!", isNoShow)
         assertTrue("Live tracker must recognize that sample was collected", isSampleCollectedOrFurther)
     }
+
+    @Test
+    fun multiVisitClinicWithPathologySpecialty_doctorAppointmentIsNotLab() {
+        val multiVisitClinic = Clinic(
+            id = "clinic-multi-1",
+            name = "NOBEL HEALTHCARE",
+            type = "multi_visit",
+            specialties = listOf(
+                "General Medicine & Physician",
+                "Orthopedics & Joint Care",
+                "Pathology & Diagnostic Lab",
+                "Radiology & Imaging"
+            )
+        )
+        val opdAppt = Appointment(
+            id = "appt-opd-1",
+            clinicId = "clinic-multi-1",
+            doctorId = "doc-1",
+            checkinStatus = "waiting",
+            selectedLabTests = null
+        )
+
+        assertFalse(
+            "Explicit multi_visit clinic must NOT be flagged as standalone lab facility",
+            DiagnosticLabPolicy.isDiagnosticOrPathologyLab(multiVisitClinic)
+        )
+        assertFalse(
+            "OPD doctor appointment at multi_visit clinic must NOT show diagnostic lab UI",
+            DiagnosticLabPolicy.isDiagnosticLabAppointment(
+                appointment = opdAppt,
+                clinic = multiVisitClinic,
+                clinicType = "multi_visit",
+                queueStatus = "waiting"
+            )
+        )
+    }
+
+    @Test
+    fun multiVisitClinicWithSelectedLabTests_isDetectedAsLabAppointment() {
+        val multiVisitClinic = Clinic(
+            id = "clinic-multi-2",
+            name = "NOBEL HEALTHCARE",
+            type = "multi_visit",
+            specialties = listOf("Pathology & Diagnostic Lab")
+        )
+        val labOrderAppt = Appointment(
+            id = "appt-lab-2",
+            clinicId = "clinic-multi-2",
+            doctorId = null,
+            checkinStatus = "waiting",
+            selectedLabTests = "Complete Blood Count (CBC) (Rs. 450)"
+        )
+
+        assertTrue(
+            "Explicit lab test order inside a multi_visit clinic should still use lab tracker",
+            DiagnosticLabPolicy.isDiagnosticLabAppointment(
+                appointment = labOrderAppt,
+                clinic = multiVisitClinic,
+                clinicType = "multi_visit",
+                queueStatus = "waiting"
+            )
+        )
+    }
+
+    @Test
+    fun completedOpdAppointmentAtMultiVisitClinic_isNotDiagnosticLab() {
+        val multiVisitClinic = Clinic(
+            id = "clinic-multi-3",
+            name = "happy bday bro",
+            type = "multi_visit",
+            specialties = listOf("Pathology & Diagnostic Lab")
+        )
+        val completedOpd = Appointment(
+            id = "appt-opd-done",
+            clinicId = "clinic-multi-3",
+            doctorId = "doc-1",
+            checkinStatus = "completed"
+        )
+
+        assertFalse(
+            "Completed OPD visit must never be coerced into diagnostic lab UI",
+            DiagnosticLabPolicy.isDiagnosticLabAppointment(
+                appointment = completedOpd,
+                clinic = multiVisitClinic,
+                clinicType = "multi_visit",
+                queueStatus = "done"
+            )
+        )
+    }
 }

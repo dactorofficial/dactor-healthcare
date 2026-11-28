@@ -448,6 +448,21 @@ fun ProfileScreen(
                         ?: appointmentRepository.getAppointmentById(rawInput)
                     if (appt != null) {
                         val finalCode = if (appt.trackingCode10Digit.isNotBlank()) appt.trackingCode10Digit else cleanAlpha10
+                        val uid = patientId?.takeIf { it.isNotBlank() }
+                        val email = userEmail?.takeIf { it.isNotBlank() }
+                        val ownershipCheck = appointmentRepository.verifyAppointmentOwnership(
+                            trackingCodeOrId = finalCode.ifBlank { appt.id },
+                            email = email,
+                            phone = userPhone?.takeIf { it.isNotBlank() },
+                            allowBlankEmailPhoneFallback = true
+                        )
+                        if (!ownershipCheck.allowed) {
+                            claimStatusMessage = ownershipCheck.message.ifBlank {
+                                "This tracking code belongs to another account or requires mobile verification."
+                            }
+                            isClaiming = false
+                            return@launch
+                        }
                         if (finalCode.isNotBlank()) {
                             sessionManager?.unhideRecord(finalCode)
                             sessionManager?.saveTrackingCode(
@@ -459,14 +474,13 @@ fun ProfileScreen(
                         sessionManager?.unhideRecord(appt.id)
 
                         // If user is logged in, claim to account
-                        val uid = patientId?.takeIf { it.isNotBlank() }
-                        val email = userEmail?.takeIf { it.isNotBlank() }
                         if (uid != null || email != null) {
                             appointmentRepository.claimAppointment(
                                 appointmentId = appt.id,
                                 userId = uid,
                                 patientEmail = email,
-                                trackingCode = finalCode
+                                trackingCode = finalCode,
+                                verifiedPhone = userPhone
                             )
                         }
 

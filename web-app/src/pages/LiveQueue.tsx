@@ -52,6 +52,7 @@ import {
   getFastDoctorLiveQueue,
   getFastClinicLiveQueue,
   getClinicById,
+  getClinicForTrackingById,
   isDiagnosticLabClinic,
   getDoctorById,
   getLabReportsByTrackingCode,
@@ -79,6 +80,8 @@ import {
   LiveQueueDelta,
 } from '../services/db'
 import { printAppointmentBill, printPrescription } from '../utils/medicalDocPrinter'
+import { IdentityVerifyModal, ProtectedWebAction } from '../components/IdentityVerifyModal'
+import { checkTrackingCodeAccess } from '../utils/appointmentOwnershipGuard'
 import { supabase } from '../lib/supabase'
 import { playChimeSound } from '../utils/audioChime'
 import { updatePageSEO } from '../utils/seo'
@@ -162,6 +165,11 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   const [verifyMethod, setVerifyMethod] = useState<'name' | 'phone'>('phone')
   const [verificationInput, setVerificationInput] = useState('')
   const [verifyError, setVerifyError] = useState('')
+  const [ownershipVerifyModal, setOwnershipVerifyModal] = useState<{
+    trackingCode: string
+    actionType: ProtectedWebAction
+    onVerified: () => void
+  } | null>(null)
 
   // Report Viewing Modal
   const [showReportModal, setShowReportModal] = useState(false)
@@ -191,9 +199,14 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
 
   // Status flags
   const isLabClinic = Boolean(
-    isDiagnosticLabClinic(clinic, doctor, appointment) ||
-    labReports.length > 0 ||
-    (publicQueueStatus?.clinic_type && String(publicQueueStatus.clinic_type).toLowerCase().includes('lab'))
+    liveDelta?.is_lab_appointment ||
+    publicQueueStatus?.is_lab_appointment ||
+    isDiagnosticLabClinic(
+      clinic || (publicQueueStatus?.clinic_type ? { type: publicQueueStatus.clinic_type, name: publicQueueStatus.clinic_name } as any : null),
+      doctor,
+      appointment
+    ) ||
+    labReports.length > 0
   )
 
   // 1-second interval ticker for live in-cabin consultation elapsed time
@@ -303,7 +316,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         // Refresh clinic break/open flags at most once every 60s without re-querying appointments/reports
         if (appointment?.clinicId && Date.now() - lastClinicCheckAtRef.current > 60_000) {
           lastClinicCheckAtRef.current = Date.now()
-          getClinicById(appointment.clinicId).then((c) => {
+          getClinicForTrackingById(appointment.clinicId).then((c) => {
             if (c && seq === requestSeqRef.current) {
               saveStatic('clinic', c)
               setClinic(c)
@@ -352,7 +365,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
         setPublicQueueStatus((prev: any) => ({ ...(prev || {}), ...delta }))
         if (delta.clinic_id && Date.now() - lastClinicCheckAtRef.current > 60_000) {
           lastClinicCheckAtRef.current = Date.now()
-          getClinicById(delta.clinic_id).then((c) => {
+          getClinicForTrackingById(delta.clinic_id).then((c) => {
             if (c && seq === requestSeqRef.current) {
               saveStatic('clinic', c)
               setClinic(c)
@@ -500,7 +513,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           const sameClinic = clinic && clinic.id === targetAppt.clinicId ? clinic : null
           lastClinicCheckAtRef.current = Date.now()
           const clinicPromise = silent
-            ? getClinicById(targetAppt.clinicId).then((c) => { saveStatic('clinic', c); return c })
+            ? getClinicForTrackingById(targetAppt.clinicId).then((c) => { saveStatic('clinic', c); return c })
             : (sameClinic ? Promise.resolve(sameClinic) : getStaticOnce('clinic', targetAppt.clinicId, getClinicById))
           const docPromise = !targetAppt.doctorId
             ? Promise.resolve(doctor)
@@ -1203,6 +1216,33 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
     }
   }
 
+  const runOwnershipProtectedAction = async (
+    targetAppt: Appointment | null | undefined,
+    actionType: ProtectedWebAction,
+    callback: () => void
+  ) => {
+    const codeKey = targetAppt?.trackingCode10Digit || activeCode
+    if (!codeKey) return
+    const res = await checkTrackingCodeAccess(codeKey, targetAppt?.patientEmail)
+    if (res.allowed) {
+      setIsUnlocked(true)
+      callback()
+      return
+    }
+    if (res.reason === 'gmail_mismatch' || res.reason === 'not_found') {
+      alert(res.message || 'This tracking code belongs to another Gmail account.')
+      return
+    }
+    setOwnershipVerifyModal({
+      trackingCode: codeKey,
+      actionType,
+      onVerified: () => {
+        setIsUnlocked(true)
+        callback()
+      },
+    })
+  }
+
   const handleActionWithAuth = (
     action: 'view_report' | 'download_report' | 'reschedule' | 'cancel'
   ) => {
@@ -1540,9 +1580,22 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
           <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-sm text-slate-500">Clinic</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm text-slate-500">
+                    {isLabClinic
+                      ? 'Diagnostic Lab'
+                      : (publicQueueStatus.clinic_type || clinic?.type) === 'multi_visit'
+                      ? 'Multi-Visit Clinic'
+                      : 'Clinic'}
+                  </p>
+                  {(publicQueueStatus.clinic_type || clinic?.type) === 'multi_visit' && !isLabClinic && (
+                    <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-sky-700 border border-sky-200">
+                      Multi-Visit
+                    </span>
+                  )}
+                </div>
                 <h2 className="mt-1 text-xl font-bold text-slate-900">{publicQueueStatus.clinic_name || clinic?.name || 'Clinic'}</h2>
-                {publicQueueStatus.doctor_name && <p className="mt-1 text-sm text-slate-600">Dr. {publicQueueStatus.doctor_name}{publicQueueStatus.doctor_specialty ? ` · ${publicQueueStatus.doctor_specialty}` : ''}</p>}
+                {publicQueueStatus.doctor_name && !isLabClinic && <p className="mt-1 text-sm text-slate-600">{String(publicQueueStatus.doctor_name).startsWith('Dr') ? publicQueueStatus.doctor_name : `Dr. ${publicQueueStatus.doctor_name}`}{publicQueueStatus.doctor_specialty ? ` · ${publicQueueStatus.doctor_specialty}` : ''}</p>}
               </div>
               <span className="rounded-full bg-teal-50 px-3 py-1 text-sm font-semibold capitalize text-teal-800">{publicStatus}</span>
             </div>
@@ -1719,7 +1772,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
-                  onClick={() => printAppointmentBill(appointment)}
+                  onClick={() => runOwnershipProtectedAction(appointment, 'download_bill', () => printAppointmentBill(appointment))}
                   className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition flex items-center space-x-1 cursor-pointer active:scale-95"
                   title="Download and print official medical bill"
                 >
@@ -1738,7 +1791,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                 {!isCalledInsideOrDone && (
                   <button
                     type="button"
-                    onClick={() => handleActionWithAuth('reschedule')}
+                    onClick={() => runOwnershipProtectedAction(appointment, 'reschedule', () => handleActionWithAuth('reschedule'))}
                     className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-xs transition flex items-center space-x-1 cursor-pointer active:scale-95"
                     title="Reschedule appointment date or slot"
                   >
@@ -1822,7 +1875,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                       <div className="pt-2 border-t border-blue-100 dark:border-blue-900 flex items-center gap-2 flex-wrap">
                         <button
                           type="button"
-                          onClick={() => printAppointmentBill(linkedConsultations.initialAppointment!)}
+                          onClick={() =>
+                            runOwnershipProtectedAction(
+                              linkedConsultations.initialAppointment!,
+                              'download_bill',
+                              () => printAppointmentBill(linkedConsultations.initialAppointment!)
+                            )
+                          }
                           className="flex-1 py-1.5 px-3 rounded-xl bg-white dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-slate-700 text-blue-900 dark:text-blue-200 font-bold text-xs border border-blue-200 dark:border-blue-700 transition flex items-center justify-center space-x-1 cursor-pointer"
                         >
                           <Receipt className="w-3.5 h-3.5 text-blue-600" />
@@ -1882,7 +1941,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           <>
                             <button
                               type="button"
-                              onClick={() => printAppointmentBill(linkedConsultations.followupAppointment!)}
+                              onClick={() =>
+                                runOwnershipProtectedAction(
+                                  linkedConsultations.followupAppointment!,
+                                  'download_bill',
+                                  () => printAppointmentBill(linkedConsultations.followupAppointment!)
+                                )
+                              }
                               className="flex-1 py-1.5 px-3 rounded-xl bg-white dark:bg-slate-800 hover:bg-teal-50 dark:hover:bg-slate-700 text-teal-900 dark:text-teal-200 font-bold text-xs border border-teal-200 dark:border-teal-700 transition flex items-center justify-center space-x-1 cursor-pointer"
                             >
                               <Receipt className="w-3.5 h-3.5 text-teal-600" />
@@ -1901,7 +1966,13 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                           <>
                             <button
                               type="button"
-                              onClick={() => handleActionWithAuth('reschedule')}
+                              onClick={() =>
+                                runOwnershipProtectedAction(
+                                  linkedConsultations.followupAppointment || appointment,
+                                  'reschedule',
+                                  () => handleActionWithAuth('reschedule')
+                                )
+                              }
                               className="flex-1 py-1.5 px-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs transition flex items-center justify-center space-x-1 cursor-pointer"
                             >
                               <Calendar className="w-3.5 h-3.5" />
@@ -2810,14 +2881,16 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
               <div className="flex items-center justify-between text-xs pt-2">
                 <button
                   onClick={() => {
-                    if (onNavigate) {
-                      onNavigate('clinic-detail', {
-                        clinicId: appointment.clinicId,
-                        doctorId: appointment.doctorId,
-                        trackingCode: appointment.trackingCode10Digit,
-                        isReschedule: false,
-                      })
-                    }
+                    runOwnershipProtectedAction(appointment, 'book_followup', () => {
+                      if (onNavigate) {
+                        onNavigate('clinic-detail', {
+                          clinicId: appointment.clinicId,
+                          doctorId: appointment.doctorId,
+                          trackingCode: appointment.trackingCode10Digit,
+                          isReschedule: false,
+                        })
+                      }
+                    })
                   }}
                   className="font-bold text-emerald-700 dark:text-emerald-300 hover:text-emerald-800 dark:hover:text-emerald-200 transition cursor-pointer flex items-center space-x-1.5 active:scale-95 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20"
                 >
@@ -3061,7 +3134,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
                   <>
                     <button
                       type="button"
-                      onClick={() => printAppointmentBill(activeAppt)}
+                      onClick={() => runOwnershipProtectedAction(activeAppt, 'download_bill', () => printAppointmentBill(activeAppt))}
                       className="w-full sm:w-1/2 py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-glass-sm active:scale-95"
                     >
                       <Receipt className="w-4 h-4 text-teal-400" />
@@ -3142,6 +3215,19 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
             </form>
           </div>
         </div>
+      )}
+      {ownershipVerifyModal && (
+        <IdentityVerifyModal
+          isOpen={true}
+          trackingCode={ownershipVerifyModal.trackingCode}
+          actionType={ownershipVerifyModal.actionType}
+          onClose={() => setOwnershipVerifyModal(null)}
+          onVerified={() => {
+            const cb = ownershipVerifyModal.onVerified
+            setOwnershipVerifyModal(null)
+            cb()
+          }}
+        />
       )}
     </div>
   )

@@ -179,15 +179,20 @@ fun QueueStatusScreen(
     var isSavedToProfile by remember { mutableStateOf(false) }
     var linkedVisits by remember { mutableStateOf<List<Appointment>>(emptyList()) }
 
-    // Security Verification Locking (Name or Mobile Number required for Reschedule & Lab Report Viewing/Downloading)
-    var isUnlocked by remember { mutableStateOf(false) }
-    var isReportIdentityVerified by remember { mutableStateOf(false) }
+    // Security Verification Locking (Gmail match when logged in; Mobile Number required when guest)
+    val ownershipController = com.dactor.patient.ui.components.rememberAppointmentOwnershipController(
+        sessionManager = sessionManager,
+        authRepository = authRepository,
+        appointmentRepository = appointmentRepository
+    )
+    var isUnlocked by remember(displayTrackingCode) { mutableStateOf(false) }
+    var isReportIdentityVerified by remember(displayTrackingCode) { mutableStateOf(false) }
     var pendingVerificationAction by remember { mutableStateOf("reschedule") } // "reschedule", "view_report", "download_report"
     var showVerificationDialog by remember { mutableStateOf(false) }
     var showPrescriptionDialog by remember { mutableStateOf(false) }
     var showLabReportDialog by remember { mutableStateOf(false) }
 
-    var verifyMethod by remember { mutableStateOf("name") } // "name" or "phone"
+    var verifyMethod by remember { mutableStateOf("phone") } // strictly "phone" for guests
     var verificationInput by remember { mutableStateOf("") }
     var failedAttempts by remember { mutableIntStateOf(0) }
     var cooldownSeconds by remember { mutableIntStateOf(0) }
@@ -224,8 +229,9 @@ fun QueueStatusScreen(
     var multiClinicAppointments by remember { mutableStateOf<List<Appointment>>(emptyList()) }
     var expandedAppointmentId by remember { mutableStateOf<String?>(null) }
     var appointmentInvoicesMap by remember { mutableStateOf<Map<String, BillingInvoice>>(emptyMap()) }
+    var isLabFromServer by remember { mutableStateOf(false) }
 
-    val isLabClinic = DiagnosticLabPolicy.isDiagnosticLabAppointment(
+    val isLabClinic = isLabFromServer || DiagnosticLabPolicy.isDiagnosticLabAppointment(
         appointment = appointment,
         clinic = clinicObj,
         clinicType = clinicType,
@@ -248,8 +254,8 @@ fun QueueStatusScreen(
         }
     }
 
-    val hasDoctorAssigned = remember(appointment, doctorName, isLabClinic) {
-        !isLabClinic && !appointment?.doctorId.isNullOrBlank() && doctorName.isNotBlank()
+    val hasDoctorAssigned = remember(appointment, doctorObj, doctorName, isLabClinic) {
+        !isLabClinic && (!appointment?.doctorId.isNullOrBlank() || doctorObj != null || doctorName.isNotBlank()) && doctorName.isNotBlank()
     }
 
     val formattedDate = remember(appointment?.appointmentDate) {
@@ -363,7 +369,7 @@ fun QueueStatusScreen(
                 // Secondary data (clinic/doctor once, invoices, lab reports) fetched concurrently without blocking initial render
                 val confidentialJob = if (!isDeltaOnly) coroutineScope.async { loadConfidentialDetails(appt) } else null
                 val clinicJob = if (appt.clinicId.isNotBlank() && clinicObj?.id != appt.clinicId) {
-                    coroutineScope.async { clinicRepository?.getClinicById(appt.clinicId) }
+                    coroutineScope.async { clinicRepository?.getClinicById(appt.clinicId, includeInactive = true) }
                 } else null
                 val doctorJob = if (!appt.doctorId.isNullOrBlank() && doctorObj?.id != appt.doctorId) {
                     coroutineScope.async { doctorRepository?.getDoctorById(appt.doctorId) }
@@ -438,6 +444,12 @@ fun QueueStatusScreen(
 
                 // Fetch live delta; only query queue_entries table if liveDelta is missing
                 var liveDeltaResult = liveDeltaJob?.await()
+                if (liveDeltaResult != null) {
+                    if (!liveDeltaResult.clinicType.isNullOrBlank() && clinicObj == null) {
+                        clinicType = liveDeltaResult.clinicType
+                    }
+                    isLabFromServer = liveDeltaResult.isLabAppointment
+                }
                 var qEntry = if (!isPendingClinicApproval && (liveDeltaResult == null || liveDeltaResult.tokenNumber <= 0)) {
                     queueRepository?.getQueueStatus(appt.id, forceRefresh = isDeltaOnly)
                 } else if (liveDeltaResult != null && liveDeltaResult.tokenNumber > 0) {
@@ -489,11 +501,18 @@ fun QueueStatusScreen(
                         it.stage.equals("sample_collected", ignoreCase = true)
                 }
 
-                val isSampleCollectedAnywhere = rawQueueStatus in listOf("processing", "sample_collected", "in_lab") ||
-                    rawApptStatus in listOf("processing", "sample_collected", "in_lab") ||
+                val isExplicitLabVisit = isLabFromServer || DiagnosticLabPolicy.isDiagnosticLabAppointment(
+                    appointment = appt,
+                    clinic = clinicObj,
+                    clinicType = clinicType,
+                    queueStatus = rawQueueStatus,
+                    labReports = labReports
+                )
+                val isSampleCollectedAnywhere = rawQueueStatus in DiagnosticLabPolicy.LAB_WORKFLOW_ONLY_STATUSES ||
+                    rawApptStatus in DiagnosticLabPolicy.LAB_WORKFLOW_ONLY_STATUSES ||
                     hasProcessingReport ||
                     labReports.isNotEmpty() ||
-                    DiagnosticLabPolicy.isSampleCollectedOrFurther(appt, rawQueueStatus, labReports)
+                    (isExplicitLabVisit && DiagnosticLabPolicy.isSampleCollectedOrFurther(appt, rawQueueStatus, labReports))
 
                 queueStatus = when {
                     isPendingClinicApproval -> appt.status
@@ -812,6 +831,10 @@ fun QueueStatusScreen(
                 if (guestDelta != null && guestDelta.clinicId.isNotBlank()) {
                     displayTrackingCode = guestDelta.trackingCode10Digit.ifBlank { queryCode }
                     clinicName = guestDelta.clinicName.ifBlank { clinicName }
+                    if (!guestDelta.clinicType.isNullOrBlank()) {
+                        clinicType = guestDelta.clinicType
+                    }
+                    isLabFromServer = guestDelta.isLabAppointment
                     doctorName = guestDelta.doctorName.ifBlank { doctorName }
                     doctorSpecialty = guestDelta.doctorSpecialty.ifBlank { doctorSpecialty }
                     tokenNumber = guestDelta.tokenNumber.coerceAtLeast(1)
@@ -819,6 +842,29 @@ fun QueueStatusScreen(
                     queueStatus = guestDelta.queueStatus.ifBlank { "waiting" }
                     isDoctorInClinic = guestDelta.doctorIsInClinic
                     isAnyoneInsideDoctorCabin = guestDelta.isAnyoneInside
+
+                    if (clinicObj?.id != guestDelta.clinicId && clinicRepository != null) {
+                        val c = try { clinicRepository.getClinicById(guestDelta.clinicId, includeInactive = true) } catch (_: Exception) { null }
+                        if (c != null) {
+                            clinicObj = c
+                            clinicName = c.name.ifBlank { clinicName }
+                            clinicAddress = c.addressText ?: clinicAddress.ifBlank { "Nepal" }
+                            clinicPhone = c.contactPhone?.trim() ?: clinicPhone
+                            clinicLatitude = c.latitude ?: clinicLatitude
+                            clinicLongitude = c.longitude ?: clinicLongitude
+                            clinicType = c.type ?: clinicType
+                            clinicAvgTimeMinutes = doctorAvgMinutes ?: c.getEffectiveAvgMinutes()
+                        }
+                    }
+                    if (!guestDelta.doctorId.isNullOrBlank() && doctorObj?.id != guestDelta.doctorId && doctorRepository != null) {
+                        val d = try { doctorRepository.getDoctorById(guestDelta.doctorId) } catch (_: Exception) { null }
+                        if (d != null) {
+                            doctorObj = d
+                            doctorName = d.fullName.ifBlank { doctorName }
+                            doctorSpecialty = d.specialty ?: doctorSpecialty
+                            doctorPhotoUrl = d.resolvedProfilePictureUrl ?: d.profilePictureUrl
+                        }
+                    }
                     val avgSec = guestDelta.avgConsultationSeconds
                     if (avgSec != null && avgSec > 0) {
                         doctorAvgMinutes = Math.round(avgSec / 60.0).toInt().coerceAtLeast(1)
@@ -969,13 +1015,13 @@ fun QueueStatusScreen(
     )
 
     val isSampleCollectedOrFurther = isSampleProcessing ||
-        isReportReady ||
+        (isLabClinic && isReportReady) ||
         labReports.isNotEmpty() ||
-        DiagnosticLabPolicy.isSampleCollectedOrFurther(
+        (isLabClinic && DiagnosticLabPolicy.isSampleCollectedOrFurther(
             appointment = appointment,
             queueStatus = queueStatus,
             labReports = labReports
-        )
+        ))
 
     val isLabSampleDone = isLabClinic && isSampleCollectedOrFurther
 
@@ -1290,26 +1336,33 @@ fun QueueStatusScreen(
                                     .size(38.dp)
                                     .clickable {
                                         if (displayTrackingCode.isNotBlank()) {
-                                            sessionManager?.unhideRecord(displayTrackingCode)
-                                            appointment?.id?.let { sessionManager?.unhideRecord(it) }
-                                            val label = "${rawPatientName.ifBlank { "Appointment" }} \u2022 ${appointment?.appointmentDate ?: ""}".trim()
-                                            sessionManager?.saveTrackingCode(displayTrackingCode, label, explicitUnhide = true)
-                                            val pid = sessionManager?.getSavedPatientId()
-                                            val pEmail = sessionManager?.getSavedEmail()
-                                            if (!pid.isNullOrBlank() || !pEmail.isNullOrBlank()) {
-                                                appointment?.id?.let { aId ->
-                                                    coroutineScope.launch {
-                                                        appointmentRepository?.claimAppointment(
-                                                            appointmentId = aId,
-                                                            userId = pid,
-                                                            patientEmail = pEmail,
-                                                            trackingCode = displayTrackingCode
-                                                        )
+                                            ownershipController.runProtectedAction(
+                                                trackingCode = displayTrackingCode,
+                                                appointment = appointment,
+                                                actionType = com.dactor.patient.ui.components.ProtectedActionType.LINK_RECORD
+                                            ) { verifiedPhone ->
+                                                sessionManager?.unhideRecord(displayTrackingCode)
+                                                appointment?.id?.let { sessionManager?.unhideRecord(it) }
+                                                val label = "${rawPatientName.ifBlank { "Appointment" }} \u2022 ${appointment?.appointmentDate ?: ""}".trim()
+                                                sessionManager?.saveTrackingCode(displayTrackingCode, label, explicitUnhide = true)
+                                                val pid = sessionManager?.getSavedPatientId()
+                                                val pEmail = sessionManager?.getSavedEmail()
+                                                if (!pid.isNullOrBlank() || !pEmail.isNullOrBlank()) {
+                                                    appointment?.id?.let { aId ->
+                                                        coroutineScope.launch {
+                                                            appointmentRepository?.claimAppointment(
+                                                                appointmentId = aId,
+                                                                userId = pid,
+                                                                patientEmail = pEmail,
+                                                                trackingCode = displayTrackingCode,
+                                                                verifiedPhone = verifiedPhone
+                                                            )
+                                                        }
                                                     }
                                                 }
+                                                isSavedToProfile = true
+                                                Toast.makeText(context, "Saved #$displayTrackingCode to saved records!", Toast.LENGTH_SHORT).show()
                                             }
-                                            isSavedToProfile = true
-                                            Toast.makeText(context, "Saved #$displayTrackingCode to saved records!", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                             ) {
@@ -2758,38 +2811,44 @@ fun QueueStatusScreen(
                                             onClick = {
                                                 val targetAppt = appointment
                                                 if (targetAppt != null) {
-                                                    val chainVisits = multiClinicAppointments.ifEmpty { listOf(targetAppt) }
-                                                    val combinedSum = com.dactor.patient.util.PaymentLedgerHelper.computeCombinedBillingSummary(chainVisits, appointmentInvoicesMap)
-                                                    val invTotal = combinedSum.totalBill
-                                                    val invPaid = combinedSum.totalPaid
-                                                    val invLeft = combinedSum.balanceDue
-                                                    val invItems = targetAppt.effectiveItemsForInvoice(billingInvoice, today, invTotal)
-                                                    com.dactor.patient.util.BillPdfDownloader.downloadBillPdf(
-                                                        context = context,
+                                                    ownershipController.runProtectedAction(
+                                                        trackingCode = targetAppt.trackingCode10Digit.ifBlank { displayTrackingCode },
                                                         appointment = targetAppt,
-                                                        invoice = (billingInvoice?.copy(
-                                                            items = invItems,
-                                                            totalAmount = invTotal,
-                                                            paidAmount = invPaid,
-                                                            balanceDue = invLeft,
-                                                            paymentStatus = if (invLeft <= 0.0) "paid" else billingInvoice!!.paymentStatus
-                                                        )) ?: BillingInvoice(
-                                                            id = targetAppt.id,
-                                                            appointmentId = targetAppt.id,
-                                                            clinicId = targetAppt.clinicId,
-                                                            items = invItems,
-                                                            totalAmount = invTotal,
-                                                            paidAmount = invPaid,
-                                                            balanceDue = invLeft,
-                                                            paymentStatus = if (invLeft <= 0.0) "paid" else "pending",
-                                                            remarks = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(clinicalRemarks ?: billingInvoice?.remarks)
-                                                        ),
-                                                        clinicName = clinicName,
-                                                        clinicAddress = clinicAddress,
-                                                        doctorName = doctorName,
-                                                        doctorSpecialty = doctorSpecialty,
-                                                        clinicalRemarks = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(clinicalRemarks ?: billingInvoice?.remarks)
-                                                    )
+                                                        actionType = com.dactor.patient.ui.components.ProtectedActionType.DOWNLOAD_BILL
+                                                    ) {
+                                                        val chainVisits = multiClinicAppointments.ifEmpty { listOf(targetAppt) }
+                                                        val combinedSum = com.dactor.patient.util.PaymentLedgerHelper.computeCombinedBillingSummary(chainVisits, appointmentInvoicesMap)
+                                                        val invTotal = combinedSum.totalBill
+                                                        val invPaid = combinedSum.totalPaid
+                                                        val invLeft = combinedSum.balanceDue
+                                                        val invItems = targetAppt.effectiveItemsForInvoice(billingInvoice, today, invTotal)
+                                                        com.dactor.patient.util.BillPdfDownloader.downloadBillPdf(
+                                                            context = context,
+                                                            appointment = targetAppt,
+                                                            invoice = (billingInvoice?.copy(
+                                                                items = invItems,
+                                                                totalAmount = invTotal,
+                                                                paidAmount = invPaid,
+                                                                balanceDue = invLeft,
+                                                                paymentStatus = if (invLeft <= 0.0) "paid" else billingInvoice!!.paymentStatus
+                                                            )) ?: BillingInvoice(
+                                                                id = targetAppt.id,
+                                                                appointmentId = targetAppt.id,
+                                                                clinicId = targetAppt.clinicId,
+                                                                items = invItems,
+                                                                totalAmount = invTotal,
+                                                                paidAmount = invPaid,
+                                                                balanceDue = invLeft,
+                                                                paymentStatus = if (invLeft <= 0.0) "paid" else "pending",
+                                                                remarks = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(clinicalRemarks ?: billingInvoice?.remarks)
+                                                            ),
+                                                            clinicName = clinicName,
+                                                            clinicAddress = clinicAddress,
+                                                            doctorName = doctorName,
+                                                            doctorSpecialty = doctorSpecialty,
+                                                            clinicalRemarks = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(clinicalRemarks ?: billingInvoice?.remarks)
+                                                        )
+                                                    }
                                                 } else {
                                                     Toast.makeText(context, "Loading appointment details...", Toast.LENGTH_SHORT).show()
                                                 }
@@ -2805,7 +2864,15 @@ fun QueueStatusScreen(
                                         }
 
                                         OutlinedButton(
-                                            onClick = { showPrescriptionDialog = true },
+                                            onClick = {
+                                                ownershipController.runProtectedAction(
+                                                    trackingCode = displayTrackingCode,
+                                                    appointment = appointment,
+                                                    actionType = com.dactor.patient.ui.components.ProtectedActionType.DOWNLOAD_BILL
+                                                ) {
+                                                    showPrescriptionDialog = true
+                                                }
+                                            },
                                             shape = RoundedCornerShape(10.dp),
                                             border = BorderStroke(1.dp, Color(0xFF00796B)),
                                             modifier = Modifier.weight(1f).height(38.dp),
@@ -3772,7 +3839,15 @@ fun QueueStatusScreen(
                     ) {
                         // Reschedule Button (Solid Deep Pine/Teal matching reference)
                         Button(
-                            onClick = { handleRescheduleClick() },
+                            onClick = {
+                                ownershipController.runProtectedAction(
+                                    trackingCode = displayTrackingCode,
+                                    appointment = appointment,
+                                    actionType = com.dactor.patient.ui.components.ProtectedActionType.RESCHEDULE
+                                ) {
+                                    handleRescheduleClick()
+                                }
+                            },
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0D5C4D)),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
@@ -4172,15 +4247,21 @@ fun QueueStatusScreen(
                                                     if (isItemCompleted && hasInvoiceForItem) {
                                                         Button(
                                                             onClick = {
-                                                                com.dactor.patient.util.BillPdfDownloader.downloadBillPdf(
-                                                                    context = context,
+                                                                ownershipController.runProtectedAction(
+                                                                    trackingCode = apptItem.trackingCode10Digit.ifBlank { displayTrackingCode },
                                                                     appointment = apptItem,
-                                                                    invoice = itemInvoice,
-                                                                    clinicName = clinicName,
-                                                                    doctorName = doctorName,
-                                                                    doctorSpecialty = doctorSpecialty,
-                                                                    clinicalRemarks = itemRemark
-                                                                )
+                                                                    actionType = com.dactor.patient.ui.components.ProtectedActionType.DOWNLOAD_BILL
+                                                                ) {
+                                                                    com.dactor.patient.util.BillPdfDownloader.downloadBillPdf(
+                                                                        context = context,
+                                                                        appointment = apptItem,
+                                                                        invoice = itemInvoice,
+                                                                        clinicName = clinicName,
+                                                                        doctorName = doctorName,
+                                                                        doctorSpecialty = doctorSpecialty,
+                                                                        clinicalRemarks = itemRemark
+                                                                    )
+                                                                }
                                                             },
                                                             shape = RoundedCornerShape(10.dp),
                                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
@@ -4194,7 +4275,13 @@ fun QueueStatusScreen(
                                                     } else if (canRescheduleItem) {
                                                         OutlinedButton(
                                                             onClick = {
-                                                                handleRescheduleClick(apptItem)
+                                                                ownershipController.runProtectedAction(
+                                                                    trackingCode = apptItem.trackingCode10Digit.ifBlank { displayTrackingCode },
+                                                                    appointment = apptItem,
+                                                                    actionType = com.dactor.patient.ui.components.ProtectedActionType.RESCHEDULE
+                                                                ) {
+                                                                    handleRescheduleClick(apptItem)
+                                                                }
                                                             },
                                                             shape = RoundedCornerShape(10.dp),
                                                             border = BorderStroke(1.dp, Color(0xFF0284C7)),
@@ -4456,50 +4543,30 @@ fun QueueStatusScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
                         text = if (isForReport)
-                            "To view or download this prepared diagnostic lab report, please confirm the patient's registered Name or Mobile Number."
+                            "To view or download this prepared diagnostic lab report, please confirm the registered 10-digit Mobile Number."
                         else
-                            "To reschedule and manage this appointment, please verify using the registered patient's full name or mobile number.",
+                            "To reschedule and manage this appointment, please enter the 10-digit Mobile Number associated with this tracking code.",
                         fontSize = 12.sp,
                         color = Color(0xFF475569)
                     )
 
-                    // Method selector chips
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = verifyMethod == "name",
-                            onClick = {
-                                verifyMethod = "name"
-                                verificationInput = ""
-                                unlockError = null
-                            },
-                            label = { Text("Patient Name", fontSize = 11.sp) }
-                        )
-                        FilterChip(
-                            selected = verifyMethod == "phone",
-                            onClick = {
-                                verifyMethod = "phone"
-                                verificationInput = ""
-                                unlockError = null
-                            },
-                            label = { Text("Phone Number", fontSize = 11.sp) }
-                        )
-                    }
-
                     OutlinedTextField(
                         value = verificationInput,
                         onValueChange = {
-                            verificationInput = it
-                            unlockError = null
+                            if (it.length <= 10 && it.all { c -> c.isDigit() }) {
+                                verificationInput = it
+                                unlockError = null
+                            }
                         },
                         label = {
-                            Text(if (verifyMethod == "name") "Patient's Full Name" else "Registered Phone Number")
+                            Text("Registered Mobile Number")
                         },
                         placeholder = {
-                            Text(if (verifyMethod == "name") "e.g. Ramesh Shrestha" else "e.g. 9841234567")
+                            Text("e.g. 9841234567")
                         },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(
-                            keyboardType = if (verifyMethod == "name") KeyboardType.Text else KeyboardType.Phone
+                            keyboardType = KeyboardType.Phone
                         ),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp),
@@ -4533,21 +4600,10 @@ fun QueueStatusScreen(
                         }
                         if (cooldownSeconds > 0 || isLockedOut) return@Button
 
-                        val isMatch = if (verifyMethod == "name") {
-                            val entered = verificationInput.trim().lowercase().replace(Regex("\\s+"), " ")
-                            val expected = rawPatientName.trim().lowercase().replace(Regex("\\s+"), " ")
-                            entered.isNotBlank() && (
-                                expected.isBlank() ||
-                                expected == "patient" ||
-                                entered == expected ||
-                                (expected.length >= 3 && expected.contains(entered)) ||
-                                (entered.length >= 3 && entered.contains(expected))
-                            )
-                        } else {
+                        val isMatch = run {
                             val cleanEntered = verificationInput.filter { it.isDigit() }
                             val cleanExpected = rawPhone.filter { it.isDigit() }
-                            cleanEntered.isNotBlank() && (
-                                cleanExpected.isBlank() ||
+                            cleanEntered.length == 10 && cleanExpected.isNotBlank() && (
                                 cleanEntered.takeLast(10) == cleanExpected.takeLast(10) ||
                                 cleanEntered == cleanExpected
                             )
@@ -5106,26 +5162,32 @@ fun QueueStatusScreen(
                         onClick = {
                             val targetAppt = appointment
                             if (targetAppt != null) {
-                                com.dactor.patient.util.BillPdfDownloader.downloadBillPdf(
-                                    context = context,
+                                ownershipController.runProtectedAction(
+                                    trackingCode = targetAppt.trackingCode10Digit.ifBlank { displayTrackingCode },
                                     appointment = targetAppt,
-                                    invoice = billingInvoice ?: BillingInvoice(
-                                        id = targetAppt.id,
-                                        appointmentId = targetAppt.id,
-                                        clinicId = targetAppt.clinicId,
-                                        items = dialogItems,
-                                        totalAmount = invTotal,
-                                        paidAmount = invPaid,
-                                        balanceDue = invLeft,
-                                        paymentStatus = if (isPaidInFull) "paid" else "pending",
-                                        remarks = cleanRemarksText
-                                    ),
-                                    clinicName = clinicName,
-                                    clinicAddress = clinicAddress,
-                                    doctorName = doctorName,
-                                    doctorSpecialty = doctorSpecialty,
-                                    clinicalRemarks = cleanRemarksText
-                                )
+                                    actionType = com.dactor.patient.ui.components.ProtectedActionType.DOWNLOAD_BILL
+                                ) {
+                                    com.dactor.patient.util.BillPdfDownloader.downloadBillPdf(
+                                        context = context,
+                                        appointment = targetAppt,
+                                        invoice = billingInvoice ?: BillingInvoice(
+                                            id = targetAppt.id,
+                                            appointmentId = targetAppt.id,
+                                            clinicId = targetAppt.clinicId,
+                                            items = dialogItems,
+                                            totalAmount = invTotal,
+                                            paidAmount = invPaid,
+                                            balanceDue = invLeft,
+                                            paymentStatus = if (isPaidInFull) "paid" else "pending",
+                                            remarks = cleanRemarksText
+                                        ),
+                                        clinicName = clinicName,
+                                        clinicAddress = clinicAddress,
+                                        doctorName = doctorName,
+                                        doctorSpecialty = doctorSpecialty,
+                                        clinicalRemarks = cleanRemarksText
+                                    )
+                                }
                             } else {
                                 Toast.makeText(context, "Loading appointment details...", Toast.LENGTH_SHORT).show()
                             }

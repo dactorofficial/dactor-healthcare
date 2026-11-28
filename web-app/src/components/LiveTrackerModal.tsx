@@ -30,6 +30,12 @@ import {
   fetchLiveQueueDelta,
 } from '../services/db'
 import { printAppointmentBill, printPrescription } from '../utils/medicalDocPrinter'
+import { IdentityVerifyModal, ProtectedWebAction } from './IdentityVerifyModal'
+import {
+  checkTrackingCodeAccess,
+  isTrackingCodeVerifiedInSession,
+  maskPatientName,
+} from '../utils/appointmentOwnershipGuard'
 import { Appointment, SupportTicket } from '../types'
 import { supabase } from '../lib/supabase'
 import { useLanguage } from '../utils/i18n'
@@ -61,8 +67,35 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
   const [searched, setSearched] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const [copiedCode, setCopiedCode] = useState(false)
+  const [verifyModalState, setVerifyModalState] = useState<{
+    trackingCode: string
+    actionType: ProtectedWebAction
+    onVerified: () => void
+  } | null>(null)
 
   if (!isOpen) return null
+
+  const runProtectedAction = async (
+    targetAppt: Appointment,
+    actionType: ProtectedWebAction,
+    callback: () => void
+  ) => {
+    const codeKey = targetAppt.trackingCode10Digit || targetAppt.id
+    const res = await checkTrackingCodeAccess(codeKey, targetAppt.patientEmail)
+    if (res.allowed) {
+      callback()
+      return
+    }
+    if (res.reason === 'gmail_mismatch' || res.reason === 'not_found') {
+      setErrorMsg(res.message || 'This tracking code belongs to another Gmail account.')
+      return
+    }
+    setVerifyModalState({
+      trackingCode: codeKey,
+      actionType,
+      onVerified: callback,
+    })
+  }
 
   const handleCopy = (text: string) => {
     navigator.clipboard?.writeText(text)
@@ -159,6 +192,7 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
                 clinic: {
                   id: publicStatus?.clinic_id,
                   name: publicStatus?.clinic_name || 'Clinic',
+                  type: publicStatus?.clinic_type || undefined,
                 } as any,
                 doctor: publicStatus?.doctor_name
                   ? ({
@@ -459,7 +493,13 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 pt-1 text-xs">
               <div>
                 <span className="text-slate-400 font-medium text-[11px]">Patient</span>
-                <p className="font-bold text-slate-800 dark:text-slate-100 text-xs sm:text-sm">{appointment.patientName === 'Confidential Patient' ? `Token #${appointment.queueNumber || 1}` : appointment.patientName}</p>
+                <p className="font-bold text-slate-800 dark:text-slate-100 text-xs sm:text-sm">
+                  {appointment.patientName === 'Confidential Patient'
+                    ? `Token #${appointment.queueNumber || 1}`
+                    : isTrackingCodeVerifiedInSession(appointment.trackingCode10Digit, appointment.patientEmail)
+                    ? appointment.patientName
+                    : maskPatientName(appointment.patientName)}
+                </p>
               </div>
               <div>
                 <span className="text-slate-400 font-medium text-[11px]">Clinic</span>
@@ -515,7 +555,7 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
             <div className="pt-2 border-t border-slate-200/60 dark:border-white/10 grid grid-cols-2 gap-2 text-xs">
               <button
                 type="button"
-                onClick={() => printAppointmentBill(appointment)}
+                onClick={() => runProtectedAction(appointment, 'download_bill', () => printAppointmentBill(appointment))}
                 className="py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-xs active:scale-95"
               >
                 <Receipt className="w-3.5 h-3.5 text-teal-400" />
@@ -532,16 +572,21 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
               {onNavigate && appointment.clinicId && (
                 <button
                   type="button"
-                  onClick={() => {
-                    onClose()
-                    onNavigate('clinic-detail', {
-                      clinicId: appointment.clinicId,
-                      doctorId: appointment.doctorId,
-                      trackingCode: appointment.trackingCode10Digit,
-                      // A completed visit must never be rescheduled in place: book a separate follow-up instead
-                      isReschedule: !isCompleted,
-                    })
-                  }}
+                  onClick={() =>
+                    runProtectedAction(
+                      appointment,
+                      isCompleted ? 'book_followup' : 'reschedule',
+                      () => {
+                        onClose()
+                        onNavigate('clinic-detail', {
+                          clinicId: appointment.clinicId,
+                          doctorId: appointment.doctorId,
+                          trackingCode: appointment.trackingCode10Digit,
+                          isReschedule: !isCompleted,
+                        })
+                      }
+                    )
+                  }
                   className="py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer shadow-xs active:scale-95"
                 >
                   <Calendar className="w-3.5 h-3.5" />
@@ -657,6 +702,19 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
           </button>
         </div>
       </div>
+      {verifyModalState && (
+        <IdentityVerifyModal
+          isOpen={true}
+          trackingCode={verifyModalState.trackingCode}
+          actionType={verifyModalState.actionType}
+          onClose={() => setVerifyModalState(null)}
+          onVerified={() => {
+            const cb = verifyModalState.onVerified
+            setVerifyModalState(null)
+            cb()
+          }}
+        />
+      )}
     </div>
   )
 }

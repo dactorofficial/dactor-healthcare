@@ -179,7 +179,11 @@ class ClinicRepository @Inject constructor(
         }
     }
 
-    suspend fun getClinicById(id: String, forceRefresh: Boolean = false): Clinic? {
+    suspend fun getClinicById(
+        id: String,
+        forceRefresh: Boolean = false,
+        includeInactive: Boolean = false
+    ): Clinic? {
         if (!forceRefresh) {
             cachedClinicsById[id]?.let { return it }
         }
@@ -190,6 +194,8 @@ class ClinicRepository @Inject constructor(
             val clinic = rawClinic?.let { enrichClinic(it) }
             if (clinic != null && isClinicActivated(clinic)) {
                 cachedClinicsById[id] = clinic
+                clinic
+            } else if (clinic != null && includeInactive) {
                 clinic
             } else null
         } catch (e: Exception) {

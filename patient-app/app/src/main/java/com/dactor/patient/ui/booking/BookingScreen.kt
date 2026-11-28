@@ -144,6 +144,11 @@ fun BookingScreen(
     }
     val isRescheduleMode = pendingReschedule != null
     var isExecutingReschedule by remember { mutableStateOf(false) }
+    val ownershipController = com.dactor.patient.ui.components.rememberAppointmentOwnershipController(
+        sessionManager = sessionManager,
+        authRepository = authRepository,
+        appointmentRepository = appointmentRepository
+    )
 
     // Clear stale pending reschedule if navigating without an explicit rescheduleApptId,
     // block rescheduling if a diagnostic lab sample has already been collected,
@@ -461,11 +466,15 @@ fun BookingScreen(
                                     Toast.makeText(context, "Please select an available slot to reschedule", Toast.LENGTH_SHORT).show()
                                     return@Button
                                 }
-                                isExecutingReschedule = true
                                 val targetDoctorId = selectedDoctor?.id?.takeIf { it.isNotBlank() }
                                     ?: selectedSlot.doctorId.takeIf { !it.isNullOrBlank() }
                                     ?: pendingReschedule.doctorId
-                                coroutineScope.launch {
+                                ownershipController.runProtectedAction(
+                                    trackingCode = pendingReschedule.trackingCode.ifBlank { pendingReschedule.appointmentId },
+                                    actionType = com.dactor.patient.ui.components.ProtectedActionType.RESCHEDULE
+                                ) {
+                                    isExecutingReschedule = true
+                                    coroutineScope.launch {
                                     try {
                                         val existingAppt = appointmentRepository?.getAppointmentById(pendingReschedule.appointmentId)
                                         if (appointmentRepository?.isDiagnosticLabSampleCollectedOrFurther(pendingReschedule.appointmentId, existingAppt) == true) {
@@ -539,6 +548,7 @@ fun BookingScreen(
                                     } finally {
                                         isExecutingReschedule = false
                                     }
+                                }
                                 }
                                 return@Button
                             }

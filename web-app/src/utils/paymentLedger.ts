@@ -175,15 +175,60 @@ export function formatNPR(amount: number): string {
   return isNeg ? `− Rs. ${numStr}` : `Rs. ${numStr}`
 }
 
-export function isDiagnosticLabClinic(clinic?: any): boolean {
+const EXPLICIT_OPD_CLINIC_TYPES = new Set([
+  'multi_visit',
+  'single_visit',
+  'single_doctor',
+  'polyclinic',
+  'opd',
+  'opd_clinic',
+  'general_clinic',
+])
+
+const LAB_WORKFLOW_ONLY_STATUSES = new Set([
+  'sample_collected',
+  'processing',
+  'in_lab',
+  'prepared',
+  'report_prepared',
+  'delivered',
+])
+
+export function isDiagnosticLabClinic(
+  clinic?: any,
+  doctor?: any,
+  appt?: any
+): boolean {
+  if (doctor?.isLabTechnician || doctor?.practitionerRole === 'lab_technician') {
+    return true
+  }
+  if (appt?.selectedTests && Array.isArray(appt.selectedTests) && appt.selectedTests.length > 0) {
+    return true
+  }
+  if (typeof appt?.selectedLabTests === 'string' && appt.selectedLabTests.trim().length > 0) {
+    return true
+  }
+  if (Array.isArray(appt?.selectedLabTests) && appt.selectedLabTests.length > 0) {
+    return true
+  }
+  const cStatus = String(appt?.checkinStatus || '').trim().toLowerCase()
+  const qStatus = String(appt?.queueStatus || '').trim().toLowerCase()
+  if (LAB_WORKFLOW_ONLY_STATUSES.has(cStatus) || LAB_WORKFLOW_ONLY_STATUSES.has(qStatus)) {
+    return true
+  }
+
   if (!clinic) return false
-  const t = String(clinic.type || '').toLowerCase()
+  const t = String(clinic.type || '').trim().toLowerCase()
+  if (t) {
+    if (EXPLICIT_OPD_CLINIC_TYPES.has(t)) return false
+    if (t === 'diagnostic_lab' || t.includes('diagnostic') || t.includes('lab') || t.includes('patholog') || t.includes('imaging')) {
+      return true
+    }
+  }
+
   const n = String(clinic.name || '').toLowerCase()
   const specs = Array.isArray(clinic.specialties) ? clinic.specialties : []
   return (
-    t === 'diagnostic_lab' ||
-    t.includes('diagnostic') ||
-    t.includes('lab') ||
     n.includes('diagnostic') ||
     n.includes('lab') ||
     specs.some((s: string) => {

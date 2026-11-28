@@ -18,6 +18,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.coroutines.Dispatchers
@@ -31,6 +32,12 @@ import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+
+data class OwnershipVerificationResult(
+    val allowed: Boolean,
+    val reason: String,
+    val message: String
+)
 
 const val PAY_AT_DESK_SERVICE_CHARGE_PERCENT: Double = 5.0
 
@@ -1544,12 +1551,131 @@ class AppointmentRepository @Inject constructor(
         }
     }
 
+    suspend fun verifyGuestAppointmentIdentity(
+        trackingCode: String,
+        phone: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        val cleanCode = trackingCode.filter { it.isLetterOrDigit() }.uppercase().take(10)
+        val cleanPhone = phone.filter { it.isDigit() }.takeLast(10)
+        if (cleanCode.isBlank() || cleanPhone.length != 10) return@withContext false
+        try {
+            val res = supabaseClient.postgrest.rpc(
+                "verify_guest_appointment_identity",
+                buildJsonObject {
+                    put("p_tracking_code", cleanCode)
+                    put("p_patient_phone", cleanPhone)
+                }
+            )
+            val dataStr = res.data.trim()
+            if (dataStr == "true") return@withContext true
+            if (dataStr == "false") return@withContext false
+        } catch (ignored: Exception) {}
+
+        val appts = try {
+            getAllAppointmentsByTrackingCode(cleanCode)
+        } catch (_: Exception) {
+            emptyList()
+        }
+        appts.any { it.patientMobile.filter { ch -> ch.isDigit() }.takeLast(10) == cleanPhone }
+    }
+
+    suspend fun verifyAppointmentOwnership(
+        trackingCodeOrId: String,
+        email: String? = null,
+        phone: String? = null,
+        allowBlankEmailPhoneFallback: Boolean = true
+    ): OwnershipVerificationResult = withContext(Dispatchers.IO) {
+        val cleanCode = trackingCodeOrId.trim().filter { it.isLetterOrDigit() || it == '-' }.uppercase()
+        val cleanEmail = email?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        val cleanPhone = phone?.filter { it.isDigit() }?.takeLast(10)?.takeIf { it.length == 10 }
+        if (cleanCode.isBlank()) {
+            return@withContext OwnershipVerificationResult(false, "invalid_code", "Tracking code is required.")
+        }
+
+        try {
+            val res = supabaseClient.postgrest.rpc(
+                "verify_appointment_ownership",
+                buildJsonObject {
+                    put("p_tracking_code", cleanCode)
+                    if (cleanEmail != null) put("p_email", cleanEmail) else put("p_email", null as String?)
+                    if (cleanPhone != null) put("p_patient_phone", cleanPhone) else put("p_patient_phone", null as String?)
+                    put("p_allow_blank_email_phone_fallback", allowBlankEmailPhoneFallback)
+                }
+            )
+            val obj = try { res.decodeSingleOrNull<JsonObject>() } catch (_: Exception) { null }
+            if (obj != null) {
+                val allowed = obj["allowed"]?.jsonPrimitive?.booleanOrNull == true
+                val reason = obj["reason"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val msg = obj["message"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                return@withContext OwnershipVerificationResult(allowed, reason, msg)
+            }
+        } catch (ignored: Exception) {}
+
+        // Offline / pre-migration fallback
+        val list = try {
+            val code10 = cleanCode.replace("-", "").take(10)
+            val byCode = if (code10.length == 10) getAllAppointmentsByTrackingCode(code10) else emptyList()
+            byCode.ifEmpty {
+                listOfNotNull(getAppointmentByTrackingCodeOrContact(trackingCodeOrId) ?: getAppointmentById(trackingCodeOrId))
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        if (list.isEmpty()) {
+            return@withContext OwnershipVerificationResult(false, "not_found", "No appointment found for this tracking code.")
+        }
+
+        if (cleanEmail != null) {
+            val hasMatch = list.any { it.patientEmail?.trim()?.equals(cleanEmail, ignoreCase = true) == true }
+            if (hasMatch) {
+                return@withContext OwnershipVerificationResult(true, "gmail_matched", "")
+            }
+            val hasOther = list.any { !it.patientEmail.isNullOrBlank() && !it.patientEmail.trim().equals(cleanEmail, ignoreCase = true) }
+            if (hasOther) {
+                return@withContext OwnershipVerificationResult(
+                    false,
+                    "gmail_mismatch",
+                    "This tracking code belongs to another Gmail account."
+                )
+            }
+            if (!allowBlankEmailPhoneFallback) {
+                return@withContext OwnershipVerificationResult(
+                    false,
+                    "gmail_mismatch",
+                    "This tracking code is not linked to your Gmail account."
+                )
+            }
+            if (cleanPhone == null) {
+                return@withContext OwnershipVerificationResult(
+                    false,
+                    "requires_phone",
+                    "Please enter the 10-digit mobile number associated with this booking."
+                )
+            }
+        } else if (cleanPhone == null) {
+            return@withContext OwnershipVerificationResult(
+                false,
+                "requires_phone",
+                "Please enter the 10-digit mobile number associated with this tracking code."
+            )
+        }
+
+        val phoneMatched = list.any { it.patientMobile.filter { ch -> ch.isDigit() }.takeLast(10) == cleanPhone }
+        return@withContext if (phoneMatched) {
+            OwnershipVerificationResult(true, "phone_matched", "")
+        } else {
+            OwnershipVerificationResult(false, "phone_mismatch", "Mobile number does not match this tracking code.")
+        }
+    }
+
     suspend fun claimAppointment(
         appointmentId: String,
         userId: String? = null,
         patientEmail: String? = null,
         trackingCode: String? = null,
-        email: String? = null
+        email: String? = null,
+        verifiedPhone: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
             val cleanUid = userId?.trim()
@@ -1557,6 +1683,33 @@ class AppointmentRepository @Inject constructor(
 
             if (cleanUid.isNullOrBlank() && cleanEmail.isNullOrBlank()) {
                 return@withContext false
+            }
+
+            // Ownership guard: never overwrite an appointment belonging to another Gmail
+            val existing = (if (isValidUuid(appointmentId)) getAppointmentById(appointmentId) else null)
+                ?: (if (!trackingCode.isNullOrBlank()) getAppointmentByTrackingCode(trackingCode) else null)
+            val existingEmail = existing?.patientEmail?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+            if (existingEmail != null && cleanEmail != null && existingEmail != cleanEmail) {
+                return@withContext false
+            }
+
+            val codeForRpc = trackingCode?.takeIf { it.isNotBlank() } ?: existing?.trackingCode10Digit ?: appointmentId
+            if (cleanEmail != null && codeForRpc.isNotBlank()) {
+                try {
+                    val rpcRes = supabaseClient.postgrest.rpc(
+                        "claim_appointment_verified",
+                        buildJsonObject {
+                            put("p_tracking_code", codeForRpc)
+                            put("p_email", cleanEmail)
+                            if (!cleanUid.isNullOrBlank() && isValidUuid(cleanUid)) put("p_user_id", cleanUid) else put("p_user_id", null as String?)
+                            if (!verifiedPhone.isNullOrBlank()) put("p_patient_phone", verifiedPhone.filter { it.isDigit() }.takeLast(10)) else put("p_patient_phone", null as String?)
+                        }
+                    )
+                    val obj = try { rpcRes.decodeSingleOrNull<JsonObject>() } catch (_: Exception) { null }
+                    if (obj != null) {
+                        return@withContext obj["success"]?.jsonPrimitive?.booleanOrNull == true
+                    }
+                } catch (ignored: Exception) {}
             }
 
             if (isValidUuid(appointmentId)) {

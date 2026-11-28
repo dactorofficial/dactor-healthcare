@@ -52,8 +52,36 @@ object DiagnosticLabPolicy {
         "delivered"
     )
 
+    private val EXPLICIT_OPD_CLINIC_TYPES = setOf(
+        "multi_visit",
+        "single_visit",
+        "single_doctor",
+        "polyclinic",
+        "opd",
+        "opd_clinic",
+        "general_clinic"
+    )
+
+    private fun isExplicitLabClinicType(rawType: String?): Boolean {
+        val cType = rawType?.trim()?.lowercase(java.util.Locale.ROOT) ?: ""
+        if (cType.isBlank()) return false
+        if (cType in EXPLICIT_OPD_CLINIC_TYPES) return false
+        return cType == "diagnostic_lab" ||
+            cType.contains("lab") ||
+            cType.contains("patholog") ||
+            cType.contains("diagnostic") ||
+            cType.contains("imaging")
+    }
+
+    private fun isExplicitOpdClinicType(rawType: String?): Boolean {
+        val cType = rawType?.trim()?.lowercase(java.util.Locale.ROOT) ?: ""
+        return cType in EXPLICIT_OPD_CLINIC_TYPES
+    }
+
     /**
      * Determines whether an appointment belongs to a Diagnostic Lab facility or lab order.
+     * Explicit appointment-level lab signals take precedence; otherwise an explicit OPD
+     * facility type (multi_visit / single_visit) is never overridden by polyclinic specialties.
      */
     fun isDiagnosticLabAppointment(
         appointment: Appointment?,
@@ -62,29 +90,33 @@ object DiagnosticLabPolicy {
         queueStatus: String? = null,
         labReports: List<LabReport> = emptyList()
     ): Boolean {
-        if (clinicType.equals("diagnostic_lab", ignoreCase = true)) return true
-        val cType = clinic?.type?.trim()?.lowercase() ?: ""
-        if (cType == "diagnostic_lab" || cType.contains("lab")) return true
-        if (clinic?.name?.contains("lab", ignoreCase = true) == true) return true
-        if (isDiagnosticOrPathologyLab(clinic)) return true
+        // 1. Appointment-specific explicit lab workflow signals (applies even inside multi_visit polyclinics)
         if (!appointment?.selectedLabTests.isNullOrBlank()) return true
         if (labReports.isNotEmpty()) return true
-        val qLower = queueStatus?.trim()?.lowercase() ?: ""
-        val cLower = appointment?.checkinStatus?.trim()?.lowercase() ?: ""
-        return qLower in LAB_WORKFLOW_ONLY_STATUSES || cLower in LAB_WORKFLOW_ONLY_STATUSES
+        val qLower = queueStatus?.trim()?.lowercase(java.util.Locale.ROOT) ?: ""
+        val cLower = appointment?.checkinStatus?.trim()?.lowercase(java.util.Locale.ROOT) ?: ""
+        if (qLower in LAB_WORKFLOW_ONLY_STATUSES || cLower in LAB_WORKFLOW_ONLY_STATUSES) return true
+
+        // 2. Explicit clinic type (diagnostic_lab vs multi_visit / single_visit)
+        if (isExplicitLabClinicType(clinicType) || isExplicitLabClinicType(clinic?.type)) return true
+        if (isExplicitOpdClinicType(clinicType) || isExplicitOpdClinicType(clinic?.type)) return false
+
+        // 3. Fallback when clinic type is missing/unknown
+        return isDiagnosticOrPathologyLab(clinic)
     }
 
     /**
-     * Determines whether a facility is a Diagnostic Lab, Pathology Lab, or Imaging Center.
-     * Evaluates clinic type, clinic name, specialties, and service listings.
+     * Determines whether a facility is a standalone Diagnostic Lab, Pathology Lab, or Imaging Center.
+     * Explicit multi_visit / single_visit OPD clinics are NOT standalone diagnostic labs even if they
+     * list Pathology or Radiology among their polyclinic departments.
      */
     fun isDiagnosticOrPathologyLab(
         clinic: Clinic?,
         services: List<ClinicService> = emptyList()
     ): Boolean {
         if (clinic == null) return false
-        val cType = clinic.type?.trim()?.lowercase(java.util.Locale.ROOT) ?: ""
-        if (cType == "diagnostic_lab" || cType.contains("lab") || cType.contains("patholog") || cType.contains("diagnostic")) return true
+        if (isExplicitLabClinicType(clinic.type)) return true
+        if (isExplicitOpdClinicType(clinic.type)) return false
         val name = clinic.name.lowercase(java.util.Locale.ROOT)
         if (name.contains("lab") || name.contains("patholog") || name.contains("diagnostic")) return true
         if (clinic.specialties.any { s ->

@@ -134,6 +134,11 @@ fun BookingFormScreen(
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isSubmitting by remember { mutableStateOf(false) }
+    var ownershipVerifiedCode by remember { mutableStateOf("") }
+    var ownershipErrorMsg by remember { mutableStateOf<String?>(null) }
+    var guestVerifyPhone by remember { mutableStateOf("") }
+    var isVerifyingOwnership by remember { mutableStateOf(false) }
+    var verifyFailedCount by remember { mutableIntStateOf(0) }
     var pendingPayAtDeskAppointment by remember { mutableStateOf<Appointment?>(null) }
     var showPendingPayAtDeskDialog by remember { mutableStateOf(false) }
     var isCancellingPendingPayAtDesk by remember { mutableStateOf(false) }
@@ -225,10 +230,35 @@ fun BookingFormScreen(
     }
 
     LaunchedEffect(isReturningPatient, manualCodeInput) {
+        ownershipVerifiedCode = ""
+        ownershipErrorMsg = null
+        guestVerifyPhone = ""
+        verifyFailedCount = 0
         if (isReturningPatient && manualCodeInput.length == 10 && appointmentRepository != null) {
             isLookingUpCode = true
             try {
-                retainedAppointment = appointmentRepository.getAppointmentByTrackingCode(manualCodeInput)
+                val found = appointmentRepository.getAppointmentByTrackingCode(manualCodeInput)
+                retainedAppointment = found
+                if (found != null) {
+                    val activeEmail = com.dactor.patient.ui.components.resolveActivePatientEmail(sessionManager, authRepository)
+                    if (activeEmail != null) {
+                        val check = appointmentRepository.verifyAppointmentOwnership(
+                            trackingCodeOrId = manualCodeInput,
+                            email = activeEmail,
+                            phone = null,
+                            allowBlankEmailPhoneFallback = true
+                        )
+                        if (check.allowed) {
+                            ownershipVerifiedCode = manualCodeInput
+                        } else if (check.reason == "gmail_mismatch") {
+                            ownershipErrorMsg = if (isNepali) {
+                                "यो ट्र्याकिङ कोड अर्कै Gmail खातामा दर्ता छ। कृपया सही Gmail बाट लगइन गर्नुहोस्।"
+                            } else {
+                                "This tracking code belongs to another Gmail account. Please sign in with the registered Gmail."
+                            }
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 retainedAppointment = null
             } finally {
@@ -250,8 +280,9 @@ fun BookingFormScreen(
                     clinicDisplayName = c.name
                     val t = c.type?.lowercase() ?: ""
                     val n = c.name.lowercase()
+                    val isExplicitOpd = t in setOf("multi_visit", "single_visit", "single_doctor", "polyclinic", "opd", "opd_clinic", "general_clinic")
                     val specHasLab = c.specialties?.any { it.lowercase().contains("lab") || it.lowercase().contains("patholog") } == true
-                    if (t == "diagnostic_lab" || t.contains("lab") || n.contains("lab") || specHasLab) {
+                    if (t == "diagnostic_lab" || (!isExplicitOpd && (t.contains("lab") || n.contains("lab") || specHasLab))) {
                         isLabClinicDetected = true
                         effectiveClinicType = "diagnostic_lab"
                         labDetectedNow = true
@@ -424,6 +455,15 @@ fun BookingFormScreen(
                 }
 
                 if (isReturningPatient) {
+                    if (ownershipVerifiedCode != manualCodeInput) {
+                        errorMessage = ownershipErrorMsg ?: if (isNepali) {
+                            "फलो-अप वा समय परिवर्तन गर्नु अघि कृपया मोबाइल नम्बर प्रमाणित गर्नुहोस्।"
+                        } else {
+                            "Please verify tracking code ownership with the associated 10-digit mobile number before continuing."
+                        }
+                        isSubmitting = false
+                        return@launch
+                    }
                     // Cancelled booking: restore it in-place (keeps its bill). Any other retained visit
                     // (completed or still active) gets a NEW follow-up appointment so it is never overwritten.
                     val effectiveAppt: Appointment? = if (isRetainedCancelled && retainedAppointment != null) {
@@ -1267,6 +1307,100 @@ fun BookingFormScreen(
                                         )
                                     }
                                 } else if (retained != null) {
+                                    val isVerifiedNow = ownershipVerifiedCode == manualCodeInput
+                                    if (!isVerifiedNow) {
+                                        val maskedName = com.dactor.patient.ui.components.maskPatientName(retained.patientName)
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = if (ownershipErrorMsg != null) Color(0xFFFFF1F2) else Color(0xFFF8FAFC),
+                                            border = BorderStroke(1.dp, if (ownershipErrorMsg != null) Color(0xFFFECDD3) else Color(0xFFCBD5E1)),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(12.dp),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (isNepali) "बिरामी: $maskedName • कोड #${retained.trackingCode10Digit}" else "Patient: $maskedName • Code #${retained.trackingCode10Digit}",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.5.sp,
+                                                    color = SlateDark
+                                                )
+                                                if (ownershipErrorMsg != null) {
+                                                    Text(
+                                                        text = ownershipErrorMsg.orEmpty(),
+                                                        fontSize = 11.5.sp,
+                                                        color = ErrorRed,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                } else {
+                                                    Text(
+                                                        text = if (isNepali)
+                                                            "फलो-अप वा समय परिवर्तन गर्न यस बुकिङसँग जोडिएको 10-अङ्के मोबाइल नम्बर प्रमाणित गर्नुहोस्।"
+                                                        else
+                                                            "Verify the 10-digit mobile number associated with this tracking code to unlock follow-up / reschedule.",
+                                                        fontSize = 11.5.sp,
+                                                        color = SlateMuted
+                                                    )
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                    ) {
+                                                        OutlinedTextField(
+                                                            value = guestVerifyPhone,
+                                                            onValueChange = {
+                                                                if (it.length <= 10 && it.all { c -> c.isDigit() }) {
+                                                                    guestVerifyPhone = it
+                                                                    errorMessage = null
+                                                                }
+                                                            },
+                                                            label = { Text(if (isNepali) "10-अङ्के मोबाइल नम्बर" else "10-Digit Mobile") },
+                                                            placeholder = { Text("98XXXXXXXX") },
+                                                            singleLine = true,
+                                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                                            modifier = Modifier.weight(1f),
+                                                            shape = RoundedCornerShape(10.dp)
+                                                        )
+                                                        Button(
+                                                            onClick = {
+                                                                val clean = guestVerifyPhone.filter { it.isDigit() }
+                                                                if (clean.length != 10 || verifyFailedCount >= 5) return@Button
+                                                                isVerifyingOwnership = true
+                                                                coroutineScope.launch {
+                                                                    val activeEmail = com.dactor.patient.ui.components.resolveActivePatientEmail(sessionManager, authRepository)
+                                                                    val res = appointmentRepository?.verifyAppointmentOwnership(
+                                                                        trackingCodeOrId = manualCodeInput,
+                                                                        email = activeEmail,
+                                                                        phone = clean,
+                                                                        allowBlankEmailPhoneFallback = true
+                                                                    )
+                                                                    isVerifyingOwnership = false
+                                                                    if (res?.allowed == true) {
+                                                                        ownershipVerifiedCode = manualCodeInput
+                                                                        errorMessage = null
+                                                                    } else {
+                                                                        verifyFailedCount++
+                                                                        val left = (5 - verifyFailedCount).coerceAtLeast(0)
+                                                                        errorMessage = if (isNepali) {
+                                                                            "मोबाइल नम्बर मेल खाएन। बाँकी प्रयास: $left"
+                                                                        } else {
+                                                                            res?.message?.ifBlank { "Mobile number does not match. $left attempt(s) left." }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            },
+                                                            enabled = guestVerifyPhone.length == 10 && !isVerifyingOwnership && verifyFailedCount < 5,
+                                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                                            shape = RoundedCornerShape(10.dp),
+                                                            modifier = Modifier.height(52.dp)
+                                                        ) {
+                                                            Text(if (isVerifyingOwnership) "..." else if (isNepali) "प्रमाणित" else "Verify", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
                                     val isRetainedActiveAppt = isRetainedActive || isRetainedCancelled
                                     Surface(
                                         shape = RoundedCornerShape(12.dp),
@@ -1311,6 +1445,7 @@ fun BookingFormScreen(
                                                 )
                                             }
                                         }
+                                    }
                                     }
                                 }
 

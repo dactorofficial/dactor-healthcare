@@ -54,7 +54,10 @@ import {
   findPendingPayAtDeskAppointment,
   cancelPendingPayAtDeskAppointment,
   isDiagnosticLabClinic,
+  verifyAppointmentOwnership,
+  getCurrentLoggedInUserEmail,
 } from '../services/db'
+import { checkTrackingCodeAccess, markTrackingCodeVerified, maskPatientName } from '../utils/appointmentOwnershipGuard'
 import { supabase } from '../lib/supabase'
 import { updatePageSEO } from '../utils/seo'
 import { escapeHtml } from '../utils/html'
@@ -122,6 +125,9 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   const [retainedAppointment, setRetainedAppointment] = useState<Appointment | null>(null)
   const [isLookingUpCode, setIsLookingUpCode] = useState(false)
   const [followupLookupError, setFollowupLookupError] = useState<string | null>(null)
+  const [followupOwnershipVerified, setFollowupOwnershipVerified] = useState(false)
+  const [followupVerifyPhone, setFollowupVerifyPhone] = useState('')
+  const [isVerifyingFollowupPhone, setIsVerifyingFollowupPhone] = useState(false)
 
   // Stable Idempotency Key per booking attempt session
   const [bookingDraftId, setBookingDraftId] = useState<string>(() => crypto.randomUUID())
@@ -237,13 +243,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         if (firstVerified) setSelectedPaymentMethod(firstVerified)
       }
 
-      const isLab =
-        cData?.type === 'diagnostic_lab' ||
-        cData?.type?.toLowerCase().includes('lab') ||
-        cData?.name.toLowerCase().includes('lab') ||
-        (cData?.specialties?.some(
-          (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
-        ) ?? false)
+      const isLab = isDiagnosticLabClinic(cData)
 
       if (isLab) {
         setActiveTab('lab')
@@ -413,27 +413,40 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
     const clean = followupCodeInput.trim()
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     const isCodeValid = /^\d{10}$/.test(clean) || uuidRegex.test(clean)
+    setFollowupOwnershipVerified(false)
+    setFollowupVerifyPhone('')
     if ((isReturningPatient || isReschedule) && isCodeValid) {
       setIsLookingUpCode(true)
       setFollowupLookupError(null)
       getAppointmentByTrackingCodeOrContact(clean)
-        .then((found) => {
+        .then(async (found) => {
           if (!active) return
-          setIsLookingUpCode(false)
           if (found) {
-            setRetainedAppointment(found)
-            setPatientName(found.patientName)
-            setPatientAge(String(found.patientAge || ''))
-            setPatientGender(found.patientGender || '')
-            setPatientMobile(found.patientMobile || '')
-            if (found.patientEmail) setPatientEmail(found.patientEmail)
-            setFormErrors({})
-            // Auto-select doctor from existing appointment if present
-            if (found.doctorId && doctors.length > 0) {
-              const matchedDoc = doctors.find((d) => d.id === found.doctorId)
-              if (matchedDoc) setSelectedDoctor(matchedDoc)
+            const access = await checkTrackingCodeAccess(found.trackingCode10Digit || clean, found.patientEmail)
+            if (!active) return
+            setIsLookingUpCode(false)
+            if (access.allowed) {
+              setFollowupOwnershipVerified(true)
+              setRetainedAppointment(found)
+              setPatientName(found.patientName)
+              setPatientAge(String(found.patientAge || ''))
+              setPatientGender(found.patientGender || '')
+              setPatientMobile(found.patientMobile || '')
+              if (found.patientEmail) setPatientEmail(found.patientEmail)
+              setFormErrors({})
+              if (found.doctorId && doctors.length > 0) {
+                const matchedDoc = doctors.find((d) => d.id === found.doctorId)
+                if (matchedDoc) setSelectedDoctor(matchedDoc)
+              }
+            } else if (access.reason === 'gmail_mismatch') {
+              setRetainedAppointment(null)
+              setFollowupLookupError(access.message || 'This tracking code belongs to another Gmail account.')
+            } else {
+              // Guest or unclaimed walk-in: store for masked display until 10-digit mobile is verified
+              setRetainedAppointment(found)
             }
           } else {
+            setIsLookingUpCode(false)
             setRetainedAppointment(null)
             setFollowupLookupError(`No appointment record found for code #${clean}.`)
           }
@@ -948,6 +961,10 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
   const handleProceedToPaymentStep = (e: React.FormEvent) => {
     e.preventDefault()
     if (isLookingUpCode) return
+    if ((isReturningPatient || isReschedule) && !followupOwnershipVerified) {
+      setFollowupLookupError('Please verify tracking code ownership with the associated 10-digit mobile number first.')
+      return
+    }
     if (!isReschedule && !validateDetailsForm()) return
     // Directly book for free follow-up or reschedule without any payment step
     if (totalBookingFee === 0 || isLockedDetails || isReschedule) {
@@ -2056,7 +2073,68 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
                         </div>
                       )}
 
-                      {retainedAppointment && (() => {
+                      {retainedAppointment && !followupOwnershipVerified && (
+                        <div className="p-3.5 rounded-xl bg-white/80 dark:bg-slate-900/70 border border-sky-300/60 dark:border-sky-800 space-y-2.5 text-xs">
+                          <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                            <Lock className="w-3.5 h-3.5 text-sky-600" />
+                            <span>
+                              Patient: {maskPatientName(retainedAppointment.patientName)} • Code #{retainedAppointment.trackingCode10Digit}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                            Enter the 10-digit mobile number associated with this tracking code to unlock Follow-Up / Reschedule.
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="tel"
+                              maxLength={10}
+                              value={followupVerifyPhone}
+                              onChange={(e) => {
+                                setFollowupVerifyPhone(e.target.value.replace(/\D/g, '').slice(0, 10))
+                                setFollowupLookupError(null)
+                              }}
+                              placeholder="98XXXXXXXX"
+                              className="flex-1 px-3 py-2 rounded-xl text-xs font-bold border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                            />
+                            <button
+                              type="button"
+                              disabled={followupVerifyPhone.length !== 10 || isVerifyingFollowupPhone}
+                              onClick={async () => {
+                                setIsVerifyingFollowupPhone(true)
+                                setFollowupLookupError(null)
+                                const codeKey = retainedAppointment.trackingCode10Digit || followupCodeInput.trim()
+                                const res = await verifyAppointmentOwnership(
+                                  codeKey,
+                                  getCurrentLoggedInUserEmail(),
+                                  followupVerifyPhone,
+                                  true
+                                )
+                                setIsVerifyingFollowupPhone(false)
+                                if (res.allowed) {
+                                  markTrackingCodeVerified(codeKey, followupVerifyPhone)
+                                  setFollowupOwnershipVerified(true)
+                                  setPatientName(retainedAppointment.patientName)
+                                  setPatientAge(String(retainedAppointment.patientAge || ''))
+                                  setPatientGender(retainedAppointment.patientGender || '')
+                                  setPatientMobile(retainedAppointment.patientMobile || '')
+                                  if (retainedAppointment.patientEmail) setPatientEmail(retainedAppointment.patientEmail)
+                                  if (retainedAppointment.doctorId && doctors.length > 0) {
+                                    const matchedDoc = doctors.find((d) => d.id === retainedAppointment.doctorId)
+                                    if (matchedDoc) setSelectedDoctor(matchedDoc)
+                                  }
+                                } else {
+                                  setFollowupLookupError(res.message || 'Mobile number does not match this tracking code.')
+                                }
+                              }}
+                              className="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-bold text-xs cursor-pointer"
+                            >
+                              {isVerifyingFollowupPhone ? '...' : 'Verify'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {retainedAppointment && followupOwnershipVerified && (() => {
                         const isRetainedCancelled =
                           (retainedAppointment.checkinStatus || '').toLowerCase() === 'cancelled' ||
                           (retainedAppointment.status || '').toUpperCase() === 'CANCELLED'

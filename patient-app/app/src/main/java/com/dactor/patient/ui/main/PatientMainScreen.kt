@@ -3755,6 +3755,11 @@ fun RecordsTab(
     var isLoadingVisitsForDetail by remember { mutableStateOf(false) }
     var apptToRemoveConfirm by remember { mutableStateOf<Appointment?>(null) }
     var apptToRescheduleConfirm by remember { mutableStateOf<Appointment?>(null) }
+    val ownershipController = com.dactor.patient.ui.components.rememberAppointmentOwnershipController(
+        sessionManager = sessionManager,
+        authRepository = authRepository,
+        appointmentRepository = appointmentRepository
+    )
 
     suspend fun loadDirectoryRecords() {
         if (allRecords.isEmpty()) {
@@ -4998,16 +5003,22 @@ fun RecordsTab(
                                         }
                                         Button(
                                             onClick = {
-                                                BillPdfDownloader.downloadBillPdf(
-                                                    context = context,
+                                                ownershipController.runProtectedAction(
+                                                    trackingCode = appt.trackingCode10Digit.ifBlank { appt.id },
                                                     appointment = appt,
-                                                    invoice = invoice,
-                                                    clinicName = clinicName,
-                                                    clinicAddress = clinicAddress,
-                                                    doctorName = doctorName,
-                                                    doctorSpecialty = doctorSpec,
-                                                    clinicalRemarks = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarks)
-                                                )
+                                                    actionType = com.dactor.patient.ui.components.ProtectedActionType.DOWNLOAD_BILL
+                                                ) {
+                                                    BillPdfDownloader.downloadBillPdf(
+                                                        context = context,
+                                                        appointment = appt,
+                                                        invoice = invoice,
+                                                        clinicName = clinicName,
+                                                        clinicAddress = clinicAddress,
+                                                        doctorName = doctorName,
+                                                        doctorSpecialty = doctorSpec,
+                                                        clinicalRemarks = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(remarks)
+                                                    )
+                                                }
                                             },
                                             shape = RoundedCornerShape(10.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
@@ -5070,7 +5081,15 @@ fun RecordsTab(
                                             }
                                         } else if (canRescheduleMissedLab) {
                                             OutlinedButton(
-                                                onClick = { apptToRescheduleConfirm = appt },
+                                                onClick = {
+                                                    ownershipController.runProtectedAction(
+                                                        trackingCode = appt.trackingCode10Digit.ifBlank { appt.id },
+                                                        appointment = appt,
+                                                        actionType = com.dactor.patient.ui.components.ProtectedActionType.RESCHEDULE
+                                                    ) {
+                                                        apptToRescheduleConfirm = appt
+                                                    }
+                                                },
                                                 shape = RoundedCornerShape(12.dp),
                                                 border = BorderStroke(1.dp, Color(0xFF0284C7)),
                                                 colors = ButtonDefaults.outlinedButtonColors(
@@ -5112,7 +5131,15 @@ fun RecordsTab(
                                         }
                                     } else {
                                         OutlinedButton(
-                                            onClick = { apptToRescheduleConfirm = appt },
+                                            onClick = {
+                                                ownershipController.runProtectedAction(
+                                                    trackingCode = appt.trackingCode10Digit.ifBlank { appt.id },
+                                                    appointment = appt,
+                                                    actionType = if (isVisitCompleted) com.dactor.patient.ui.components.ProtectedActionType.BOOK_FOLLOWUP else com.dactor.patient.ui.components.ProtectedActionType.RESCHEDULE
+                                                ) {
+                                                    apptToRescheduleConfirm = appt
+                                                }
+                                            },
                                             shape = RoundedCornerShape(12.dp),
                                             border = BorderStroke(1.dp, Color(0xFF0284C7)),
                                             colors = ButtonDefaults.outlinedButtonColors(
@@ -5403,29 +5430,38 @@ fun RecordsTab(
                                         ?: appointmentRepository.getAppointmentById(rawCode)
                                     if (found != null) {
                                         val finalCode = if (found.trackingCode10Digit.isNotBlank()) found.trackingCode10Digit else clean10
-                                        if (finalCode.isNotBlank()) {
-                                            sessionManager?.unhideRecord(finalCode)
-                                            sessionManager?.saveTrackingCode(
-                                                finalCode,
-                                                "${found.patientName} \u2022 ${found.appointmentDate}",
-                                                explicitUnhide = true
-                                            )
+                                        ownershipController.runProtectedAction(
+                                            trackingCode = finalCode.ifBlank { found.id },
+                                            appointment = found,
+                                            actionType = com.dactor.patient.ui.components.ProtectedActionType.LINK_RECORD
+                                        ) { verifiedPhone ->
+                                            if (finalCode.isNotBlank()) {
+                                                sessionManager?.unhideRecord(finalCode)
+                                                sessionManager?.saveTrackingCode(
+                                                    finalCode,
+                                                    "${found.patientName} \u2022 ${found.appointmentDate}",
+                                                    explicitUnhide = true
+                                                )
+                                            }
+                                            sessionManager?.unhideRecord(found.id)
+                                            val pid = sessionManager?.getSavedPatientId()
+                                            val pEmail = sessionManager?.getSavedEmail()
+                                            if (!pid.isNullOrBlank() || !pEmail.isNullOrBlank()) {
+                                                coroutineScope.launch {
+                                                    appointmentRepository.claimAppointment(
+                                                        appointmentId = found.id,
+                                                        userId = pid,
+                                                        patientEmail = pEmail,
+                                                        trackingCode = finalCode,
+                                                        verifiedPhone = verifiedPhone
+                                                    )
+                                                }
+                                            }
+                                            Toast.makeText(context, "Linked #${finalCode.ifBlank { found.id }} to Directory!", Toast.LENGTH_SHORT).show()
+                                            showAddPatientRecordDialog = false
+                                            linkCodeInput = ""
+                                            coroutineScope.launch { loadDirectoryRecords() }
                                         }
-                                        sessionManager?.unhideRecord(found.id)
-                                        val pid = sessionManager?.getSavedPatientId()
-                                        val pEmail = sessionManager?.getSavedEmail()
-                                        if (!pid.isNullOrBlank() || !pEmail.isNullOrBlank()) {
-                                            appointmentRepository.claimAppointment(
-                                                appointmentId = found.id,
-                                                userId = pid,
-                                                patientEmail = pEmail,
-                                                trackingCode = finalCode
-                                            )
-                                        }
-                                        Toast.makeText(context, "Linked #${finalCode.ifBlank { found.id }} to Directory!", Toast.LENGTH_SHORT).show()
-                                        showAddPatientRecordDialog = false
-                                        linkCodeInput = ""
-                                        loadDirectoryRecords()
                                     } else {
                                         Toast.makeText(context, "No appointment found for code or ID $rawCode", Toast.LENGTH_SHORT).show()
                                     }
@@ -5522,7 +5558,32 @@ fun RecordsTab(
                 viewingRecordDetails = selectedVisit
             },
             onReschedule = { appt ->
-                apptToRescheduleConfirm = appt
+                val isCompleted = appt.checkinStatus.lowercase() in listOf("done", "completed")
+                ownershipController.runProtectedAction(
+                    trackingCode = appt.trackingCode10Digit.ifBlank { appt.id },
+                    appointment = appt,
+                    actionType = if (isCompleted) com.dactor.patient.ui.components.ProtectedActionType.BOOK_FOLLOWUP else com.dactor.patient.ui.components.ProtectedActionType.RESCHEDULE
+                ) {
+                    apptToRescheduleConfirm = appt
+                }
+            },
+            onDownloadBill = { appt, inv, cName, cAddr, dName, dSpec, remarks ->
+                ownershipController.runProtectedAction(
+                    trackingCode = appt.trackingCode10Digit.ifBlank { appt.id },
+                    appointment = appt,
+                    actionType = com.dactor.patient.ui.components.ProtectedActionType.DOWNLOAD_BILL
+                ) {
+                    BillPdfDownloader.downloadBillPdf(
+                        context = context,
+                        appointment = appt,
+                        invoice = inv,
+                        clinicName = cName,
+                        clinicAddress = cAddr,
+                        doctorName = dName,
+                        doctorSpecialty = dSpec,
+                        clinicalRemarks = remarks
+                    )
+                }
             },
             onRemove = { appt ->
                 apptToRemoveConfirm = appt
@@ -5782,6 +5843,11 @@ fun AppointmentsTab(
     var apptToRescheduleConfirm by remember { mutableStateOf<Appointment?>(null) }
     var apptToCancelConfirm by remember { mutableStateOf<Appointment?>(null) }
     var isCancelling by remember { mutableStateOf(false) }
+    val ownershipController = com.dactor.patient.ui.components.rememberAppointmentOwnershipController(
+        sessionManager = sessionManager,
+        authRepository = authRepository,
+        appointmentRepository = appointmentRepository
+    )
 
     var clockTick15s by remember { mutableStateOf(System.currentTimeMillis() / 5000L) }
     LaunchedEffect(Unit) {
@@ -6165,29 +6231,52 @@ fun AppointmentsTab(
                                                 ?: appointmentRepository.getAppointmentById(input)
                                             if (appt != null) {
                                                 val targetCode = if (appt.trackingCode10Digit.isNotBlank()) appt.trackingCode10Digit else clean10
-                                                if (targetCode.isNotBlank()) {
-                                                    sessionManager?.unhideRecord(targetCode)
-                                                    sessionManager?.saveTrackingCode(
-                                                        targetCode,
-                                                        "${appt.patientName} \u2022 ${appt.appointmentDate}",
-                                                        explicitUnhide = true
-                                                    )
-                                                }
-                                                sessionManager?.unhideRecord(appt.id)
                                                 val pid = sessionManager?.getSavedPatientId()
                                                 val pEmail = sessionManager?.getSavedEmail()
                                                 if (!pid.isNullOrBlank() || !pEmail.isNullOrBlank()) {
-                                                    appointmentRepository.claimAppointment(
-                                                        appointmentId = appt.id,
-                                                        userId = pid,
-                                                        patientEmail = pEmail,
-                                                        trackingCode = targetCode
-                                                    )
+                                                    ownershipController.runProtectedAction(
+                                                        trackingCode = targetCode.ifBlank { appt.id },
+                                                        appointment = appt,
+                                                        actionType = com.dactor.patient.ui.components.ProtectedActionType.LINK_RECORD
+                                                    ) { verifiedPhone ->
+                                                        if (targetCode.isNotBlank()) {
+                                                            sessionManager?.unhideRecord(targetCode)
+                                                            sessionManager?.saveTrackingCode(
+                                                                targetCode,
+                                                                "${appt.patientName} \u2022 ${appt.appointmentDate}",
+                                                                explicitUnhide = true
+                                                            )
+                                                        }
+                                                        sessionManager?.unhideRecord(appt.id)
+                                                        coroutineScope.launch {
+                                                            appointmentRepository.claimAppointment(
+                                                                appointmentId = appt.id,
+                                                                userId = pid,
+                                                                patientEmail = pEmail,
+                                                                trackingCode = targetCode,
+                                                                verifiedPhone = verifiedPhone
+                                                            )
+                                                            loadActiveAppointments()
+                                                        }
+                                                        addCodeMessage = "✓ Code #${targetCode.ifBlank { appt.id }} verified!"
+                                                        trackingInput = ""
+                                                        navController.navigate(NavRoutes.QueueStatus.createRoute(targetCode.ifBlank { appt.id }))
+                                                    }
+                                                } else {
+                                                    if (targetCode.isNotBlank()) {
+                                                        sessionManager?.unhideRecord(targetCode)
+                                                        sessionManager?.saveTrackingCode(
+                                                            targetCode,
+                                                            "${appt.patientName} \u2022 ${appt.appointmentDate}",
+                                                            explicitUnhide = true
+                                                        )
+                                                    }
+                                                    sessionManager?.unhideRecord(appt.id)
+                                                    addCodeMessage = "✓ Code #${targetCode.ifBlank { appt.id }}!"
+                                                    trackingInput = ""
+                                                    loadActiveAppointments()
+                                                    navController.navigate(NavRoutes.QueueStatus.createRoute(targetCode.ifBlank { appt.id }))
                                                 }
-                                                addCodeMessage = "✓ Code #${targetCode.ifBlank { appt.id }} verified!"
-                                                trackingInput = ""
-                                                loadActiveAppointments()
-                                                navController.navigate(NavRoutes.QueueStatus.createRoute(targetCode.ifBlank { appt.id }))
                                             } else {
                                                 addCodeMessage = "No booking found for $input."
                                             }
@@ -7639,7 +7728,13 @@ fun AppointmentsTab(
                                     ) {
                                         OutlinedButton(
                                             onClick = {
-                                                apptToRescheduleConfirm = appt
+                                                ownershipController.runProtectedAction(
+                                                    trackingCode = appt.trackingCode10Digit.ifBlank { appt.id },
+                                                    appointment = appt,
+                                                    actionType = com.dactor.patient.ui.components.ProtectedActionType.RESCHEDULE
+                                                ) {
+                                                    apptToRescheduleConfirm = appt
+                                                }
                                             },
                                             shape = RoundedCornerShape(12.dp),
                                             border = BorderStroke(1.dp, Color(0xFF0284C7)),
@@ -7803,7 +7898,8 @@ fun PatientRecordDetailDialog(
     onSelectVisit: (Appointment) -> Unit,
     onReschedule: (Appointment) -> Unit,
     onRemove: (Appointment) -> Unit,
-    onViewReport: ((LabReport) -> Unit)? = null
+    onViewReport: ((LabReport) -> Unit)? = null,
+    onDownloadBill: ((Appointment, BillingInvoice?, String, String, String, String?, String?) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val dClinic = clinicMap[targetAppt.clinicId]
@@ -8698,16 +8794,29 @@ fun PatientRecordDetailDialog(
 
                                 Button(
                                     onClick = {
-                                        BillPdfDownloader.downloadBillPdf(
-                                            context = context,
-                                            appointment = targetAppt,
-                                            invoice = dInvoice,
-                                            clinicName = clinicName,
-                                            clinicAddress = clinicAddress,
-                                            doctorName = doctorName,
-                                            doctorSpecialty = doctorSpec,
-                                            clinicalRemarks = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(dRemarks)
-                                        )
+                                        val cleanRemarks = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(dRemarks)
+                                        if (onDownloadBill != null) {
+                                            onDownloadBill(
+                                                targetAppt,
+                                                dInvoice,
+                                                clinicName,
+                                                clinicAddress,
+                                                doctorName,
+                                                doctorSpec,
+                                                cleanRemarks
+                                            )
+                                        } else {
+                                            BillPdfDownloader.downloadBillPdf(
+                                                context = context,
+                                                appointment = targetAppt,
+                                                invoice = dInvoice,
+                                                clinicName = clinicName,
+                                                clinicAddress = clinicAddress,
+                                                doctorName = doctorName,
+                                                doctorSpecialty = doctorSpec,
+                                                clinicalRemarks = cleanRemarks
+                                            )
+                                        }
                                     },
                                     shape = RoundedCornerShape(12.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
@@ -9079,6 +9188,11 @@ fun ProfileTab(
     var isLoadingVisitsForDetail by remember { mutableStateOf(false) }
     var apptToRemoveConfirm by remember { mutableStateOf<Appointment?>(null) }
     var apptToRescheduleConfirm by remember { mutableStateOf<Appointment?>(null) }
+    val ownershipController = com.dactor.patient.ui.components.rememberAppointmentOwnershipController(
+        sessionManager = sessionManager,
+        authRepository = authRepository,
+        appointmentRepository = appointmentRepository
+    )
     val profileRemarksMap = remember { mutableStateMapOf<String, String>() }
     val profileLabReportMap = remember { mutableStateMapOf<String, List<com.dactor.patient.data.model.LabReport>>() }
     var verifyingReport by remember { mutableStateOf<com.dactor.patient.data.model.LabReport?>(null) }
@@ -9802,7 +9916,15 @@ fun ProfileTab(
                                                     }
                                                 } else if (canRescheduleLabRecord) {
                                                     Button(
-                                                        onClick = { apptToRescheduleConfirm = appt },
+                                                        onClick = {
+                                                            ownershipController.runProtectedAction(
+                                                                trackingCode = appt.trackingCode10Digit.ifBlank { appt.id },
+                                                                appointment = appt,
+                                                                actionType = com.dactor.patient.ui.components.ProtectedActionType.RESCHEDULE
+                                                            ) {
+                                                                apptToRescheduleConfirm = appt
+                                                            }
+                                                        },
                                                         shape = RoundedCornerShape(8.dp),
                                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
@@ -9829,7 +9951,16 @@ fun ProfileTab(
                                                 }
                                             } else {
                                                 Button(
-                                                    onClick = { apptToRescheduleConfirm = appt },
+                                                    onClick = {
+                                                        val isDone = appt.checkinStatus.lowercase() in listOf("done", "completed")
+                                                        ownershipController.runProtectedAction(
+                                                            trackingCode = appt.trackingCode10Digit.ifBlank { appt.id },
+                                                            appointment = appt,
+                                                            actionType = if (isDone) com.dactor.patient.ui.components.ProtectedActionType.BOOK_FOLLOWUP else com.dactor.patient.ui.components.ProtectedActionType.RESCHEDULE
+                                                        ) {
+                                                            apptToRescheduleConfirm = appt
+                                                        }
+                                                    },
                                                     shape = RoundedCornerShape(8.dp),
                                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
                                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
@@ -9843,16 +9974,22 @@ fun ProfileTab(
 
                                             FilledTonalButton(
                                                 onClick = {
-                                                    BillPdfDownloader.downloadBillPdf(
-                                                        context = context,
+                                                    ownershipController.runProtectedAction(
+                                                        trackingCode = appt.trackingCode10Digit.ifBlank { appt.id },
                                                         appointment = appt,
-                                                        invoice = inv,
-                                                        clinicName = cName,
-                                                        clinicAddress = cAddr,
-                                                        doctorName = dName,
-                                                        doctorSpecialty = dSpec,
-                                                        clinicalRemarks = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(inv?.remarks)
-                                                    )
+                                                        actionType = com.dactor.patient.ui.components.ProtectedActionType.DOWNLOAD_BILL
+                                                    ) {
+                                                        BillPdfDownloader.downloadBillPdf(
+                                                            context = context,
+                                                            appointment = appt,
+                                                            invoice = inv,
+                                                            clinicName = cName,
+                                                            clinicAddress = cAddr,
+                                                            doctorName = dName,
+                                                            doctorSpecialty = dSpec,
+                                                            clinicalRemarks = com.dactor.patient.util.PaymentLedgerHelper.extractCleanClinicalRemarks(inv?.remarks)
+                                                        )
+                                                    }
                                                 },
                                                 shape = RoundedCornerShape(8.dp),
                                                 colors = ButtonDefaults.filledTonalButtonColors(containerColor = Color(0xFFE2E8F0), contentColor = Color(0xFF1E293B)),
@@ -10457,30 +10594,41 @@ fun ProfileTab(
                                     ?: appointmentRepository?.getAppointmentById(input)
                                 if (appt != null) {
                                     val finalCode = if (appt.trackingCode10Digit.isNotBlank()) appt.trackingCode10Digit else clean10
-                                    if (finalCode.isNotBlank()) {
-                                        sessionManager?.unhideRecord(finalCode)
-                                        sessionManager?.saveTrackingCode(
-                                            finalCode,
-                                            "${appt.patientName} \u2022 ${appt.appointmentDate}",
-                                            explicitUnhide = true
-                                        )
+                                    ownershipController.runProtectedAction(
+                                        trackingCode = finalCode.ifBlank { appt.id },
+                                        appointment = appt,
+                                        actionType = com.dactor.patient.ui.components.ProtectedActionType.LINK_RECORD
+                                    ) { verifiedPhone ->
+                                        if (finalCode.isNotBlank()) {
+                                            sessionManager?.unhideRecord(finalCode)
+                                            sessionManager?.saveTrackingCode(
+                                                finalCode,
+                                                "${appt.patientName} \u2022 ${appt.appointmentDate}",
+                                                explicitUnhide = true
+                                            )
+                                        }
+                                        sessionManager?.unhideRecord(appt.id)
+                                        sessionManager?.unhideRecord(input)
+                                        val pid = sessionManager?.getSavedPatientId()
+                                        val pEmail = sessionManager?.getSavedEmail()
+                                        if (!pid.isNullOrBlank() || !pEmail.isNullOrBlank()) {
+                                            coroutineScope.launch {
+                                                appointmentRepository?.claimAppointment(
+                                                    appointmentId = appt.id,
+                                                    userId = pid,
+                                                    patientEmail = pEmail,
+                                                    trackingCode = finalCode,
+                                                    verifiedPhone = verifiedPhone
+                                                )
+                                            }
+                                        }
+                                        claimMessage = "✓ Record #${finalCode.ifBlank { appt.id }} linked & restored successfully!"
+                                        coroutineScope.launch {
+                                            loadProfileBillsAndHistory()
+                                            delay(600)
+                                            showClaimDialog = false
+                                        }
                                     }
-                                    sessionManager?.unhideRecord(appt.id)
-                                    sessionManager?.unhideRecord(input)
-                                    val pid = sessionManager?.getSavedPatientId()
-                                    val pEmail = sessionManager?.getSavedEmail()
-                                    if (!pid.isNullOrBlank() || !pEmail.isNullOrBlank()) {
-                                        appointmentRepository?.claimAppointment(
-                                            appointmentId = appt.id,
-                                            userId = pid,
-                                            patientEmail = pEmail,
-                                            trackingCode = finalCode
-                                        )
-                                    }
-                                    claimMessage = "✓ Record #${finalCode.ifBlank { appt.id }} linked & restored successfully!"
-                                    loadProfileBillsAndHistory()
-                                    delay(600)
-                                    showClaimDialog = false
                                 } else {
                                     claimMessage = "No appointment found for this tracking code or ID."
                                 }
@@ -10639,7 +10787,32 @@ fun ProfileTab(
                 viewingRecordDetails = selectedVisit
             },
             onReschedule = { appt ->
-                apptToRescheduleConfirm = appt
+                val isCompleted = appt.checkinStatus.lowercase() in listOf("done", "completed")
+                ownershipController.runProtectedAction(
+                    trackingCode = appt.trackingCode10Digit.ifBlank { appt.id },
+                    appointment = appt,
+                    actionType = if (isCompleted) com.dactor.patient.ui.components.ProtectedActionType.BOOK_FOLLOWUP else com.dactor.patient.ui.components.ProtectedActionType.RESCHEDULE
+                ) {
+                    apptToRescheduleConfirm = appt
+                }
+            },
+            onDownloadBill = { appt, inv, cName, cAddr, dName, dSpec, remarks ->
+                ownershipController.runProtectedAction(
+                    trackingCode = appt.trackingCode10Digit.ifBlank { appt.id },
+                    appointment = appt,
+                    actionType = com.dactor.patient.ui.components.ProtectedActionType.DOWNLOAD_BILL
+                ) {
+                    BillPdfDownloader.downloadBillPdf(
+                        context = context,
+                        appointment = appt,
+                        invoice = inv,
+                        clinicName = cName,
+                        clinicAddress = cAddr,
+                        doctorName = dName,
+                        doctorSpecialty = dSpec,
+                        clinicalRemarks = remarks
+                    )
+                }
             },
             onRemove = { appt ->
                 apptToRemoveConfirm = appt

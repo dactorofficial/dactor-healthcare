@@ -145,6 +145,8 @@ import {
   getEffectiveInvoiceTotal,
   getEffectiveServiceCharge,
 } from '../types'
+import { IdentityVerifyModal, ProtectedWebAction } from '../components/IdentityVerifyModal'
+import { checkTrackingCodeAccess } from '../utils/appointmentOwnershipGuard'
 import {
   getClinics,
   getClinicById,
@@ -652,10 +654,19 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
       setIsLookingUpCode(true)
       setFollowupLookupError(null)
       getAppointmentByTrackingCode(clean)
-        .then((found) => {
+        .then(async (found) => {
           if (!active) return
-          setIsLookingUpCode(false)
           if (found) {
+            const access = await checkTrackingCodeAccess(found.trackingCode10Digit || clean, found.patientEmail)
+            if (!active) return
+            setIsLookingUpCode(false)
+            if (!access.allowed) {
+              setRetainedAppointment(null)
+              setFollowupLookupError(
+                access.message || 'This tracking code does not belong to your Gmail account.'
+              )
+              return
+            }
             setRetainedAppointment(found)
             setBookPatientName(found.patientName)
             setBookPatientAge(String(found.patientAge || ''))
@@ -666,6 +677,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               if (matchedDoc) setSelectedDoctor(matchedDoc)
             }
           } else {
+            setIsLookingUpCode(false)
             setRetainedAppointment(null)
             setFollowupLookupError(`No appointment record found for 10-digit code #${clean}.`)
           }
@@ -796,6 +808,33 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   // RESCHEDULE APPOINTMENT STATE
   // ==========================================
   const [rescheduleAppt, setRescheduleAppt] = useState<Appointment | null>(null)
+  const [portalVerifyModal, setPortalVerifyModal] = useState<{
+    trackingCode: string
+    actionType: ProtectedWebAction
+    onVerified: () => void
+  } | null>(null)
+
+  const runPortalProtectedAction = async (
+    trackingCode: string,
+    patientEmail: string | null | undefined,
+    actionType: ProtectedWebAction,
+    callback: () => void
+  ) => {
+    const res = await checkTrackingCodeAccess(trackingCode, patientEmail)
+    if (res.allowed) {
+      callback()
+      return
+    }
+    if (res.reason === 'gmail_mismatch' || res.reason === 'not_found') {
+      alert(res.message || 'This tracking code belongs to another Gmail account.')
+      return
+    }
+    setPortalVerifyModal({
+      trackingCode,
+      actionType,
+      onVerified: callback,
+    })
+  }
   const [newRescheduleDate, setNewRescheduleDate] = useState<string>(() => new Date().toISOString().split('T')[0])
   const [newRescheduleTime, setNewRescheduleTime] = useState<string>('10:00 AM - 11:00 AM')
   const [newRescheduleSlotId, setNewRescheduleSlotId] = useState<string | undefined>(undefined)
@@ -2500,13 +2539,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
 
     if (resolvedClinic) {
       setSelectedClinic(resolvedClinic)
-      const isLab =
-        resolvedClinic.type === 'diagnostic_lab' ||
-        resolvedClinic.type?.toLowerCase().includes('lab') ||
-        resolvedClinic.name.toLowerCase().includes('lab') ||
-        (resolvedClinic.specialties?.some(
-          (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
-        ) ?? false)
+      const isLab = isDiagnosticLabClinic(resolvedClinic, null, targetAppt)
       setBookingMode(isLab ? 'lab' : 'opd')
     }
 
@@ -4033,14 +4066,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   const scoredClinics = clinics
                     .map((c) => {
                       const t = (c.type || '').toLowerCase()
-                      const n = (c.name || '').toLowerCase()
-                      const isLab =
-                        t === 'diagnostic_lab' ||
-                        t.includes('lab') ||
-                        n.includes('lab') ||
-                        (c.specialties?.some(
-                          (s) => s.toLowerCase().includes('lab') || s.toLowerCase().includes('patholog')
-                        ) ?? false)
+                      const isLab = isDiagnosticLabClinic(c)
                       const isSingle = !isLab && (t === 'single_visit' || t === 'single_doctor')
                       const isPoly = !isLab && !isSingle
 
@@ -6669,8 +6695,13 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    handleConfirmRescheduleFromModal(appt)
-                                    }}
+                                    runPortalProtectedAction(
+                                      appt.trackingCode10Digit || appt.id,
+                                      appt.patientEmail,
+                                      'reschedule',
+                                      () => handleConfirmRescheduleFromModal(appt)
+                                    )
+                                  }}
                                     className={`py-2 px-3 text-xs font-bold rounded-xl transition border flex items-center space-x-1 cursor-pointer active:scale-95 ${isMissed ? 'text-white bg-amber-600 hover:bg-amber-700 border-amber-600 shadow-xs' : 'text-sky-700 dark:text-sky-300 liquid-glass-card hover:bg-sky-500/20 border-sky-500/30'}`}
                                     title="Reschedule Consultation (Retains Paid Fee)"
                                   >
@@ -6681,7 +6712,12 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    setViewingBillAppt(appt)
+                                    runPortalProtectedAction(
+                                      appt.trackingCode10Digit || appt.id,
+                                      appt.patientEmail,
+                                      'download_bill',
+                                      () => setViewingBillAppt(appt)
+                                    )
                                   }}
                                   className="py-2 px-2.5 text-xs font-bold text-blue-700 dark:text-blue-300 liquid-glass-card hover:bg-blue-500/20 rounded-xl transition border border-blue-500/30 flex items-center cursor-pointer active:scale-95"
                                   title="Download Billing Slip"
@@ -8104,7 +8140,14 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => handlePrintAppointmentBill(viewingBillAppt, viewingInvoice)}
+                onClick={() =>
+                  runPortalProtectedAction(
+                    viewingBillAppt.trackingCode10Digit || viewingBillAppt.id,
+                    viewingBillAppt.patientEmail,
+                    'download_bill',
+                    () => handlePrintAppointmentBill(viewingBillAppt, viewingInvoice)
+                  )
+                }
                 className="flex-1 py-3 bg-gradient-to-r from-brand-600 to-teal-500 hover:from-brand-500 hover:to-teal-400 text-white rounded-xl text-xs font-bold transition shadow-glass-brand border border-white/25 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
               >
                 <Download className="w-4 h-4" />
@@ -9141,6 +9184,19 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         isOpen={showLanguageModal}
         onClose={() => setShowLanguageModal(false)}
       />
+      {portalVerifyModal && (
+        <IdentityVerifyModal
+          isOpen={true}
+          trackingCode={portalVerifyModal.trackingCode}
+          actionType={portalVerifyModal.actionType}
+          onClose={() => setPortalVerifyModal(null)}
+          onVerified={() => {
+            const cb = portalVerifyModal.onVerified
+            setPortalVerifyModal(null)
+            cb()
+          }}
+        />
+      )}
     </div>
   )
 }

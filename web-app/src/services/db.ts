@@ -41,6 +41,7 @@ import {
   extractCleanClinicalRemarks,
   buildCombinedRemarks,
   inferPaymentMethodFromText,
+  isDiagnosticLabClinic as sharedIsDiagnosticLabClinic,
   WebPaymentRecord,
 } from '../utils/paymentLedger'
 
@@ -50,32 +51,7 @@ export function isDiagnosticLabClinic(
   doctor?: Doctor | null,
   appt?: Partial<Appointment> | null
 ): boolean {
-  if (doctor?.isLabTechnician || doctor?.practitionerRole === 'lab_technician') {
-    return true
-  }
-  if (appt?.selectedTests && appt.selectedTests.length > 0) {
-    return true
-  }
-  if (typeof appt?.selectedLabTests === 'string' && appt.selectedLabTests.trim().length > 0) {
-    return true
-  }
-  if (Array.isArray(appt?.selectedLabTests) && appt.selectedLabTests.length > 0) {
-    return true
-  }
-  if (!clinic) return false
-  const t = (clinic.type || '').toLowerCase()
-  const n = (clinic.name || '').toLowerCase()
-  return (
-    t === 'diagnostic_lab' ||
-    t.includes('diagnostic') ||
-    t.includes('lab') ||
-    n.includes('diagnostic') ||
-    n.includes('lab') ||
-    (clinic.specialties?.some((s) => {
-      const sl = s.toLowerCase()
-      return sl.includes('lab') || sl.includes('patholog') || sl.includes('diagnostic') || sl.includes('radiolog') || sl.includes('scan')
-    }) ?? false)
-  )
+  return sharedIsDiagnosticLabClinic(clinic, doctor, appt)
 }
 
 
@@ -184,6 +160,10 @@ export async function getClinicForPortalById(id: string): Promise<Clinic | null>
   } catch {
     return null
   }
+}
+
+export async function getClinicForTrackingById(id: string): Promise<Clinic | null> {
+  return getClinicForPortalById(id)
 }
 
 export async function getClinicByEmail(email: string): Promise<Clinic | null> {
@@ -2907,6 +2887,100 @@ export function isUserMatchingPatientEmail(patientEmail?: string | null): boolea
   const loggedInEmail = getCurrentLoggedInUserEmail()
   if (!loggedInEmail) return false
   return loggedInEmail === cleanPatEmail
+}
+
+export interface OwnershipVerificationResult {
+  allowed: boolean
+  reason: string
+  message: string
+}
+
+export async function verifyAppointmentOwnership(
+  trackingCodeOrId: string,
+  email?: string | null,
+  phone?: string | null,
+  allowBlankEmailPhoneFallback: boolean = true
+): Promise<OwnershipVerificationResult> {
+  const cleanCode = (trackingCodeOrId || '').trim().replace(/[^a-zA-Z0-9-]/g, '').toUpperCase()
+  const cleanEmail = (email || '').trim().toLowerCase() || null
+  const cleanPhone = (phone || '').replace(/\D/g, '').slice(-10)
+  const validPhone = cleanPhone.length === 10 ? cleanPhone : null
+
+  if (!cleanCode) {
+    return { allowed: false, reason: 'invalid_code', message: 'Tracking code is required.' }
+  }
+
+  try {
+    const { data, error } = await supabase.rpc('verify_appointment_ownership', {
+      p_tracking_code: cleanCode,
+      p_email: cleanEmail,
+      p_patient_phone: validPhone,
+      p_allow_blank_email_phone_fallback: allowBlankEmailPhoneFallback,
+    })
+    if (!error && data && typeof data === 'object') {
+      return {
+        allowed: Boolean((data as any).allowed),
+        reason: String((data as any).reason || ''),
+        message: String((data as any).message || ''),
+      }
+    }
+  } catch {}
+
+  // Fallback if RPC not yet deployed on Supabase
+  const code10 = cleanCode.replace(/-/g, '').slice(0, 10)
+  const list = code10.length === 10
+    ? await getAllAppointmentsByTrackingCode(code10)
+    : []
+  const single = list.length === 0 ? await getAppointmentByTrackingCodeOrContact(trackingCodeOrId) : null
+  const appts = list.length > 0 ? list : single ? [single] : []
+
+  if (appts.length === 0) {
+    return { allowed: false, reason: 'not_found', message: 'No appointment found for this tracking code.' }
+  }
+
+  if (cleanEmail) {
+    const hasMatch = appts.some((a) => (a.patientEmail || '').trim().toLowerCase() === cleanEmail)
+    if (hasMatch) return { allowed: true, reason: 'gmail_matched', message: '' }
+
+    const hasOther = appts.some((a) => {
+      const e = (a.patientEmail || '').trim().toLowerCase()
+      return Boolean(e) && e !== cleanEmail
+    })
+    if (hasOther) {
+      return {
+        allowed: false,
+        reason: 'gmail_mismatch',
+        message: 'This tracking code belongs to another Gmail account.',
+      }
+    }
+    if (!allowBlankEmailPhoneFallback) {
+      return {
+        allowed: false,
+        reason: 'gmail_mismatch',
+        message: 'This tracking code is not linked to your Gmail account.',
+      }
+    }
+    if (!validPhone) {
+      return {
+        allowed: false,
+        reason: 'requires_phone',
+        message: 'Please enter the 10-digit mobile number associated with this booking.',
+      }
+    }
+  } else if (!validPhone) {
+    return {
+      allowed: false,
+      reason: 'requires_phone',
+      message: 'Please enter the 10-digit mobile number associated with this tracking code.',
+    }
+  }
+
+  const matchedPhone = appts.some(
+    (a) => String(a.patientMobile || '').replace(/\D/g, '').slice(-10) === validPhone
+  )
+  return matchedPhone
+    ? { allowed: true, reason: 'phone_matched', message: '' }
+    : { allowed: false, reason: 'phone_mismatch', message: 'Mobile number does not match this tracking code.' }
 }
 
 // ==========================================
@@ -8584,6 +8658,8 @@ export interface LiveQueueDelta {
   appointment_id: string
   clinic_id: string
   clinic_name: string
+  clinic_type?: string | null
+  is_lab_appointment?: boolean
   doctor_id: string | null
   doctor_name: string
   doctor_specialty: string
