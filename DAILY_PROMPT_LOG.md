@@ -7,6 +7,30 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-28
 
 ### Prompt:
+> "generate debug apk clinic"
+
+#### Changes Applied:
+1. **Clinic & Doctor App Version Increment (`clinic-app/app/build.gradle.kts`)**:
+   - Incremented `versionCode`: `94` -> `95`.
+   - Incremented `versionName`: `"1.0.94"` -> `"1.0.95"`.
+2. **Kotlin Compilation Bug Fixes**:
+   - [`QueueRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/QueueRepository.kt): Fixed `contains("-", startIndex = 10)` compilation error by replacing with `normalized.indexOf('-', startIndex = 10) < 0`.
+   - [`CompleteConsultationUseCase.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/domain/usecase/queue/CompleteConsultationUseCase.kt): Corrected constructor arguments in fallback `TransitionQueueEntryStatusResult` (`entryId = entryId, appointmentId = appointmentId, status = targetStatus`).
+   - [`DoctorQueueViewModel.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/queue/DoctorQueueViewModel.kt): Removed conflicting duplicate local variable declarations (`nowMs`, `nowMin`) in `loadDoctorQueue`, and fixed nullable `isOnBreak` mapping to `affClinic.isOnBreak == true`.
+   - [`ClinicLoginScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/auth/ClinicLoginScreen.kt): Added missing `import kotlinx.coroutines.async` and `import kotlinx.coroutines.coroutineScope` and wrapped Google credential sign-in safely so types for `existingClinic`, `existingDoctor`, and `existingProfile` infer properly.
+3. **Debug APK Build & Deployment**:
+   - Built Debug APK via `.\build_apks.ps1 -App Clinic -BuildType Debug -NoBump`.
+   - Generated versioned output files:
+     - `APKs/Dactor-ClinicApp-v1.0.95-debug.apk` (40.75 MB / 42,730,100 bytes)
+     - `APKs/Dactor-ClinicApp-v1.0.95.apk` (40.75 MB / 42,730,100 bytes)
+     - `APKs/Dactor-ClinicApp-debug.apk` (40.75 MB / 42,730,100 bytes)
+     - SSD backup: `C:\Users\dell\Dactor-APKs\Dactor-ClinicApp-v1.0.95-debug.apk`
+4. **Handoff Tracking**:
+   - Updated [`HANDOFF.md`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/HANDOFF.md) summary table and APK Version Registry table with v1.0.95 release entry.
+
+---
+
+### Prompt:
 > "generate debug apk patient"
 
 #### Changes Applied:
