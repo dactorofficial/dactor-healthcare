@@ -7,6 +7,23 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-28
 
 ### Prompt:
+> "in the patient app reduce such a big description formedical history , and fix that button issue which is ruining the ui ."
+
+#### Changes Applied:
+1. **Shortened Medical History Header Copy & Filter Labels (`PatientI18nQueueRecords.kt`)**:
+   - Reduced `recordsHeaderTitle` from `"Medical Records & History"` -> `"Medical History"` (`"स्वास्थ्य विवरण"` in Nepali).
+   - Reduced verbose 54-char `recordsHeaderSub` (`"Past consultations, prescriptions & diagnostic reports"`) -> `"Visits & lab reports"` (`"परामर्श र रिपोर्टहरू"` in Nepali).
+   - Tightened filter pill labels (`"All"`, `"Completed"`, `"Invoices"`) and link code CTA (`"Link Code"`).
+2. **Medical History Header & Filter Chip Layout Fix (`PatientMainScreen.kt`, `QuickLanguageButton.kt`)**:
+   - [`PatientMainScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt): Separated `"Link Code"` out of the narrow top-right button cluster onto the search row alongside a compact `44.dp` search bar so the header title and subtitle render cleanly on 1 line each without crushing or clipping the language button; added `horizontalScroll` and `softWrap = false` to the directory filter chips so they never wrap onto 2 lines.
+   - [`QuickLanguageButton.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/components/QuickLanguageButton.kt): Changed `compact = true` mode from a tight `36.dp` circle (which clipped the globe icon edge) into a `34.dp`-tall, `widthIn(min = 46.dp)` rounded pill.
+3. **Fixed Home Screen Crushed Sort Button UI Bug (`PatientMainScreen.kt`, `PatientI18nDiscoveryBooking.kt`)**:
+   - [`PatientMainScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt): Wrapped the Home screen entity filter pills row (`All` / `Doctors` / `Clinics`) in `Modifier.weight(1f).horizontalScroll(rememberScrollState())` with `maxLines = 1, softWrap = false`, added an `8.dp` spacer, and constrained the trailing Sort dropdown pill (`widthIn(max = 140.dp)`, `maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis`). Previously, un-weighted long filter pills consumed ~99% of horizontal width, crushing the Sort pill to ~3dp width and forcing it to stretch into a giant ~180dp vertical bar on the right edge.
+   - [`PatientI18nDiscoveryBooking.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/i18n/PatientI18nDiscoveryBooking.kt): Shortened Home filter/sort labels (`"Doctors"`, `"Clinics"`, `"Sort"`) and Nepali equivalents so all pills fit comfortably side-by-side.
+
+---
+
+### Prompt:
 > "generate debug apk clinic"
 
 #### Changes Applied:

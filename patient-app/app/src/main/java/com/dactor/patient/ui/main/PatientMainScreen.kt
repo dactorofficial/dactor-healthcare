@@ -1606,10 +1606,12 @@ fun HomeTab(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 20.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1623,18 +1625,26 @@ fun HomeTab(
                                 shape = RoundedCornerShape(18.dp),
                                 color = if (isSel) Color(0xFF0284C7) else Color.White,
                                 border = BorderStroke(1.dp, if (isSel) Color(0xFF0284C7) else Color(0xFFCBD5E1)),
-                                modifier = Modifier.clickable { selectedEntityFilter = key }
+                                modifier = Modifier
+                                    .defaultMinSize(minHeight = 32.dp)
+                                    .clickable { selectedEntityFilter = key }
                             ) {
-                                Text(
-                                    text = label,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSel) Color.White else Color(0xFF334155),
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                )
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = label,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSel) Color.White else Color(0xFF334155),
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                    )
+                                }
                             }
                         }
                     }
+
+                    Spacer(Modifier.width(8.dp))
 
                     Box {
                         val sortLabel = when (selectedSort) {
@@ -1654,10 +1664,12 @@ fun HomeTab(
                                 if (isCustomSort) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
                             ),
                             shadowElevation = 1.dp,
-                            modifier = Modifier.defaultMinSize(minHeight = 32.dp)
+                            modifier = Modifier
+                                .defaultMinSize(minHeight = 32.dp)
+                                .widthIn(max = 140.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
@@ -1669,9 +1681,12 @@ fun HomeTab(
                                 )
                                 Text(
                                     text = sortLabel,
-                                    fontSize = 11.sp,
+                                    fontSize = 11.5.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = if (isCustomSort) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    color = if (isCustomSort) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -3899,25 +3914,34 @@ fun RecordsTab(
                         colors = listOf(Color(0xFF0284C7), Color(0xFF0369A1))
                     )
                 )
-                .padding(horizontal = 20.dp, vertical = 16.dp)
+                .padding(horizontal = 20.dp, vertical = 14.dp)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
                         Text(
                             text = strings.recordsHeaderTitle,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = Color.White
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = strings.recordsHeaderSub,
                             fontSize = 12.sp,
-                            color = Color.White.copy(alpha = 0.85f)
+                            color = Color.White.copy(alpha = 0.85f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
@@ -3926,22 +3950,6 @@ fun RecordsTab(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         com.dactor.patient.ui.components.QuickLanguageButton(compact = true)
-                        Button(
-                            onClick = {
-                                addMode = "code"
-                                linkCodeInput = ""
-                                showAddPatientRecordDialog = true
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                            shape = RoundedCornerShape(20.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            modifier = Modifier.height(34.dp)
-                        ) {
-                            Icon(Icons.Default.AddLink, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text(strings.recordsLinkCodeBtn, fontSize = 11.5.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF0284C7))
-                        }
-
                         IconButton(
                             onClick = { coroutineScope.launch { loadDirectoryRecords() } },
                             modifier = Modifier
@@ -3953,40 +3961,105 @@ fun RecordsTab(
                     }
                 }
 
-                // Search bar inside Directory
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = {
-                        Text(
-                            "Search clinic, doctor or code...",
-                            fontSize = 12.sp,
-                            color = Color(0xFF64748B)
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(18.dp))
-                    },
-                    trailingIcon = {
-                        if (searchQuery.isNotBlank()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+                // Search bar + Link Code action side by side inside header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.White,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = null,
+                                tint = Color(0xFF0284C7),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                singleLine = true,
+                                textStyle = LocalTextStyle.current.copy(
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF0F172A),
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                modifier = Modifier.weight(1f),
+                                decorationBox = { innerTextField ->
+                                    if (searchQuery.isEmpty()) {
+                                        Text(
+                                            text = "Search clinic, doctor or code...",
+                                            fontSize = 12.sp,
+                                            color = Color(0xFF64748B),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            )
+                            if (searchQuery.isNotBlank()) {
+                                IconButton(
+                                    onClick = { searchQuery = "" },
+                                    modifier = Modifier.size(22.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Clear,
+                                        contentDescription = "Clear",
+                                        tint = Color(0xFF64748B),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
                             }
                         }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = Color.White,
-                        unfocusedContainerColor = Color.White,
-                        focusedBorderColor = Color.Transparent,
-                        unfocusedBorderColor = Color.Transparent
-                    ),
-                    textStyle = LocalTextStyle.current.copy(fontSize = 13.sp, color = Color(0xFF0F172A)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
-                )
+                    }
+
+                    Surface(
+                        onClick = {
+                            addMode = "code"
+                            linkCodeInput = ""
+                            showAddPatientRecordDialog = true
+                        },
+                        color = Color.White,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.height(44.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.AddLink,
+                                contentDescription = null,
+                                tint = Color(0xFF0284C7),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = strings.recordsLinkCodeBtn,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF0284C7),
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -3994,7 +4067,8 @@ fun RecordsTab(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -4006,7 +4080,15 @@ fun RecordsTab(
                 FilterChip(
                     selected = selectedFilter == key,
                     onClick = { selectedFilter = key },
-                    label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                    label = {
+                        Text(
+                            text = label,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = Color(0xFFE0F2F1),
                         selectedLabelColor = Color(0xFF0284C7)

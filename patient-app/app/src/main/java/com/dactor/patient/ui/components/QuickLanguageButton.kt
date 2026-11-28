@@ -4,7 +4,6 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Language
@@ -51,35 +50,38 @@ fun QuickLanguageButton(
 
     if (compact) {
         Surface(
-            shape = CircleShape,
+            shape = RoundedCornerShape(18.dp),
             color = bgColor,
             border = BorderStroke(1.dp, borderColor),
             shadowElevation = 1.dp,
             modifier = modifier
-                .size(36.dp)
-                .clip(CircleShape)
+                .height(34.dp)
+                .widthIn(min = 46.dp)
+                .clip(RoundedCornerShape(18.dp))
                 .clickable { updateLanguage(nextLang) }
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                    modifier = Modifier.padding(horizontal = 2.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Language,
-                        contentDescription = "Change Language",
-                        tint = Color(0xFF0284C7),
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Spacer(Modifier.width(2.dp))
-                    Text(
-                        text = currentLang.shortBadge,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color(0xFF0F172A)
-                    )
-                }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .padding(horizontal = 8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Language,
+                    contentDescription = "Change Language",
+                    tint = Color(0xFF0284C7),
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(Modifier.width(3.dp))
+                Text(
+                    text = currentLang.shortBadge,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFF0F172A),
+                    maxLines = 1,
+                    softWrap = false
+                )
             }
         }
     } else {
