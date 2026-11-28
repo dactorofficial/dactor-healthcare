@@ -566,7 +566,16 @@ fun PatientMainScreen(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
                     icon = { Icon(Icons.Default.Home, contentDescription = strings.navHome) },
-                    label = { Text(strings.navHome, fontSize = 12.sp, fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal) },
+                    label = {
+                        Text(
+                            text = strings.navHome,
+                            fontSize = 11.5.sp,
+                            fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.primary,
                         selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -578,7 +587,16 @@ fun PatientMainScreen(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
                     icon = { Icon(Icons.AutoMirrored.Filled.Article, contentDescription = strings.navRecords) },
-                    label = { Text(strings.navRecords, fontSize = 12.sp, fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal) },
+                    label = {
+                        Text(
+                            text = strings.navRecords,
+                            fontSize = 11.5.sp,
+                            fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.primary,
                         selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -590,7 +608,16 @@ fun PatientMainScreen(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
                     icon = { Icon(Icons.Default.EventNote, contentDescription = strings.navAppointments) },
-                    label = { Text(strings.navAppointments, fontSize = 12.sp, fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Normal) },
+                    label = {
+                        Text(
+                            text = strings.navAppointments,
+                            fontSize = 11.5.sp,
+                            fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.primary,
                         selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -602,7 +629,16 @@ fun PatientMainScreen(
                     selected = selectedTab == 3,
                     onClick = { selectedTab = 3 },
                     icon = { Icon(Icons.Default.Person, contentDescription = strings.navProfile) },
-                    label = { Text(strings.navProfile, fontSize = 12.sp, fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Normal) },
+                    label = {
+                        Text(
+                            text = strings.navProfile,
+                            fontSize = 11.5.sp,
+                            fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.primary,
                         selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -4000,7 +4036,7 @@ fun RecordsTab(
                                 decorationBox = { innerTextField ->
                                     if (searchQuery.isEmpty()) {
                                         Text(
-                                            text = "Search clinic, doctor or code...",
+                                            text = if (isNepali) "क्लिनिक, डाक्टर वा कोड खोज्नुहोस्..." else "Search clinic, doctor or code...",
                                             fontSize = 12.sp,
                                             color = Color(0xFF64748B),
                                             maxLines = 1,
@@ -6220,7 +6256,7 @@ fun AppointmentsTab(
                             )
                             Text(if (isNepali) "कुनै सक्रिय अपोइन्टमेन्ट छैन" else "No Active Appointments", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             Text(
-                                if (isNepali) "तपाईंको हाल कुनै प्रतीक्षारत वा आगामी अपोइन्टमेन्ट छैन। नयाँ स्लट बुक गर्नुहोस् वा माथि १०-अङ्के कोड राखी प्रत्यक्ष लाम हेर्नुहोस्।"
+                                if (isNepali) "तपाईंको हाल कुनै प्रतीक्षारत वा आगामी अपोइन्टमेन्ट छैन। नयाँ स्लट बुक गर्नुहोस् वा माथि 10-अङ्के कोड राखी प्रत्यक्ष लाम हेर्नुहोस्।"
                                 else "You don't have any waiting or upcoming consultations right now. Book a slot or enter your 10-digit code above to track live.",
                                 fontSize = 12.sp,
                                 color = Color(0xFF64748B),

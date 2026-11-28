@@ -67,7 +67,7 @@ interface PatientDiscoveryBookingStrings {
 
 object PatientDiscoveryBookingEnglish : PatientDiscoveryBookingStrings {
     override val navHome: String = "Home"
-    override val navRecords: String = "Health Records"
+    override val navRecords: String = "Records"
     override val navAppointments: String = "Appointments"
     override val navProfile: String = "Profile"
     override val homeLocationPrompt: String = "Location"
@@ -127,9 +127,9 @@ object PatientDiscoveryBookingEnglish : PatientDiscoveryBookingStrings {
 }
 
 object PatientDiscoveryBookingNepali : PatientDiscoveryBookingStrings {
-    override val navHome: String = "गृहपृष्ठ (Home)"
-    override val navRecords: String = "स्वास्थ्य विवरण (Records)"
-    override val navAppointments: String = "अपोइन्टमेन्टहरू"
+    override val navHome: String = "गृहपृष्ठ"
+    override val navRecords: String = "रेकर्ड"
+    override val navAppointments: String = "अपोइन्टमेन्ट"
     override val navProfile: String = "प्रोफाइल"
     override val homeLocationPrompt: String = "स्थान"
     override val homeSearchPlaceholder: String = "डाक्टर, क्लिनिक वा विशेषज्ञता खोज्नुहोस्..."
@@ -169,7 +169,7 @@ object PatientDiscoveryBookingNepali : PatientDiscoveryBookingStrings {
     override val patientFullName: String = "बिरामीको पूरा नाम"
     override val patientAge: String = "उमेर"
     override val patientGender: String = "लिङ्ग"
-    override val patientPhone: String = "मोबाइल नम्बर (१० अङ्क)"
+    override val patientPhone: String = "मोबाइल नम्बर (10 अङ्क)"
     override val appointmentReason: String = "जाँच गराउनुको कारण / लक्षणहरू"
     override val consultationFee: String = "परामर्श शुल्क"
     override val bookingConfirmedTitle: String = "अपोइन्टमेन्ट सुनिश्चित भयो!"

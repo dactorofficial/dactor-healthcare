@@ -585,7 +585,7 @@ fun BookingFormScreen(
                                 color = SlateDark
                             )
                             Text(
-                                if (isNepali) "चरण २ / २ • बिरामीको विवरण पुष्टि गर्नुहोस्" else "Step 2 of 2 \u2022 Confirm Patient Details",
+                                if (isNepali) "चरण 2 / 2 • बिरामीको विवरण पुष्टि गर्नुहोस्" else "Step 2 of 2 \u2022 Confirm Patient Details",
                                 fontSize = 11.sp,
                                 color = SlateMuted,
                                 fontWeight = FontWeight.Medium
@@ -1866,7 +1866,7 @@ fun BookingFormScreen(
                             },
                             isError = isNameError,
                             supportingText = if (isNameError) {
-                                { Text(if (isNepali) "अनिवार्य: पूरा नाम (कम्तीमा २ अक्षर) लेख्नुहोस्।" else "Required: Enter full name (at least 2 letters).", color = ErrorRed, fontSize = 11.sp) }
+                                { Text(if (isNepali) "अनिवार्य: पूरा नाम (कम्तीमा 2 अक्षर) लेख्नुहोस्।" else "Required: Enter full name (at least 2 letters).", color = ErrorRed, fontSize = 11.sp) }
                             } else null,
                             singleLine = true,
                             modifier = Modifier
@@ -1901,7 +1901,7 @@ fun BookingFormScreen(
                             },
                             isError = isMobileError,
                             supportingText = if (isMobileError) {
-                                { Text(if (isNepali) "अनिवार्य: ९ बाट सुरु हुने १०-अङ्के नम्बर (${cleanMobileDigits.length}/10)।" else "Required: Must be a 10-digit number starting with 9 (${cleanMobileDigits.length}/10).", color = ErrorRed, fontSize = 11.sp) }
+                                { Text(if (isNepali) "अनिवार्य: 9 बाट सुरु हुने 10-अङ्के नम्बर (${cleanMobileDigits.length}/10)।" else "Required: Must be a 10-digit number starting with 9 (${cleanMobileDigits.length}/10).", color = ErrorRed, fontSize = 11.sp) }
                             } else null,
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
@@ -1946,7 +1946,7 @@ fun BookingFormScreen(
                                 },
                                 isError = isAgeError,
                                 supportingText = if (isAgeError) {
-                                    { Text(if (isNepali) "वैध उमेर (१–१२०) राख्नुहोस्" else "Enter valid age (1\u2013120)", color = ErrorRed, fontSize = 10.sp) }
+                                    { Text(if (isNepali) "वैध उमेर (1–120) राख्नुहोस्" else "Enter valid age (1\u2013120)", color = ErrorRed, fontSize = 10.sp) }
                                 } else null,
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),

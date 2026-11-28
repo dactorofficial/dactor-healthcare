@@ -137,7 +137,7 @@ class UserSessionManager @Inject constructor(
         prefs.edit().putBoolean("has_seen_onboarding", seen).apply()
     }
 
-    fun getAppLanguage(): String = prefs.getString("app_language", "en") ?: "en"
+    fun getAppLanguage(): String = prefs.getString("app_language", "ne") ?: "ne"
     fun setAppLanguage(lang: String) {
         prefs.edit()
             .putString("app_language", lang)

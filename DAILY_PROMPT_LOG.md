@@ -7,6 +7,22 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-28
 
 ### Prompt:
+> "change that health records text to records text and make it exactly just below the icon and also make everything nepali from now on except the number ."
+
+#### Changes Applied:
+1. **Bottom Navigation Bar "Records" Label & Alignment (`PatientI18nDiscoveryBooking.kt`, `PatientMainScreen.kt`)**:
+   - [`PatientI18nDiscoveryBooking.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/i18n/PatientI18nDiscoveryBooking.kt): Changed `navRecords` from `"Health Records"` → `"Records"` (Nepali: `"रेकर्ड"`), and tightened Nepali nav labels (`"गृहपृष्ठ"`, `"अपोइन्टमेन्ट"`, `"प्रोफाइल"`) to single words.
+   - [`PatientMainScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt): Enforced single-line rendering (`fontSize = 11.5.sp`, `maxLines = 1`, `softWrap = false`, `overflow = TextOverflow.Ellipsis`) on all 4 `NavigationBarItem` labels so `"Records"` / `"रेकर्ड"` sits cleanly directly below its icon without wrapping or shifting vertically.
+2. **Nepali as Default App Language (`UserSessionManager.kt`, `DactorStrings.kt`, `AppLanguage.kt`)**:
+   - [`UserSessionManager.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/local/UserSessionManager.kt): Changed `getAppLanguage()` default from `"en"` to `"ne"`.
+   - [`DactorStrings.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/i18n/DactorStrings.kt) & [`AppLanguage.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/i18n/AppLanguage.kt): Defaulted `LocalAppStrings`, `LocalAppLanguage`, and `fromCode` fallback to `NepaliStrings` / `AppLanguage.NEPALI`.
+   - [`PatientMainScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt): Localized the Medical History search bar placeholder (`"क्लिनिक, डाक्टर वा कोड खोज्नुहोस्..."`).
+3. **Western Digits (`0-9`) Across All Nepali UI Strings**:
+   - Replaced all Devanagari numerals (`०–९`) with Western digits (`0–9`) in [`BookingFormScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/booking/BookingFormScreen.kt), [`LandingScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/landing/LandingScreen.kt), [`PatientMainScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt), [`PatientI18nDiscoveryBooking.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/i18n/PatientI18nDiscoveryBooking.kt), [`PatientI18nProfileAuth.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/i18n/PatientI18nProfileAuth.kt), and [`PatientI18nQueueRecords.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/i18n/PatientI18nQueueRecords.kt).
+
+---
+
+### Prompt:
 > "in the patient app reduce such a big description formedical history , and fix that button issue which is ruining the ui ."
 
 #### Changes Applied:

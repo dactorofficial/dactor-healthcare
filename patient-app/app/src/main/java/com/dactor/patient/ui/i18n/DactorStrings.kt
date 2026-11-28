@@ -162,6 +162,6 @@ object NepaliStrings : DactorStrings {
     override val profileAuth: PatientProfileAuthStrings = PatientProfileAuthNepali
 }
 
-val LocalAppStrings = compositionLocalOf<DactorStrings> { EnglishStrings }
-val LocalAppLanguage = compositionLocalOf<AppLanguage> { AppLanguage.ENGLISH }
+val LocalAppStrings = compositionLocalOf<DactorStrings> { NepaliStrings }
+val LocalAppLanguage = compositionLocalOf<AppLanguage> { AppLanguage.NEPALI }
 val LocalUpdateAppLanguage = compositionLocalOf<(AppLanguage) -> Unit> { {} }

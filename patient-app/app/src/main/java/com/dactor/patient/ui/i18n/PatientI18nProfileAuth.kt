@@ -164,7 +164,7 @@ object PatientProfileAuthNepali : PatientProfileAuthStrings {
     override val slide1Badge: String = "सहज ओपीडी बुकिङ"
     override val slide1Title: String = "अस्पतालको लामो लामबाट मुक्ति"
     override val slide1Desc: String = "नेपालभरिका विशेषज्ञ डाक्टर र प्रमाणित क्लिनिकहरू तत्काल खोज्नुहोस् र पालो लिनुहोस्।"
-    override val slide1Pill1: String = "१००+ प्रमाणित डाक्टरहरू"
+    override val slide1Pill1: String = "100+ प्रमाणित डाक्टरहरू"
     override val slide1Pill2: String = "तत्काल डिजिटल टोकन"
 
     override val slide2Badge: String = "प्रत्यक्ष लाम ट्र्याकिङ"
@@ -175,7 +175,7 @@ object PatientProfileAuthNepali : PatientProfileAuthStrings {
 
     override val slide3Badge: String = "स्मार्ट अलर्टहरू"
     override val slide3Title: String = "आफ्नो पालो कहिल्यै नछुटाउनुहोस्"
-    override val slide3Desc: String = "तपाईंभन्दा अगाडि ३ जना बिरामी रहँदा र पालो बोलाउँदा तत्काल मोबाइल नोटिफिकेसन पाउनुहोस्।"
+    override val slide3Desc: String = "तपाईंभन्दा अगाडि 3 जना बिरामी रहँदा र पालो बोलाउँदा तत्काल मोबाइल नोटिफिकेसन पाउनुहोस्।"
     override val slide3Pill1: String = "पुश तथा एसएमएस सूचना"
     override val slide3Pill2: String = "प्रतीक्षालयको भिडभाडबाट मुक्ति"
 

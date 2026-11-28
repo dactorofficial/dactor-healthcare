@@ -138,7 +138,7 @@ fun LandingScreen(navController: NavController) {
                     }
 
                     Text(
-                        text = if (isNepali) "लगइन बिना नै आफ्नो १०-अङ्के कोड राखी अगाडि कति बिरामी छन् र डाक्टर कक्षको स्थिति हेर्नुहोस्।"
+                        text = if (isNepali) "लगइन बिना नै आफ्नो 10-अङ्के कोड राखी अगाडि कति बिरामी छन् र डाक्टर कक्षको स्थिति हेर्नुहोस्।"
                         else "No login required! Enter your 10-digit appointment code to view how many patients are ahead of you and whether your doctor has arrived.",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant

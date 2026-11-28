@@ -126,12 +126,12 @@ object PatientQueueRecordsNepali : PatientQueueRecordsStrings {
     override val queueStageCompleted: String = "परामर्श सम्पन्न"
     override val queueCancelApptBtn: String = "अपोइन्टमेन्ट रद्द गर्नुहोस्"
     override val queueRescheduleBtn: String = "समय परिवर्तन गर्नुहोस्"
-    override val queueTrackingCodeLabel: String = "१०-अङ्के ट्र्याकिङ कोड"
+    override val queueTrackingCodeLabel: String = "10-अङ्के ट्र्याकिङ कोड"
     override val copyTrackingCode: String = "कोड कपी गर्नुहोस्"
     override val trackingCodeCopied: String = "ट्र्याकिङ कोड कपी भयो"
 
-    override val trackingLookupTitle: String = "१०-अङ्के कोडबाट ट्र्याक गर्नुहोस्"
-    override val enterTrackingCodePlaceholder: String = "१०-अङ्के कोड राख्नुहोस् (उदा. AB12CD34EF)"
+    override val trackingLookupTitle: String = "10-अङ्के कोडबाट ट्र्याक गर्नुहोस्"
+    override val enterTrackingCodePlaceholder: String = "10-अङ्के कोड राख्नुहोस् (उदा. AB12CD34EF)"
     override val trackNowBtn: String = "प्रत्यक्ष लाम हेर्नुहोस्"
     override val pastTrackedList: String = "हालसालै सुरक्षित गरिएका अपोइन्टमेन्टहरू"
 
