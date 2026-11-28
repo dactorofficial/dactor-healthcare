@@ -7,6 +7,24 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-28
 
 ### Prompt:
+> "generate debug apk of clinic"
+
+#### Changes Applied:
+1. **Clinic App Version Bump (`clinic-app/app/build.gradle.kts`)**:
+   - Incremented `versionCode` from `95` -> `96`.
+   - Incremented `versionName` from `"1.0.95"` -> `"1.0.96"`.
+2. **APK Generation & Placement**:
+   - Built `assembleDebug` using `./build_apks.ps1 -App Clinic -BuildType Debug`.
+   - Placed generated APKs:
+     - [`APKs/Dactor-ClinicApp-v1.0.96-debug.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-ClinicApp-v1.0.96-debug.apk) (40.75 MB)
+     - [`APKs/Dactor-ClinicApp-v1.0.96.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-ClinicApp-v1.0.96.apk)
+     - `C:\Users\dell\Dactor-APKs\Dactor-ClinicApp-v1.0.96-debug.apk`
+3. **Master Tracking & Handoff Alignment (`HANDOFF.md`)**:
+   - Updated latest Clinic App version in Executive Summary table and added entry to APK Version Registry table.
+
+---
+
+### Prompt:
 > "the home screen of patient app where the clinics and doctor are shown it should actually be scrollable till everything is not completed and also when clicked on doctor for booking it should first show the profile of doctor like a big picture, experiences , description etc then the patient should chose the clinic for further appoinment" -> "hide consultation fee in the doctor profile . actually i want you to change the complete ui of the home screen show me /generative_ui" -> "the color pattern should be the same as previous one show me again" -> "it should show profile , the icon at the bottom are terrible keep the old one and proceed"
 
 #### Changes Applied:

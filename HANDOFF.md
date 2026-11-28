@@ -31,7 +31,7 @@ The DACTOR platform consists of three tightly coupled applications operating on 
 | Component | Platform / Tech | Source Folder | Live Deployment / Artifacts | Current Latest Version |
 |---|---|---|---|---|
 | **Super Admin Console** | React 18 + Vite + TypeScript + Tailwind | `admin-panel/` | [Live Site on GitHub Pages](https://dactorofficial.github.io/admin-portal/) <br> GitHub: `https://github.com/dactorofficial/admin-portal` | v1.0 |
-| **Clinic & Doctor App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `clinic-app/` | `APKs/Dactor-ClinicApp-v1.0.95-debug.apk`<br>`APKs/Dactor-ClinicApp-v1.0.95.apk`<br>`AABs/Dactor-ClinicApp-v1.0.90.aab` | **v1.0.95 (Code 95, Debug)** |
+| **Clinic & Doctor App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `clinic-app/` | `APKs/Dactor-ClinicApp-v1.0.96-debug.apk`<br>`APKs/Dactor-ClinicApp-v1.0.96.apk`<br>`AABs/Dactor-ClinicApp-v1.0.90.aab` | **v1.0.96 (Code 96, Debug)** |
 | **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.47-debug.apk`<br>`APKs/Dactor-PatientApp-v1.0.46-debug.apk`<br>`APKs/Dactor-PatientApp-v1.0.43.apk` | **v1.0.47 (Code 147, Debug)**<br>**v1.0.43 (Code 143, Release)** |
 | **Cloud Backend & Storage** | Supabase (PostgreSQL + Auth + Storage + Realtime) | `supabase/` | Project URL: `https://ojfoofojcpabqegxmsab.supabase.co` | Cloud Live |
 
@@ -364,6 +364,7 @@ Run the install script, which automatically resolves the latest versioned APK:
 
 | Date | App | Version Name | Version Code | Filename | Key Changes |
 |---|---|---|---|---|---|
+| 2026-11-28 | Clinic & Doctor | v1.0.96 | 96 | `APKs/Dactor-ClinicApp-v1.0.96-debug.apk` | Clinic & Doctor App Debug APK: Generated Debug APK v1.0.96 (versionCode 96) signed with shared debug keystore (40.75 MB). |
 | 2026-11-28 | Clinic & Doctor | v1.0.95 | 95 | `APKs/Dactor-ClinicApp-v1.0.95-debug.apk` | Clinic & Doctor App Debug APK: Resolved `contains` startIndex in `QueueRepository.kt`, fixed `TransitionQueueEntryStatusResult` instantiation in `CompleteConsultationUseCase.kt`, removed duplicate `nowMs`/`nowMin` local declarations and fixed `isOnBreak` in `DoctorQueueViewModel.kt`, added missing coroutine imports in `ClinicLoginScreen.kt`, generated Debug APK signed with shared debug keystore (40.75 MB). |
 | 2026-11-28 | Patient | v1.0.47 | 147 | `APKs/Dactor-PatientApp-v1.0.47-debug.apk` | Patient App Debug APK: Resolved `contains` startIndex in `QueueRepository.kt`, fixed `HomeTab` blocking overlay parameters, imported `repeatOnLifecycle` and `isActive` in `PatientMainScreen.kt`, generated Debug APK signed with shared debug keystore (26.7 MB). |
 | 2026-11-26 | Patient | v1.0.46 | 146 | `APKs/Dactor-PatientApp-v1.0.46-debug.apk` | Patient App Debug APK: Dynamic queue timing logic synchronization, resolved `clockTick15s` in `AppointmentsTab`, generated Debug APK signed with shared debug keystore (26.65 MB). |
