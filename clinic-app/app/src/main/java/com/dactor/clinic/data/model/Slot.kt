@@ -14,5 +14,7 @@ data class Slot(
     @SerialName("max_capacity") val maxCapacity: Int,
     @SerialName("booked_count") val bookedCount: Int = 0,
     @SerialName("waiting_count") val waitingCount: Int = 0,
-    @SerialName("is_published") val isPublished: Boolean = false
+    @SerialName("is_published") val isPublished: Boolean = false,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null
 )

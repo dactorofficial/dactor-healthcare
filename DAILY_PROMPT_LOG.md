@@ -7,6 +7,43 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-28
 
 ### Prompt:
+> "listen the clinic add slot loads everything so slowly put the updated in cache and try refreshing ony for checking updated slot dumbo"
+
+#### Changes Applied:
+1. **Clinic App Slot Caching & Delta-Only Refresh (`clinic-app`)**:
+   - [`Slot.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/model/Slot.kt): Added optional `createdAt` and `updatedAt` fields mapped to `created_at` / `updated_at`.
+   - [`SlotRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/repository/SlotRepository.kt): Added in-memory (`ConcurrentHashMap`) + persistent (`SharedPreferences` `"dactor_slot_persistent_cache"`) slot caches (`getCachedSlots`, `getCachedSlotsForClinic`, `clearCache`), write-through cache synchronization on `createSlot`, `updateSlotTime`, `updateSlotCapacity`, `deleteSlot`, and `incrementSlotBookedCount`, parallel async slot + minimal appointment column projection (`id, slot_id, checkin_status, payment_mode, status`), and `refreshUpdatedSlotsOnly(clinicId, date)` delta checking via lightweight slot fingerprints (`id, slot_date, start_time, end_time, booked_count, max_capacity, is_published, updated_at`) and `updated_at` watermark filtering (`slot_date >= today - 31 days`) so unchanged slots are served directly from cache and only updated/new/deleted rows are fetched.
+   - [`SlotManagerScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/slots/SlotManagerScreen.kt): Seeded `clinic`, `doctors`, `slots`, and `allClinicSlots` synchronously from cache on first frame; separated clinic/doctor loading (`LaunchedEffect(effectiveClinicId)`) from per-date delta slot checks (`LaunchedEffect(effectiveClinicId, selectedDate)`) so switching calendar dates never re-fetches clinic/doctor/full-history slots; added a TopAppBar delta-only Refresh button; switched `+30m`/`-30m`/`+1hr`/`-1hr` time adjustments from delete+recreate to in-place `updateSlotTime`.
+   - [`FutureAppointmentsScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/ui/appointments/FutureAppointmentsScreen.kt): Seeded clinic, doctors, appointments, and slots from repository caches synchronously; ran initial `loadAppointments()` and `loadSlots(includeCalendarOverview = true)` in parallel; switched date-change and top-bar Refresh slot checks to `refreshUpdatedSlotsOnly`.
+   - [`AppCacheManager.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/clinic-app/app/src/main/java/com/dactor/clinic/data/cache/AppCacheManager.kt): Injected `SlotRepository` and cleared slot cache during `signOutKeepingData()` and `clearAllCache()`.
+2. **Web App Parity (`web-app` — Rule 5 & Rule 7)**:
+   - [`index.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/types/index.ts): Added optional `createdAt` and `updatedAt` fields on `Slot`.
+   - [`db.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/services/db.ts): Added `getCachedSlots` and `refreshUpdatedSlotsOnly` with in-memory + `localStorage` caching, lightweight slot fingerprint diffing, and write-through cache updates on `getSlots`, `createSlot`, `createSlotsBatch`, `updateSlot`, and `deleteSlot`.
+   - [`ClinicPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/ClinicPortal.tsx): Pre-populated `publishedSlots` from `getCachedSlots`, switched slot effect & Refresh button (`handleRefreshSlotsOnly`) to `refreshUpdatedSlotsOnly`, and removed `setRefreshKey((k) => k + 1)` from slot creation/deletion handlers so managing slots never reloads the entire clinic portal.
+
+---
+
+### Prompt:
+> "generate debug apk of patient app"
+
+#### Changes Applied:
+1. **Compilation Fix (`patient-app`)**:
+   - [`QueueStatusScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt), [`DactorNavHost.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/navigation/DactorNavHost.kt), & [`AppointmentOwnershipGuard.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/components/AppointmentOwnershipGuard.kt): Imported and wired `authRepository: AuthRepository? = null` into `QueueStatusScreen` and added default `= null` in `rememberAppointmentOwnershipController`.
+2. **Patient App Version Bump (`patient-app/app/build.gradle.kts`)**:
+   - Incremented `versionCode` from `147` -> `148`.
+   - Incremented `versionName` from `"1.0.47"` -> `"1.0.48"`.
+3. **APK Generation & Placement**:
+   - Built `assembleDebug` using `./build_apks.ps1 -App Patient -BuildType Debug -NoBump`.
+   - Placed generated APKs:
+     - [`APKs/Dactor-PatientApp-v1.0.48-debug.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-PatientApp-v1.0.48-debug.apk) (26.78 MB)
+     - [`APKs/Dactor-PatientApp-v1.0.48.apk`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/APKs/Dactor-PatientApp-v1.0.48.apk)
+     - `C:\Users\dell\Dactor-APKs\Dactor-PatientApp-v1.0.48-debug.apk`
+4. **Master Tracking (`HANDOFF.md`)**:
+   - Updated Patient App latest version in Executive Summary and added `v1.0.48` row to Section 7 APK Version Registry.
+
+---
+
+### Prompt:
 > "generate debug apk of clinic"
 
 #### Changes Applied:

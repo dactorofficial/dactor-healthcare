@@ -11,6 +11,7 @@ import com.dactor.clinic.data.repository.AuthRepository
 import com.dactor.clinic.data.repository.ClinicRepository
 import com.dactor.clinic.data.repository.DoctorRepository
 import com.dactor.clinic.data.repository.QueueRepository
+import com.dactor.clinic.data.repository.SlotRepository
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.FirebaseAuth
@@ -33,6 +34,7 @@ class AppCacheManager @Inject constructor(
     private val queueRepository: QueueRepository,
     private val clinicRepository: ClinicRepository,
     private val doctorRepository: DoctorRepository,
+    private val slotRepository: SlotRepository,
     private val draftManager: RegistrationDraftManager,
     private val clinicDatabase: ClinicDatabase,
     private val authRepository: AuthRepository
@@ -48,6 +50,7 @@ class AppCacheManager @Inject constructor(
         runCatching { queueRepository.clearCache() }
         runCatching { clinicRepository.clearCache() }
         runCatching { doctorRepository.clearCache() }
+        runCatching { slotRepository.clearCache() }
 
         val accountKey = com.dactor.clinic.data.local.AccountDataVault.accountKey(sessionManager.getSavedEmail())
         if (accountKey != null) runCatching { com.dactor.clinic.data.local.AccountDataVault.hide(context, accountKey) }
@@ -68,6 +71,7 @@ class AppCacheManager @Inject constructor(
         runCatching { queueRepository.clearCache() }
         runCatching { clinicRepository.clearCache() }
         runCatching { doctorRepository.clearCache() }
+        runCatching { slotRepository.clearCache() }
         runCatching { draftManager.clearClinicDraft() }
         runCatching { draftManager.clearDoctorDraft() }
 

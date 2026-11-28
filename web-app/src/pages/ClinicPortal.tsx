@@ -175,6 +175,8 @@ import {
   createSlot,
   createSlotsBatch,
   getSlots,
+  getCachedSlots,
+  refreshUpdatedSlotsOnly,
   isSlotTimeExpired,
   parseTimeToMinutes,
   updateSlot,
@@ -1719,31 +1721,53 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     }
   }
 
-  // Load published slots for selected clinic / doctor & date
+  const scopePublishedSlotsList = (allSlots: Slot[]) => {
+    if (isLabClinic) return allSlots
+    if (!slotDoctorId) return allSlots
+    const docOnly = allSlots.filter((s) => s.doctorId === slotDoctorId)
+    return docOnly.length > 0 ? docOnly : allSlots.filter((s) => !s.doctorId)
+  }
+
+  const handleRefreshSlotsOnly = async () => {
+    if (!selectedClinic?.id || !slotDate) return
+    setLoadingSlots(true)
+    try {
+      const updatedAll = await refreshUpdatedSlotsOnly(selectedClinic.id, slotDate)
+      setPublishedSlots(scopePublishedSlotsList(updatedAll))
+    } catch (err) {
+      console.error('Error checking updated slots:', err)
+    } finally {
+      setLoadingSlots(false)
+    }
+  }
+
+  // Load published slots for selected clinic / doctor & date (cache-first + delta check)
   useEffect(() => {
     if (!selectedClinic?.id || !slotDate) return
     if (!isLabClinic && clinicDoctors.length > 0 && !slotDoctorId) return
+    let active = true
+    const cached = getCachedSlots(selectedClinic.id, slotDate)
+    if (cached.length > 0) {
+      setPublishedSlots(scopePublishedSlotsList(cached))
+    }
     async function loadSlots() {
-      setLoadingSlots(true)
+      setLoadingSlots(cached.length === 0)
       try {
-        const allSlots = await getSlots(selectedClinic!.id, slotDate)
-        const scoped = isLabClinic
-          ? allSlots
-          : slotDoctorId
-          ? (() => {
-              const docOnly = allSlots.filter((s) => s.doctorId === slotDoctorId)
-              return docOnly.length > 0 ? docOnly : allSlots.filter((s) => !s.doctorId)
-            })()
-          : allSlots
-        setPublishedSlots(scoped)
+        const allSlots = await refreshUpdatedSlotsOnly(selectedClinic!.id, slotDate)
+        if (active) {
+          setPublishedSlots(scopePublishedSlotsList(allSlots))
+        }
       } catch (err) {
         console.error('Error loading slots:', err)
       } finally {
-        setLoadingSlots(false)
+        if (active) setLoadingSlots(false)
       }
     }
     loadSlots()
-  }, [selectedClinic?.id, isLabClinic, clinicDoctors.length, slotDoctorId, slotDate, refreshKey])
+    return () => {
+      active = false
+    }
+  }, [selectedClinic?.id, isLabClinic, clinicDoctors.length, slotDoctorId, slotDate])
 
   // Load published slots for walk-in appointment registration (all clinic types: OPD, General & Diagnostic Lab)
   useEffect(() => {
@@ -3275,8 +3299,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         isPublished: true,
       })
       if (newSlot) {
-        setPublishedSlots((prev) => [...prev, newSlot])
-        setRefreshKey((k) => k + 1)
+        setPublishedSlots((prev) => [...prev, newSlot].sort((a, b) => (a.startTime || '').localeCompare(b.startTime || '')))
+        if ((walkinDate || todayStr) === slotDate) {
+          setWalkinAvailableSlots((prev) => [...prev, newSlot].sort((a, b) => parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime)))
+        }
         alert(`Slot ${slotStartTime} - ${slotEndTime} published successfully!`)
       } else {
         alert('Failed to publish slot.')
@@ -3306,8 +3332,10 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         isPublished: true,
       })
       if (newSlot) {
-        setPublishedSlots((prev) => [...prev, newSlot])
-        setRefreshKey((k) => k + 1)
+        setPublishedSlots((prev) => [...prev, newSlot].sort((a, b) => (a.startTime || '').localeCompare(b.startTime || '')))
+        if ((walkinDate || todayStr) === slotDate) {
+          setWalkinAvailableSlots((prev) => [...prev, newSlot].sort((a, b) => parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime)))
+        }
         alert(`Sample collection window ${startLabel} - ${endLabel} published for ${slotDate}!`)
       } else {
         alert('Failed to publish collection window.')
@@ -3324,7 +3352,7 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
     const ok = await deleteSlot(slotId)
     if (ok) {
       setPublishedSlots((prev) => prev.filter((s) => s.id !== slotId))
-      setRefreshKey((k) => k + 1)
+      setWalkinAvailableSlots((prev) => prev.filter((s) => s.id !== slotId))
     } else {
       alert('Failed to delete slot.')
     }
@@ -3368,7 +3396,14 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
         }
       }
       const created = await createSlotsBatch(slotsToCreate)
-      setRefreshKey((k) => k + 1)
+      if (created.length > 0) {
+        setPublishedSlots((prev) => [...prev, ...created].sort((a, b) => (a.startTime || '').localeCompare(b.startTime || '')))
+        if ((walkinDate || todayStr) === slotDate) {
+          setWalkinAvailableSlots((prev) => [...prev, ...created].sort((a, b) => parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime)))
+        }
+      } else {
+        await handleRefreshSlotsOnly()
+      }
       alert(`Published ${created.length || slotsToCreate.length} slots for ${slotDate}!`)
     } catch (err) {
       console.error('Error generating bulk slots:', err)
@@ -8291,7 +8326,8 @@ export const ClinicPortal: React.FC<ClinicPortalProps> = ({ onLogout }) => {
                     Published Slots on {slotDate} ({publishedSlots.length})
                   </h3>
                   <button
-                    onClick={() => setRefreshKey((k) => k + 1)}
+                    type="button"
+                    onClick={handleRefreshSlotsOnly}
                     className="text-xs text-brand-700 hover:underline font-bold flex items-center space-x-1 cursor-pointer"
                   >
                     <RefreshCw className={`w-3 h-3 ${loadingSlots ? 'animate-spin' : ''}`} />

@@ -1701,8 +1701,175 @@ export async function autoTransferUncompletedQueueToNoShow(
 }
 
 // ==========================================
-// SLOTS & SCHEDULE API
+// SLOTS & SCHEDULE API (With Cache + Delta Refresh)
 // ==========================================
+const slotsDateMemoryCache = new Map<string, Slot[]>()
+const slotsSyncedKeys = new Set<string>()
+const SLOTS_CACHE_PREFIX = 'dactor_slots_cache_'
+
+function slotDateCacheKey(clinicId: string, date: string): string {
+  return `${clinicId}|${date}`
+}
+
+export function getCachedSlots(clinicId: string, date: string): Slot[] {
+  if (!clinicId || !date) return []
+  const key = slotDateCacheKey(clinicId, date)
+  const mem = slotsDateMemoryCache.get(key)
+  if (mem) return mem
+  try {
+    const raw = localStorage.getItem(`${SLOTS_CACHE_PREFIX}${clinicId}_${date}`)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Slot[]
+      if (Array.isArray(parsed)) {
+        slotsDateMemoryCache.set(key, parsed)
+        slotsSyncedKeys.add(key)
+        return parsed
+      }
+    }
+  } catch {}
+  return []
+}
+
+function persistSlotsDateCache(clinicId: string, date: string, slots: Slot[]) {
+  if (!clinicId || !date) return
+  const key = slotDateCacheKey(clinicId, date)
+  const sorted = [...slots].sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''))
+  slotsDateMemoryCache.set(key, sorted)
+  slotsSyncedKeys.add(key)
+  try {
+    localStorage.setItem(`${SLOTS_CACHE_PREFIX}${clinicId}_${date}`, JSON.stringify(sorted))
+  } catch {}
+}
+
+function upsertCachedSlot(slot: Slot) {
+  if (!slot.clinicId || !slot.slotDate) return
+  const existing = getCachedSlots(slot.clinicId, slot.slotDate)
+  const next = existing.filter((s) => s.id !== slot.id).concat(slot)
+  persistSlotsDateCache(slot.clinicId, slot.slotDate, next)
+}
+
+function removeSlotFromAllCaches(slotId: string) {
+  if (!slotId) return
+  for (const [key, list] of slotsDateMemoryCache.entries()) {
+    if (list.some((s) => s.id === slotId)) {
+      const filtered = list.filter((s) => s.id !== slotId)
+      slotsDateMemoryCache.set(key, filtered)
+      const [cid, dt] = key.split('|')
+      if (cid && dt) {
+        try {
+          localStorage.setItem(`${SLOTS_CACHE_PREFIX}${cid}_${dt}`, JSON.stringify(filtered))
+        } catch {}
+      }
+    }
+  }
+}
+
+function updateSlotInAllCaches(slotId: string, patch: Partial<Slot>) {
+  if (!slotId) return
+  for (const [key, list] of slotsDateMemoryCache.entries()) {
+    if (list.some((s) => s.id === slotId)) {
+      const updated = list.map((s) => (s.id === slotId ? { ...s, ...patch } : s))
+      slotsDateMemoryCache.set(key, updated)
+      const [cid, dt] = key.split('|')
+      if (cid && dt) {
+        try {
+          localStorage.setItem(`${SLOTS_CACHE_PREFIX}${cid}_${dt}`, JSON.stringify(updated))
+        } catch {}
+      }
+    }
+  }
+}
+
+export async function refreshUpdatedSlotsOnly(clinicId: string, date: string): Promise<Slot[]> {
+  if (!clinicId || !date) return []
+  const key = slotDateCacheKey(clinicId, date)
+  const cached = getCachedSlots(clinicId, date)
+  if (cached.length === 0 && !slotsSyncedKeys.has(key)) {
+    return getSlots(clinicId, date)
+  }
+
+  try {
+    const { data: fingerprints, error: fpErr } = await supabase
+      .from('slots')
+      .select('id, slot_date, start_time, end_time, booked_count, max_capacity, is_published, updated_at')
+      .eq('clinic_id', clinicId)
+      .eq('slot_date', date)
+
+    if (fpErr) throw fpErr
+    const remoteRows = fingerprints || []
+    const cachedById = new Map(cached.map((s) => [s.id, s]))
+    const remoteIds = new Set(remoteRows.map((r: any) => r.id))
+    const deletedIds = new Set(cached.filter((s) => !remoteIds.has(s.id)).map((s) => s.id))
+
+    const changedOrNewIds = remoteRows
+      .filter((r: any) => {
+        const old = cachedById.get(r.id)
+        if (!old) return true
+        return (
+          old.bookedCount !== r.booked_count ||
+          old.maxCapacity !== r.max_capacity ||
+          old.startTime !== r.start_time ||
+          old.endTime !== r.end_time ||
+          (old.isPublished ?? true) !== (r.is_published ?? true) ||
+          (r.updated_at && r.updated_at !== old.updatedAt)
+        )
+      })
+      .map((r: any) => r.id)
+
+    if (changedOrNewIds.length === 0 && deletedIds.size === 0) {
+      return cached
+    }
+
+    if (changedOrNewIds.length === 0 && deletedIds.size > 0) {
+      const pruned = cached.filter((s) => !deletedIds.has(s.id))
+      persistSlotsDateCache(clinicId, date, pruned)
+      return getCachedSlots(clinicId, date)
+    }
+
+    const [changedSlotsRes, apptsRes] = await Promise.all([
+      supabase.from('slots').select('*').eq('clinic_id', clinicId).in('id', changedOrNewIds),
+      supabase
+        .from('appointments')
+        .select('id, slot_id, checkin_status, payment_mode, status')
+        .eq('clinic_id', clinicId)
+        .eq('appointment_date', date),
+    ])
+
+    if (changedSlotsRes.error) throw changedSlotsRes.error
+    const activeAppts = (apptsRes.data || []).filter(
+      (a: any) =>
+        a.checkin_status !== 'cancelled' &&
+        !(a.payment_mode === 'PAY_AT_DESK' && a.status === 'WAITING_FOR_APPROVAL')
+    )
+    const waitingAppts = activeAppts.filter(
+      (a: any) =>
+        !['completed', 'done', 'finished', 'report_prepared', 'results_ready', 'no_show', 'cancelled', 'rejected'].includes((a.checkin_status || '').toLowerCase()) &&
+        !['COMPLETED', 'DONE', 'FINISHED', 'CANCELLED', 'REJECTED', 'EXPIRED', 'UNAPPROVED', 'PENDING_PAYMENT'].includes((a.status || '').toUpperCase())
+    )
+
+    const enrichedChanged = (changedSlotsRes.data || []).map((raw: any) => {
+      const slot = mapSlot(raw)
+      const actualCount = activeAppts.filter((a: any) => a.slot_id === slot.id).length
+      const waitingCount = waitingAppts.filter((a: any) => a.slot_id === slot.id).length
+      return {
+        ...slot,
+        bookedCount: apptsRes.error ? slot.bookedCount : actualCount,
+        waitingCount,
+      }
+    })
+
+    const changedSet = new Set(changedOrNewIds)
+    const merged = cached
+      .filter((s) => !deletedIds.has(s.id) && !changedSet.has(s.id))
+      .concat(enrichedChanged)
+    persistSlotsDateCache(clinicId, date, merged)
+    return getCachedSlots(clinicId, date)
+  } catch (err) {
+    console.error('Error delta-refreshing slots:', err)
+    return cached
+  }
+}
+
 export async function getSlots(clinicId: string, date: string): Promise<Slot[]> {
   try {
     const [slotsRes, apptsRes] = await Promise.all([
@@ -1731,7 +1898,7 @@ export async function getSlots(clinicId: string, date: string): Promise<Slot[]> 
         !['COMPLETED', 'DONE', 'FINISHED', 'CANCELLED', 'REJECTED', 'EXPIRED', 'UNAPPROVED', 'PENDING_PAYMENT'].includes((a.status || '').toUpperCase())
     )
 
-    return (slotsRes.data || []).map((raw) => {
+    const result = (slotsRes.data || []).map((raw) => {
       const slot = mapSlot(raw)
       const actualCount = activeAppts.filter((a: any) => a.slot_id === slot.id).length
       const waitingCount = waitingAppts.filter((a: any) => a.slot_id === slot.id).length
@@ -1741,9 +1908,11 @@ export async function getSlots(clinicId: string, date: string): Promise<Slot[]> 
         waitingCount,
       }
     })
+    persistSlotsDateCache(clinicId, date, result)
+    return result
   } catch (err) {
     console.error('Error fetching slots:', err)
-    return []
+    return getCachedSlots(clinicId, date)
   }
 }
 
@@ -1788,6 +1957,7 @@ export async function createSlot(slot: Partial<Slot>): Promise<Slot | null> {
       max_capacity: slot.maxCapacity || 10,
       booked_count: slot.bookedCount || 0,
       is_published: slot.isPublished ?? true,
+      updated_at: new Date().toISOString(),
     }
 
     const { data, error } = await supabase
@@ -1800,7 +1970,9 @@ export async function createSlot(slot: Partial<Slot>): Promise<Slot | null> {
       console.error('Error creating slot in Supabase:', error)
       throw error
     }
-    return data ? mapSlot(data) : null
+    const created = data ? mapSlot(data) : null
+    if (created) upsertCachedSlot(created)
+    return created
   } catch (err) {
     console.error('Failed to create slot:', err)
     return null
@@ -1810,6 +1982,7 @@ export async function createSlot(slot: Partial<Slot>): Promise<Slot | null> {
 export async function createSlotsBatch(slots: Partial<Slot>[]): Promise<Slot[]> {
   try {
     if (!slots || slots.length === 0) return []
+    const nowIso = new Date().toISOString()
     const dbPayloads = slots.map((slot) => ({
       id: slot.id || crypto.randomUUID(),
       clinic_id: slot.clinicId,
@@ -1820,6 +1993,7 @@ export async function createSlotsBatch(slots: Partial<Slot>[]): Promise<Slot[]> 
       max_capacity: slot.maxCapacity || 10,
       booked_count: slot.bookedCount || 0,
       is_published: slot.isPublished ?? true,
+      updated_at: nowIso,
     }))
 
     const { data, error } = await supabase
@@ -1831,7 +2005,9 @@ export async function createSlotsBatch(slots: Partial<Slot>[]): Promise<Slot[]> 
       console.error('Error batch creating slots in Supabase:', error)
       throw error
     }
-    return (data || []).map(mapSlot)
+    const createdList = (data || []).map(mapSlot)
+    createdList.forEach((s) => upsertCachedSlot(s))
+    return createdList
   } catch (err) {
     console.error('Failed to batch create slots:', err)
     return []
@@ -1858,6 +2034,7 @@ export async function getSlotsByDoctorAndDate(doctorId: string, date: string): P
 export async function deleteSlot(slotId: string): Promise<boolean> {
   try {
     const { error } = await supabase.from('slots').delete().eq('id', slotId)
+    if (!error) removeSlotFromAllCaches(slotId)
     return !error
   } catch (err) {
     console.error('Error deleting slot:', err)
@@ -5106,6 +5283,8 @@ function mapSlot(s: any): Slot {
     bookedCount: s.booked_count,
     isAvailable: s.is_available ?? true,
     isPublished: s.is_published ?? true,
+    createdAt: s.created_at,
+    updatedAt: s.updated_at,
   }
 }
 
@@ -7819,11 +7998,20 @@ export async function updateSlot(
   updates: { startTime?: string; endTime?: string; maxCapacity?: number }
 ): Promise<boolean> {
   try {
-    const payload: any = {}
+    const nowIso = new Date().toISOString()
+    const payload: any = { updated_at: nowIso }
     if (updates.startTime !== undefined) payload.start_time = formatTimeForPostgres(updates.startTime)
     if (updates.endTime !== undefined) payload.end_time = formatTimeForPostgres(updates.endTime)
     if (updates.maxCapacity !== undefined) payload.max_capacity = updates.maxCapacity
     const { error } = await supabase.from('slots').update(payload).eq('id', slotId)
+    if (!error) {
+      updateSlotInAllCaches(slotId, {
+        ...(updates.startTime !== undefined ? { startTime: payload.start_time } : {}),
+        ...(updates.endTime !== undefined ? { endTime: payload.end_time } : {}),
+        ...(updates.maxCapacity !== undefined ? { maxCapacity: updates.maxCapacity } : {}),
+        updatedAt: nowIso,
+      })
+    }
     return !error
   } catch {
     return false

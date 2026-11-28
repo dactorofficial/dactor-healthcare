@@ -128,6 +128,8 @@ export interface Slot {
   isAvailable?: boolean
   isBreak?: boolean
   isPublished?: boolean
+  createdAt?: string
+  updatedAt?: string
 }
 
 export interface MultiSlotPositionResult {

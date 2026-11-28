@@ -236,7 +236,7 @@ class AppointmentOwnershipController(
 @Composable
 fun rememberAppointmentOwnershipController(
     sessionManager: UserSessionManager?,
-    authRepository: AuthRepository?,
+    authRepository: AuthRepository? = null,
     appointmentRepository: AppointmentRepository?
 ): AppointmentOwnershipController {
     val context = LocalContext.current

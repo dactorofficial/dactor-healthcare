@@ -39,6 +39,8 @@ import com.dactor.clinic.data.repository.*
 import com.dactor.clinic.domain.util.DateTimePickers
 import com.dactor.clinic.ui.components.TimeCarouselPickerDialog
 import com.dactor.clinic.ui.navigation.NavRoutes
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.YearMonth
@@ -82,16 +84,51 @@ fun FutureAppointmentsScreen(
     // Selected date \u2014 default to today
     var selectedDate by remember { mutableStateOf(todayStr) }
 
-    var currentClinic by remember(effectiveClinicId) { mutableStateOf<com.dactor.clinic.data.model.Clinic?>(null) }
+    var currentClinic by remember(effectiveClinicId) {
+        mutableStateOf<com.dactor.clinic.data.model.Clinic?>(
+            if (effectiveClinicId.isNotBlank()) clinicRepository?.getCachedClinicById(effectiveClinicId) else null
+        )
+    }
     val isLabClinic = remember(currentClinic) { currentClinic?.isDiagnosticLab() == true }
-    var appointments by remember(effectiveClinicId) { mutableStateOf<List<Appointment>>(emptyList()) }
-    var doctors by remember(effectiveClinicId) { mutableStateOf<List<Doctor>>(emptyList()) }
-    var selectedDoctor by remember(effectiveClinicId) { mutableStateOf<Doctor?>(null) }
+    var appointments by remember(effectiveClinicId) {
+        val rawCached = if (userRole == "doctor" && doctorId.isNotBlank()) {
+            appointmentRepository?.getCachedDoctorAppointments(doctorId) ?: emptyList()
+        } else if (effectiveClinicId.isNotBlank()) {
+            appointmentRepository?.getCachedClinicAppointments(effectiveClinicId) ?: emptyList()
+        } else emptyList()
+        mutableStateOf(
+            rawCached.filter {
+                it.status.equals("APPROVED", ignoreCase = true) &&
+                it.status != "WAITING_FOR_APPROVAL" &&
+                it.status != "pending_payment" &&
+                it.status != "UNAPPROVED" &&
+                it.status != "EXPIRED" &&
+                it.checkinStatus != "cancelled"
+            }
+        )
+    }
+    var doctors by remember(effectiveClinicId) {
+        mutableStateOf<List<Doctor>>(
+            if (effectiveClinicId.isNotBlank()) doctorRepository?.getCachedDoctorsByClinic(effectiveClinicId) ?: emptyList()
+            else emptyList()
+        )
+    }
+    var selectedDoctor by remember(effectiveClinicId) { mutableStateOf<Doctor?>(doctors.firstOrNull()) }
     var remarksMap by remember(effectiveClinicId) { mutableStateOf<Map<String, String>>(emptyMap()) }
 
-    // OPD / Lab Slots state for selected date and full clinic overview
-    var slots by remember(effectiveClinicId, selectedDate) { mutableStateOf<List<Slot>>(emptyList()) }
-    var allClinicSlots by remember(effectiveClinicId) { mutableStateOf<List<Slot>>(emptyList()) }
+    // OPD / Lab Slots state seeded synchronously from cache
+    var slots by remember(effectiveClinicId, selectedDate) {
+        mutableStateOf<List<Slot>>(
+            if (effectiveClinicId.isNotBlank()) slotRepository?.getCachedSlots(effectiveClinicId, selectedDate) ?: emptyList()
+            else emptyList()
+        )
+    }
+    var allClinicSlots by remember(effectiveClinicId) {
+        mutableStateOf<List<Slot>>(
+            if (effectiveClinicId.isNotBlank()) slotRepository?.getCachedSlotsForClinic(effectiveClinicId) ?: emptyList()
+            else emptyList()
+        )
+    }
     var isSlotsLoading by remember { mutableStateOf(false) }
     var slotToDelete by remember { mutableStateOf<Slot?>(null) }
 
@@ -151,12 +188,25 @@ fun FutureAppointmentsScreen(
         } catch (e: Exception) { timeStr }
     }
 
-    suspend fun loadSlots() {
+    suspend fun loadSlots(includeCalendarOverview: Boolean = false) {
         if (slotRepository != null && effectiveClinicId.isNotBlank()) {
-            isSlotsLoading = true
+            val cachedDay = slotRepository.getCachedSlots(effectiveClinicId, selectedDate)
+            if (cachedDay.isNotEmpty()) {
+                slots = cachedDay
+            }
+            isSlotsLoading = cachedDay.isEmpty()
             try {
-                slots = slotRepository.getSlots(effectiveClinicId, selectedDate).sortedBy { it.startTime }
-                allClinicSlots = slotRepository.getSlotsForClinic(effectiveClinicId)
+                if (includeCalendarOverview) {
+                    coroutineScope {
+                        val dayJob = async { slotRepository.refreshUpdatedSlotsOnly(effectiveClinicId, selectedDate) }
+                        val allJob = async { slotRepository.refreshUpdatedSlotsOnly(effectiveClinicId, date = null) }
+                        slots = dayJob.await()
+                        allClinicSlots = allJob.await()
+                    }
+                } else {
+                    slots = slotRepository.refreshUpdatedSlotsOnly(effectiveClinicId, selectedDate)
+                    allClinicSlots = slotRepository.getCachedSlotsForClinic(effectiveClinicId)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
@@ -243,20 +293,28 @@ fun FutureAppointmentsScreen(
     }
 
     LaunchedEffect(effectiveClinicId, doctorId, userRole) {
-        try {
-            loadAppointments()
-        } catch (e: Exception) {
-            android.util.Log.e("FutureAppointmentsScreen", "Effect loadAppointments error", e)
-        }
-        try {
-            loadSlots()
-        } catch (e: Exception) {
-            android.util.Log.e("FutureAppointmentsScreen", "Effect loadSlots error", e)
+        coroutineScope {
+            val apptsJob = async {
+                try {
+                    loadAppointments()
+                } catch (e: Exception) {
+                    android.util.Log.e("FutureAppointmentsScreen", "Effect loadAppointments error", e)
+                }
+            }
+            val slotsJob = async {
+                try {
+                    loadSlots(includeCalendarOverview = true)
+                } catch (e: Exception) {
+                    android.util.Log.e("FutureAppointmentsScreen", "Effect loadSlots error", e)
+                }
+            }
+            apptsJob.await()
+            slotsJob.await()
         }
     }
 
     LaunchedEffect(selectedDate, effectiveClinicId) {
-        loadSlots()
+        loadSlots(includeCalendarOverview = false)
     }
 
     // All days in the displayed month
@@ -314,8 +372,12 @@ fun FutureAppointmentsScreen(
                 actions = {
                     IconButton(onClick = {
                         coroutineScope.launch {
-                            loadAppointments()
-                            loadSlots()
+                            coroutineScope {
+                                val aJob = async { loadAppointments() }
+                                val sJob = async { loadSlots(includeCalendarOverview = true) }
+                                aJob.await()
+                                sJob.await()
+                            }
                         }
                     }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")

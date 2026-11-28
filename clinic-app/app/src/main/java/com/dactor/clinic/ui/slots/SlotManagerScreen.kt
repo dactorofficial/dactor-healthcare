@@ -37,6 +37,8 @@ import com.dactor.clinic.data.model.Slot
 import com.dactor.clinic.data.repository.ClinicRepository
 import com.dactor.clinic.data.repository.DoctorRepository
 import com.dactor.clinic.data.repository.SlotRepository
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -87,7 +89,11 @@ fun SlotManagerScreen(
         else com.dactor.clinic.data.local.UserSessionManager(context).getSavedClinicId() ?: ""
     }
 
-    var clinic by remember { mutableStateOf<Clinic?>(null) }
+    var clinic by remember(effectiveClinicId) {
+        mutableStateOf<Clinic?>(
+            if (effectiveClinicId.isNotBlank()) clinicRepository?.getCachedClinicById(effectiveClinicId) else null
+        )
+    }
     val isLabMode = remember(clinic) { clinic?.isDiagnosticLab() == true }
 
     val todayDate = remember { LocalDate.now() }
@@ -95,8 +101,13 @@ fun SlotManagerScreen(
     var displayedMonth by remember { mutableStateOf(YearMonth.from(todayDate)) }
     var selectedDate by remember { mutableStateOf(today) }
 
-    var doctors by remember { mutableStateOf<List<Doctor>>(emptyList()) }
-    var selectedDoctor by remember { mutableStateOf<Doctor?>(null) }
+    var doctors by remember(effectiveClinicId) {
+        mutableStateOf<List<Doctor>>(
+            if (effectiveClinicId.isNotBlank()) doctorRepository?.getCachedDoctorsByClinic(effectiveClinicId) ?: emptyList()
+            else emptyList()
+        )
+    }
+    var selectedDoctor by remember(effectiveClinicId) { mutableStateOf<Doctor?>(doctors.firstOrNull()) }
     val defaultStartTime = remember {
         try {
             val now = java.time.LocalTime.now()
@@ -114,8 +125,19 @@ fun SlotManagerScreen(
     }
     var capacity by remember(isLabMode) { mutableStateOf(if (isLabMode) "25" else "10") }
 
-    var slots by remember { mutableStateOf<List<Slot>>(emptyList()) }
-    var allClinicSlots by remember { mutableStateOf<List<Slot>>(emptyList()) }
+    var slots by remember(effectiveClinicId, selectedDate) {
+        mutableStateOf<List<Slot>>(
+            if (effectiveClinicId.isNotBlank()) slotRepository?.getCachedSlots(effectiveClinicId, selectedDate) ?: emptyList()
+            else emptyList()
+        )
+    }
+    var allClinicSlots by remember(effectiveClinicId) {
+        mutableStateOf<List<Slot>>(
+            if (effectiveClinicId.isNotBlank()) slotRepository?.getCachedSlotsForClinic(effectiveClinicId) ?: emptyList()
+            else emptyList()
+        )
+    }
+    var isRefreshingSlots by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
     var showStartTimePicker by remember { mutableStateOf(false) }
     var showEndTimePicker by remember { mutableStateOf(false) }
@@ -133,28 +155,56 @@ fun SlotManagerScreen(
     }
 
 
+    // Load static clinic & doctor context + cached/delta calendar overview once per clinic
+    LaunchedEffect(effectiveClinicId) {
+        if (effectiveClinicId.isBlank()) return@LaunchedEffect
+        coroutineScope {
+            val clinicJob = async {
+                if (clinicRepository != null) {
+                    try {
+                        clinic = clinicRepository.getClinicById(effectiveClinicId) ?: clinic
+                    } catch (_: Exception) {}
+                }
+            }
+            val doctorsJob = async {
+                if (doctorRepository != null) {
+                    try {
+                        val remoteDocs = doctorRepository.getDoctorsByClinic(effectiveClinicId)
+                        doctors = remoteDocs
+                        if (selectedDoctor == null || remoteDocs.none { it.id == selectedDoctor?.id }) {
+                            selectedDoctor = remoteDocs.firstOrNull()
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+            val allSlotsJob = async {
+                if (slotRepository != null) {
+                    try {
+                        allClinicSlots = slotRepository.refreshUpdatedSlotsOnly(effectiveClinicId, date = null)
+                    } catch (_: Exception) {}
+                }
+            }
+            clinicJob.await()
+            doctorsJob.await()
+            allSlotsJob.await()
+        }
+    }
+
+    // Check ONLY updated slots when switching dates (instant cached render first)
     LaunchedEffect(effectiveClinicId, selectedDate) {
-        if (clinicRepository != null && effectiveClinicId.isNotBlank()) {
-            try {
-                clinic = clinicRepository.getClinicById(effectiveClinicId)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-        if (doctorRepository != null) {
-            val remoteDocs = doctorRepository.getDoctorsByClinic(effectiveClinicId)
-            doctors = remoteDocs
-            if (selectedDoctor == null || !remoteDocs.contains(selectedDoctor)) {
-                selectedDoctor = remoteDocs.firstOrNull()
-            }
-        }
         if (slotRepository != null && effectiveClinicId.isNotBlank()) {
-            val remoteSlots = slotRepository.getSlots(effectiveClinicId, selectedDate)
-            slots = remoteSlots
+            val cachedDay = slotRepository.getCachedSlots(effectiveClinicId, selectedDate)
+            if (cachedDay.isNotEmpty() || slots.isNotEmpty()) {
+                slots = cachedDay
+            }
             try {
-                allClinicSlots = slotRepository.getSlotsForClinic(effectiveClinicId)
-            } catch (e: Exception) {
-                e.printStackTrace()
+                isRefreshingSlots = true
+                val updatedDay = slotRepository.refreshUpdatedSlotsOnly(effectiveClinicId, selectedDate)
+                slots = updatedDay
+                allClinicSlots = slotRepository.getCachedSlotsForClinic(effectiveClinicId)
+            } catch (_: Exception) {
+            } finally {
+                isRefreshingSlots = false
             }
         }
     }
@@ -184,6 +234,28 @@ fun SlotManagerScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        enabled = !isRefreshingSlots,
+                        onClick = {
+                            if (slotRepository != null && effectiveClinicId.isNotBlank()) {
+                                coroutineScope.launch {
+                                    isRefreshingSlots = true
+                                    try {
+                                        slots = slotRepository.refreshUpdatedSlotsOnly(effectiveClinicId, selectedDate)
+                                        allClinicSlots = slotRepository.refreshUpdatedSlotsOnly(effectiveClinicId, date = null)
+                                    } finally {
+                                        isRefreshingSlots = false
+                                    }
+                                }
+                            }
+                        }
+                    ) {
+                        if (isRefreshingSlots) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Refresh, contentDescription = "Check Updated Slots")
+                        }
+                    }
                     TextButton(
                         onClick = {
                             val route = if (effectiveClinicId.isNotBlank()) "${NavRoutes.WorkingHoursBreak}/$effectiveClinicId" else NavRoutes.WorkingHoursBreak
@@ -689,10 +761,11 @@ fun SlotManagerScreen(
                                                     if (eMins - sMins > 30) {
                                                         val updatedEnd = formatMinsToTime(eMins - 30)
                                                         coroutineScope.launch {
-                                                            slotRepository?.deleteSlot(slot.id)
-                                                            val updatedSlot = slot.copy(id = UUID.randomUUID().toString(), endTime = updatedEnd)
-                                                            slotRepository?.createSlot(updatedSlot)
-                                                            slots = slots.map { if (it.id == slot.id) updatedSlot else it }
+                                                            val updatedSlot = slotRepository?.updateSlotTime(slot.id, slot.startTime, updatedEnd)
+                                                                ?: slot.copy(endTime = updatedEnd)
+                                                            slots = slotRepository?.getCachedSlots(effectiveClinicId, selectedDate)?.takeIf { it.isNotEmpty() }
+                                                                ?: slots.map { if (it.id == slot.id) updatedSlot else it }
+                                                            allClinicSlots = slotRepository?.getCachedSlotsForClinic(effectiveClinicId) ?: allClinicSlots
                                                             ClinicScheduleStorage.saveDateOverrideNote(context, effectiveClinicId, selectedDate, "Subtracted 30m (${slot.startTime}-$updatedEnd)")
                                                             dateOverrideNote = "Subtracted 30m (${slot.startTime}-$updatedEnd)"
                                                             actionMessage = "✓ Subtracted 30 mins for $selectedDate: now ${slot.startTime} - $updatedEnd"
@@ -713,10 +786,11 @@ fun SlotManagerScreen(
                                                     val eMins = parseTimeMins(slot.endTime)
                                                     val updatedEnd = formatMinsToTime(eMins + 30)
                                                     coroutineScope.launch {
-                                                        slotRepository?.deleteSlot(slot.id)
-                                                        val updatedSlot = slot.copy(id = UUID.randomUUID().toString(), endTime = updatedEnd)
-                                                        slotRepository?.createSlot(updatedSlot)
-                                                        slots = slots.map { if (it.id == slot.id) updatedSlot else it }
+                                                        val updatedSlot = slotRepository?.updateSlotTime(slot.id, slot.startTime, updatedEnd)
+                                                            ?: slot.copy(endTime = updatedEnd)
+                                                        slots = slotRepository?.getCachedSlots(effectiveClinicId, selectedDate)?.takeIf { it.isNotEmpty() }
+                                                            ?: slots.map { if (it.id == slot.id) updatedSlot else it }
+                                                        allClinicSlots = slotRepository?.getCachedSlotsForClinic(effectiveClinicId) ?: allClinicSlots
                                                         ClinicScheduleStorage.saveDateOverrideNote(context, effectiveClinicId, selectedDate, "Added +30m (${slot.startTime}-$updatedEnd)")
                                                         dateOverrideNote = "Added +30m (${slot.startTime}-$updatedEnd)"
                                                         actionMessage = "✓ Added +30 mins for $selectedDate: now ${slot.startTime} - $updatedEnd"
@@ -812,10 +886,11 @@ fun SlotManagerScreen(
                                                     if (eM - sM > 60) {
                                                         val newEnd = formatMinsToTime(eM - 60)
                                                         coroutineScope.launch {
-                                                            slotRepository?.deleteSlot(s.id)
-                                                            val up = s.copy(id = UUID.randomUUID().toString(), endTime = newEnd)
-                                                            slotRepository?.createSlot(up)
-                                                            slots = slots.map { if (it.id == s.id) up else it }
+                                                            val up = slotRepository?.updateSlotTime(s.id, s.startTime, newEnd)
+                                                                ?: s.copy(endTime = newEnd)
+                                                            slots = slotRepository?.getCachedSlots(effectiveClinicId, selectedDate)?.takeIf { it.isNotEmpty() }
+                                                                ?: slots.map { if (it.id == s.id) up else it }
+                                                            allClinicSlots = slotRepository?.getCachedSlotsForClinic(effectiveClinicId) ?: allClinicSlots
                                                             ClinicScheduleStorage.saveDateOverrideNote(context, effectiveClinicId, selectedDate, "Subtracted 1 hr (${s.startTime}-$newEnd)")
                                                             dateOverrideNote = "Subtracted 1 hr (${s.startTime}-$newEnd)"
                                                         }
@@ -823,6 +898,7 @@ fun SlotManagerScreen(
                                                         coroutineScope.launch {
                                                             slotRepository?.deleteSlot(s.id)
                                                             slots = slots.filter { it.id != s.id }
+                                                            allClinicSlots = allClinicSlots.filter { it.id != s.id }
                                                         }
                                                     }
                                                 },
@@ -836,10 +912,11 @@ fun SlotManagerScreen(
                                                     val eM = parseTimeMins(s.endTime)
                                                     val newEnd = formatMinsToTime(eM + 60)
                                                     coroutineScope.launch {
-                                                        slotRepository?.deleteSlot(s.id)
-                                                        val up = s.copy(id = UUID.randomUUID().toString(), endTime = newEnd)
-                                                        slotRepository?.createSlot(up)
-                                                        slots = slots.map { if (it.id == s.id) up else it }
+                                                        val up = slotRepository?.updateSlotTime(s.id, s.startTime, newEnd)
+                                                            ?: s.copy(endTime = newEnd)
+                                                        slots = slotRepository?.getCachedSlots(effectiveClinicId, selectedDate)?.takeIf { it.isNotEmpty() }
+                                                            ?: slots.map { if (it.id == s.id) up else it }
+                                                        allClinicSlots = slotRepository?.getCachedSlotsForClinic(effectiveClinicId) ?: allClinicSlots
                                                         ClinicScheduleStorage.saveDateOverrideNote(context, effectiveClinicId, selectedDate, "Added 1 hr (${s.startTime}-$newEnd)")
                                                         dateOverrideNote = "Added 1 hr (${s.startTime}-$newEnd)"
                                                     }
@@ -893,13 +970,13 @@ fun SlotManagerScreen(
                                         isPublished = true
                                     )
                                     coroutineScope.launch {
-                                        slotRepository.createSlot(newS)
-                                        slots = slots + newS
-                                        allClinicSlots = allClinicSlots + newS
-                                        val note = "Added ${newS.startTime}-${newS.endTime}"
+                                        val savedSlot = slotRepository.createSlot(newS) ?: newS
+                                        slots = (slots + savedSlot).sortedBy { it.startTime }
+                                        allClinicSlots = slotRepository.getCachedSlotsForClinic(effectiveClinicId).ifEmpty { allClinicSlots + savedSlot }
+                                        val note = "Added ${savedSlot.startTime}-${savedSlot.endTime}"
                                         ClinicScheduleStorage.saveDateOverrideNote(context, effectiveClinicId, selectedDate, note)
                                         dateOverrideNote = note
-                                        actionMessage = "✓ Published slot (${newS.startTime} - ${newS.endTime}) for $selectedDate!"
+                                        actionMessage = "✓ Published slot (${savedSlot.startTime} - ${savedSlot.endTime}) for $selectedDate!"
                                         showDateOverrideModal = false
                                     }
                                 }
@@ -917,6 +994,7 @@ fun SlotManagerScreen(
                                 coroutineScope.launch {
                                     daySlots.forEach { s -> slotRepository?.deleteSlot(s.id) }
                                     slots = slots.filter { it.slotDate != selectedDate }
+                                    allClinicSlots = allClinicSlots.filter { it.slotDate != selectedDate }
                                     ClinicScheduleStorage.saveDateOverrideNote(context, effectiveClinicId, selectedDate, "DAY_OFF")
                                     dateOverrideNote = "DAY_OFF"
                                     actionMessage = "✓ Cleared all published slots for $selectedDate."
@@ -1161,13 +1239,14 @@ fun SlotManagerScreen(
                                     )
 
                                     coroutineScope.launch {
-                                        slotRepository?.createSlot(newSlot)
-                                        slots = slots + newSlot
-                                        allClinicSlots = allClinicSlots + newSlot
-                                        ClinicScheduleStorage.saveDateOverrideNote(context, effectiveClinicId, selectedDate, "Added ${newSlot.startTime}-${newSlot.endTime}")
-                                        dateOverrideNote = "Added ${newSlot.startTime}-${newSlot.endTime}"
+                                        val savedSlot = slotRepository?.createSlot(newSlot) ?: newSlot
+                                        slots = (slots + savedSlot).sortedBy { it.startTime }
+                                        allClinicSlots = slotRepository?.getCachedSlotsForClinic(effectiveClinicId)?.ifEmpty { allClinicSlots + savedSlot }
+                                            ?: (allClinicSlots + savedSlot)
+                                        ClinicScheduleStorage.saveDateOverrideNote(context, effectiveClinicId, selectedDate, "Added ${savedSlot.startTime}-${savedSlot.endTime}")
+                                        dateOverrideNote = "Added ${savedSlot.startTime}-${savedSlot.endTime}"
                                         showAddDialog = false
-                                        actionMessage = "✓ Slot added for $selectedDate (${newSlot.startTime} - ${newSlot.endTime})!"
+                                        actionMessage = "✓ Slot added for $selectedDate (${savedSlot.startTime} - ${savedSlot.endTime})!"
                                     }
                                 }
                             },
@@ -1233,6 +1312,7 @@ fun SlotManagerScreen(
                                 val ok = slotRepository?.deleteSlot(toRemove.id) ?: false
                                 if (ok) {
                                     slots = slots.filter { it.id != toRemove.id }
+                                    allClinicSlots = allClinicSlots.filter { it.id != toRemove.id }
                                     ClinicScheduleStorage.saveDateOverrideNote(context, effectiveClinicId, selectedDate, "Removed ${toRemove.startTime}-${toRemove.endTime}")
                                     dateOverrideNote = "Removed ${toRemove.startTime}-${toRemove.endTime}"
                                     actionMessage = "✓ Working hour ${toRemove.startTime} - ${toRemove.endTime} removed for ${toRemove.slotDate}."
@@ -1287,6 +1367,7 @@ fun SlotManagerScreen(
                                     val ok = slotRepository?.updateSlotCapacity(toUpdate.id, capVal) ?: false
                                     if (ok) {
                                         slots = slots.map { if (it.id == toUpdate.id) it.copy(maxCapacity = capVal) else it }
+                                        allClinicSlots = allClinicSlots.map { if (it.id == toUpdate.id) it.copy(maxCapacity = capVal) else it }
                                         actionMessage = "✓ Capacity updated to $capVal patients."
                                     }
                                 }

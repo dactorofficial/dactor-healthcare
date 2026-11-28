@@ -48,6 +48,7 @@ import com.dactor.patient.data.model.BillingInvoice
 import com.dactor.patient.data.model.InvoiceItem
 import com.dactor.patient.data.model.LabReport
 import com.dactor.patient.data.repository.AppointmentRepository
+import com.dactor.patient.data.repository.AuthRepository
 import com.dactor.patient.data.repository.ClinicRepository
 import com.dactor.patient.data.repository.DoctorRepository
 import com.dactor.patient.data.repository.LabReportRepository
@@ -95,7 +96,8 @@ fun QueueStatusScreen(
     doctorRepository: DoctorRepository? = null,
     slotRepository: SlotRepository? = null,
     labReportRepository: LabReportRepository? = null,
-    sessionManager: UserSessionManager? = null
+    sessionManager: UserSessionManager? = null,
+    authRepository: AuthRepository? = null
 ) {
     val context = LocalContext.current
     val strings = LocalAppStrings.current

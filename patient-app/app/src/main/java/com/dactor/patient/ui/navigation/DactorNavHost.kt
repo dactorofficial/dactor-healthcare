@@ -457,7 +457,8 @@ fun DactorNavHost(
                 doctorRepository = doctorRepository,
                 slotRepository = slotRepository,
                 labReportRepository = labReportRepository,
-                sessionManager = sessionManager
+                sessionManager = sessionManager,
+                authRepository = authRepository
             )
         }
         composable(NavRoutes.Profile.route) { ProfileScreen(navController, authRepository, appointmentRepository, sessionManager) }
