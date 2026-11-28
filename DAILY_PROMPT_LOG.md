@@ -4,6 +4,32 @@ This file tracks user prompts and the exact changes applied across the codebase,
 
 ---
 
+## 2026-11-28
+
+### Prompt:
+> "generate debug apk patient"
+
+#### Changes Applied:
+1. **Patient App Version Increment (`patient-app/app/build.gradle.kts`)**:
+   - Incremented `versionCode`: `146` -> `147`.
+   - Incremented `versionName`: `"1.0.46"` -> `"1.0.47"`.
+2. **Kotlin Compilation Bug Fixes**:
+   - [`QueueRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/repository/QueueRepository.kt): Fixed `contains("-", startIndex = 10)` compilation error by replacing with `normalized.indexOf("-", startIndex = 10) < 0`.
+   - [`PatientMainScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/main/PatientMainScreen.kt):
+     - Added missing imports: `androidx.lifecycle.repeatOnLifecycle` and `kotlinx.coroutines.isActive`.
+     - Added `isOverlayBlocking: Boolean = false` to `HomeTab` signature and passed `isOverlayBlockingHome || showMandatoryTermsDialog` from caller, resolving unresolved references `selectedTab`, `showMandatoryTermsDialog`, and `isOverlayBlockingHome`.
+3. **Debug APK Build & Deployment**:
+   - Built Debug APK via `.\build_apks.ps1 -App Patient -BuildType Debug -NoBump`.
+   - Generated versioned output files:
+     - `APKs/Dactor-PatientApp-v1.0.47-debug.apk` (26.7 MB / 27,993,762 bytes)
+     - `APKs/Dactor-PatientApp-v1.0.47.apk` (26.7 MB / 27,993,762 bytes)
+     - `APKs/Dactor-PatientApp-debug.apk` (26.7 MB / 27,993,762 bytes)
+     - SSD backup: `C:\Users\dell\Dactor-APKs\Dactor-PatientApp-v1.0.47-debug.apk`
+4. **Handoff Tracking**:
+   - Updated [`HANDOFF.md`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/HANDOFF.md) summary table and APK Version Registry table with v1.0.47 release entry.
+
+---
+
 ## 2026-11-26
 
 ### Prompt:

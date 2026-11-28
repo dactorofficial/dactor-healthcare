@@ -2316,7 +2316,7 @@ open class QueueRepository @Inject constructor(
                 } catch (_: Exception) {
                     try {
                         val normalized = clean.replace(" ", "T")
-                        if (!normalized.contains("+") && !normalized.contains("-", startIndex = 10) && !normalized.endsWith("Z")) {
+                        if (!normalized.contains("+") && (normalized.indexOf('-', startIndex = 10) < 0) && !normalized.endsWith("Z")) {
                             java.time.LocalDateTime.parse(normalized).atZone(CLINIC_ZONE_ID).toInstant()
                         } else {
                             java.time.OffsetDateTime.parse(normalized).toInstant()

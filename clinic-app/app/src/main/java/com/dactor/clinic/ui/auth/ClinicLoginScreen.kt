@@ -76,6 +76,8 @@ import android.provider.MediaStore
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -406,20 +408,22 @@ fun ClinicLoginScreen(
 
         coroutineScope.launch {
             try {
-                val (existingClinic, existingDoctor, existingProfile) = kotlinx.coroutines.coroutineScope {
+                val (existingClinic, existingDoctor, existingProfile) = coroutineScope {
                     val firebaseDef = if (!firebaseIdToken.isNullOrBlank()) {
-                        kotlinx.coroutines.async {
-                            val credential = GoogleAuthProvider.getCredential(firebaseIdToken, null)
-                            FirebaseAuth.getInstance().signInWithCredential(credential).await()
+                        async {
+                            try {
+                                val credential = GoogleAuthProvider.getCredential(firebaseIdToken, null)
+                                FirebaseAuth.getInstance().signInWithCredential(credential).await()
+                            } catch (_: Exception) { null }
                         }
                     } else null
-                    val clinicDef = kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
+                    val clinicDef = async(Dispatchers.IO) {
                         try { clinicRepository?.getClinicByEmail(trimmedEmail) } catch (_: Exception) { null }
                     }
-                    val doctorDef = kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
+                    val doctorDef = async(Dispatchers.IO) {
                         try { doctorRepository?.getDoctorByEmail(trimmedEmail) } catch (_: Exception) { null }
                     }
-                    val profileDef = kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
+                    val profileDef = async(Dispatchers.IO) {
                         try { authRepository?.getProfileByEmail(trimmedEmail) } catch (_: Exception) { null }
                     }
                     firebaseDef?.await()

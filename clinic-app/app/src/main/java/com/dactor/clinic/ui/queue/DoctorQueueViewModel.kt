@@ -261,7 +261,7 @@ class DoctorQueueViewModel @Inject constructor(
                                     clinicId = affClinic.id,
                                     clinicName = affClinic.name,
                                     clinicAddress = affClinic.addressText.orEmpty(),
-                                    isOnBreak = affClinic.isOnBreak,
+                                    isOnBreak = affClinic.isOnBreak == true,
                                     liveQueue = cLive,
                                     completedQueue = cCompleted
                                 )
@@ -399,7 +399,6 @@ class DoctorQueueViewModel @Inject constructor(
                 }
 
                 // 5. Map entries
-                val nowMs = System.currentTimeMillis()
                 val activeOverrides = pendingOverrides.filterValues { it.second > nowMs }
 
                 val mapped = entries.mapNotNull { entry ->
@@ -452,7 +451,6 @@ class DoctorQueueViewModel @Inject constructor(
                     }
                 }
 
-                val nowMin = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
                 val live = mapped.filter { it.status == "waiting" || it.status == "inside" }
                     .sortedWith(
                         compareBy<QueueItemUi> { if (it.status == "inside") 0 else 1 }

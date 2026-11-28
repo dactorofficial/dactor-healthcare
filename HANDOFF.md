@@ -32,7 +32,7 @@ The DACTOR platform consists of three tightly coupled applications operating on 
 |---|---|---|---|---|
 | **Super Admin Console** | React 18 + Vite + TypeScript + Tailwind | `admin-panel/` | [Live Site on GitHub Pages](https://dactorofficial.github.io/admin-portal/) <br> GitHub: `https://github.com/dactorofficial/admin-portal` | v1.0 |
 | **Clinic & Doctor App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `clinic-app/` | `APKs/Dactor-ClinicApp-v1.0.94-debug.apk`<br>`APKs/Dactor-ClinicApp-v1.0.94.apk`<br>`AABs/Dactor-ClinicApp-v1.0.90.aab` | **v1.0.94 (Code 94, Debug)** |
-| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.46-debug.apk`<br>`APKs/Dactor-PatientApp-v1.0.45-debug.apk`<br>`APKs/Dactor-PatientApp-v1.0.43.apk` | **v1.0.46 (Code 146, Debug)**<br>**v1.0.43 (Code 143, Release)** |
+| **Patient App** | Android Native (Kotlin + Jetpack Compose + Hilt) | `patient-app/` | `APKs/Dactor-PatientApp-v1.0.47-debug.apk`<br>`APKs/Dactor-PatientApp-v1.0.46-debug.apk`<br>`APKs/Dactor-PatientApp-v1.0.43.apk` | **v1.0.47 (Code 147, Debug)**<br>**v1.0.43 (Code 143, Release)** |
 | **Cloud Backend & Storage** | Supabase (PostgreSQL + Auth + Storage + Realtime) | `supabase/` | Project URL: `https://ojfoofojcpabqegxmsab.supabase.co` | Cloud Live |
 
 ---
@@ -364,6 +364,7 @@ Run the install script, which automatically resolves the latest versioned APK:
 
 | Date | App | Version Name | Version Code | Filename | Key Changes |
 |---|---|---|---|---|---|
+| 2026-11-28 | Patient | v1.0.47 | 147 | `APKs/Dactor-PatientApp-v1.0.47-debug.apk` | Patient App Debug APK: Resolved `contains` startIndex in `QueueRepository.kt`, fixed `HomeTab` blocking overlay parameters, imported `repeatOnLifecycle` and `isActive` in `PatientMainScreen.kt`, generated Debug APK signed with shared debug keystore (26.7 MB). |
 | 2026-11-26 | Patient | v1.0.46 | 146 | `APKs/Dactor-PatientApp-v1.0.46-debug.apk` | Patient App Debug APK: Dynamic queue timing logic synchronization, resolved `clockTick15s` in `AppointmentsTab`, generated Debug APK signed with shared debug keystore (26.65 MB). |
 | 2026-11-26 | Clinic & Doctor | v1.0.94 | 94 | `APKs/Dactor-ClinicApp-v1.0.94-debug.apk` | Clinic & Doctor App Debug APK: dynamic n × 100 KB lab report photo compression, EXIF auto-orientation, 1440px medical fidelity, and language toggle delegates fixed (40.58 MB). |
 | 2026-11-25 | Patient | v1.0.45 | 145 | `APKs/Dactor-PatientApp-v1.0.45-debug.apk` | Patient App Debug APK build with latest localization additions (26.65 MB). |

@@ -57,6 +57,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.isActive
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.dactor.patient.data.local.UserSessionManager
@@ -733,7 +735,8 @@ fun PatientMainScreen(
                         slotRepository = slotRepository,
                         notificationRepository = notificationRepository,
                         appointmentRepository = appointmentRepository,
-                        sessionManager = sessionManager
+                        sessionManager = sessionManager,
+                        isOverlayBlocking = isOverlayBlockingHome || showMandatoryTermsDialog
                     )
                     1 -> RecordsTab(
                         navController = navController,
@@ -781,7 +784,8 @@ fun HomeTab(
     slotRepository: SlotRepository?,
     notificationRepository: NotificationRepository? = null,
     appointmentRepository: AppointmentRepository? = null,
-    sessionManager: UserSessionManager? = null
+    sessionManager: UserSessionManager? = null,
+    isOverlayBlocking: Boolean = false
 ) {
     val context = LocalContext.current
     val strings = com.dactor.patient.ui.i18n.LocalAppStrings.current
@@ -856,9 +860,9 @@ fun HomeTab(
         }
     }
 
-    // Wait until Home screen is visibly open (selectedTab == 0) and blocking overlays are cleared before asking for location
-    LaunchedEffect(selectedTab, showMandatoryTermsDialog, isOverlayBlockingHome) {
-        if (!hasInitializedGps && selectedTab == 0 && !showMandatoryTermsDialog && !isOverlayBlockingHome) {
+    // Wait until Home screen is visibly open and blocking overlays are cleared before asking for location
+    LaunchedEffect(isOverlayBlocking) {
+        if (!hasInitializedGps && !isOverlayBlocking) {
             delay(800L)
             hasInitializedGps = true
             val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED

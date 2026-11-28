@@ -45,9 +45,9 @@ class CompleteConsultationUseCase @Inject constructor(
                 queueRepository.updateQueueStatus(entryId, targetStatus, clinicId)
                 TransitionQueueEntryStatusResult(
                     success = true,
-                    queueEntry = null,
-                    nextActiveToken = null,
-                    nextPatientAppointmentId = null,
+                    entryId = entryId,
+                    appointmentId = appointmentId,
+                    status = targetStatus,
                     message = "Fallback direct status transition applied: $targetStatus"
                 )
             }
