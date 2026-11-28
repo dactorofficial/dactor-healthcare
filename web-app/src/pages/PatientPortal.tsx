@@ -657,7 +657,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
         .then(async (found) => {
           if (!active) return
           if (found) {
-            const access = await checkTrackingCodeAccess(found.trackingCode10Digit || clean, found.patientEmail)
+            const access = await checkTrackingCodeAccess(found.trackingCode10Digit || clean, found.patientEmail, found.patientMobile)
             if (!active) return
             setIsLookingUpCode(false)
             if (!access.allowed) {
@@ -817,10 +817,11 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
   const runPortalProtectedAction = async (
     trackingCode: string,
     patientEmail: string | null | undefined,
+    patientMobile: string | null | undefined,
     actionType: ProtectedWebAction,
     callback: () => void
   ) => {
-    const res = await checkTrackingCodeAccess(trackingCode, patientEmail)
+    const res = await checkTrackingCodeAccess(trackingCode, patientEmail, patientMobile)
     if (res.allowed) {
       callback()
       return
@@ -6698,6 +6699,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                                     runPortalProtectedAction(
                                       appt.trackingCode10Digit || appt.id,
                                       appt.patientEmail,
+                                      appt.patientMobile,
                                       'reschedule',
                                       () => handleConfirmRescheduleFromModal(appt)
                                     )
@@ -6715,6 +6717,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                                     runPortalProtectedAction(
                                       appt.trackingCode10Digit || appt.id,
                                       appt.patientEmail,
+                                      appt.patientMobile,
                                       'download_bill',
                                       () => setViewingBillAppt(appt)
                                     )
@@ -8144,6 +8147,7 @@ export const PatientPortal: React.FC<PatientPortalProps> = ({
                   runPortalProtectedAction(
                     viewingBillAppt.trackingCode10Digit || viewingBillAppt.id,
                     viewingBillAppt.patientEmail,
+                    viewingBillAppt.patientMobile,
                     'download_bill',
                     () => handlePrintAppointmentBill(viewingBillAppt, viewingInvoice)
                   )

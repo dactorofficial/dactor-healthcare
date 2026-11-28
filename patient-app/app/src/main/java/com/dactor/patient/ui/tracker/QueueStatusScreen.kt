@@ -375,11 +375,17 @@ fun QueueStatusScreen(
                     coroutineScope.async { doctorRepository?.getDoctorById(appt.doctorId) }
                 } else null
 
-                // Auto-unlock only when signed-in account explicitly matches email or userId
-                val savedEmail = sessionManager?.getSavedEmail()?.trim()?.lowercase()
-                val savedPid = sessionManager?.getSavedPatientId()?.trim()
+                // Auto-unlock when signed-in account matches email, userId, or registered mobile number
+                val isDeviceLoggedIn = sessionManager?.isLoggedIn() == true
+                val savedEmail = if (isDeviceLoggedIn) sessionManager?.getSavedEmail()?.trim()?.lowercase() else null
+                val savedPid = if (isDeviceLoggedIn) sessionManager?.getSavedPatientId()?.trim() else null
+                val savedPhone10 = if (isDeviceLoggedIn) {
+                    sessionManager?.getSavedPhone()?.filter { it.isDigit() }?.takeLast(10)?.takeIf { it.length == 10 }
+                } else null
+                val apptPhone10 = appt.patientMobile.filter { it.isDigit() }.takeLast(10).takeIf { it.length == 10 }
                 val matchesAccount = (!savedEmail.isNullOrBlank() && appt.patientEmail?.trim()?.equals(savedEmail, ignoreCase = true) == true) ||
-                        (!savedPid.isNullOrBlank() && appt.userId == savedPid)
+                        (!savedPid.isNullOrBlank() && appt.userId == savedPid) ||
+                        (savedPhone10 != null && apptPhone10 != null && savedPhone10 == apptPhone10)
                 if (matchesAccount && !isUnlocked) {
                     isUnlocked = true
                     isReportIdentityVerified = true

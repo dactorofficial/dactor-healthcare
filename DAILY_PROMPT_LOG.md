@@ -7,6 +7,19 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-28
 
 ### Prompt:
+> "but if the tracker device is logged in with same number then do show complete name , number and information without masking"
+
+#### Changes Applied:
+1. **Android Patient App (`patient-app`)**:
+   - [`AppointmentOwnershipGuard.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/components/AppointmentOwnershipGuard.kt): Added `resolveActivePatientPhone(sessionManager)` and updated `isCodeVerifiedInSession` and `runProtectedAction` to automatically grant unmasked full access (name, mobile, details, bill download, follow-up, reschedule) when the signed-in device's saved mobile number matches the appointment's `patientMobile` (last 10 digits).
+   - [`QueueStatusScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt) & [`BookingFormScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/booking/BookingFormScreen.kt): Auto-unlocked full unmasked patient details and follow-up/reschedule access when `sessionManager.isLoggedIn()` and the logged-in mobile number matches `appt.patientMobile`.
+2. **Web App (`web-app`)**:
+   - [`db.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/services/db.ts) & [`appointmentOwnershipGuard.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/utils/appointmentOwnershipGuard.ts): Added `getCurrentLoggedInUserPhone()` and `isUserMatchingPatientPhone()`, updating `isTrackingCodeVerifiedInSession` and `checkTrackingCodeAccess` to display full unmasked info and permit direct actions when logged in with the same mobile number.
+   - Wired `patientMobile` across [`LiveTrackerModal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/components/LiveTrackerModal.tsx), [`LiveQueue.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/LiveQueue.tsx), [`ClinicDetail.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/ClinicDetail.tsx), and [`PatientPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/PatientPortal.tsx), and rebuilt `web-app/dist` (`tsc && vite build`).
+
+---
+
+### Prompt:
 > "when anomylously logged in and tried to track appoinment it shows diagnostic lab type interface in live queue tracker  but the thing is the clinic is multi visit clinic not diagnostic lab /plan make a plan"
 
 #### Changes Applied:

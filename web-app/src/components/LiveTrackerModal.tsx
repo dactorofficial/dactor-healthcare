@@ -81,7 +81,7 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
     callback: () => void
   ) => {
     const codeKey = targetAppt.trackingCode10Digit || targetAppt.id
-    const res = await checkTrackingCodeAccess(codeKey, targetAppt.patientEmail)
+    const res = await checkTrackingCodeAccess(codeKey, targetAppt.patientEmail, targetAppt.patientMobile)
     if (res.allowed) {
       callback()
       return
@@ -496,7 +496,7 @@ export const LiveTrackerModal: React.FC<LiveTrackerModalProps> = ({
                 <p className="font-bold text-slate-800 dark:text-slate-100 text-xs sm:text-sm">
                   {appointment.patientName === 'Confidential Patient'
                     ? `Token #${appointment.queueNumber || 1}`
-                    : isTrackingCodeVerifiedInSession(appointment.trackingCode10Digit, appointment.patientEmail)
+                    : isTrackingCodeVerifiedInSession(appointment.trackingCode10Digit, appointment.patientEmail, appointment.patientMobile)
                     ? appointment.patientName
                     : maskPatientName(appointment.patientName)}
                 </p>

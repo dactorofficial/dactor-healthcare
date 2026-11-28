@@ -422,7 +422,7 @@ export const ClinicDetail: React.FC<ClinicDetailProps> = ({
         .then(async (found) => {
           if (!active) return
           if (found) {
-            const access = await checkTrackingCodeAccess(found.trackingCode10Digit || clean, found.patientEmail)
+            const access = await checkTrackingCodeAccess(found.trackingCode10Digit || clean, found.patientEmail, found.patientMobile)
             if (!active) return
             setIsLookingUpCode(false)
             if (access.allowed) {

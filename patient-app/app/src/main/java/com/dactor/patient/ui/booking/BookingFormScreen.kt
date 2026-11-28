@@ -241,7 +241,11 @@ fun BookingFormScreen(
                 retainedAppointment = found
                 if (found != null) {
                     val activeEmail = com.dactor.patient.ui.components.resolveActivePatientEmail(sessionManager, authRepository)
-                    if (activeEmail != null) {
+                    val activePhone = com.dactor.patient.ui.components.resolveActivePatientPhone(sessionManager)
+                    val foundPhone10 = found.patientMobile.filter { it.isDigit() }.takeLast(10).takeIf { it.length == 10 }
+                    if (activePhone != null && foundPhone10 != null && activePhone == foundPhone10) {
+                        ownershipVerifiedCode = manualCodeInput
+                    } else if (activeEmail != null) {
                         val check = appointmentRepository.verifyAppointmentOwnership(
                             trackingCodeOrId = manualCodeInput,
                             email = activeEmail,

@@ -67,6 +67,7 @@ import {
   requestDirectLabReportUrl,
   requestAuthorizedDocumentUrl,
   isUserMatchingPatientEmail,
+  isUserMatchingPatientPhone,
   getCurrentLoggedInUserEmail,
   getReportPhoneRateLimitState,
   recordReportPhoneAttempt,
@@ -1223,7 +1224,7 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   ) => {
     const codeKey = targetAppt?.trackingCode10Digit || activeCode
     if (!codeKey) return
-    const res = await checkTrackingCodeAccess(codeKey, targetAppt?.patientEmail)
+    const res = await checkTrackingCodeAccess(codeKey, targetAppt?.patientEmail, targetAppt?.patientMobile)
     if (res.allowed) {
       setIsUnlocked(true)
       callback()
@@ -1248,8 +1249,9 @@ export const LiveQueue: React.FC<LiveQueueProps> = ({
   ) => {
     const patEmail = appointment?.patientEmail
     const isDirectGoogleMatch = Boolean(patEmail && isUserMatchingPatientEmail(patEmail))
+    const isDirectPhoneMatch = Boolean(appointment?.patientMobile && isUserMatchingPatientPhone(appointment.patientMobile))
 
-    if (isUnlocked || isReportIdentityVerified || isDirectGoogleMatch) {
+    if (isUnlocked || isReportIdentityVerified || isDirectGoogleMatch || isDirectPhoneMatch) {
       if (isDirectGoogleMatch && (!isUnlocked || !isReportIdentityVerified)) {
         setIsUnlocked(true)
         setIsReportIdentityVerified(true)

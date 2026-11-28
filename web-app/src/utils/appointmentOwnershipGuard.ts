@@ -1,6 +1,7 @@
 import {
   getCurrentLoggedInUserEmail,
   isUserMatchingPatientEmail,
+  isUserMatchingPatientPhone,
   verifyAppointmentOwnership,
   OwnershipVerificationResult,
 } from '../services/db'
@@ -33,9 +34,13 @@ export function maskMobileNumber(rawPhone?: string | null): string {
 
 export function isTrackingCodeVerifiedInSession(
   trackingCode?: string | null,
-  patientEmail?: string | null
+  patientEmail?: string | null,
+  patientMobile?: string | null
 ): boolean {
   const codeKey = String(trackingCode || '').trim().toUpperCase()
+  if (patientMobile && isUserMatchingPatientPhone(patientMobile)) {
+    return true
+  }
   const loggedEmail = getCurrentLoggedInUserEmail()
   if (loggedEmail && patientEmail && isUserMatchingPatientEmail(patientEmail)) {
     return true
@@ -53,11 +58,18 @@ export function markTrackingCodeVerified(trackingCode: string, phone: string = '
 
 export async function checkTrackingCodeAccess(
   trackingCode: string,
-  patientEmail?: string | null
+  patientEmail?: string | null,
+  patientMobile?: string | null
 ): Promise<OwnershipVerificationResult> {
   const codeKey = String(trackingCode || '').trim().toUpperCase()
   if (!codeKey) {
     return { allowed: false, reason: 'invalid_code', message: 'Tracking code is required.' }
+  }
+
+  // If the tracker device is logged in with the same mobile number, allow everything directly
+  if (patientMobile && isUserMatchingPatientPhone(patientMobile)) {
+    markTrackingCodeVerified(codeKey, String(patientMobile).replace(/\D/g, '').slice(-10))
+    return { allowed: true, reason: 'phone_matched', message: '' }
   }
 
   const loggedEmail = getCurrentLoggedInUserEmail()

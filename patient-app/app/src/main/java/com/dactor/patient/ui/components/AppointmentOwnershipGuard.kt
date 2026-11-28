@@ -81,6 +81,15 @@ fun resolveActivePatientEmail(
 }
 
 /**
+ * Resolves the active signed-in user's 10-digit mobile number if logged in.
+ */
+fun resolveActivePatientPhone(sessionManager: UserSessionManager?): String? {
+    if (sessionManager == null || !sessionManager.isLoggedIn()) return null
+    val digits = sessionManager.getSavedPhone()?.filter { it.isDigit() }?.takeLast(10).orEmpty()
+    return digits.takeIf { it.length == 10 }
+}
+
+/**
  * Shared state controller enforcing:
  * - Logged-in Gmail user: tracking code must belong to that Gmail (if unclaimed walk-in with blank email, fallback to associated mobile).
  * - Guest user: must input the 10-digit mobile number associated with that specific tracking code.
@@ -106,9 +115,14 @@ class AppointmentOwnershipController(
     fun isCodeVerifiedInSession(trackingCode: String, appointment: Appointment?): Boolean {
         val codeKey = normalizeCodeKey(trackingCode, appointment)
         val activeEmail = resolveActivePatientEmail(sessionManager, authRepository)
+        val activePhone = resolveActivePatientPhone(sessionManager)
+        val apptPhone10 = appointment?.patientMobile?.filter { it.isDigit() }?.takeLast(10)?.takeIf { it.length == 10 }
+        if (activePhone != null && apptPhone10 != null && activePhone == apptPhone10) {
+            return true
+        }
         if (activeEmail != null) {
             val apptEmail = appointment?.patientEmail?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
-            if (apptEmail != null) return apptEmail == activeEmail
+            if (apptEmail != null && apptEmail == activeEmail) return true
             return verifiedTrackingCodes.containsKey(codeKey)
         }
         return verifiedTrackingCodes.containsKey(codeKey)
@@ -138,6 +152,15 @@ class AppointmentOwnershipController(
         }
 
         val activeEmail = resolveActivePatientEmail(sessionManager, authRepository)
+        val activePhone = resolveActivePatientPhone(sessionManager)
+        val localPhone10 = appointment?.patientMobile?.filter { it.isDigit() }?.takeLast(10)?.takeIf { it.length == 10 }
+
+        // Fast local check: if tracker device is logged in with the same mobile number, allow everything directly
+        if (activePhone != null && localPhone10 != null && activePhone == localPhone10) {
+            markCodeVerified(codeKey, activePhone)
+            onAllowed(activePhone)
+            return
+        }
 
         // Fast local check when appointment email already matches signed-in Gmail
         val localEmail = appointment?.patientEmail?.trim()?.lowercase()?.takeIf { it.isNotBlank() }

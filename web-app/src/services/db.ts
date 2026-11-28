@@ -2889,6 +2889,34 @@ export function isUserMatchingPatientEmail(patientEmail?: string | null): boolea
   return loggedInEmail === cleanPatEmail
 }
 
+export function getCurrentLoggedInUserPhone(): string | null {
+  try {
+    const patUserRaw =
+      typeof localStorage !== 'undefined' ? localStorage.getItem('dactor_patient_user') : null
+    if (patUserRaw) {
+      const parsed = JSON.parse(patUserRaw)
+      const digits = String(parsed?.phone || '').replace(/\D/g, '').slice(-10)
+      if (digits.length === 10) return digits
+    }
+    const patSessionRaw = getAuthStorageItem('dactor_patient_session')
+    if (patSessionRaw) {
+      const parsed = JSON.parse(patSessionRaw)
+      const digits = String(parsed?.phone || '').replace(/\D/g, '').slice(-10)
+      if (digits.length === 10) return digits
+    }
+  } catch {}
+  return null
+}
+
+export function isUserMatchingPatientPhone(patientMobile?: string | null): boolean {
+  if (!patientMobile) return false
+  const apptDigits = String(patientMobile).replace(/\D/g, '').slice(-10)
+  if (apptDigits.length !== 10) return false
+  const loggedPhone = getCurrentLoggedInUserPhone()
+  if (!loggedPhone) return false
+  return loggedPhone === apptDigits
+}
+
 export interface OwnershipVerificationResult {
   allowed: boolean
   reason: string
