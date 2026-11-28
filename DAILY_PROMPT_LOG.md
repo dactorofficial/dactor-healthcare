@@ -7,6 +7,28 @@ This file tracks user prompts and the exact changes applied across the codebase,
 ## 2026-11-28
 
 ### Prompt:
+> "when anomylously logged in and tried to track appoinment it shows diagnostic lab type interface in live queue tracker  but the thing is the clinic is multi visit clinic not diagnostic lab /plan make a plan"
+
+#### Changes Applied:
+1. **Supabase RPCs (`supabase/migration_fix_queue_clinic_type_detection.sql`)**:
+   - Updated `is_diagnostic_lab_clinic(UUID)` so explicit OPD clinic types (`multi_visit`, `single_visit`) are never misclassified as diagnostic labs merely for listing Pathology/Radiology in `specialties` or `services`.
+   - Updated `get_live_queue_status(TEXT)` and `get_public_queue_status(TEXT)` to return `clinic_type` and `is_lab_appointment` (with zero PII) so guest/anonymous fallback mode renders the correct OPD vs. Lab interface.
+   - Added [`verify_queue_clinic_type_rpc.ps1`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/scripts/verify_queue_clinic_type_rpc.ps1) to verify all 5 test tracking codes against live RPCs.
+2. **Android Patient App (`patient-app`)**:
+   - [`DiagnosticLabPolicy.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/util/DiagnosticLabPolicy.kt): Added `EXPLICIT_OPD_CLINIC_TYPES`, `isExplicitLabClinicType`, and `isExplicitOpdClinicType`; updated `isDiagnosticLabAppointment` and `isDiagnosticOrPathologyLab` to respect explicit OPD clinic types unless the booking is an explicit lab order.
+   - [`ClinicRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/repository/ClinicRepository.kt): Added `includeInactive: Boolean = false` to `getClinicById` so tracking existing appointments resolves `clinic.type` even for expired clinics.
+   - [`QueueRepository.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/data/repository/QueueRepository.kt): Added `clinicType` and `isLabAppointment` to `LiveQueueDelta`.
+   - [`BookingFormScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/booking/BookingFormScreen.kt): Guarded specialty/name lab override with `!isExplicitOpd`.
+   - [`QueueStatusScreen.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/main/java/com/dactor/patient/ui/tracker/QueueStatusScreen.kt): Added `isLabFromServer`, updated `hasDoctorAssigned` for guest delta mode, used `includeInactive = true` in `clinicJob`, prevented OPD `"done"`/`"completed"` from coercing into `"processing"`, guarded `isSampleCollectedOrFurther` with `isLabClinic`, and hydrated `clinicType`/`clinicObj`/`doctorObj` in `guestDelta` fallback.
+   - [`DiagnosticLabPolicyTest.kt`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/patient-app/app/src/test/java/com/dactor/patient/util/DiagnosticLabPolicyTest.kt): Added 3 regression unit tests.
+3. **Web App Parity (`web-app`)**:
+   - [`paymentLedger.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/utils/paymentLedger.ts) & [`db.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/services/db.ts): Unified `isDiagnosticLabClinic(clinic, doctor, appt)` with `EXPLICIT_OPD_CLINIC_TYPES` and `LAB_WORKFLOW_ONLY_STATUSES`; added `getClinicForTrackingById` and `clinic_type` / `is_lab_appointment` on `LiveQueueDelta`.
+   - [`ClinicDetail.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/ClinicDetail.tsx), [`PatientPortal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/PatientPortal.tsx), [`LiveTrackerModal.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/components/LiveTrackerModal.tsx), and [`LiveQueue.tsx`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/src/pages/LiveQueue.tsx): Replaced inline `specialties` lab heuristics with `isDiagnosticLabClinic`, switched to `getClinicForTrackingById`, and propagated `clinic_type` & `is_lab_appointment` in guest tracker fallback.
+   - Added [`labClassification.test.ts`](file:///c:/Users/dell/.gemini/antigravity/scratch/dactor-healthcare/web-app/tests/m1/labClassification.test.ts) and verified `npm.cmd run build` (`tsc && vite build`).
+
+---
+
+### Prompt:
 > "add rule that whenever one tries to downoad bill check that the specific tracking code belongs to that gmail if logged in and if its guest make them input mobile number associated with it and to book follow up or reschedule the same logic to be applied"
 
 #### Changes Applied:
